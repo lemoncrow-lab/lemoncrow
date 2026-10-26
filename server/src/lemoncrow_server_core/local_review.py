@@ -103,6 +103,7 @@ class LocalReviewSurface:
             path == prefix or path.startswith(prefix + "/")
             for prefix in (
                 "/home",
+                "/activity",
                 "/runs",
                 "/code",
                 "/knowledge",
@@ -155,6 +156,8 @@ class LocalReviewSurface:
             web.get("/", self.home),
             web.get("/review", self.ui),
             web.get("/home", self.ui),
+            web.get("/activity", self.ui),
+            web.get("/activity/{tail:.*}", self.ui),
             web.get("/runs", self.ui),
             web.get("/runs/{tail:.*}", self.ui),
             web.get("/code", self.ui),

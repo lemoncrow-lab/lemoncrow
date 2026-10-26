@@ -22,8 +22,8 @@ export { ToggleGroup } from "./ui/toggle-group";
 type Tone = "neutral" | "info" | "success" | "warning" | "destructive";
 
 const NEUTRAL_PANEL = {
-  panel: "border-border bg-background/60",
-  eyebrow: "text-neutral-400",
+  panel: "border-border bg-card",
+  eyebrow: "text-muted-foreground",
   value: "text-foreground",
   border: "border-border",
 };
@@ -37,10 +37,10 @@ const TONES: Record<
   success: NEUTRAL_PANEL,
   warning: NEUTRAL_PANEL,
   destructive: {
-    panel: "border-red-900/30 bg-red-950/20",
-    eyebrow: "text-red-300",
-    value: "text-red-200",
-    border: "border-red-900/50",
+    panel: "border-p0-line bg-p0-bg",
+    eyebrow: "text-p0",
+    value: "text-p0",
+    border: "border-p0-line",
   },
 };
 
@@ -74,10 +74,7 @@ export function FieldLabel({
 }) {
   return (
     <div
-      className={cn(
-        "text-caption font-semibold uppercase tracking-[0.1em] text-muted-foreground",
-        className
-      )}
+      className={cn("font-mono text-tag uppercase text-muted-foreground", className)}
     >
       {children}
     </div>
@@ -99,10 +96,10 @@ export function MetricCard({
   return (
     <Card className={cn("p-4", palette.panel)}>
       <FieldLabel className={palette.eyebrow}>{label}</FieldLabel>
-      <div className={cn("mt-2 text-lg font-semibold", palette.value)}>
+      <div className={cn("mt-2 text-lead font-semibold", palette.value)}>
         {value}
       </div>
-      {detail && <div className="mt-2 text-xs text-neutral-400">{detail}</div>}
+      {detail && <div className="mt-2 text-body text-muted-foreground">{detail}</div>}
     </Card>
   );
 }
@@ -121,8 +118,8 @@ export function SectionHeader({
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
-        {eyebrow && <FieldLabel className="tracking-[0.2em]">{eyebrow}</FieldLabel>}
-        <h2 className="mt-1 text-sm font-semibold text-foreground">{title}</h2>
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h2 className="mt-1 text-heading font-semibold text-foreground">{title}</h2>
         {description && (
           <p className="mt-1 text-label leading-5 text-muted-foreground">
             {description}
@@ -131,6 +128,35 @@ export function SectionHeader({
       </div>
       {action}
     </div>
+  );
+}
+
+/**
+ * One page header: an optional mono eyebrow (`@@ SETTINGS @@`), the page title, and one lede. The same
+ * pattern opens every routed page so none starts with a bare heading or a raw micro-label.
+ */
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  action,
+  className,
+}: {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <header className={cn("flex flex-col gap-3 md:flex-row md:items-start md:justify-between", className)}>
+      <div className="min-w-0">
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h2 className={cn("text-title font-semibold text-foreground", eyebrow && "mt-2")}>{title}</h2>
+        {description && <p className="mt-1 max-w-[72ch] text-body text-muted-foreground">{description}</p>}
+      </div>
+      {action}
+    </header>
   );
 }
 
@@ -152,27 +178,27 @@ export function FeaturePanel({
   return (
     <Card tone="muted" className="p-4">
       <div className="flex items-start gap-4">
-        <div className="shrink-0 text-3xl">{icon}</div>
+        <div className="shrink-0 text-h2">{icon}</div>
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-neutral-200">
+            <h2 className="text-lead font-semibold text-foreground">
               {title}
             </h2>
             <Badge tone="success">{status}</Badge>
           </div>
           {subtitle && (
-            <p className="mb-3 text-label text-neutral-400">
+            <p className="mb-3 text-label text-muted-foreground">
               {subtitle}
             </p>
           )}
-          <div className="text-xs leading-relaxed text-neutral-300">
+          <div className="text-body leading-relaxed text-subtle">
             {description}
           </div>
           {bullets.length > 0 && (
-            <div className="mt-3 space-y-1 text-xs text-emerald-300">
+            <div className="mt-3 space-y-1 text-body text-ok">
               {bullets.map((bullet) => (
                 <p key={bullet} className="flex items-center gap-1.5">
-                  <Check size={12} className="text-emerald-300" /> {bullet}
+                  <Check size={14} className="text-ok" /> {bullet}
                 </p>
               ))}
             </div>
@@ -196,25 +222,25 @@ export function ExplainerCard({
 }) {
   return (
     <Card className="p-4">
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      <dl className="mt-4 space-y-3 text-sm">
+      <div className="text-heading font-semibold text-foreground">{title}</div>
+      <dl className="mt-4 space-y-3 text-heading">
         <div className="grid gap-1 md:grid-cols-[88px_1fr]">
           <dt>
             <FieldLabel>Detects</FieldLabel>
           </dt>
-          <dd className="text-neutral-300">{detects}</dd>
+          <dd className="text-subtle">{detects}</dd>
         </div>
         <div className="grid gap-1 md:grid-cols-[88px_1fr]">
           <dt>
             <FieldLabel>Catches</FieldLabel>
           </dt>
-          <dd className="text-neutral-300">{catches}</dd>
+          <dd className="text-subtle">{catches}</dd>
         </div>
         <div className="grid gap-1 md:grid-cols-[88px_1fr]">
           <dt>
             <FieldLabel>Why</FieldLabel>
           </dt>
-          <dd className="text-neutral-300">{why}</dd>
+          <dd className="text-subtle">{why}</dd>
         </div>
       </dl>
     </Card>
@@ -265,15 +291,15 @@ export function SnippetCard({
   caption?: string;
 }) {
   return (
-    <Card className="bg-background/70">
+    <Card>
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-          {caption && <div className="mt-1 text-xs text-neutral-400">{caption}</div>}
+          <div className="text-heading font-semibold text-foreground">{title}</div>
+          {caption && <div className="mt-1 text-body text-muted-foreground">{caption}</div>}
         </div>
         <CopyButton text={body} />
       </div>
-      <pre className="overflow-x-auto border-0 bg-transparent p-4 text-xs leading-relaxed text-neutral-300">
+      <pre className="overflow-x-auto border-0 bg-transparent p-4 text-body leading-relaxed text-subtle">
         {body}
       </pre>
     </Card>
@@ -317,7 +343,7 @@ export function Slider({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <FieldLabel>{label}</FieldLabel>
-        <span className="font-mono text-sm text-foreground">
+        <span className="font-mono text-heading text-foreground">
           {formatValue(value)}
         </span>
       </div>
@@ -328,7 +354,7 @@ export function Slider({
         step={step}
         value={value}
         onChange={(event) => onChange(parseFloat(event.target.value))}
-        className="h-1 w-full cursor-pointer appearance-none bg-neutral-800 accent-amber-500"
+        className="h-1 w-full cursor-pointer appearance-none bg-border accent-brand"
       />
     </div>
   );
@@ -352,17 +378,17 @@ export function Switch({
       <div
         className={cn(
           "flex h-4 w-8 items-center rounded-full px-0.5 transition",
-          checked ? "bg-amber-600" : "bg-neutral-800"
+          checked ? "bg-foreground" : "bg-border"
         )}
       >
         <div
           className={cn(
-            "h-3 w-3 rounded-full bg-neutral-100 transition",
+            "h-3 w-3 rounded-full bg-background transition",
             checked ? "translate-x-4" : "translate-x-0"
           )}
         />
       </div>
-      <span className="text-caption font-mono uppercase tracking-widest text-neutral-400">
+      <span className="font-mono text-tag uppercase text-muted-foreground">
         {label}
       </span>
     </UiButton>

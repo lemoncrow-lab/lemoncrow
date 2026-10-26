@@ -13,7 +13,7 @@ Four separate concepts (plan §3.14-§3.16), never collapsed into one score:
 * **Finding threshold** (``critical | high | medium | suggestions``) controls what
   is surfaced. It is never part of the run plan, so it cannot change compute.
 
-Settings are read from ``review.focus`` / ``review.finding_threshold`` in the
+Settings are read from ``review.focus`` / ``review.finding_threshold`` (or its alias ``review.strictness``) in the
 **trusted-base** ``.lemoncrow/review.yaml`` (local Snapshot base, or the hosted
 provider-proven trusted-base capture) and from operator organization/repository
 policy (``effective_review["triage"]["layers"]``). Head-side edits are proposed
@@ -55,6 +55,9 @@ CRITICALITY_VALUES: Final[tuple[str, ...]] = ("critical", "high", "normal", "low
 FINDING_SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2", "suggestion")
 FINDING_THRESHOLDS: Final[tuple[str, ...]] = ("critical", "high", "medium", "suggestions")
 DEFAULT_FINDING_THRESHOLD: Final[FindingThreshold] = "medium"
+#: ``review.strictness``: a friendly alias over ``review.finding_threshold`` (1 shows everything, 2 is the default,
+#: 3 holds back P2). It is resolved to a threshold when the settings are parsed, so nothing downstream knows it.
+STRICTNESS_THRESHOLDS: Final[Mapping[int, FindingThreshold]] = {1: "suggestions", 2: "medium", 3: "high"}
 
 CRITICALITY_RANK: Final[Mapping[str, int]] = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"suggestion": 0, "p2": 1, "p1": 2, "p0": 3}
@@ -365,8 +368,17 @@ def parse_triage_settings(raw: Mapping[str, Any], *, origin: PolicyOrigin) -> Tr
             if len(raw_focus) > MAX_FOCUS_RULES:
                 errors.append(f"focus exceeds {MAX_FOCUS_RULES} rules")
     threshold: FindingThreshold | None = None
+    if "strictness" in raw:
+        level = raw.get("strictness")
+        # ``True == 1`` in Python: a YAML ``yes`` is not a strictness.
+        if isinstance(level, int) and not isinstance(level, bool) and level in STRICTNESS_THRESHOLDS:
+            threshold = STRICTNESS_THRESHOLDS[level]
+        else:
+            errors.append("strictness must be 1, 2 or 3")
     if "finding_threshold" in raw:
         value = raw.get("finding_threshold")
+        if "strictness" in raw:
+            errors.append("set strictness or finding_threshold, not both; finding_threshold is used")
         if value in FINDING_THRESHOLDS:
             threshold = cast(FindingThreshold, value)
         else:
@@ -395,7 +407,7 @@ def parse_trusted_base_triage(content: str, *, source: str, commit: str = "") ->
         return None
     if not isinstance(section, Mapping):
         return TriageLayer(origin=origin, errors=("review must be a mapping",))
-    if "focus" not in section and "finding_threshold" not in section:
+    if "focus" not in section and "finding_threshold" not in section and "strictness" not in section:
         return None
     return parse_triage_settings(section, origin=origin)
 
@@ -726,6 +738,44 @@ def normalize_finding_severity(
     return None
 
 
+#: Investigator impact ratings, lowest first.
+FINDING_IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
+#: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
+#: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
+# lc-debt: hard-coded; the PR bot's settings loader (`pr_bot/settings.py`) reads only the noise controls, not this
+# set; upgrade: a `review.p0_categories` key read there.
+P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
+
+
+def severity_for(category: str, *, impact: str = "", verified: bool = False, rule_cited: bool = False) -> str:
+    """The severity of a finding: the one rule behind every badge, verdict and status (see ``pr_bot.findings``).
+
+    ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
+    none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
+    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+
+    A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
+    the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
+    below, where it is P1 at most.
+
+    The pull request bot stores this on every finding it tracks, and the Reader sends it on the annotation wire
+    (``review_triage.finding_severities``); both call this one function. It lives here, beside
+    :func:`normalize_finding_severity` which it builds on, so neither surface has to import the other.
+    """
+
+    if category == "critical_rule" and rule_cited:
+        return "p0"
+    if impact == "high":
+        return "p0" if verified and category in P0_CATEGORIES else "p1"
+    if impact == "medium":
+        return "p1" if verified else "p2"
+    if impact == "low":
+        return "p2"
+    # Unrated keeps the category's own severity (never P0 from here, never below P2).
+    rated = normalize_finding_severity("ai_review", category=category)
+    return rated if rated in {"p1", "p2"} else "p1"
+
+
 def surfaced(severity: FindingSeverity | None, threshold: FindingThreshold) -> bool:
     """Whether a finding of *severity* is shown under *threshold*.
 
@@ -815,13 +865,16 @@ __all__ = [
     "CRITICALITY_RANK",
     "CRITICALITY_VALUES",
     "DEFAULT_FINDING_THRESHOLD",
+    "FINDING_IMPACTS",
     "FINDING_SEVERITIES",
     "FINDING_THRESHOLDS",
     "MAX_FOCUS_RULES",
+    "P0_CATEGORIES",
     "REQUIRED_FOCUS_CATEGORIES",
     "REVIEW_FIRST_VALUES",
     "SEVERITY_LABELS",
     "SEVERITY_RANK",
+    "STRICTNESS_THRESHOLDS",
     "THRESHOLD_LABELS",
     "Criticality",
     "EffectiveTriagePolicy",
@@ -840,6 +893,7 @@ __all__ = [
     "parse_trusted_base_triage",
     "path_queue_reasons",
     "resolve_triage_policy",
+    "severity_for",
     "strictest_path_policy",
     "surfaced",
     "target_policy_reasons",

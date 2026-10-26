@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -64,7 +66,7 @@ def test_claude_review_ask_uses_partial_stream_json(monkeypatch: pytest.MonkeyPa
         "handoff_instruction": "",
     }
 
-    def fake_stream(command, *, cwd, env, on_stdout, timeout):
+    def fake_stream(command, *, cwd, env, on_stdout, timeout, stdin_text=None):
         captured["command"] = list(command)
         events = [
             {
@@ -223,7 +225,7 @@ def test_agent_cli_ask_drivers_are_read_only_and_parse_json(
     claude_mcp: list[dict[str, object]] = []
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         commands.append((list(command), Path(cwd)))
         if driver == "claude":
             config_path = Path(command[command.index("--mcp-config") + 1])
@@ -312,7 +314,7 @@ def test_opencode_review_ask_uses_ollama_and_lemoncrow_mcp(
     monkeypatch.setattr("lemoncrow.core.capabilities.providers.config.load_providers_config", lambda _root: Config())
     captured: dict[str, object] = {}
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         captured["command"] = list(command)
         captured["cwd"] = Path(cwd)
         captured["env"] = dict(env or {})
@@ -374,7 +376,7 @@ def test_opencode_review_ask_uses_native_model_catalog_and_existing_auth(
 
     captured: dict[str, object] = {}
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         captured["command"] = list(command)
         captured["cwd"] = Path(cwd)
         captured["env"] = dict(env or {})
@@ -425,7 +427,7 @@ def test_codex_human_and_code_ask_never_load_user_config_shell_or_repo_rules(
     commands: list[tuple[list[str], Path]] = []
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         commands.append((list(command), Path(cwd)))
         body = {"intent": "question", "body": "Grounded answer", "handoff_instruction": ""}
         return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr="")
@@ -461,3 +463,330 @@ def test_codex_human_and_code_ask_never_load_user_config_shell_or_repo_rules(
         assert setting in rendered
     # Human Ask keeps its MCP bash/web tools; only Codex's native ones are off.
     assert "mcp_servers.lemoncrow.disabled_tools" not in rendered
+
+
+# The claude CLI's final result, as a real run reports it (trimmed): the cached prompt is counted apart from
+# ``input_tokens``, and the answer is the ``structured_output``.
+_CLAUDE_RESULT = {
+    "type": "result",
+    "is_error": False,
+    "num_turns": 3,
+    "total_cost_usd": 0.0369,
+    "usage": {
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 2291,
+        "cache_read_input_tokens": 16364,
+        "output_tokens": 862,
+    },
+    "structured_output": {"intent": "question", "body": "Grounded answer", "handoff_instruction": ""},
+}
+
+
+def test_claude_usage_report_counts_the_cached_prompt_as_prompt_tokens() -> None:
+    assert intelligence_drivers.claude_usage_report(_CLAUDE_RESULT) == {
+        "cost_usd": 0.0369,
+        "input_tokens": 6 + 16364 + 2291,
+        "output_tokens": 862,
+        "cached_input_tokens": 16364,
+        "cache_write_input_tokens": 2291,
+    }
+    assert intelligence_drivers.claude_usage_report({"usage": {"input_tokens": 3, "output_tokens": 4}}) == {
+        "input_tokens": 3,
+        "output_tokens": 4,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    "result", [{}, {"usage": None}, {"usage": {"input_tokens": 6}}, {"usage": {"output_tokens": "4"}}]
+)
+def test_claude_usage_report_is_empty_when_the_cli_reports_no_usable_counts(result: dict[str, object]) -> None:
+    assert intelligence_drivers.claude_usage_report(result) == {}
+
+
+def test_claude_usage_report_takes_the_cost_the_cli_reports_and_invents_none() -> None:
+    assert intelligence_drivers.claude_usage_report({"total_cost_usd": 0.0377945}) == {"cost_usd": 0.0377945}
+    assert intelligence_drivers.claude_usage_report({"total_cost_usd": 0}) == {"cost_usd": 0.0}, "a free call is a cost"
+    # A cost that is not a plain non-negative number is not a cost: nothing is recorded for it.
+    for bad in (None, "0.02", True, -0.01, float("nan"), float("inf"), [0.02]):
+        assert intelligence_drivers.claude_usage_report({"total_cost_usd": bad}) == {}, bad
+    # Tokens without a cost stay tokens only: the cost key is never filled in from anything but the CLI's figure.
+    assert "cost_usd" not in intelligence_drivers.claude_usage_report(
+        {"usage": {"input_tokens": 3, "output_tokens": 4}}
+    )
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_claude_review_reports_the_tokens_the_cli_used(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, streaming: bool
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    reported: list[dict[str, int | float]] = []
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+    stdout = json.dumps(_CLAUDE_RESULT)
+
+    def fake_run(command, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    def fake_stream(command, *, on_stdout, **_kwargs):
+        on_stdout(stdout + "\n")
+        return 0, stdout, ""
+
+    monkeypatch.setattr(intelligence_drivers.subprocess, "run", fake_run)
+    result = _human_ask_cli(
+        driver="claude",
+        model="sonnet",
+        system="system",
+        prompt="{}",
+        project_root=project_root,
+        on_usage_reported=reported.append,
+        **({"on_raw_delta": lambda _fragment: None, "process_runner": fake_stream} if streaming else {}),
+    )
+
+    assert result["body"] == "Grounded answer"
+    # The tokens, and the dollar figure the CLI itself reported (`total_cost_usd`), in the plain and the streaming mode.
+    assert reported == [
+        {
+            "cost_usd": 0.0369,
+            "input_tokens": 18661,
+            "output_tokens": 862,
+            "cached_input_tokens": 16364,
+            "cache_write_input_tokens": 2291,
+        }
+    ]
+
+
+def test_execute_structured_returns_the_claude_cli_tokens_in_the_call_usage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(_CLAUDE_RESULT), stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    execution = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="claude",
+        model="sonnet",
+        project_root=project_root,
+        origin="machine",
+    )
+
+    usage = execution.usage
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 18661, 862)
+    assert (usage.cache_read_input_tokens, usage.cache_write_input_tokens) == (16364, 2291)
+    # The CLI's own `total_cost_usd` is the call's cost, in dollars.
+    assert (usage.provider_cost, usage.currency) == (0.0369, "USD")
+
+
+def test_a_claude_result_that_reports_no_cost_leaves_the_call_unpriced(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    result = {key: value for key, value in _CLAUDE_RESULT.items() if key != "total_cost_usd"}
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(result), stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    usage = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="claude",
+        model="sonnet",
+        project_root=project_root,
+        origin="machine",
+    ).usage
+
+    assert usage.input_tokens == 18661, "the tokens are still taken"
+    assert (usage.provider_cost, usage.currency) == (None, None), "no price is ever worked out for the CLI route"
+
+
+def test_codex_reports_tokens_and_no_cost(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Codex's `turn.completed` carries token counts only, so its calls stay unpriced (`cost not reported`)."""
+
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    events = [
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": json.dumps(_CLAUDE_RESULT["structured_output"])},
+        },
+        {"type": "turn.completed", "usage": {"input_tokens": 1200, "cached_input_tokens": 200, "output_tokens": 80}},
+    ]
+    stdout = "\n".join(json.dumps(event) for event in events)
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    usage = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="codex",
+        model="gpt-test",
+        project_root=project_root,
+        origin="machine",
+    ).usage
+
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 1200, 80)
+    assert (usage.provider_cost, usage.currency) == (None, None)
+
+
+# One argv element is capped at 128 KiB (MAX_ARG_STRLEN on Linux): a real Review prompt over that failed to start the CLI
+# (`[Errno 7] Argument list too long`). The prompt goes on standard input; these tests run a real child process, as the
+# fake in the plain-mode tests above cannot show an argv limit.
+_LARGE_PROMPT = "".join(f"line {i}: ünï ✓ {'x' * 40}\n" for i in range(6000))
+
+
+def _fake_agent_cli(tmp_path: Path, name: str, stdout: str) -> tuple[Path, Path, Path]:
+    """A stand-in ``claude``/``codex`` that logs its argv, keeps all of its stdin, and prints ``stdout``."""
+
+    argv_log, stdin_log = tmp_path / f"{name}-argv.json", tmp_path / f"{name}-stdin.txt"
+    script = tmp_path / "bin" / name
+    script.parent.mkdir()
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        f"open({str(argv_log)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        f"open({str(stdin_log)!r}, 'wb').write(sys.stdin.buffer.read())\n"
+        f"sys.stdout.write({stdout!r})\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script, argv_log, stdin_log
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["plain", "streaming"])
+@pytest.mark.parametrize("driver", ["claude", "codex"])
+def test_a_prompt_over_128_kib_reaches_the_cli_on_stdin_not_argv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, driver: str, streaming: bool
+) -> None:
+    structured = _CLAUDE_RESULT["structured_output"]
+    if driver == "claude":
+        stdout = json.dumps(_CLAUDE_RESULT) + "\n"
+    else:
+        stdout = "".join(
+            json.dumps(event) + "\n"
+            for event in (
+                {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(structured)}},
+                {
+                    "type": "turn.completed",
+                    "usage": {"input_tokens": 1200, "cached_input_tokens": 200, "output_tokens": 80},
+                },
+            )
+        )
+    script, argv_log, stdin_log = _fake_agent_cli(tmp_path, driver, stdout)
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: str(script) if name == driver else None)
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+    reported: list[dict[str, int | float]] = []
+    assert len(_LARGE_PROMPT.encode()) > 300 * 1024
+
+    result = _human_ask_cli(
+        driver=driver,  # type: ignore[arg-type]
+        model="sonnet" if driver == "claude" else "gpt-test",
+        system="system",
+        prompt=_LARGE_PROMPT,
+        project_root=project_root,
+        on_usage_reported=reported.append,
+        **({"on_raw_delta": lambda _fragment: None} if streaming else {}),
+    )
+
+    assert result == structured
+    assert len(reported) == 1
+    if driver == "claude":
+        assert reported[0]["cost_usd"] == 0.0369 and reported[0]["input_tokens"] == 18661
+    else:
+        assert reported[0]["input_tokens"] == 1200
+    # The CLI read the whole prompt (system text first, the 300 KB context last) from its standard input...
+    received = stdin_log.read_bytes().decode("utf-8")
+    assert received.startswith("system\n\n") and received.endswith(_LARGE_PROMPT)
+    # ...and none of it was on the command line.
+    argv = json.loads(argv_log.read_text())
+    assert max(len(arg.encode()) for arg in argv) < 128 * 1024
+    assert not any("line 0: " in arg or "Review context:" in arg for arg in argv)
+    if driver == "claude":
+        assert argv[argv.index("-p") + 1].startswith("--"), "`-p` takes no prompt: claude reads stdin"
+    else:
+        assert argv[-1] == "-", "`codex exec -` reads its prompt from stdin"
+        assert "--skip-git-repo-check" in argv
+
+
+def test_the_streaming_runner_feeds_a_large_stdin_while_it_drains_the_output(tmp_path: Path) -> None:
+    """A child that echoes as it reads fills the stdout pipe long before stdin is written: no deadlock."""
+
+    echo = "import sys\nfor line in sys.stdin:\n    sys.stdout.write(line)\n    sys.stdout.flush()\n"
+    text = "".join(f"{i}: {'y' * 90}\n" for i in range(20_000))  # ~1.9 MB, far over the pipe buffers
+    lines: list[str] = []
+
+    returncode, stdout, stderr = intelligence_drivers._run_streaming_process(
+        [sys.executable, "-c", echo],
+        cwd=tmp_path,
+        env=None,
+        on_stdout=lines.append,
+        timeout=60.0,
+        stdin_text=text,
+    )
+
+    assert (returncode, stderr) == (0, "")
+    assert stdout == text and "".join(lines) == text
+
+
+def test_the_streaming_runner_does_not_fail_when_the_cli_exits_without_reading_stdin(tmp_path: Path) -> None:
+    started = time.monotonic()
+
+    returncode, stdout, _stderr = intelligence_drivers._run_streaming_process(
+        [sys.executable, "-c", "print('done')"],
+        cwd=tmp_path,
+        env=None,
+        on_stdout=lambda _line: None,
+        timeout=30.0,
+        stdin_text="z" * (4 * 1024 * 1024),
+    )
+
+    assert (returncode, stdout) == (0, "done\n")
+    assert time.monotonic() - started < 10.0
+
+
+def test_the_streaming_runner_still_times_out_and_cancels_when_the_cli_never_reads_stdin(tmp_path: Path) -> None:
+    """The stdin write blocks on a full pipe; the timeout and the cancellation check must not wait for it."""
+
+    never_reads = [sys.executable, "-u", "-c", "import time; print('READY', flush=True); time.sleep(30)"]
+    big = "z" * (4 * 1024 * 1024)
+
+    started = time.monotonic()
+    with pytest.raises(intelligence_drivers.subprocess.TimeoutExpired):
+        intelligence_drivers._run_streaming_process(
+            never_reads, cwd=tmp_path, env=None, on_stdout=lambda _line: None, timeout=1.0, stdin_text=big
+        )
+    assert time.monotonic() - started < 6.0
+
+    started = time.monotonic()
+    ready: list[str] = []
+    with pytest.raises(intelligence_drivers.CliExecutionCancelled):
+        intelligence_drivers._run_streaming_process(
+            never_reads,
+            cwd=tmp_path,
+            env=None,
+            on_stdout=ready.append,
+            timeout=30.0,
+            cancellation=lambda: bool(ready),
+            stdin_text=big,
+        )
+    assert time.monotonic() - started < 6.0

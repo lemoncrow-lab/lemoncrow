@@ -312,6 +312,75 @@ describe("AnnotationCard", () => {
     expect(screen.getByText("Internal confidence: 87%")).toBeTruthy();
   });
 
+  it("draws a finding as one Hunk: severity badge first, neutral source chip, severity rail", () => {
+    const finding = annotation({
+      source: "ai_review",
+      created_by: "LemonCrow AI Review",
+      created_by_actor: "agent",
+      severity: "p0",
+      title: "Token refresh skips the expiry check",
+    });
+    mount([finding]);
+    const card = screen.getByRole("article");
+    expect(card).toHaveAttribute("data-rail", "p0");
+    const severity = screen.getByTestId("annotation-severity");
+    expect(severity).toHaveTextContent("P0");
+    expect(severity.className).toContain("text-p0");
+    // The severity badge precedes the source chip in the header strip.
+    const source = screen.getByTestId("annotation-source");
+    expect(severity.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(source.className).toContain("text-ai");
+  });
+
+  it.each([
+    ["p0", "P0", "text-p0"],
+    ["p1", "P1", "text-p1"],
+    ["p2", "P2", "text-p2"],
+  ] as const)("shows %s from the annotation wire's severity field: the badge in its tone and the matching rail", (level, label, tone) => {
+    // The shape `GET /api/reviews/{id}/annotations` sends for an AI finding: `severity` is an optional string.
+    const wire = JSON.parse(
+      JSON.stringify({ ...annotation({ source: "ai_review", created_by_actor: "agent", title: "A finding" }), severity: level }),
+    ) as Annotation;
+    mount([wire]);
+    const badge = screen.getByTestId("annotation-severity");
+    expect(badge).toHaveTextContent(label);
+    expect(badge.className).toContain(tone);
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", level);
+  });
+
+  it("shows no severity for an AI finding the server did not rate, and never for a human comment", () => {
+    // An older server, or a finding with no severity evidence: no badge, and a neutral rail rather than a guess.
+    const { unmount } = render(
+      <AnnotationCard
+        comments={[annotation({ source: "ai_review", created_by_actor: "agent" })]}
+        all={[]}
+        label="Comment"
+        composing={false}
+        busy={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResolve={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("annotation-severity")).toBeNull();
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", "neutral");
+    unmount();
+    // A human comment keeps its kind: even a stray `severity` on it is not drawn.
+    mount([annotation({ kind: "suggestion", severity: "p0" })]);
+    expect(screen.queryByTestId("annotation-severity")).toBeNull();
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", "p2");
+    expect(screen.getByText("Suggestion")).toBeTruthy();
+  });
+
+  it("rails a human request for change red and a plain comment neutral, with the source in a neutral chip", () => {
+    mount([annotation({ kind: "request_change" })]);
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", "p0");
+    expect(screen.getByText("Request change").className).toContain("text-p0");
+    expect(screen.getByTestId("annotation-source").className).toContain("text-muted-foreground");
+    expect(screen.queryByTestId("annotation-severity")).toBeNull();
+  });
+
   it("never calls an AI finding a human Review judgment", () => {
     const finding = annotation({
       source: "ai_review",

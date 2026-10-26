@@ -374,6 +374,27 @@ def propose_rule_adoption(suggestion: RuleSuggestion, base: TrustedBaseDocument)
     )
 
 
+def path_family(paths: Sequence[str]) -> tuple[str, ...]:
+    """The path scope that covers *paths*: the one path, or their common directory as ``dir/**``."""
+
+    return _path_family(paths)
+
+
+def rule_yaml(suggestions: Sequence[RuleSuggestion]) -> str:
+    """A ``rules:`` block for *suggestions*, in the format ``.lemoncrow/review.yaml`` already reads.
+
+    For a person to copy under the ``rules:`` of the trusted-base policy file (or into a new file). It is text
+    only: nothing is written, and nothing governs a Review until it is merged on the trusted base. Every scalar is a
+    quoted string, so no statement can start a new row or key; the same row writer builds adoption patches.
+    """
+
+    lines = ["rules:"]
+    for suggestion in suggestions:
+        key = adoption_stable_key(suggestion.id)
+        lines.append(_rule_block("  ", key, suggestion.candidate_statement, suggestion.path_scope).rstrip("\n"))
+    return "\n".join(lines) + "\n"
+
+
 def replace_content(base: TrustedBaseDocument, content: str) -> TrustedBaseDocument:
     """*base* as a present document holding *content* (what landing the patch would make the trusted base)."""
 
@@ -386,8 +407,10 @@ __all__ = [
     "RuleSuggestion",
     "RuleSuggestionState",
     "adoption_stable_key",
+    "path_family",
     "propose_rule_adoption",
     "repeated_human_feedback_suggestions",
     "replace_content",
+    "rule_yaml",
     "suggestion_identity",
 ]

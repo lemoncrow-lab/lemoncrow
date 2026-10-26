@@ -26,7 +26,7 @@ export function OpenDevelopmentSession({ host, sessionId, context }: Development
       type="button"
       onClick={(event) => open({ host, sessionId, context }, event.currentTarget)}
       aria-label={`Open ${hostLabel(host)} session ${sessionId}${context ? ` for ${context}` : ""}`}
-      className="inline-flex shrink-0 rounded px-2 py-1 text-label font-medium text-sky-300 hover:bg-sky-950/40 hover:text-sky-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-400"
+      className="inline-flex shrink-0 rounded px-2 py-1 text-label font-medium text-cyan-300 hover:bg-cyan-950/40 hover:text-cyan-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-cyan-400"
     >
       Open session
     </Button>
@@ -76,32 +76,32 @@ export default function ReviewDevelopmentSession({ session, onBack }: {
       <div className="shrink-0 space-y-2 border-b border-border/70 px-5 py-3">
         <div className="flex items-center justify-between gap-2">
           <Button ref={backRef} unstyled type="button" onClick={onBack} className="review-context-action">
-            <ArrowLeft size={13} aria-hidden="true" /> Back to Activity
+            <ArrowLeft size={14} aria-hidden="true" /> Back to Activity
           </Button>
           <Button
             unstyled type="button" onClick={() => setRefresh((value) => value + 1)}
             disabled={entries === null && !failed}
             className="review-context-action"
           >
-            <RefreshCw size={12} aria-hidden="true" /> Refresh session
+            <RefreshCw size={14} aria-hidden="true" /> Refresh session
           </Button>
         </div>
         <h3 className="text-heading font-semibold text-foreground">
           {session.host.toLowerCase() === "claude" ? "Claude Code" : hostLabel(session.host)} session
         </h3>
-        <p className="break-all font-mono text-label text-neutral-400">{session.sessionId}</p>
-        {session.context && <p className="break-words text-body leading-5 text-neutral-300">Opened from: {session.context}</p>}
+        <p className="break-all font-mono text-label text-muted-foreground">{session.sessionId}</p>
+        {session.context && <p className="break-words text-body leading-5 text-subtle">Opened from: {session.context}</p>}
       </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
         {failed ? (
-          <div role="alert" className="space-y-3 text-body text-rose-200">
+          <div role="alert" className="space-y-3 text-body text-red-200">
             <p>Could not load this session’s conversation.</p>
             <Button unstyled type="button" onClick={() => setRefresh((value) => value + 1)} className="review-context-action">Retry</Button>
           </div>
         ) : entries === null ? (
-          <p role="status" className="text-body text-neutral-400">Loading conversation…</p>
+          <p role="status" className="text-body text-muted-foreground">Loading conversation…</p>
         ) : turns.length === 0 ? (
-          <p className="text-body leading-5 text-neutral-400">No conversation has been recorded for this session yet.</p>
+          <p className="text-body leading-5 text-muted-foreground">No conversation has been recorded for this session yet.</p>
         ) : (
           <div className="min-w-0 space-y-4">
             {turns.map(({ key, turn }) => <ConversationTurn key={key} turn={turn} forceExpand={false} compact />)}

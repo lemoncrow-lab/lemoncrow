@@ -31,45 +31,47 @@ interface ToggleGroupProps {
 
 const ACTIVE_PILL: Record<ToggleTone, string> = {
   neutral: "border-input bg-accent text-foreground",
-  warning: "border-amber-500/30 bg-amber-950/30 text-amber-200",
-  success: "border-emerald-500/30 bg-emerald-950/30 text-emerald-200",
-  info: "border-cyan-500/30 bg-cyan-950/30 text-cyan-200",
+  warning: "border-p1-line bg-p1-bg text-p1",
+  success: "border-ok-line bg-ok-bg text-ok",
+  info: "border-p2-line bg-p2-bg text-p2",
 };
 
+// The underline is the shared indicator token (ink on light, lemon on dark); the text changes too,
+// so the active tab never relies on colour alone.
 const ACTIVE_UNDERLINE: Record<ToggleTone, string> = {
-  neutral: "border-neutral-500 bg-muted/30 text-foreground",
-  warning: "border-amber-500 text-amber-300",
-  success: "border-emerald-500 text-emerald-300",
-  info: "border-cyan-500 text-cyan-300",
+  neutral: "text-foreground shadow-indicator",
+  warning: "text-p1 shadow-indicator",
+  success: "text-ok shadow-indicator",
+  info: "text-p2 shadow-indicator",
 };
 
 const SIZE_STYLES: Record<ToggleSize, string> = {
-  xs: "h-8 px-2.5 text-caption",
-  sm: "h-9 px-3 text-label",
+  xs: "h-8 px-2.5 text-meta",
+  sm: "h-9 px-3 text-ui",
 };
 
 const ROOT_STYLES: Record<ToggleVariant, string> = {
   pill: "flex flex-wrap items-center gap-2",
-  underline: "flex flex-wrap gap-0 border-b border-border",
-  segment: "inline-flex overflow-hidden rounded-md border border-border/80 bg-background",
+  underline: "flex flex-wrap gap-1 border-b border-border",
+  segment: "inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5",
 };
 
 function itemStyles(variant: ToggleVariant, tone: ToggleTone, size: ToggleSize, active: boolean): string {
   if (variant === "segment") {
     return cn(
-      "rounded-none px-2 py-1 text-label font-medium transition-colors focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-11",
-      active ? "bg-accent text-foreground" : "text-neutral-400 hover:bg-muted hover:text-accent-foreground"
+      "h-6 rounded-sm border px-2 text-meta font-medium transition-colors duration-fast focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11",
+      active ? "border-border bg-card text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
     );
   }
   return cn(
-    "rounded-md border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:min-h-11",
+    "font-medium transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11",
     SIZE_STYLES[size],
-    variant === "underline" ? "border-x-0 border-t-0 border-b-2" : "tracking-tight",
+    variant === "underline" ? "relative -mb-px rounded-none border-0" : "rounded-md border",
     active
       ? variant === "underline" ? ACTIVE_UNDERLINE[tone] : ACTIVE_PILL[tone]
       : variant === "underline"
-        ? "border-transparent text-neutral-400 hover:text-neutral-300"
-        : "border-input text-neutral-400 hover:text-neutral-300"
+        ? "text-muted-foreground hover:text-foreground"
+        : "border-input text-muted-foreground hover:text-foreground"
   );
 }
 

@@ -10,13 +10,13 @@ describe("StatusBadge", () => {
       </>
     );
     expect(screen.getByText("completed")).toHaveClass("text-emerald-300");
-    expect(screen.getByText("running")).toHaveClass("text-sky-300");
+    expect(screen.getByText("running")).toHaveClass("text-cyan-300");
   });
 
   it("falls back to a neutral style for an unrecognized status, not the failed style", () => {
     render(<StatusBadge status="queued" />);
     const badge = screen.getByText("queued");
-    expect(badge).toHaveClass("text-neutral-400");
+    expect(badge).toHaveClass("text-muted-foreground");
     expect(badge).not.toHaveClass("text-red-300");
   });
 

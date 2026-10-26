@@ -425,6 +425,27 @@ class ReviewSession:
         internal_id = review_id[2:] if review_id.startswith("r/") else review_id
         return self._config.endpoint(f"/r/{quote(internal_id, safe='')}")
 
+    def pair_local_review_browser(self, path: str, *, timeout_s: float | None = None) -> Mapping[str, Any]:
+        """Arm one local Review browser path using the machine bearer.
+
+        The browser never receives this bearer. It opens the clean URL and claims a separate Review-only
+        capability from the loopback server. ``lc review`` calls this on the Review-only client, so it lives
+        here and not on the Runtime session, which that client does not ship.
+        """
+
+        if self._config.hosted:
+            raise ClientError(
+                ErrorCode.NOT_CONFIGURED,
+                "local Review browser pairing is only available in local mode",
+                action=AgentAction.ABANDON,
+            )
+        return self._transport.post(
+            "/v1/auth/local-browser/pair",
+            body={"path": path},
+            headers=self._bearer(),
+            timeout_s=timeout_s,
+        ).require()
+
     def close(self) -> None:
         try:
             if self._state.session_id:

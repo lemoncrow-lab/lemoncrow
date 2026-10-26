@@ -81,13 +81,13 @@ function ReviewMark({ node }: { node: MapNode }) {
   const review = node.review;
   if (!review || !review.targets) return null;
   const threads = review.open_threads > 0
-    ? <span className="inline-flex items-center gap-0.5" title={plural(review.open_threads, "open thread")}><MessageSquare size={11} aria-hidden="true" />{review.open_threads}</span>
+    ? <span className="inline-flex items-center gap-0.5" title={plural(review.open_threads, "open thread")}><MessageSquare size={14} aria-hidden="true" />{review.open_threads}</span>
     : null;
   if (review.needs_changes) {
-    return <>{threads}<CircleAlert size={13} className="rm-signal" data-tone="bad" aria-label="Needs changes"><title>Needs changes</title></CircleAlert></>;
+    return <>{threads}<CircleAlert size={14} className="rm-signal" data-tone="bad" aria-label="Needs changes"><title>Needs changes</title></CircleAlert></>;
   }
   if (isFullyReviewed(node)) {
-    return <>{threads}<CircleCheck size={13} className="rm-signal" data-tone="good" aria-label="Reviewed"><title>Reviewed</title></CircleCheck></>;
+    return <>{threads}<CircleCheck size={14} className="rm-signal" data-tone="good" aria-label="Reviewed"><title>Reviewed</title></CircleCheck></>;
   }
   return <>{threads}<span title={`${review.reviewed} of ${review.targets} review targets marked`}>{review.reviewed}/{review.targets}</span></>;
 }
@@ -162,7 +162,7 @@ const MapCard = memo(function MapCard({
         aria-label={`${nodeName(node)}, ${node.status === "impacted" ? "affected by the change" : changed ? "also changed" : "surrounding code"}`}
         title={node.path}
       >
-        {changed ? <ChangeBadge node={node} small /> : <FileTypeIcon path={node.path} size={13} />}
+        {changed ? <ChangeBadge node={node} small /> : <FileTypeIcon path={node.path} />}
         <span className="rm-card-name">{nodeName(node)}</span>
         <span className="rm-trailing">
           <SessionMarks node={node} />
@@ -209,7 +209,7 @@ const MapCard = memo(function MapCard({
       >
         <Button unstyled {...common} onMouseEnter={undefined} onMouseLeave={undefined} className="rm-focus-header" aria-label={`${nodeName(node)}, focused file`}>
           <span className="rm-card-row">
-            {isChangedStatus(node) ? <ChangeBadge node={node} /> : <FileTypeIcon path={node.path} size={15} />}
+            {isChangedStatus(node) ? <ChangeBadge node={node} /> : <FileTypeIcon path={node.path} />}
             <span className="rm-card-name" style={{ fontSize: 14 }}>{nodeName(node)}</span>
             <span className="rm-trailing"><NodeSignals node={node} /><ReviewMark node={node} /></span>
           </span>
@@ -257,7 +257,7 @@ const MapCard = memo(function MapCard({
             onClick={() => onToggleFold(card.symbolFold!.key)}
             aria-expanded={card.symbolFold.expanded}
           >
-            {card.symbolFold.expanded ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+            {card.symbolFold.expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
             {card.symbolFold.expanded
               ? `Show fewer${card.symbolFold.unlisted ? ` · ${card.symbolFold.unlisted} more only in the diff` : ""}`
               : `Show ${plural(card.symbolFold.hidden, "more symbol")}`}
@@ -281,7 +281,7 @@ const MapCard = memo(function MapCard({
       title={node.path}
     >
       <span className="rm-card-row">
-        {node.status === "subject" ? <FileTypeIcon path={node.path} size={14} /> : <ChangeBadge node={node} />}
+        {node.status === "subject" ? <FileTypeIcon path={node.path} /> : <ChangeBadge node={node} />}
         <span className="rm-card-name">{nodeName(node)}</span>
         <span className="rm-trailing">
           <SessionMarks node={node} />
@@ -630,15 +630,15 @@ export default function MapCanvas({
                 aria-expanded={false}
                 aria-label={`Show ${plural(group.total, "changed file")} in ${group.chapter ?? (group.module || "the repository root")}`}
               >
-                <ChevronRight size={12} aria-hidden="true" className="shrink-0" />
+                <ChevronRight size={14} aria-hidden="true" className="shrink-0" />
                 <span className="rm-group-label">{group.label}</span>
                 <span className="rm-group-count">{plural(group.total, "file")}</span>
               </Button>
             ) : (
               <div className="rm-group" style={{ left: group.x, top: stageY(group.y), width: group.w }} title={group.chapter ?? (group.module || "Repository root")}>
                 {group.chapter
-                  ? <BookOpen size={12} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-                  : <Folder size={12} aria-hidden="true" className="shrink-0 text-muted-foreground" />}
+                  ? <BookOpen size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+                  : <Folder size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />}
                 <span className="rm-group-label">{group.label}</span>
                 {group.total > 1 && <span className="rm-group-count">{group.total}</span>}
               </div>
@@ -651,7 +651,7 @@ export default function MapCanvas({
                 onClick={() => onToggleGroup(group.key)}
                 aria-expanded={group.expanded}
               >
-                {group.expanded ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+                {group.expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
                 {group.expanded
                   ? "Show fewer"
                   : `Show ${group.hidden} more in ${group.chapter ?? (baseName(group.module) || "root")}`}

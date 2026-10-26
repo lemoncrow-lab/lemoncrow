@@ -7,7 +7,8 @@ import {
   type BackgroundBudgetStatus,
   type IntelligenceRouteProjection,
 } from "../components/IntelligenceSettings";
-import { Card, Chip, PageFrame } from "../components/WorkbenchUI";
+import { Chip, PageFrame, PageHeader } from "../components/WorkbenchUI";
+import { Hunk, HunkBody, HunkHead, HunkLabel } from "../components/ui/hunk";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
@@ -65,12 +66,12 @@ function AiSettingsEditor({ data, onSaved }: {
     setSettings((previous) => ({ ...previous, [key]: value }));
     setSaved(false);
   };
-  const fieldClass = "mt-1 block h-9 w-full max-w-sm rounded-md border border-border bg-background px-2 text-body text-foreground";
-  const labelClass = "block text-caption font-medium text-foreground";
+  const fieldClass = "mt-1 block w-full max-w-sm";
+  const labelClass = "block text-meta font-medium text-foreground";
 
   return (
     <form
-      className="space-y-4 rounded-md border border-border p-4"
+      className="hunk"
       aria-label="Configure local AI"
       onSubmit={(event) => {
         event.preventDefault();
@@ -87,12 +88,13 @@ function AiSettingsEditor({ data, onSaved }: {
           .finally(() => setSaving(false));
       }}
     >
-      <div>
-        <h3 className="text-body font-semibold text-foreground">Configure AI on this machine</h3>
-        <p className="mt-1 text-caption text-muted-foreground">
-          Choose a provider already configured on this machine. API keys and provider credentials stay outside the browser.
-        </p>
+      <div className="hunk-head">
+        <h3 className="hunk-label">Configure AI on this machine</h3>
       </div>
+      <div className="space-y-4 p-4">
+      <p className="text-meta text-muted-foreground">
+        Choose a provider already configured on this machine. API keys and provider credentials stay outside the browser.
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass} htmlFor="ai-provider">Provider</label>
@@ -114,7 +116,7 @@ function AiSettingsEditor({ data, onSaved }: {
           <Input id="ai-model" className={fieldClass} value={settings["intelligence.model"]}
             maxLength={128} onChange={(event) => change("intelligence.model", event.target.value)}
             placeholder="auto" />
-          <span className="mt-1 block text-micro font-normal text-muted-foreground">
+          <span className="mt-1 block text-meta font-normal text-muted-foreground">
             Use auto for the provider default; an explicit model requires an explicit provider.
           </span>
         </label>
@@ -127,12 +129,12 @@ function AiSettingsEditor({ data, onSaved }: {
           </Select>
         </div>
         <div className="space-y-3">
-          <label className="flex items-center gap-2 text-caption text-foreground">
+          <label className="flex items-center gap-2 text-ui text-foreground">
             <Checkbox checked={settings["intelligence.enabled"]}
               onChange={(event) => change("intelligence.enabled", event.target.checked)} />
             Enable AI intelligence
           </label>
-          <label className="flex items-center gap-2 text-caption text-foreground">
+          <label className="flex items-center gap-2 text-ui text-foreground">
             <Checkbox checked={settings["intelligence.background.enabled"]}
               onChange={(event) => change("intelligence.background.enabled", event.target.checked)} />
             Run background intelligence
@@ -143,21 +145,22 @@ function AiSettingsEditor({ data, onSaved }: {
           <Input id="ai-monthly" type="number" min={-1} max={1000000000} step={1}
             className={fieldClass} value={settings["intelligence.background.monthly_model_calls"]}
             onChange={(event) => change("intelligence.background.monthly_model_calls", Number(event.target.value))} />
-          <span className="mt-1 block text-micro font-normal text-muted-foreground">−1 means unlimited.</span>
+          <span className="mt-1 block text-meta font-normal text-muted-foreground">−1 means unlimited.</span>
         </label>
         <label className={labelClass} htmlFor="ai-daily">
           Daily model-call limit
           <Input id="ai-daily" type="number" min={-1} max={1000000000} step={1}
             className={fieldClass} value={settings["intelligence.background.daily_model_calls"]}
             onChange={(event) => change("intelligence.background.daily_model_calls", Number(event.target.value))} />
-          <span className="mt-1 block text-micro font-normal text-muted-foreground">−1 means no daily limit.</span>
+          <span className="mt-1 block text-meta font-normal text-muted-foreground">−1 means no daily limit.</span>
         </label>
       </div>
-      {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
-      {saved && <p role="status" className="text-caption text-foreground">AI settings saved.</p>}
-      <Button type="submit" variant="default" disabled={saving}>
+      {error && <p role="alert" className="text-meta text-p0">{error}</p>}
+      {saved && <p role="status" className="text-meta text-foreground">AI settings saved.</p>}
+      <Button type="submit" variant="brand" disabled={saving}>
         {saving ? "Saving…" : "Save AI settings"}
       </Button>
+      </div>
     </form>
   );
 }
@@ -185,10 +188,11 @@ function AiBackgroundSettings() {
   return (
     <PageFrame className="space-y-4">
       <section className="max-w-3xl space-y-4">
-        <div>
-          <h2 className="text-heading font-semibold text-foreground">AI &amp; background</h2>
-          <p className="mt-1 text-body text-muted-foreground">The model route Review uses on this machine and the budget for automatic work.</p>
-        </div>
+        <PageHeader
+          eyebrow="Settings"
+          title="AI & background"
+          description="The model route Review uses on this machine and the budget for automatic work."
+        />
         {data ? (
           <>
             {data.intelligence.editable && (
@@ -220,9 +224,8 @@ function AiBackgroundSettings() {
 function ReviewSettingsUnavailable() {
   return (
     <PageFrame className="space-y-3">
-      <h2 className="text-heading font-semibold text-foreground">LemonCrow Review is not installed</h2>
-      <p className="max-w-xl text-body leading-6 text-muted-foreground">AI and background intelligence settings belong to Review.</p>
-      <Link className="text-caption font-medium text-neutral-300 hover:text-foreground" to="/settings/products">
+      <PageHeader eyebrow="Settings" title="LemonCrow Review is not installed" description="AI and background intelligence settings belong to Review." />
+      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/products">
         View installed products
       </Link>
     </PageFrame>
@@ -240,12 +243,11 @@ function ProductsSettings() {
   return (
     <PageFrame className="space-y-4">
       <section className="max-w-3xl space-y-3">
-        <div>
-          <h2 className="text-heading font-semibold text-foreground">Products</h2>
-          <p className="mt-1 text-body text-muted-foreground">
-            LemonCrow Review and Runtime are independent products behind the same <code className="text-foreground">lc</code> command.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Settings"
+          title="Products"
+          description={<>LemonCrow Review and Runtime are independent products behind the same <code className="text-foreground">lc</code> command.</>}
+        />
         <div className="grid gap-3 md:grid-cols-2">
           {(["review", "runtime"] as const).map((product) => {
             const state = capabilities.products[product];
@@ -256,20 +258,20 @@ function ProductsSettings() {
                 ? "Installed · currently unavailable"
                 : "Not installed";
             return (
-              <Card key={product} className="p-4" data-testid={`product-state-${product}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold text-foreground">LemonCrow {label}</div>
-                    <div className="mt-1 text-caption text-muted-foreground">{detail}</div>
-                  </div>
+              <Hunk key={product} data-testid={`product-state-${product}`}>
+                <HunkHead>
+                  <HunkLabel>LemonCrow {label}</HunkLabel>
                   <Chip tone={state.available ? "success" : "neutral"}>{state.available ? "Available" : "Unavailable"}</Chip>
-                </div>
-                <p className="mt-3 text-caption leading-5 text-muted-foreground">
-                  {product === "review"
-                    ? "Understand, verify, comment on, and revisit code changes without requiring Runtime."
-                    : "Code intelligence, agent sessions, MCP tools, and explicit Claude/Codex/OpenCode integration."}
-                </p>
-              </Card>
+                </HunkHead>
+                <HunkBody className="p-4">
+                  <div className="text-meta text-muted-foreground">{detail}</div>
+                  <p className="mt-3 text-ui text-subtle">
+                    {product === "review"
+                      ? "Understand, verify, comment on, and revisit code changes without requiring Runtime."
+                      : "Code intelligence, agent sessions, MCP tools, and explicit Claude/Codex/OpenCode integration."}
+                  </p>
+                </HunkBody>
+              </Hunk>
             );
           })}
         </div>
@@ -281,11 +283,8 @@ function ProductsSettings() {
 function RuntimeSettingsUnavailable() {
   return (
     <PageFrame className="space-y-3">
-      <h2 className="text-heading font-semibold text-foreground">LemonCrow Runtime is not installed</h2>
-      <p className="max-w-xl text-body leading-6 text-muted-foreground">
-        This settings page belongs to Runtime. Review remains available independently.
-      </p>
-      <Link className="text-caption font-medium text-neutral-300 hover:text-foreground" to="/settings/products">
+      <PageHeader eyebrow="Settings" title="LemonCrow Runtime is not installed" description="This settings page belongs to Runtime. Review remains available independently." />
+      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/products">
         View installed products
       </Link>
     </PageFrame>
@@ -313,10 +312,11 @@ function EditorSettings() {
     return (
       <PageFrame className="space-y-4">
         <section className="max-w-xl space-y-2">
-          <h2 className="text-heading font-semibold text-foreground">Editor</h2>
-          <p className="text-body leading-6 text-muted-foreground">
-            Hosted LemonCrow reads source from the synchronized repository view. Opening VS Code or Cursor is a local-machine action; run the local LemonCrow UI when you want browser-to-editor handoff.
-          </p>
+          <PageHeader
+            eyebrow="Settings"
+            title="Editor"
+            description="Hosted LemonCrow reads source from the synchronized repository view. Opening VS Code or Cursor is a local-machine action; run the local LemonCrow UI when you want browser-to-editor handoff."
+          />
         </section>
       </PageFrame>
     );
@@ -326,15 +326,12 @@ function EditorSettings() {
   return (
     <PageFrame className="space-y-4">
       <section className="max-w-xl space-y-3">
-        <div>
-          <h2 className="text-heading font-semibold text-foreground">Editor</h2>
-          <p className="mt-1 text-body text-muted-foreground">Choose which local editor opens source files. VS Code is the default.</p>
-        </div>
-        {error && <p role="alert" className="text-body text-destructive">{error}</p>}
+        <PageHeader eyebrow="Settings" title="Editor" description="Choose which local editor opens source files. VS Code is the default." />
+        {error && <p role="alert" className="text-body text-p0">{error}</p>}
         {capability && (
           <>
             <div className="space-y-1.5">
-              <label id="preferred-editor-label" className="block text-label font-medium text-foreground">Preferred editor</label>
+              <label id="preferred-editor-label" className="block text-meta font-medium text-foreground">Preferred editor</label>
               <Select
                 aria-labelledby="preferred-editor-label"
                 value={selected?.id ?? ""}
@@ -387,10 +384,11 @@ export default function Settings() {
   if (!runtimeCapabilities.localDiagnostics) {
     return (
       <PageFrame className="space-y-3">
-        <h2 className="text-heading font-semibold text-foreground">Advanced</h2>
-        <p className="max-w-xl text-body leading-6 text-muted-foreground">
-          Host adapters, installed agent files, local MCP process inspection, watchdog process state, and projection internals belong to a developer machine. Hosted operational health is managed by the LemonCrow service rather than exposed as local runtime state.
-        </p>
+        <PageHeader
+          eyebrow="Settings"
+          title="Advanced"
+          description="Host adapters, installed agent files, local MCP process inspection, watchdog process state, and projection internals belong to a developer machine. Hosted operational health is managed by the LemonCrow service rather than exposed as local runtime state."
+        />
       </PageFrame>
     );
   }
@@ -403,19 +401,19 @@ export default function Settings() {
           ([, to]) => to !== "/system/projection" || productCapabilities.features["runtime.code"],
         ).map(([label, to, description, badge]) => (
           <Link key={to} to={to}>
-            <Card className="h-full p-3 transition hover:bg-muted/50">
-              <div className="flex items-start gap-3">
-                <Wrench size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+            <Hunk className="h-full transition-colors duration-fast hover:border-input">
+              <div className="flex items-start gap-3 p-3">
+                <Wrench size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <div className="text-xs font-medium text-neutral-200">{label}</div>
-                    {badge && <Chip tone="info">{badge}</Chip>}
+                    <div className="text-ui font-semibold text-foreground">{label}</div>
+                    {badge && <Chip tone="neutral">{badge}</Chip>}
                   </div>
-                  <p className="mt-1 text-caption leading-4 text-muted-foreground">{description}</p>
+                  <p className="mt-1 text-meta text-muted-foreground">{description}</p>
                 </div>
-                <ChevronRight size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+                <ChevronRight size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
               </div>
-            </Card>
+            </Hunk>
           </Link>
         ))}
       </div>

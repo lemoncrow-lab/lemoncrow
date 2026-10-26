@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 
+import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 
@@ -96,15 +97,15 @@ function targetLabel(target: ReviewTarget | undefined, fallback: string): string
   return target.symbol ? `${target.path} · ${target.symbol}` : target.path;
 }
 
+/** A Brief section is one Hunk: hairline frame, mono `@@ TITLE @@` header strip, rows inside. */
 function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <section className="border-t border-border/70 py-3" aria-label={title}>
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-caption font-semibold uppercase tracking-wide text-neutral-400">{title}</h3>
-        <span className="flex-1" />
+    <section className="hunk" aria-label={title}>
+      <div className="hunk-head">
+        <h3 className="hunk-label">{title}</h3>
         {action}
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <div className="flex flex-col gap-2 p-3">{children}</div>
     </section>
   );
 }
@@ -141,7 +142,7 @@ function TargetLinks({
           <UiButton
             unstyled
             type="button"
-            className="break-all text-left font-mono text-caption text-sky-300/90 hover:text-sky-200 hover:underline"
+            className="break-all text-left font-mono text-meta text-cyan-300/90 hover:text-cyan-200 hover:underline"
             onClick={() => onOpenTarget(id)}
           >
             {targetLabel(byId.get(id), id)}
@@ -154,10 +155,10 @@ function TargetLinks({
 
 function EvidenceSummary({ claim }: { claim: ReviewProjectionClaim }) {
   const tone = claim.summary === "contradictory"
-    ? "text-rose-300"
+    ? "text-red-300"
     : claim.summary === "none" || claim.summary === "partial" || claim.summary === "inferred_failing"
       ? "text-amber-300/90"
-      : "text-neutral-300";
+      : "text-subtle";
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 text-caption">
       <span className={tone}>{claim.summary_text}</span>
@@ -175,7 +176,7 @@ function QuestionRow({ question }: { question: ReviewProjectionQuestion }) {
           <span className="shrink-0 rounded border border-border/70 px-1 text-micro uppercase tracking-wide text-muted-foreground">AI question</span>
         )}
       </div>
-      <div className="text-neutral-300">{question.detail}</div>
+      <div className="text-subtle">{question.detail}</div>
     </div>
   );
 }
@@ -220,6 +221,8 @@ function SynthesisLine({
 }) {
   const synthesis = projection.synthesis;
   if (!synthesis) return null;
+  // The AI line already says, once, that AI is not enabled here: do not repeat it as "explanations are unavailable".
+  if (projection.ai_review?.available === false && synthesis.status === "disabled" && !error) return null;
   const missing = projection.coverage.unsynthesized_target_ids?.length ?? 0;
   const excluded = synthesis.excluded_by_policy ?? [];
   const pending = busy || synthesis.status === "pending";
@@ -340,6 +343,14 @@ function AiReviewLine({
   // One action id per opened confirmation: a double submit replays, it never spends twice.
   const [freshActionId, setFreshActionId] = useState("");
   if (!review) return null;
+  if (review.available === false) {
+    // No executor here (hosted without a durable queue): no run button, no "0/20 calls", no provider error. One line.
+    return (
+      <p data-testid="brief-ai-review" className="text-caption leading-5 text-muted-foreground" title={review.unavailable_detail || undefined}>
+        {review.unavailable_reason || "AI review on hosted isn't enabled for this workspace yet"}
+      </p>
+    );
+  }
   const assurance = review.assurance;
   const independence = assurance?.independence;
   const identity = assurance?.identity ?? null;
@@ -355,6 +366,7 @@ function AiReviewLine({
   const excluded = runCoverage?.excluded_by_policy ?? statusCoverage?.excluded_by_policy ?? [];
   const humanTargets = runCoverage?.human_deterministic_targets ?? statusCoverage?.human_deterministic_targets ?? 0;
   const checkedTargets = runCoverage?.ai_checked_targets ?? statusCoverage?.ai_context_eligible_targets ?? 0;
+  const setup = review.setup_help;
   const unavailable = error || review.error || runResult?.provider_errors?.[0] || "";
   const execution = review.execution;
   const trace = execution?.trace;
@@ -380,9 +392,11 @@ function AiReviewLine({
           ? "Not needed"
           : review.status === "ready"
             ? "Complete"
-            : review.status === "failed" || review.status === "cancelled" || unavailable
-              ? "Unavailable"
-              : "Not run";
+            : setup
+              ? "Not set up"
+              : review.status === "failed" || review.status === "cancelled" || unavailable
+                ? "Unavailable"
+                : "Not run";
   const sourceLocus = modelDataLocus === "customer_local"
     ? "Source/context stays customer-local for the model route."
     : modelDataLocus === "external"
@@ -413,9 +427,9 @@ function AiReviewLine({
   return (
     <div className="space-y-2" data-testid="brief-ai-review">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-neutral-300">AI Review · {statusLabel}</span>
+        <Badge tone="neutral" className="text-foreground">AI Review · {statusLabel}</Badge>
         {waitReason && (
-          <span data-testid="ai-wait-reason" className="rounded-full border border-neutral-700 px-2 text-neutral-400">
+          <span data-testid="ai-wait-reason" className="rounded-full border border-border px-2 text-muted-foreground">
             {waitReason}
           </span>
         )}
@@ -432,9 +446,10 @@ function AiReviewLine({
           </span>
         )}
         {!busy && unavailable && (
-          <span className="inline-flex flex-wrap gap-x-1 text-amber-300/90">
-            <span>{unavailable}</span>
-            <span>· deterministic Review remains available</span>
+          <span className="inline-flex flex-wrap items-center gap-x-1.5 text-meta text-muted-foreground">
+            {/* The provider's own message, without its exception class name; the Review itself is unaffected. */}
+            {!setup && <span title={unavailable}>{unavailable.replace(/^[A-Za-z]+Error:\s*/, "")}</span>}
+            <span>{setup ? "Deterministic Review remains available" : "· deterministic Review remains available"}</span>
           </span>
         )}
         {!busy && !stopping && cancellable && onCancelAiReview && (
@@ -449,6 +464,29 @@ function AiReviewLine({
         )}
       </div>
 
+      {!busy && setup && (
+        <div data-testid="ai-setup-help" className="space-y-1 text-caption leading-5 text-muted-foreground">
+          <p>
+            <span className="text-foreground">{setup.headline}</span> AI review runs from your terminal.
+          </p>
+          <ul className="space-y-0.5">
+            {setup.steps.map((step) => (
+              <li key={step.command}>
+                {step.lead}{" "}
+                <code className="rounded bg-muted/70 px-1.5 py-0.5 text-caption text-subtle">{step.command}</code>{" "}
+                {step.note}
+              </li>
+            ))}
+          </ul>
+          <p>
+            Details:{" "}
+            <a className="underline underline-offset-2" href={setup.docs_url} target="_blank" rel="noreferrer noopener">
+              {setup.docs_url.replace(/^https?:\/\//, "")}
+            </a>
+          </p>
+        </div>
+      )}
+
       {runResult?.depth_request && runResult.depth_request.state !== "honored" && runResult.depth_request.reason && (
         <div className="text-caption text-amber-300/90" data-testid="ai-depth-request">
           Requested {runResult.depth_request.requested}: {runResult.depth_request.reason}
@@ -457,14 +495,14 @@ function AiReviewLine({
 
       {confirmEffort && (
         <div role="group" aria-label="Confirm deeper review" className="rounded-md border border-amber-900/45 bg-amber-950/10 p-2.5 text-caption">
-          <div className="font-medium text-neutral-200">Confirm deeper review</div>
+          <div className="font-medium text-foreground">Confirm deeper review</div>
           <div className="mt-1 grid gap-0.5 text-muted-foreground">
-            <div>Depth: <span className="capitalize text-neutral-300">{confirmEffort}</span></div>
-            <div>AI usage: <span className="text-neutral-300">{budget.calls_used}/{budget.max_calls} calls used</span></div>
+            <div>Depth: <span className="capitalize text-subtle">{confirmEffort}</span></div>
+            <div>AI usage: <span className="text-subtle">{budget.calls_used}/{budget.max_calls} calls used</span></div>
             <div>{modelDataText(modelDataLocus)}</div>
           </div>
           <div className="mt-2 flex gap-1.5">
-            <UiButton variant="default" size="compact" type="button" onClick={() => void runDeeper()}>
+            <UiButton variant="outline" size="compact" type="button" onClick={() => void runDeeper()}>
               Run {confirmEffort} review
             </UiButton>
             <UiButton variant="ghost" size="compact" type="button" onClick={() => setConfirmEffort(null)}>Cancel</UiButton>
@@ -472,24 +510,24 @@ function AiReviewLine({
         </div>
       )}
 
-      <details className="text-caption text-muted-foreground" data-testid="ai-run-details">
+      <details className="text-meta text-muted-foreground" data-testid="ai-run-details">
         <summary className="cursor-pointer">Run details</summary>
         <div className="mt-1 grid gap-0.5 pl-2">
-          <div>Effective depth: <span className="capitalize text-neutral-300">{effectiveEffort}</span></div>
-          <div>Budget: <span className="text-neutral-300">{budget.calls_used}/{budget.max_calls} model calls</span></div>
-          <div>Execution locus: <span className="text-neutral-300">{executionLocus || "not reported"}</span></div>
-          <div>Model data locus: <span className="text-neutral-300">{modelDataLocus || "not reported"}</span></div>
-          <div>Metering owner: <span className="text-neutral-300">{meteringLabel}</span></div>
-          {provider && <div>Provider: <span className="text-neutral-300">{provider}</span></div>}
+          <div>Effective depth: <span className="capitalize text-subtle">{effectiveEffort}</span></div>
+          <div>Budget: <span className="text-subtle">{budget.calls_used}/{budget.max_calls} model calls</span></div>
+          <div>Execution locus: <span className="text-subtle">{executionLocus || "not reported"}</span></div>
+          <div>Model data locus: <span className="text-subtle">{modelDataLocus || "not reported"}</span></div>
+          <div>Metering owner: <span className="text-subtle">{meteringLabel}</span></div>
+          {provider && <div>Provider: <span className="text-subtle">{provider}</span></div>}
           {identity ? (
             <>
               <div data-testid="ai-requested-model">
                 Requested model:{" "}
-                <span className="text-neutral-300">{identity.requested_model || "provider default (unreported)"}</span>
+                <span className="text-subtle">{identity.requested_model || "provider default (unreported)"}</span>
               </div>
               <div data-testid="ai-observed-model">
                 Observed model:{" "}
-                <span className="text-neutral-300">
+                <span className="text-subtle">
                   {identity.source === "observed" || identity.source === "unverified"
                     ? identity.label
                     : "not reported by the provider"}
@@ -497,12 +535,12 @@ function AiReviewLine({
               </div>
             </>
           ) : (
-            model && <div>Model: <span className="text-neutral-300">{model}</span></div>
+            model && <div>Model: <span className="text-subtle">{model}</span></div>
           )}
           {independence && (
             <div data-testid="ai-independence">
               Independence:{" "}
-              <span className="text-neutral-300">{INDEPENDENCE_TEXT[independence.status] ?? independence.status}</span>
+              <span className="text-subtle">{INDEPENDENCE_TEXT[independence.status] ?? independence.status}</span>
               {independence.author && <span> · author {independence.author.label}</span>}
               {independence.reason && <div className="pl-2">{independence.reason}</div>}
             </div>
@@ -510,7 +548,7 @@ function AiReviewLine({
           {independence && independence.policy.mode !== "off" && (
             <div data-testid="ai-independence-policy">
               Independent reviewer policy:{" "}
-              <span className="text-neutral-300">
+              <span className="text-subtle">
                 {REQUIREMENT_TEXT[independence.requirement] ?? independence.requirement}
               </span>
               <span> · from {independence.policy.origin.source || independence.policy.origin.layer}</span>
@@ -519,17 +557,17 @@ function AiReviewLine({
           {(ranFresh || (freshExecution?.fresh_reruns ?? 0) > 0) && (
             <div data-testid="ai-execution-mode">
               Execution:{" "}
-              <span className="text-neutral-300">
+              <span className="text-subtle">
                 {ranFresh ? "fresh re-run" : "executed"}
                 {(freshExecution?.fresh_reruns ?? 0) > 0 && ` · ${plural(freshExecution!.fresh_reruns, "explicit fresh re-run")} on this Snapshot`}
               </span>
             </div>
           )}
-          {runResult && runResult.cache_reuse > 0 && <div>Cache reuse: <span className="text-neutral-300">{runResult.cache_reuse}</span></div>}
+          {runResult && runResult.cache_reuse > 0 && <div>Cache reuse: <span className="text-subtle">{runResult.cache_reuse}</span></div>}
           {(runResult?.rule_checks?.length ?? 0) > 0 && (
             <div data-testid="ai-rule-checks">
               Rule checks:{" "}
-              <span className="text-neutral-300">
+              <span className="text-subtle">
                 {Object.entries(
                   runResult!.rule_checks!.reduce<Record<string, number>>((counts, row) => {
                     counts[row.state] = (counts[row.state] ?? 0) + 1;
@@ -541,13 +579,13 @@ function AiReviewLine({
               </span>
             </div>
           )}
-          {execution?.cache_status && <div>Cache: <span className="text-neutral-300">{execution.cache_status}</span></div>}
-          {trace?.provider_calls != null && <div>Provider calls: <span className="text-neutral-300">{trace.provider_calls}</span></div>}
-          {trace?.provider_cost != null && <div>Provider cost: <span className="text-neutral-300">{trace.provider_cost} {trace.currency || ""}</span></div>}
-          {excluded.length > 0 && <div>Content exclusions: <span className="text-neutral-300">{excluded.length}</span></div>}
-          {(trace?.tools?.length ?? 0) > 0 && <div>Tools: <span className="text-neutral-300">{trace!.tools!.join(", ")}</span></div>}
-          {(trace?.external_domains?.length ?? 0) > 0 && <div>External domains: <span className="text-neutral-300">{trace!.external_domains!.join(", ")}</span></div>}
-          {(trace?.evidence_refs?.length ?? 0) > 0 && <div>Evidence consulted: <span className="text-neutral-300">{trace!.evidence_refs!.length}</span></div>}
+          {execution?.cache_status && <div>Cache: <span className="text-subtle">{execution.cache_status}</span></div>}
+          {trace?.provider_calls != null && <div>Provider calls: <span className="text-subtle">{trace.provider_calls}</span></div>}
+          {trace?.provider_cost != null && <div>Provider cost: <span className="text-subtle">{trace.provider_cost} {trace.currency || ""}</span></div>}
+          {excluded.length > 0 && <div>Content exclusions: <span className="text-subtle">{excluded.length}</span></div>}
+          {(trace?.tools?.length ?? 0) > 0 && <div>Tools: <span className="text-subtle">{trace!.tools!.join(", ")}</span></div>}
+          {(trace?.external_domains?.length ?? 0) > 0 && <div>External domains: <span className="text-subtle">{trace!.external_domains!.join(", ")}</span></div>}
+          {(trace?.evidence_refs?.length ?? 0) > 0 && <div>Evidence consulted: <span className="text-subtle">{trace!.evidence_refs!.length}</span></div>}
           <div>{sourceLocus}</div>
           {onRerunFresh && freshPreview && !busy && !freshActionId && (
             freshPreview.available ? (
@@ -570,14 +608,14 @@ function AiReviewLine({
               aria-label="Confirm fresh re-run"
               className="mt-1 rounded-md border border-amber-900/45 bg-amber-950/10 p-2.5"
             >
-              <div className="font-medium text-neutral-200">Confirm fresh re-run</div>
+              <div className="font-medium text-foreground">Confirm fresh re-run</div>
               <div className="mt-1 grid gap-0.5">
                 <div>Runs AI review again on this unchanged Snapshot; cached results are not reused.</div>
-                <div>Depth: <span className="capitalize text-neutral-300">{freshPreview.effort || "not planned"}</span></div>
-                <div>Estimated AI calls: <span className="text-neutral-300">{freshPreview.estimated_model_calls}</span></div>
+                <div>Depth: <span className="capitalize text-subtle">{freshPreview.effort || "not planned"}</span></div>
+                <div>Estimated AI calls: <span className="text-subtle">{freshPreview.estimated_model_calls}</span></div>
                 <div>
                   AI usage:{" "}
-                  <span className="text-neutral-300">
+                  <span className="text-subtle">
                     {freshPreview.budget.calls_used}/{freshPreview.budget.max_calls} calls used · {freshPreview.budget.remaining} remaining
                   </span>
                 </div>
@@ -589,7 +627,7 @@ function AiReviewLine({
                 <div>{modelDataText(freshPreview.model_data_locus)}</div>
               </div>
               <div className="mt-2 flex gap-1.5">
-                <UiButton variant="default" size="compact" type="button" onClick={() => void rerunFresh()}>
+                <UiButton variant="outline" size="compact" type="button" onClick={() => void rerunFresh()}>
                   Re-run fresh now
                 </UiButton>
                 <UiButton variant="ghost" size="compact" type="button" onClick={() => setFreshActionId("")}>
@@ -602,7 +640,7 @@ function AiReviewLine({
       </details>
 
       {excluded.length > 0 && (
-        <details className="text-caption text-muted-foreground">
+        <details className="text-meta text-muted-foreground">
           <summary className="cursor-pointer">What AI could not inspect</summary>
           <div className="mt-1 space-y-0.5 pl-2">
             {excluded.slice(0, 12).map((row) => (
@@ -655,11 +693,11 @@ function WhatWasChecked({
 
   return (
     <details data-testid="what-was-checked" className="rounded border border-border/70 px-2.5 py-2">
-      <summary className="cursor-pointer select-none font-medium text-neutral-300">What was checked</summary>
+      <summary className="cursor-pointer select-none font-medium text-subtle">What was checked</summary>
       <div className="mt-2 space-y-1 text-caption text-muted-foreground">
-        <div>Deterministic Review: <span className="text-neutral-300">{targets.length + " exact Snapshot " + targetLabel}</span></div>
-        {aiShown && <div>AI Review: <span className="text-neutral-300">{aiStatus}</span>{human > 0 ? " · " + eligible + "/" + human + " eligible targets" : ""}</div>}
-        <div>Reviewer inspection: <span className="text-neutral-300">{reviewed + "/" + targets.length + " targets reviewed"}</span></div>
+        <div>Deterministic Review: <span className="text-subtle">{targets.length + " exact Snapshot " + targetLabel}</span></div>
+        {aiShown && <div>AI Review: <span className="text-subtle">{aiStatus}</span>{human > 0 ? " · " + eligible + "/" + human + " eligible targets" : ""}</div>}
+        <div>Reviewer inspection: <span className="text-subtle">{reviewed + "/" + targets.length + " targets reviewed"}</span></div>
         <div>Recorded checks: {checkSummary || "none attached to the current claims."}</div>
         <ExecutionCoverageLine coverage={execution} />
         {exclusions.length > 0 && (
@@ -746,7 +784,7 @@ function ItemCard({
           type="button"
           aria-expanded={expanded}
           onClick={onToggle}
-          className="min-w-0 flex-1 text-left text-label font-medium text-neutral-100 hover:text-neutral-50"
+          className="min-w-0 flex-1 text-left text-label font-medium text-foreground hover:text-foreground"
         >
           {item.title}
         </UiButton>
@@ -755,15 +793,15 @@ function ItemCard({
         </span>
       </div>
       {item.stale && <div className="text-caption text-amber-300/90">Written for earlier content</div>}
-      {item.internal_only && <div className="mt-1 text-caption text-neutral-300">{INTERNAL_ONLY_TEXT}</div>}
+      {item.internal_only && <div className="mt-1 text-caption text-subtle">{INTERNAL_ONLY_TEXT}</div>}
       {detailLevel !== "compact" && (item.before || item.after) && (
-        <div className="mt-1 text-caption text-neutral-300">
+        <div className="mt-1 text-caption text-subtle">
           {item.before && <span className="text-muted-foreground">Before: {item.before} </span>}
           {item.after && <span>After: {item.after}</span>}
         </div>
       )}
       {detailLevel !== "compact" && (item.kind !== "behavior" || !first) && item.rationale && (
-        <div className={`mt-1 text-caption ${item.rationale_origin === "inferred" ? "text-neutral-300" : "text-muted-foreground"}`}>{item.rationale}</div>
+        <div className={`mt-1 text-caption ${item.rationale_origin === "inferred" ? "text-subtle" : "text-muted-foreground"}`}>{item.rationale}</div>
       )}
       {detailLevel !== "compact" && (item.limitations ?? []).map((text) => <div key={text} className="text-micro text-muted-foreground">{text}</div>)}
       {item.kind === "area" || item.kind === "other" ? (
@@ -778,7 +816,7 @@ function ItemCard({
           {item.rationale && item.kind === "behavior" && first && (
             <div>
               <span className="text-muted-foreground">Why · {item.source_label}: </span>
-              <span className="text-neutral-300">{item.rationale}</span>
+              <span className="text-subtle">{item.rationale}</span>
             </div>
           )}
           {claims.map((claim) => (
@@ -787,8 +825,8 @@ function ItemCard({
                 <ul className="flex flex-col gap-0.5">
                   {claim.evidence.map((link) => (
                     <li key={`${link.key}:${link.state}:${link.snapshot_number ?? ""}`} className="flex flex-wrap gap-x-2">
-                      <span className="font-mono text-neutral-300">{link.title}</span>
-                      <span className={link.status === "FAIL" ? "text-rose-300" : "text-neutral-400"}>{link.status}</span>
+                      <span className="font-mono text-subtle">{link.title}</span>
+                      <span className={link.status === "FAIL" ? "text-red-300" : "text-muted-foreground"}>{link.status}</span>
                       {link.snapshot_number !== null && <span className="text-muted-foreground">Snapshot {link.snapshot_number}{link.state === "stale" ? " (earlier)" : ""}</span>}
                       {link.observed_at && <span className="text-muted-foreground">{`Ran ${ranAt(link.observed_at)}`}</span>}
                       {link.source && <span className="text-muted-foreground">{`Recorded by ${link.source}`}</span>}
@@ -831,7 +869,7 @@ function ItemCard({
               {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(first)}>Ask</UiButton>}
             </>
           )}
-          <UiButton variant={reviewFirst ? "default" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
+          <UiButton variant={reviewFirst ? "outline" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
             Open code
           </UiButton>
         </div>
@@ -862,18 +900,18 @@ function statusLine(decision: ReviewProjectionDecision): { text: string; tone: s
   if (state.disposition === "change_requested") {
     return state.navigable && state.reason
       ? { text: "Requested change resolved; decide again", tone: "text-amber-300" }
-      : { text: "Change requested", tone: "text-rose-300" };
+      : { text: "Change requested", tone: "text-red-300" };
   }
   if (state.disposition === "deferred") {
     const base = triggerText(state.trigger);
     const text = state.latest_reason ? `${base} · ${state.latest_reason}` : base;
-    return { text: state.trigger_fired ? `${text} · due now` : text, tone: "text-neutral-400" };
+    return { text: state.trigger_fired ? `${text} · due now` : text, tone: "text-muted-foreground" };
   }
   const accepted = `Accepted · ${optionLabel(decision, state.accepted_option)}`;
   if (state.validity === "implementation_changed_since_acceptance") {
     return { text: "Code changed since acceptance", tone: "text-amber-300" };
   }
-  if (state.validity === "needs_reconsideration") return { text: "Needs reconsideration", tone: "text-rose-300" };
+  if (state.validity === "needs_reconsideration") return { text: "Needs reconsideration", tone: "text-red-300" };
   if (state.validity === "unverified") return { text: `${accepted} · unverified`, tone: "text-amber-300/90" };
   return { text: accepted, tone: "text-emerald-300/90" };
 }
@@ -925,7 +963,7 @@ function DecisionCard({
   return (
     <article data-testid={`brief-decision-${decision.key}`} className="rounded-md border border-border/80 px-2.5 py-2">
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 text-label font-medium text-neutral-100">{decision.question || decision.key}</div>
+        <div className="min-w-0 flex-1 text-label font-medium text-foreground">{decision.question || decision.key}</div>
         {!decision.state && (
           <span className="shrink-0 rounded border border-border/70 px-1 text-micro uppercase tracking-wide text-muted-foreground">
             Proposed by the author · read-only
@@ -934,7 +972,7 @@ function DecisionCard({
       </div>
       {status && <div className={`text-caption ${status.tone}`}>{status.text}</div>}
       {decision.state && decision.state.changed_inputs.length > 0 && (
-        <ul className="mt-0.5 list-disc pl-4 text-caption text-neutral-400">
+        <ul className="mt-0.5 list-disc pl-4 text-caption text-muted-foreground">
           {decision.state.changed_inputs.map((line) => <li key={line}>{line}</li>)}
         </ul>
       )}
@@ -943,7 +981,7 @@ function DecisionCard({
       ))}
       {decision.stale && <div className="text-caption text-amber-300/90">Written for earlier content</div>}
       {decision.conflict && decision.positions && decision.positions.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-0.5 text-caption text-neutral-300">
+        <ul className="mt-1 flex flex-col gap-0.5 text-caption text-subtle">
           {decision.positions.map((position) => (
             <li key={position.producer}>{`${position.producer} chose ${optionLabel(decision, position.selected_option)}`}</li>
           ))}
@@ -962,7 +1000,7 @@ function DecisionCard({
             label: (
               <span className="flex items-center gap-1.5">
                 <span>{option.label}</span>
-                {option.key === decision.selected_option && <span className="text-sky-300/90">author's choice</span>}
+                {option.key === decision.selected_option && <span className="text-cyan-300/90">author's choice</span>}
               </span>
             ),
           }))}
@@ -970,9 +1008,9 @@ function DecisionCard({
       ) : (
         <ul className="mt-1 flex flex-col gap-0.5 text-caption">
           {decision.options.map((option) => (
-            <li key={option.key} className={option.key === decision.selected_option ? "text-neutral-100" : "text-muted-foreground"}>
+            <li key={option.key} className={option.key === decision.selected_option ? "text-foreground" : "text-muted-foreground"}>
               <span>{option.label}</span>
-              {option.key === decision.selected_option && <span className="ml-2 text-sky-300/90">author's choice</span>}
+              {option.key === decision.selected_option && <span className="ml-2 text-cyan-300/90">author's choice</span>}
             </li>
           ))}
         </ul>
@@ -980,7 +1018,7 @@ function DecisionCard({
       {decision.reason_human_required && (
         <div className="mt-1 text-caption">
           <span className="text-muted-foreground">Why a human decides: </span>
-          <span className="text-neutral-300">{decision.reason_human_required}</span>
+          <span className="text-subtle">{decision.reason_human_required}</span>
         </div>
       )}
       <div className="mt-1.5">
@@ -989,13 +1027,13 @@ function DecisionCard({
       {actionable && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {actions.has("reconfirm") && (
-            <UiButton variant="default" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
+            <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
               Reconfirm
             </UiButton>
           )}
           {actions.has("accept") && (
             <UiButton
-              variant={actions.has("reconfirm") ? "outline" : "default"}
+              variant="outline"
               size="compact"
               type="button"
               disabled={busy || !chosen}
@@ -1027,7 +1065,7 @@ function DecisionCard({
       {form === "request_change" && (
         <div className="mt-1.5 flex flex-col gap-1">
           <UiTextarea uiSize="xs" aria-label="Requested change" rows={3} value={text} onChange={(event) => setText(event.target.value)} />
-          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
+          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
             Send request
           </UiButton>
         </div>
@@ -1042,12 +1080,12 @@ function DecisionCard({
               <SelectItem key={key} value={`check_available:${key}`}>{`When ${key} has a result`}</SelectItem>
             ))}
           </Select>
-          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
+          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
             Defer decision
           </UiButton>
         </div>
       )}
-      {failure && <div role="alert" className="mt-1 text-caption text-rose-300">{failure}</div>}
+      {failure && <div role="alert" className="mt-1 text-caption text-red-300">{failure}</div>}
     </article>
   );
 }
@@ -1178,15 +1216,21 @@ export default function ReviewBrief({
 
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col px-4 py-4 outline-none"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 outline-none"
       data-testid="review-brief"
       data-review-view-root="brief"
       tabIndex={-1}
     >
-      <header className="flex flex-col gap-1 pb-3">
+      <div className="hunk">
+        <div className="hunk-head">
+          <span className="hunk-label">{projection.snapshot_number !== null ? `Snapshot ${projection.snapshot_number}` : "Change"}</span>
+          {projection.historical && <Badge>Historical</Badge>}
+        </div>
+        <div className="flex flex-col gap-3 p-4">
+      <header className="flex flex-col gap-1 empty:hidden">
         {!projection.summary && projection.plan.intents.map((intent) => (
           <div key={intent.producer}>
-            <p className="text-body text-neutral-100">{intent.intent}</p>
+            <p className="text-body text-foreground">{intent.intent}</p>
             {intent.origin === "captured" && (
               <p className="text-micro text-muted-foreground">{`Captured plan · ${intent.producer}`}</p>
             )}
@@ -1199,18 +1243,15 @@ export default function ReviewBrief({
             <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
           </p>
         )}
-        {projection.snapshot_number !== null && (
-          <p className="text-caption text-muted-foreground">Snapshot {projection.snapshot_number}{projection.historical ? " · historical" : ""}</p>
-        )}
-        {deltaLine(projection) && <p className="text-caption text-amber-200/90">{deltaLine(projection)}</p>}
+        {deltaLine(projection) && <p className="text-meta text-p1">{deltaLine(projection)}</p>}
       </header>
 
       {projection.summary && (
-        <section aria-label="Change summary" className="flex flex-col gap-3 pb-4">
+        <section aria-label="Change summary" className="flex flex-col gap-3">
           {projection.summary.statements?.length
-            ? projection.summary.statements.map((statement) => (
+            ? projection.summary.statements.map((statement, index) => (
                 <div key={statement.text}>
-                  <p className="max-w-prose text-body leading-relaxed text-foreground">{statement.text}</p>
+                  <p className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{statement.text}</p>
                   {statement.origin === "inferred" && statement.target_ids.length > 0 && (
                     <div className="mt-0.5 text-micro text-muted-foreground">
                       {"AI statement · " + statement.target_ids.length + " exact target" + (statement.target_ids.length === 1 ? "" : "s")}
@@ -1218,28 +1259,32 @@ export default function ReviewBrief({
                   )}
                 </div>
               ))
-            : projection.summary.paragraphs.map((paragraph) => (
-                <p key={paragraph} className="max-w-prose text-body leading-relaxed text-foreground">{paragraph}</p>
+            : projection.summary.paragraphs.map((paragraph, index) => (
+                <p key={paragraph} className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{paragraph}</p>
               ))}
-          <p className="text-caption text-muted-foreground">
+          <div className="flex flex-col gap-1">
+          <p className="text-meta text-muted-foreground">
             {projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}
           </p>
-          <p className="text-caption text-neutral-300">{projection.summary.verification}</p>
-          {projection.summary.attention && <p className="text-caption text-amber-200">{projection.summary.attention}</p>}
-          <p className="text-caption text-muted-foreground">{projection.summary.scope}</p>
+          <p className="text-ui text-subtle">{projection.summary.verification}</p>
+          {projection.summary.attention && <p className="text-ui text-p1">{projection.summary.attention}</p>}
+          <p className="text-meta text-muted-foreground">{projection.summary.scope}</p>
           {projection.material && projection.material.total_changed_lines > 0 && (
-            <p className="text-caption text-muted-foreground" data-testid="review-change-size">
+            <p className="text-meta text-muted-foreground" data-testid="review-change-size">
               {projection.material.implementation_changed_lines === projection.material.total_changed_lines
                 ? `${projection.material.total_changed_lines} changed implementation lines`
                 : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`}
             </p>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="default" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
-            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "default"} size="compact" onClick={onOpenFiles}>Open code</UiButton>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="outline" size="sm" onClick={onOpenTour}>Start guided review</UiButton>}
+            <UiButton variant="outline" size="sm" onClick={onOpenFiles}>Open code</UiButton>
           </div>
         </section>
       )}
+        </div>
+      </div>
 
       {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
       {loadArchitectureDelta && onOpenArchitecture && (
@@ -1253,14 +1298,14 @@ export default function ReviewBrief({
       {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
       {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
 
-      {!projection.historical && productionOutcomes && <div className="border-t border-border/70 py-3 empty:hidden">{productionOutcomes}</div>}
+      {!projection.historical && productionOutcomes && <div className="empty:hidden">{productionOutcomes}</div>}
 
       {requiredChecks.length > 0 && (
         <Section title={`Required checks · ${requiredChecks.length}`}>
           {requiredChecks.map((action) => (
-            <div key={action.id} className="rounded-md border border-rose-900/60 bg-rose-950/20 px-2.5 py-2 text-caption">
-              <div className="font-medium text-rose-200">{action.title}</div>
-              <div className="text-neutral-300">{action.detail}</div>
+            <div key={action.id} className="rounded-md border border-red-900/60 bg-red-950/20 px-2.5 py-2 text-caption">
+              <div className="font-medium text-red-200">{action.title}</div>
+              <div className="text-subtle">{action.detail}</div>
               <UiButton variant="outline" size="compact" type="button" className="mt-1.5" onClick={() => onInspectEvidence(null)}>
                 Inspect evidence
               </UiButton>
@@ -1269,7 +1314,7 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {!projection.historical && agentApprovals && <div className="border-t border-border/70 py-3 empty:hidden">{agentApprovals}</div>}
+      {!projection.historical && agentApprovals && <div className="empty:hidden">{agentApprovals}</div>}
 
       {behavior && (
         <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
@@ -1372,9 +1417,13 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      <footer className="flex flex-col gap-1 border-t border-border/70 pt-3 text-caption text-muted-foreground">
-        <details data-testid="review-detail-options" className="rounded border border-border/70 px-2 py-1">
-          <summary className="cursor-pointer select-none text-neutral-400">
+      <footer className="hunk text-meta text-muted-foreground">
+        <div className="hunk-head">
+          <span className="hunk-label">Coverage and checks</span>
+        </div>
+        <div className="flex flex-col gap-2 p-3">
+        <details data-testid="review-detail-options" className="rounded-md border border-border px-2 py-1">
+          <summary className="cursor-pointer select-none text-muted-foreground">
             View options · {detailLevel === "compact" ? "Compact" : detailLevel === "detailed" ? "Detailed" : "Standard"}
           </summary>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1396,8 +1445,8 @@ export default function ReviewBrief({
           </div>
         </details>
         {collapsedSupport.length > 0 && (
-          <details data-testid="supporting-material" className="rounded border border-border/70 px-2 py-1">
-            <summary className="cursor-pointer select-none text-neutral-400">
+          <details data-testid="supporting-material" className="rounded-md border border-border px-2 py-1">
+            <summary className="cursor-pointer select-none text-muted-foreground">
               Supporting material · {plural(collapsedSupport.length, "file")}
             </summary>
             <div className="mt-1 space-y-0.5">
@@ -1484,6 +1533,7 @@ export default function ReviewBrief({
           <UiButton variant="outline" size="compact" type="button" onClick={onOpenFiles}>Open files</UiButton>
           {/* Spec §8: the full inventory stays one explicit step away, never the default. */}
           <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
+        </div>
         </div>
       </footer>
     </div>

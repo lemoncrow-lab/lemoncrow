@@ -30,19 +30,19 @@ const CLASS_LABEL: Record<string, string> = {
 };
 
 const CLASS_TONE: Record<string, string> = {
-  introduced_failure: "text-rose-300",
+  introduced_failure: "text-red-300",
   flaky: "text-amber-300",
   not_comparable: "text-amber-300",
   not_run: "text-amber-300",
   removed: "text-amber-300",
   newly_skipped: "text-amber-300",
   fixed: "text-emerald-300",
-  new: "text-sky-300",
+  new: "text-cyan-300",
 };
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "text-emerald-300",
-  FAIL: "text-rose-300",
+  FAIL: "text-red-300",
   UNKNOWN: "text-amber-300",
   NOT_RUN: "text-amber-300",
 };
@@ -112,7 +112,7 @@ function UnitRow({
   return (
     <div className="flex items-baseline gap-2 text-micro" data-testid={`check-unit-${unit.subject || "recipe"}`}>
       <span className={`shrink-0 ${CLASS_TONE[unit.class] ?? "text-muted-foreground"}`}>{CLASS_LABEL[unit.class] ?? unit.class}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={unit.subject || recipeTitle}>
+      <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={unit.subject || recipeTitle}>
         {unit.subject || `${recipeTitle} (whole recipe)`}
       </span>
       <span className="shrink-0 font-mono text-muted-foreground">{marks(unit)}</span>
@@ -161,7 +161,7 @@ function DifferentialCard({
   return (
     <div className="border-t border-border/60 py-2 first:border-t-0" data-testid={`check-result-${result.recipe.id}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-neutral-200" title={result.recipe.command.join(" ")}>
+        <span className="min-w-0 flex-1 truncate text-label text-foreground" title={result.recipe.command.join(" ")}>
           {title}
         </span>
         <span className={`text-caption ${VERDICT_TONE[result.head_verdict] ?? "text-muted-foreground"}`}>
@@ -203,7 +203,7 @@ function DifferentialCard({
       {flagged.map((row) => (
         <div key={row.test} className="mt-1 flex items-baseline gap-2 text-micro" data-testid="check-adequacy">
           <span className="shrink-0 text-amber-300">Doesn't demonstrate the change</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={row.reason}>{row.test}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={row.reason}>{row.test}</span>
           {proof && (
             <UiButton type="button" size="xs" variant="ghost" onClick={() => onProof(result, row.test, row.file)}>
               Request proof
@@ -213,7 +213,7 @@ function DifferentialCard({
       ))}
       {result.claims.map((row) => (
         <div key={row.claim.key} className="mt-1 text-micro" data-testid="check-claim">
-          <span className={row.verdict === "contradicted" ? "text-rose-300" : row.verdict === "confirmed" ? "text-emerald-300" : "text-muted-foreground"}>
+          <span className={row.verdict === "contradicted" ? "text-red-300" : row.verdict === "confirmed" ? "text-emerald-300" : "text-muted-foreground"}>
             Claim {CLAIM_LABEL[row.verdict]?.toLowerCase() ?? row.verdict}
           </span>{" "}
           <span className="text-muted-foreground">
@@ -382,7 +382,7 @@ export default function CheckRecipesPanel({
           <div>
             {entries.map((entry) => (
               <div key={entry.id} className="flex items-baseline gap-2 py-0.5 text-micro" data-testid={`check-entry-${entry.id}`}>
-                <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={entry.reason}>
+                <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={entry.reason}>
                   {entry.id}
                 </span>
                 <span className="text-muted-foreground">{entry.recipes.join(", ")}</span>
@@ -399,12 +399,12 @@ export default function CheckRecipesPanel({
           </div>
         )}
         {snapshot.errors.map((row) => (
-          <div key={row} className="text-micro text-rose-300/80">{row}</div>
+          <div key={row} className="text-micro text-red-300/80">{row}</div>
         ))}
         {snapshot.results.map((result) => (
           <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof} onSendAutofix={sendAutofix} />
         ))}
-        {message && <div className="text-micro text-neutral-300" role="status">{message}</div>}
+        {message && <div className="text-micro text-subtle" role="status">{message}</div>}
       </div>
     </PanelCard>
   );

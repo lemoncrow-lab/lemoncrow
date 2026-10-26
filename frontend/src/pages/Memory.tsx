@@ -4,7 +4,7 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
+  DialogLede,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -108,15 +108,15 @@ export default function Memory() {
   }, [facts]);
 
   const VENDOR_COLORS: Record<string, string> = {
-    anthropic: "text-orange-300",
-    claude: "text-orange-300",
-    openai: "text-green-300",
-    codex: "text-green-300",
-    google: "text-blue-300",
-    gemini: "text-blue-300",
-    copilot: "text-brand-400",
+    anthropic: "text-amber-300",
+    claude: "text-amber-300",
+    openai: "text-emerald-300",
+    codex: "text-emerald-300",
+    google: "text-cyan-300",
+    gemini: "text-cyan-300",
+    copilot: "text-muted-foreground",
     opencode: "text-cyan-300",
-    lemoncode: "text-yellow-300",
+    lemoncode: "text-amber-300",
   };
 
   useEffect(() => {
@@ -322,7 +322,7 @@ export default function Memory() {
           )}
           {facts !== null && facts.length === 0 && (
             <EmptyState
-              icon={<Hexagon size={32} />}
+              icon={<Hexagon size={20} />}
               title="No cross-vendor facts yet"
               description="Facts are shared across vendors after they are written to the memory registry."
             />
@@ -331,24 +331,24 @@ export default function Memory() {
             <Card key={vendor}>
               <div
                 className={cx(
-                  "border-b border-border px-4 py-2 text-xs font-bold uppercase tracking-widest",
-                  VENDOR_COLORS[vendor] ?? "text-neutral-400"
+                  "border-b border-border px-4 py-2 text-body font-semibold uppercase tracking-widest",
+                  VENDOR_COLORS[vendor] ?? "text-muted-foreground"
                 )}
               >
                 {vendor}
               </div>
-              <ul className="divide-y divide-neutral-800">
+              <ul className="divide-y divide-border">
                 {vfacts.map((f) => (
-                  <li key={f.fact_id} className="px-4 py-3 text-xs">
+                  <li key={f.fact_id} className="px-4 py-3 text-body">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="font-semibold text-neutral-200">{f.source_kind}</p>
-                        <p className="mt-0.5 text-neutral-400">{f.content}</p>
+                        <p className="font-semibold text-foreground">{f.source_kind}</p>
+                        <p className="mt-0.5 text-muted-foreground">{f.content}</p>
                         {f.source_path && (
-                          <p className="mt-0.5 font-mono text-neutral-400">{f.source_path}{f.line_number != null ? `:${f.line_number}` : ""}</p>
+                          <p className="mt-0.5 font-mono text-muted-foreground">{f.source_path}{f.line_number != null ? `:${f.line_number}` : ""}</p>
                         )}
                       </div>
-                      <span className="shrink-0 text-neutral-400">{f.fact_id.slice(0, 8)}</span>
+                      <span className="shrink-0 text-muted-foreground">{f.fact_id.slice(0, 8)}</span>
                     </div>
                   </li>
                 ))}
@@ -376,7 +376,7 @@ export default function Memory() {
         />
       </section>
 
-      {error && <p className="text-xs text-red-300">{error}</p>}
+      {error && <p className="text-body text-red-300">{error}</p>}
 
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
@@ -411,7 +411,7 @@ export default function Memory() {
               {visibleAgentIds.map((agentId) => (
                 <span
                   key={agentId}
-                  className="px-2 py-1 border border-border text-neutral-400"
+                  className="px-2 py-1 border border-border text-muted-foreground"
                 >
                   {hostTag(agentId)} · {agentId}
                 </span>
@@ -420,7 +420,7 @@ export default function Memory() {
           </div>
 
           {loadingBlocks && (
-            <p className="text-xs text-neutral-400 pt-3">
+            <p className="text-body text-muted-foreground pt-3">
               Loading memory blocks...
             </p>
           )}
@@ -428,11 +428,11 @@ export default function Memory() {
           {!loadingBlocks && (
             <div className="pt-3 space-y-4">
               <div>
-                <h3 className="text-label uppercase tracking-widest text-neutral-400">
+                <h3 className="text-label uppercase tracking-widest text-muted-foreground">
                   Pinned
                 </h3>
                 {pinnedBlocks.length === 0 ? (
-                  <p className="text-xs text-neutral-400 mt-2">
+                  <p className="text-body text-muted-foreground mt-2">
                     No pinned blocks have been saved for the visible agents yet.
                   </p>
                 ) : (
@@ -448,11 +448,11 @@ export default function Memory() {
               </div>
 
               <div>
-                <h3 className="text-label uppercase tracking-widest text-neutral-400">
+                <h3 className="text-label uppercase tracking-widest text-muted-foreground">
                   Recent
                 </h3>
                 {recentBlocks.length === 0 ? (
-                  <p className="text-xs text-neutral-400 mt-2">
+                  <p className="text-body text-muted-foreground mt-2">
                     No editable core blocks are present yet. Archived passages
                     can still exist below.
                   </p>
@@ -486,15 +486,15 @@ export default function Memory() {
 
           <div className="pt-3 space-y-5">
             <div>
-              <h3 className="text-label uppercase tracking-widest text-neutral-400">
+              <h3 className="text-label uppercase tracking-widest text-muted-foreground">
                 Recent archived passages
               </h3>
               {loadingPassages ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-muted-foreground mt-2">
                   Loading archived passages...
                 </p>
               ) : recentPassages.length === 0 ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-muted-foreground mt-2">
                   No archived passages are visible yet.
                 </p>
               ) : (
@@ -504,18 +504,18 @@ export default function Memory() {
                       key={passage.id}
                       className="py-2 border-b border-border"
                     >
-                      <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest text-neutral-400">
+                      <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest text-muted-foreground">
                         <span className="px-2 py-0.5 border border-border text-cyan-300">
                           {hostTag(passage.agent_id)}
                         </span>
-                        <span className="px-2 py-0.5 border border-border text-neutral-400">
+                        <span className="px-2 py-0.5 border border-border text-muted-foreground">
                           {passage.agent_id}
                         </span>
-                        <span className="px-2 py-0.5 border border-border text-neutral-400">
+                        <span className="px-2 py-0.5 border border-border text-muted-foreground">
                           {passage.source}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                      <p className="mt-2 text-body text-subtle whitespace-pre-wrap leading-relaxed">
                         {passage.text}
                       </p>
                     </li>
@@ -525,11 +525,11 @@ export default function Memory() {
             </div>
 
             <div>
-              <h3 className="text-label uppercase tracking-widest text-neutral-400">
+              <h3 className="text-label uppercase tracking-widest text-muted-foreground">
                 Search results
               </h3>
               {recallResults.length === 0 ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-muted-foreground mt-2">
                   No archival search results yet.
                 </p>
               ) : (
@@ -539,24 +539,24 @@ export default function Memory() {
                       key={passage.id}
                       className="py-2 border-b border-border"
                     >
-                      <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest text-neutral-400">
+                      <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest text-muted-foreground">
                         {passage.agent_id && (
                           <>
                             <span className="px-2 py-0.5 border border-border text-cyan-300">
                               {hostTag(passage.agent_id)}
                             </span>
-                            <span className="px-2 py-0.5 border border-border text-neutral-400">
+                            <span className="px-2 py-0.5 border border-border text-muted-foreground">
                               {passage.agent_id}
                             </span>
                           </>
                         )}
                         {passage.source && (
-                          <span className="px-2 py-0.5 border border-border text-neutral-400">
+                          <span className="px-2 py-0.5 border border-border text-muted-foreground">
                             {passage.source}
                           </span>
                         )}
                       </div>
-                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                      <p className="mt-2 text-body text-subtle whitespace-pre-wrap leading-relaxed">
                         {passage.text}
                       </p>
                       <div className="mt-1">
@@ -566,12 +566,12 @@ export default function Memory() {
                             href={safeHref(passage.source_ref) ?? undefined}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-xs text-amber-300 underline"
+                            className="text-body text-amber-300 underline"
                           >
                             Source
                           </a>
                         ) : (
-                          <span className="text-xs text-neutral-400">
+                          <span className="text-body text-muted-foreground">
                             No source
                           </span>
                         )}
@@ -595,24 +595,24 @@ export default function Memory() {
           <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>Review memory block update</DialogTitle>
-              <DialogDescription>
-                Label: {editDraft.block.label}
-              </DialogDescription>
             </DialogHeader>
+            <DialogLede>
+              Label: {editDraft.block.label}
+            </DialogLede>
             <DialogBody>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <h3 className="text-label uppercase tracking-widest text-neutral-400 mb-1">
+                  <h3 className="text-label uppercase tracking-widest text-muted-foreground mb-1">
                     Current
                   </h3>
-                  <pre className="min-h-40 whitespace-pre-wrap rounded-md border border-border/70 bg-surface-code p-3 text-xs text-neutral-300">
+                  <pre className="min-h-40 whitespace-pre-wrap rounded-md border border-border/70 bg-surface-code p-3 text-body text-subtle">
                     {editDraft.block.value}
                   </pre>
                 </div>
                 <div>
                   <label
                     htmlFor="memory-next-value"
-                    className="text-label uppercase tracking-widest text-neutral-400 mb-1 block"
+                    className="text-label uppercase tracking-widest text-muted-foreground mb-1 block"
                   >
                     New
                   </label>
@@ -631,7 +631,7 @@ export default function Memory() {
               </div>
 
               {conflictMessage && (
-                <p className="text-xs text-red-300 mt-3">{conflictMessage}</p>
+                <p className="text-body text-red-300 mt-3">{conflictMessage}</p>
               )}
             </DialogBody>
             <DialogFooter>
@@ -649,7 +649,7 @@ export default function Memory() {
                 aria-label="Save memory block edit"
                 onClick={submitEdit}
                 size="sm"
-                variant="default"
+                variant="solid"
               >
                 Save
               </UiButton>

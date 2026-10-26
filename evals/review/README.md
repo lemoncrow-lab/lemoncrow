@@ -10,3 +10,5 @@ uv run lc eval review gate-h report   # Gate H qualification vs gate-h/baseline.
 ```
 
 Every case in `corpus/builtin` is synthetic, Apache-2.0, and states its provenance in its own file. Never add customer Reviews here: organization corpora live outside this checkout and need an explicit opt-in.
+
+`real_prs.yaml` is the real-pull-request benchmark corpus (public pull requests pinned by commit, labels only where a later fix commit proves the bug) and `reports/` is where `lc dev eval review benchmark` writes its reports. See [docs/reference/review-benchmark.md](../../docs/reference/review-benchmark.md).

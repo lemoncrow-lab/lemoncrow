@@ -210,6 +210,85 @@ def test_hosted_durable_submitter_receives_the_persisted_plan(tmp_path: Path) ->
     assert args[2] == "deep" and args[3] == "manual"
 
 
+def test_a_local_reader_with_no_ai_model_says_what_lc_review_ai_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first thing the Reader says about AI is plain words and the CLI's next steps, from the CLI's own source."""
+
+    import shutil
+
+    from lemoncrow.pro.capabilities.review.pr_bot import local
+
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    review = _review(tmp_path)
+    ai = _get(review, "projection").json()["ai_review"]
+    help_ = ai["setup_help"]
+    assert help_ == local.no_route_help(lambda _name: None).to_wire()
+    assert ai["error"] == help_["headline"] == "No AI model is set up."
+    # Every line the terminal prints is made of the parts the Reader shows.
+    key, agent = help_["steps"]
+    lines = local.no_route_text(lambda _name: None).splitlines()
+    assert lines[0] == f"{help_['headline']} {key['lead']}  {key['command']}   {key['note']}"
+    assert lines[1] == f"{agent['lead']}  {agent['command']}   {agent['note']}"
+    assert lines[2] == f"Details: {help_['docs_url']}"
+    assert "export ANTHROPIC_API_KEY=" in key["command"] and "lc review --ai --agent claude" in agent["command"]
+    assert "provider is disabled" not in json.dumps(ai)
+    plan = _get(review, "run-plan").json()
+    assert plan["ai_availability"] == {"available": False, "reason": local.NO_ROUTE_REASON, "executor": "local"}
+
+
+def test_a_configured_local_route_shows_no_setup_help(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "claude")
+    ai = _get(_review(tmp_path), "projection").json()["ai_review"]
+    assert "setup_help" not in ai and not ai["error"]
+
+
+def test_hosted_keeps_its_operator_wording_for_a_route_the_operator_has_not_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A viewer of a hosted workspace is not the one who sets a model up: no terminal steps are offered there."""
+
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    review = _review(tmp_path, ai_review_submitter=lambda *_a, **_k: {"status": "queued"})
+    ai = _get(review, "projection").json()["ai_review"]
+    assert "setup_help" not in ai
+    assert "provider is disabled" in ai["error"]
+
+
+def test_a_snapshot_with_no_source_tree_and_no_checkout_lists_no_surfaces_instead_of_failing(tmp_path: Path) -> None:
+    """A hosted pull request keeps only its changed files and the server clones nothing: the Reader's first load must not
+    answer 409 "not a git repository" (and print a banner on every Review) for the absence of something never kept."""
+
+    review = _review(tmp_path)
+    scratch = tmp_path / "scratch"  # what a hosted server hands the Reader: an empty directory, not a checkout
+    scratch.mkdir()
+    app = FastAPI()
+    register_review_api(
+        app,
+        review.store,
+        auth_dependency=make_token_dependency(TOKEN),
+        repo_root=scratch,
+        port=PORT,
+        session_repo_identity=str((tmp_path / "repo").resolve()),  # the Review was captured elsewhere, as in hosted
+        source_refresh_enabled=False,
+        live_journal_enabled=False,
+    )
+    client = TestClient(app, base_url=BASE, raise_server_exceptions=False)
+    listed = client.get(f"/api/reviews/{review.review_id}/surfaces", headers=HEADERS)
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == {"revision_id": review.revision_id, "surfaces": [], "issues": []}
+    # Asking for a surface's preview is still refused, in words that say why and name no path or repository.
+    preview = client.get(
+        f"/api/reviews/{review.review_id}/surface-preview",
+        params={"provider": "web", "surface_id": "home"},
+        headers=HEADERS,
+    )
+    assert preview.status_code == 409
+    assert "no source tree was kept for this Snapshot" in preview.json()["detail"]
+    assert "git repository" not in preview.json()["detail"] and "/" not in preview.json()["detail"].replace("/ ", " ")
+
+
 def test_run_specific_previews_then_adds_only_and_rejects_unknown_ids(tmp_path: Path) -> None:
     review = _review(tmp_path, base_config="review:\n  effort: quick\n")
     before = _get(review, "run-plan").json()["plan"]

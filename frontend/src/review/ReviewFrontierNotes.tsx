@@ -50,8 +50,8 @@ export default function ReviewFrontierNotes({
 
   return (
     <div className="flex shrink-0 items-start gap-2 border-b border-border/50 px-3 py-1 text-caption text-muted-foreground" role="note" data-testid="review-frontier-notes">
-      <Info size={12} className="mt-0.5 shrink-0 opacity-65" aria-hidden="true" />
-      <span className="shrink-0 font-medium text-neutral-400">Base movement</span>
+      <Info size={14} className="mt-0.5 shrink-0 opacity-65" aria-hidden="true" />
+      <span className="shrink-0 font-medium text-muted-foreground">Base movement</span>
       <span className="min-w-0 break-words">{notes.join(" · ")}</span>
     </div>
   );

@@ -76,7 +76,7 @@ function HostIcon({ id }: { id: string }) {
   const src = SRC_MAP[id];
   if (!src) {
     return (
-      <span className="inline-flex h-7 w-7 items-center justify-center border border-neutral-700 bg-muted text-caption font-bold text-neutral-300">
+      <span className="inline-flex h-7 w-7 items-center justify-center border border-border bg-muted text-caption font-semibold text-subtle">
         ◌
       </span>
     );
@@ -154,10 +154,10 @@ export function HostsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Hosts
       </h2>
-      <p className="text-xs text-neutral-400">
+      <p className="text-body text-muted-foreground">
         LemonCrow can configure these host surfaces. Detected hosts are shown
         first, but unsupported gaps are still visible so you can wire them up
         directly.
@@ -166,7 +166,6 @@ export function HostsSection() {
         <EmptyState
           title="No supported hosts found"
           description="Host configs are loaded from LemonCrow's integration catalog."
-          className="p-4"
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -178,7 +177,7 @@ export function HostsSection() {
                 </span>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-base font-semibold text-foreground">
+                    <div className="text-title font-semibold text-foreground">
                       {host.label}
                     </div>
                     <Chip
@@ -192,15 +191,15 @@ export function HostsSection() {
                       </Chip>
                     )}
                   </div>
-                  <p className="text-sm text-neutral-400">
+                  <p className="text-heading text-muted-foreground">
                     {host.description ?? HOST_DESC[host.host_id] ?? ""}
                   </p>
                   {host.install_command && (
                     <div className="space-y-1">
-                      <div className="text-caption uppercase tracking-widest text-neutral-400 font-mono">
+                      <div className="text-caption uppercase tracking-widest text-muted-foreground font-mono">
                         Install
                       </div>
-                      <code className="block break-all border border-border bg-background px-2 py-1 text-caption text-neutral-300">
+                      <code className="block break-all border border-border bg-background px-2 py-1 text-caption text-subtle">
                         {host.install_command}
                       </code>
                     </div>
@@ -241,17 +240,17 @@ export function AgentsSection() {
   if (agents === null) {
     return (
       <section className="space-y-3">
-        <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+        <h2 className="font-mono text-tag uppercase text-muted-foreground">
           Agents
         </h2>
-        <p className="text-xs text-neutral-400">Loading…</p>
+        <p className="text-body text-muted-foreground">Loading…</p>
       </section>
     );
   }
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Agents
       </h2>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -289,12 +288,12 @@ function AgentCard({
       header={
         <div className="flex min-w-0 items-start gap-4">
           <div className={`mt-0.5 shrink-0 ${color}`}>
-            <Icon size={24} />
+            <Icon size={20} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-3">
               <span
-                className={`${bg} ${color} font-mono text-xs px-2 py-1 transition-transform inline-flex items-center gap-2 ${
+                className={`${bg} ${color} font-mono text-body px-2 py-1 transition-transform inline-flex items-center gap-2 ${
                   expanded ? "rotate-0" : ""
                 }`}
               >
@@ -302,7 +301,7 @@ function AgentCard({
                   size={14}
                   className={`transition-transform ${expanded ? "rotate-90" : ""}`}
                 />
-                <span className="font-bold text-sm">{agent.name}</span>
+                <span className="font-semibold text-heading">{agent.name}</span>
               </span>
               {agent.model && (
                 <Chip
@@ -313,7 +312,7 @@ function AgentCard({
                 </Chip>
               )}
             </div>
-            <p className="text-xs text-neutral-400">{agent.description}</p>
+            <p className="text-body text-muted-foreground">{agent.description}</p>
           </div>
         </div>
       }
@@ -321,7 +320,7 @@ function AgentCard({
       {/* Tools */}
       <div>
         <FieldLabel className="mb-2">
-          <ChevronRight size={10} className="inline mr-1" /> tools
+          <ChevronRight size={14} className="inline mr-1" /> tools
         </FieldLabel>
         <div className="flex flex-wrap gap-1">
           {agent.tools.map((t) => (
@@ -340,9 +339,9 @@ function AgentCard({
       {agent.content && (
         <div>
           <FieldLabel className="mb-2">
-            <ChevronRight size={10} className="inline mr-1" /> instructions
+            <ChevronRight size={14} className="inline mr-1" /> instructions
           </FieldLabel>
-          <pre className="text-caption bg-background px-2 py-2 text-neutral-400 font-mono border border-neutral-700 block overflow-auto max-h-48 whitespace-pre-wrap">
+          <pre className="text-caption bg-background px-2 py-2 text-muted-foreground font-mono border border-border block overflow-auto max-h-48 whitespace-pre-wrap">
             {agent.content}
           </pre>
         </div>
@@ -351,7 +350,7 @@ function AgentCard({
       {/* Source */}
       <div className="pt-2 border-t border-border">
         <FieldLabel className="mb-2">Source</FieldLabel>
-        <code className="text-caption bg-background px-2 py-1 text-neutral-400 font-mono border border-neutral-700 block break-all">
+        <code className="text-caption bg-background px-2 py-1 text-muted-foreground font-mono border border-border block break-all">
           {agent.file}
         </code>
       </div>
@@ -379,17 +378,17 @@ export function SkillsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Skills
       </h2>
-      <p className="text-xs text-neutral-400 mb-3">
+      <p className="text-body text-muted-foreground mb-3">
         {totalSkillCount === null
           ? "Loading skill catalog..."
           : `${totalSkillCount} skills available on the public host surface.`}
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {visibleSkills.length === 0 ? (
-          <EmptyState title="Loading skills..." className="p-4 sm:col-span-2" />
+          <EmptyState title="Loading skills..." className="sm:col-span-2" />
         ) : (
           visibleSkills.map((s) => (
             <SkillCard
@@ -452,14 +451,14 @@ function SkillCard({
           <skill.icon size={14} className="text-emerald-300" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-label font-mono font-medium text-neutral-200 truncate">
+          <div className="text-label font-mono font-medium text-foreground truncate">
             {skill.name}
           </div>
-          <div className="text-caption text-neutral-400 leading-tight">
+          <div className="text-caption text-muted-foreground leading-tight">
             {skill.desc}
           </div>
         </div>
-        <span className="text-neutral-400">
+        <span className="text-muted-foreground">
           {loading ? (
             "..."
           ) : isExpanded ? (
@@ -471,7 +470,7 @@ function SkillCard({
       </UiButton>
       {isExpanded && content && (
         <div className="mt-1 pt-2 border-t border-border">
-          <pre className="text-neutral-400 whitespace-pre-wrap font-mono max-h-60 overflow-y-auto bg-background/50 p-2 text-caption">
+          <pre className="text-muted-foreground whitespace-pre-wrap font-mono max-h-60 overflow-y-auto bg-background/50 p-2 text-caption">
             {content}
           </pre>
         </div>
@@ -508,7 +507,7 @@ const NS_META: Record<
   reasoning: {
     icon: Brain,
     label: "reasoning",
-    color: "text-brand-400 border-brand-900/50 bg-brand-950/10",
+    color: "text-muted-foreground border-border/50 bg-background/10",
   },
   code_intel: {
     icon: Command,
@@ -518,7 +517,7 @@ const NS_META: Record<
   retrieval: {
     icon: Search,
     label: "retrieval",
-    color: "text-sky-300 border-sky-900/50 bg-sky-950/10",
+    color: "text-cyan-300 border-cyan-900/50 bg-cyan-950/10",
   },
   file_io: {
     icon: HardDrive,
@@ -528,7 +527,7 @@ const NS_META: Record<
   execution: {
     icon: Terminal,
     label: "execution",
-    color: "text-orange-300 border-orange-900/50 bg-orange-950/10",
+    color: "text-amber-300 border-amber-900/50 bg-amber-950/10",
   },
   state: {
     icon: Archive,
@@ -579,10 +578,10 @@ export function ToolsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Tools
       </h2>
-      {!mcpTools && <EmptyState title="Loading tools…" className="p-4" />}
+      {!mcpTools && <EmptyState title="Loading tools…" />}
       {mcpTools &&
         (() => {
           const seen = new Set<string>();
@@ -614,7 +613,7 @@ export function ToolsSection() {
 
           return (
             <div className="grid gap-5 sm:grid-cols-2">
-              <p className="text-caption font-mono text-neutral-400 sm:col-span-2">
+              <p className="text-caption font-mono text-muted-foreground sm:col-span-2">
                 {deduped.length} tools on stdio server: <code>lc mcp</code>
               </p>
               {nsOrder
@@ -624,17 +623,17 @@ export function ToolsSection() {
                     icon: Circle,
                     label: ns,
                     color:
-                      "text-neutral-400 border-border bg-muted/30",
+                      "text-muted-foreground border-border bg-muted/30",
                   };
                   const tools = groups[ns];
                   return (
                     <div key={ns}>
                       <div className="flex items-center gap-2 mb-2">
-                        <meta.icon size={14} className="text-neutral-400" />
-                        <span className="text-caption uppercase tracking-widest font-mono text-neutral-400">
+                        <meta.icon size={14} className="text-muted-foreground" />
+                        <span className="text-caption uppercase tracking-widest font-mono text-muted-foreground">
                           {meta.label}
                         </span>
-                        <span className="text-caption text-neutral-400 font-mono">
+                        <span className="text-caption text-muted-foreground font-mono">
                           ({tools.length})
                         </span>
                       </div>
@@ -660,13 +659,13 @@ export function ToolsSection() {
                             >
                               <div className="flex items-center gap-3 px-4 py-2.5">
                                 <span
-                                  className={`w-1.5 h-1.5 flex-shrink-0 ${tool.available ? "bg-emerald-400" : "bg-neutral-600"}`}
+                                  className={`w-1.5 h-1.5 flex-shrink-0 ${tool.available ? "bg-emerald-400" : "bg-muted-foreground"}`}
                                 />
-                                <span className="font-mono font-semibold text-neutral-200 text-xs flex-1">
+                                <span className="font-mono font-semibold text-foreground text-body flex-1">
                                   {tool.tool_name}
                                 </span>
                                 {primaryEnum && (
-                                  <span className="text-caption font-bold text-cyan-300 border border-cyan-500/30 px-1 py-0.5 mr-2">
+                                  <span className="text-caption font-semibold text-cyan-300 border border-cyan-500/30 px-1 py-0.5 mr-2">
                                     {primaryEnum.options.length}{" "}
                                     {primaryEnum.name}
                                     {primaryEnum.options.length === 1
@@ -675,16 +674,16 @@ export function ToolsSection() {
                                   </span>
                                 )}
                                 {isDev && (
-                                  <span className="text-caption font-bold text-amber-300 border border-amber-500/30 px-1 py-0.5 mr-2">
+                                  <span className="text-caption font-semibold text-amber-300 border border-amber-500/30 px-1 py-0.5 mr-2">
                                     DEV
                                   </span>
                                 )}
                                 {isDev && tool.mode === "passive" && (
-                                  <span className="text-caption font-bold text-neutral-400 border border-neutral-700 px-1 py-0.5 mr-2">
+                                  <span className="text-caption font-semibold text-muted-foreground border border-border px-1 py-0.5 mr-2">
                                     PASSIVE
                                   </span>
                                 )}
-                                <span className="text-neutral-400">
+                                <span className="text-muted-foreground">
                                   {isExpanded ? (
                                     <ChevronUp size={14} />
                                   ) : (
@@ -695,17 +694,17 @@ export function ToolsSection() {
                               {isExpanded && (
                                 <div className="px-4 pb-3 pt-1 border-t border-border/50">
                                   {cleanDescription ? (
-                                    <p className="text-xs text-neutral-300 leading-relaxed">
+                                    <p className="text-body text-subtle leading-relaxed">
                                       {cleanDescription}
                                     </p>
                                   ) : (
-                                    <p className="text-xs text-neutral-400 italic">
+                                    <p className="text-body text-muted-foreground italic">
                                       No description available.
                                     </p>
                                   )}
                                   <div className="mt-2 flex items-center gap-3">
                                     <span
-                                      className={`text-caption font-mono px-2 py-0.5 ${tool.available ? "bg-emerald-900/30 text-emerald-300" : "bg-neutral-800 text-neutral-400"}`}
+                                      className={`text-caption font-mono px-2 py-0.5 ${tool.available ? "bg-emerald-900/30 text-emerald-300" : "bg-accent text-muted-foreground"}`}
                                     >
                                       {tool.mode === "passive"
                                         ? "passive capture"
@@ -713,7 +712,7 @@ export function ToolsSection() {
                                           ? "available"
                                           : "unavailable"}
                                     </span>
-                                    <code className="text-caption font-mono text-neutral-400">
+                                    <code className="text-caption font-mono text-muted-foreground">
                                       {tool.tool_name}
                                     </code>
                                   </div>
@@ -722,7 +721,7 @@ export function ToolsSection() {
                                       <div className="mt-4 space-y-3">
                                         <FieldLabel className="mb-1">
                                           <ChevronRight
-                                            size={10}
+                                            size={14}
                                             className="inline mr-1"
                                           />{" "}
                                           enum params
@@ -732,8 +731,8 @@ export function ToolsSection() {
                                             key={`${tool.tool_name}-${param.name}`}
                                             className="space-y-2"
                                           >
-                                            <div className="flex items-center gap-2 text-caption uppercase tracking-widest text-neutral-400 font-mono">
-                                              <code className="border border-neutral-700 bg-background px-1.5 py-0.5 text-neutral-300 normal-case">
+                                            <div className="flex items-center gap-2 text-caption uppercase tracking-widest text-muted-foreground font-mono">
+                                              <code className="border border-border bg-background px-1.5 py-0.5 text-subtle normal-case">
                                                 {param.name}
                                               </code>
                                               <span>
@@ -741,7 +740,7 @@ export function ToolsSection() {
                                               </span>
                                             </div>
                                             {param.description && (
-                                              <p className="text-caption text-neutral-400">
+                                              <p className="text-caption text-muted-foreground">
                                                 {param.description}
                                               </p>
                                             )}
@@ -799,10 +798,10 @@ function HealthSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Health
       </h2>
-      <p className="text-xs text-neutral-400">
+      <p className="text-body text-muted-foreground">
         Daemon liveness plus per-host adapter status. "Detected" reflects
         whether LemonCrow has ever seen a session from that host; last import
         below is the real per-host import time, not detection.
@@ -823,18 +822,18 @@ function HealthSection() {
         />
       </div>
       {hosts && hosts.length === 0 ? (
-        <EmptyState title="No host adapters found" className="p-4" />
+        <EmptyState title="No host adapters found" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {(hosts ?? []).map((host) => (
             <Card key={host.host_id} className="p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-neutral-200">{host.label}</span>
+                <span className="text-heading text-foreground">{host.label}</span>
                 <Chip tone={host.status === "active" ? "success" : "neutral"}>
                   {host.status}
                 </Chip>
               </div>
-              <div className="mt-1 text-caption text-neutral-400">
+              <div className="mt-1 text-caption text-muted-foreground">
                 {host.last_import_at
                   ? `Last import: ${fmtDate(host.last_import_at)} · ${host.imported_session_count ?? 0} sessions`
                   : "No imports recorded yet."}
@@ -867,7 +866,7 @@ export default function System({ forcedSection }: { forcedSection?: Section }) {
   const active = forcedSection ?? (section as Section) ?? "health";
 
   return (
-    <PageFrame className="space-y-4 text-sm">
+    <PageFrame className="space-y-4 text-heading">
       {!forcedSection && (
         <UiButton asChild variant="ghost" size="sm" className="-ml-2 w-fit">
           <Link to="/settings/advanced"><ArrowLeft size={14} />Back to Advanced</Link>

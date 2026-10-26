@@ -21,7 +21,7 @@ _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
 	hosted-dev hosted-prod hosted-up hosted-down hosted-status hosted-reset hosted-ui hosted-ui-build hosted-test review-hosted-test-full \
 	_rehearse-install _verify-hosted-artifact _verify-hosted-e2e \
 	review-demo review-demo-diff review-demo-plugin review-e2e perf-slo perf-slo-product perf-product \
-	docs-check status-index \
+	docs-check status-index benchmark-publish \
 	test test-fast test-cov test-full gate-g gate-k release-gate lint format-check format typecheck verify pre-commit \
 	proof-cost-quality import clean \
 	_ensure_hooks
@@ -271,7 +271,7 @@ release: release-prepared ## Push, mirror and tag the exact commit release-quali
 _stale = $(if $(FAST),$(shell [ -f $(1) ] && [ -z "$$(find $(2) scripts/build_*.sh server/review-engine-files.txt -type f -newer $(1) -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -print -quit 2>/dev/null)" ] && echo fresh),)
 
 release-stage: ## Stage release assets (scripts/stage_release.sh) in RELEASE_STAGE; FAST=1 reuses fresh artifacts
-	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
+	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src $(wildcard design)),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
 	@$(if $(call _stale,dist/lemoncrow-review-client.tar.gz,src client/src),$(call _log,info,fast: review client fresh),$(MAKE) --no-print-directory review-client-build)
 	@$(if $(call _stale,dist/lemoncrow-runtime-client.tar.gz,src client/src),$(call _log,info,fast: runtime client fresh),$(MAKE) --no-print-directory runtime-client-build)
 	@bash scripts/stage_release.sh "$(RELEASE_STAGE)"
@@ -438,7 +438,20 @@ sync-agent-context: ## Regenerate host instruction surfaces from integrations/ag
 	uv run python scripts/sync_agent_context.py
 
 docs-check: ## Run docs and repo-governance checks
-	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py $(wildcard tests/gateway/test_status_index.py) -q
+	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py tests/gateway/test_code_review_benchmark.py $(wildcard tests/gateway/test_status_index.py) -q
+
+# The code-review benchmark table: README section and the landing site's data copy, rendered from
+# evals/review/published/code_review_benchmark.json. Nothing renders until a LemonCrow run is published there.
+#   make benchmark-publish                         # render the README (and ../landing, if that checkout exists)
+#   make benchmark-publish RUN=report.json         # first merge a finished run (its benchmark_summary) into the JSON
+#   make benchmark-publish RUN=r.json RESCORED=ID  # the run scored another tool's own comments (optional row)
+#   make benchmark-publish LANDING=/path/to/landing
+LANDING ?= ../landing
+benchmark-publish: ## Render the code-review benchmark table into the README and the landing site (RUN=, RESCORED=, LANDING=)
+	@uv run python scripts/render_code_review_benchmark.py \
+		$(if $(RUN),--from-run "$(RUN)") $(if $(RESCORED),--rescored "$(RESCORED)") \
+		$(if $(wildcard $(LANDING)/src/data),--landing "$(LANDING)")
+	@$(if $(wildcard $(LANDING)/src/data),:,echo "landing checkout not found at $(LANDING) (set LANDING=...): only the README was rendered")
 
 status-index: ## Render docs/status/README.md from docs/status/capabilities.toml (private checkout only)
 	uv run python scripts/render_status_index.py

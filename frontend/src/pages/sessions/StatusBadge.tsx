@@ -31,7 +31,7 @@ export function StatusBadge({
   return (
     <span
       className={cx(
-        "text-caption px-2 py-0.5 border uppercase font-black tracking-[0.2em] font-mono inline-block",
+        "text-caption px-2 py-0.5 border uppercase font-semibold tracking-tag font-mono inline-block",
         statusBadgeClass(status),
         className
       )}

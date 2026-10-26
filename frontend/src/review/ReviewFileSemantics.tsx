@@ -23,7 +23,7 @@ function shortDigest(value: string): string {
 function Arrow({ before, after, mono = true }: { before: ReactNode; after: ReactNode; mono?: boolean }) {
   return (
     <span className={`inline-flex flex-wrap items-baseline gap-x-1.5 ${mono ? "font-mono" : ""}`}>
-      <span className="text-rose-300/90">{before}</span>
+      <span className="text-red-300/90">{before}</span>
       <span aria-hidden="true" className="text-muted-foreground">→</span>
       <span className="sr-only">to</span>
       <span className="text-emerald-300/90">{after}</span>
@@ -54,7 +54,7 @@ function specialTitle(change: ReviewSpecialChange): string {
 
 function SpecialIcon({ change }: { change: ReviewSpecialChange }) {
   const Icon = change.kind === "symlink" ? FileSymlink : change.kind === "submodule" ? FolderGit2 : change.kind === "mode" ? KeyRound : GitCompareArrows;
-  return <Icon size={14} aria-hidden="true" className="shrink-0 text-sky-300" />;
+  return <Icon size={14} aria-hidden="true" className="shrink-0 text-cyan-300" />;
 }
 
 function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
@@ -101,7 +101,7 @@ function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
         {change.warnings.length > 0 && (
           <ul role="alert" className="mt-1 space-y-0.5 rounded border border-amber-800/60 bg-amber-950/30 px-2 py-1 text-amber-200" data-testid="special-change-warning">
             {change.warnings.map((warning) => (
-              <li key={warning} className="flex items-start gap-1.5"><TriangleAlert size={12} aria-hidden="true" className="mt-0.5 shrink-0" />{warning}</li>
+              <li key={warning} className="flex items-start gap-1.5"><TriangleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />{warning}</li>
             ))}
           </ul>
         )}
@@ -117,12 +117,12 @@ function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
           <Arrow before={shortCommit(change.old_commit) || "none"} after={shortCommit(change.new_commit) || "none"} />
         </div>
         {change.repository_url
-          ? <div className="text-muted-foreground">Repository <span className="font-mono text-neutral-300">{change.repository_url}</span></div>
+          ? <div className="text-muted-foreground">Repository <span className="font-mono text-subtle">{change.repository_url}</span></div>
           : <div className="text-muted-foreground">Linked repository not recorded in .gitmodules.</div>}
         {(compare || commit) && (
           <div className="flex flex-wrap gap-3">
-            {compare && <a className="text-sky-300 hover:underline" href={compare} target="_blank" rel="noopener noreferrer">Compare commits</a>}
-            {commit && <a className="text-sky-300 hover:underline" href={commit} target="_blank" rel="noopener noreferrer">Open new commit</a>}
+            {compare && <a className="text-cyan-300 hover:underline" href={compare} target="_blank" rel="noopener noreferrer">Compare commits</a>}
+            {commit && <a className="text-cyan-300 hover:underline" href={commit} target="_blank" rel="noopener noreferrer">Open new commit</a>}
           </div>
         )}
       </>
@@ -156,16 +156,16 @@ export function SpecialGitChange({
     <section className="border-b border-border bg-background" data-testid={`special-change:${path}`} data-special-kind={change.kind} aria-label={`${specialTitle(change)}: ${path}`}>
       <div className="flex min-h-10 items-center gap-2 border-b border-border/70 px-3 py-1.5">
         <SpecialIcon change={change} />
-        <span className="min-w-0 flex-1 truncate font-mono text-body text-neutral-200" title={path}>{path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-body text-foreground" title={path}>{path}</span>
         {headerControls}
       </div>
-      <div className="space-y-1 px-4 py-3 text-caption leading-5 text-neutral-300">
-        <div className="text-label font-medium text-neutral-100">{specialTitle(change)}</div>
+      <div className="space-y-1 px-4 py-3 text-caption leading-5 text-subtle">
+        <div className="text-label font-medium text-foreground">{specialTitle(change)}</div>
         <SpecialFacts change={change} />
         {patch && (
           <details className="pt-1">
-            <summary className="cursor-pointer select-none text-muted-foreground hover:text-neutral-200">Raw Git patch</summary>
-            <pre className="mt-1 overflow-x-auto rounded border border-border/70 bg-muted/30 p-2 font-mono text-micro text-neutral-400">{patch}</pre>
+            <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">Raw Git patch</summary>
+            <pre className="mt-1 overflow-x-auto rounded border border-border/70 bg-muted/30 p-2 font-mono text-micro text-muted-foreground">{patch}</pre>
           </details>
         )}
       </div>
@@ -187,10 +187,10 @@ function DependencyRow({ change, onOpenTarget }: { change: ReviewDependencyChang
   return (
     <article className="rounded-md border border-border/80 px-2.5 py-2 text-caption" data-testid={`dependency-change:${change.ecosystem}:${change.identity}`}>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="font-medium text-neutral-100">{change.name}</span>
+        <span className="font-medium text-foreground">{change.name}</span>
         <span className="text-muted-foreground">{change.package_root ? `${change.ecosystem} · ${change.package_root}` : change.ecosystem}</span>
-        <span className={change.direct ? "text-sky-300" : "text-muted-foreground"}>{change.direct ? `direct${change.scope ? ` · ${change.scope}` : ""}` : "transitive"}</span>
-        <span className="font-mono text-neutral-200">{dependencyChangeLabel(change)}</span>
+        <span className={change.direct ? "text-cyan-300" : "text-muted-foreground"}>{change.direct ? `direct${change.scope ? ` · ${change.scope}` : ""}` : "transitive"}</span>
+        <span className="font-mono text-foreground">{dependencyChangeLabel(change)}</span>
       </div>
       <div className="mt-1 space-y-0.5 leading-4 text-muted-foreground">
         {requirementChanged && <div>Requirement · <Arrow before={change.before_requirement || "none"} after={change.after_requirement || "none"} /></div>}
@@ -219,7 +219,7 @@ function DependencyRow({ change, onOpenTarget }: { change: ReviewDependencyChang
         ))}
       </div>
       {onOpenTarget && change.target_id && (
-        <UiButton variant="link" size="compact" type="button" className="mt-1 px-0 text-caption" onClick={() => onOpenTarget(change.target_id)}>
+        <UiButton variant="link" size="compact" type="button" className="mt-1 px-0 text-meta" onClick={() => onOpenTarget(change.target_id)}>
           Open dependency target
         </UiButton>
       )}
@@ -285,8 +285,8 @@ export function DependencyFileSemantics({ review, path }: { review: ReviewDepend
   const lock = review.lockfiles.find((item) => item.path === path);
   return (
     <section className="border-b border-border bg-muted/10 px-4 py-3" data-testid={`dependency-file:${path}`} aria-label={`Package changes: ${path}`}>
-      <div className="mb-1.5 flex items-center gap-2 text-label font-medium text-neutral-100">
-        <Package size={14} aria-hidden="true" className="text-sky-300" />
+      <div className="mb-1.5 flex items-center gap-2 text-label font-medium text-foreground">
+        <Package size={14} aria-hidden="true" className="text-cyan-300" />
         <span>Package changes</span>
         <span className="text-caption font-normal text-muted-foreground">
           {lock
@@ -324,12 +324,12 @@ export function GeneratedFileSemantics({
 }) {
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/10 px-4 py-2 text-caption" data-testid={`generated-file:${path}`} aria-label={`Generated file: ${path}`}>
-      <Wand2 size={13} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-      <span className="font-medium text-neutral-200">Generated or vendored</span>
+      <Wand2 size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+      <span className="font-medium text-foreground">Generated or vendored</span>
       <span className="text-muted-foreground">
         {role.source === "gitattributes" ? "marked by trusted-base .gitattributes" : "inferred from its path"}
       </span>
-      {generatedFrom && <span className="text-neutral-300">Generated from <span className="font-mono">{generatedFrom}</span></span>}
+      {generatedFrom && <span className="text-subtle">Generated from <span className="font-mono">{generatedFrom}</span></span>}
       <span className="flex-1" />
       <UiButton variant="ghost" size="compact" type="button" aria-expanded={rawShown} onClick={onToggleRaw}>
         {rawShown ? "Hide raw diff" : "Show raw diff"}

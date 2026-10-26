@@ -14,6 +14,7 @@ read-only machine profile.
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import shutil
@@ -72,6 +73,41 @@ def parse_structured_json(output: str, *, driver: str) -> dict[str, Any]:
     if isinstance(result_text, str) and result_text.strip().startswith("{"):
         return parse_structured_json(result_text, driver=driver)
     return parsed
+
+
+def claude_usage_report(result: Mapping[str, Any]) -> dict[str, int | float]:
+    """What a claude CLI result reports about its own use, in the keys ``execute_structured`` reads.
+
+    The tokens come from its ``usage``. The CLI's ``input_tokens`` leaves out the cached prompt; the prompt tokens
+    reported here include it, the way the API routes count them, with the cached part also named on its own. The dollar
+    figure is the CLI's own ``total_cost_usd`` (its list-price estimate for the call, the share its helper model took
+    included), under ``cost_usd``: it is passed on exactly as reported, and no price is worked out here. A key is
+    absent when the result does not report it, so ``{}`` means the result reports nothing usable.
+    """
+
+    report: dict[str, int | float] = {}
+    cost = result.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and math.isfinite(cost) and cost >= 0:
+        report["cost_usd"] = float(cost)
+    usage = result.get("usage")
+    if not isinstance(usage, Mapping):
+        return report
+
+    def count(name: str) -> int | None:
+        value = usage.get(name)
+        return value if type(value) is int and value >= 0 else None
+
+    fresh, output = count("input_tokens"), count("output_tokens")
+    if fresh is None or output is None:
+        return report
+    read, written = count("cache_read_input_tokens") or 0, count("cache_creation_input_tokens") or 0
+    report.update(
+        input_tokens=fresh + read + written,
+        output_tokens=output,
+        cached_input_tokens=read,
+        cache_write_input_tokens=written,
+    )
+    return report
 
 
 def parse_codex_events(
@@ -133,13 +169,20 @@ def _run_streaming_process(
     on_stdout: Callable[[str], None],
     timeout: float = 120.0,
     cancellation: Callable[[], bool] | None = None,
+    stdin_text: str | None = None,
 ) -> tuple[int, str, str]:
-    """Run a line-oriented CLI while retaining a hard timeout and draining stderr."""
+    """Run a line-oriented CLI while retaining a hard timeout and draining stderr.
+
+    ``stdin_text`` is the CLI's standard input (a prompt too large for one argv element goes here). It is written, then
+    stdin is closed, on its own thread: a prompt bigger than the pipe buffer blocks until the CLI reads it, and that
+    must not stop the stdout/stderr readers, the timeout or the cancellation check.
+    """
 
     process = subprocess.Popen(
         list(command),
         cwd=cwd,
         env=dict(env) if env is not None else None,
+        stdin=subprocess.PIPE if stdin_text is not None else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -184,10 +227,28 @@ def _run_streaming_process(
         assert process.stderr is not None
         stderr_chunks.extend(process.stderr.readlines())
 
+    def write_stdin() -> None:
+        assert process.stdin is not None and stdin_text is not None
+        try:
+            process.stdin.write(stdin_text)
+            process.stdin.flush()
+        except OSError:
+            # The CLI exited, or was killed, before reading all of it (EPIPE): nothing left to deliver.
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+
     stdout_thread = threading.Thread(target=read_stdout, name="review-intelligence-stdout", daemon=True)
     stderr_thread = threading.Thread(target=read_stderr, name="review-intelligence-stderr", daemon=True)
     stdout_thread.start()
     stderr_thread.start()
+    stdin_thread: threading.Thread | None = None
+    if stdin_text is not None:
+        stdin_thread = threading.Thread(target=write_stdin, name="review-intelligence-stdin", daemon=True)
+        stdin_thread.start()
 
     deadline = time.monotonic() + timeout
     stdout_chunks: list[str] = []
@@ -238,6 +299,8 @@ def _run_streaming_process(
         terminate()
         raise
     stderr_thread.join(timeout=1)
+    if stdin_thread is not None:
+        stdin_thread.join(timeout=1)
     return returncode, "".join(stdout_chunks), "".join(stderr_chunks)
 
 
@@ -385,6 +448,8 @@ def _execute_cli_structured(
             mcp_env["LEMONCROW_BASH_WORKSPACE_ROOT"] = str(execution_root)
         mcp_env["LEMONCROW_REVIEW_SNAPSHOT_ROOT"] = str(cwd)
         launch_env: dict[str, str] | None = None
+        #: The prompt, when the CLI takes it on standard input instead of argv (None: it is in ``command``).
+        stdin_prompt: str | None = None
 
         if driver == "claude":
             mcp_config = control_root / "mcp.json"
@@ -434,7 +499,10 @@ def _execute_cli_structured(
             ]
             if model:
                 command.extend(["--model", model])
-            command.extend(["-p", instruction])
+            # No positional prompt: `claude -p` reads it from stdin. One argv element is capped at 128 KiB
+            # (MAX_ARG_STRLEN), so a large Review prompt cannot go on the command line.
+            command.append("-p")
+            stdin_prompt = instruction
             if streaming:
                 command.extend(["--output-format", "stream-json", "--include-partial-messages"])
             else:
@@ -507,7 +575,9 @@ def _execute_cli_structured(
             # JSONL exposes Codex's actual `turn.completed.usage` and final
             # structured answer; plain text loses token metering.
             command.append("--json")
-            command.extend(["--output-schema", str(schema_path), "--skip-git-repo-check", instruction])
+            # `-` as the prompt makes `codex exec` read it from stdin (see `codex exec --help`).
+            command.extend(["--output-schema", str(schema_path), "--skip-git-repo-check", "-"])
+            stdin_prompt = instruction
         else:
             chosen_model = model or ""
             if not (chosen_model.startswith("opencode/") or chosen_model.startswith("ollama/")):
@@ -597,6 +667,8 @@ def _execute_cli_structured(
                 "run",
                 "--format",
                 "json",
+                # Still argv: stdin support of the managed lemoncode-host is unconfirmed, so a prompt over 128 KiB
+                # fails on this route.
                 instruction,
             ]
 
@@ -610,6 +682,7 @@ def _execute_cli_structured(
                     text=True,
                     check=False,
                     timeout=timeout_s,
+                    input=stdin_prompt,
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise InternalLLMError(f"{driver} intelligence execution failed: {exc}") from exc
@@ -627,6 +700,13 @@ def _execute_cli_structured(
                 return parse_opencode_events(completed.stdout)
             if driver == "codex":
                 return parse_codex_events(completed.stdout, on_usage_reported=on_usage_reported)
+            if on_usage_reported is not None:
+                try:
+                    reported_result = json.loads(completed.stdout)
+                except ValueError:
+                    reported_result = None
+                if isinstance(reported_result, Mapping) and (reported_usage := claude_usage_report(reported_result)):
+                    on_usage_reported(reported_usage)
             return parse_structured_json(completed.stdout, driver=driver)
 
         final_structured: dict[str, Any] | None = None
@@ -668,6 +748,8 @@ def _execute_cli_structured(
                         if isinstance(delta, Mapping) and str(delta.get("type") or "") == "text_delta":
                             emit_raw(str(delta.get("text") or ""))
                 elif event_type == "result":
+                    if on_usage_reported is not None and (reported_usage := claude_usage_report(event)):
+                        on_usage_reported(reported_usage)
                     structured = event.get("structured_output")
                     if isinstance(structured, dict):
                         final_structured = structured
@@ -730,6 +812,8 @@ def _execute_cli_structured(
             }
             if cancellation is not None:
                 runner_kwargs["cancellation"] = cancellation
+            if stdin_prompt is not None:
+                runner_kwargs["stdin_text"] = stdin_prompt
             returncode, stdout, stderr = runner(command, **runner_kwargs)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise InternalLLMError(f"{driver} intelligence execution failed: {exc}") from exc
@@ -756,6 +840,7 @@ __all__ = [
     "ExecutionOrigin",
     "ReviewToolProfile",
     "SourceKind",
+    "claude_usage_report",
     "parse_codex_events",
     "parse_opencode_events",
     "parse_structured_json",

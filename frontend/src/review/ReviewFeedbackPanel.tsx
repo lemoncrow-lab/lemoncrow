@@ -186,17 +186,17 @@ export default function ReviewFeedbackPanel({
             ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-950/40 text-emerald-300"
             : "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-950/45 text-amber-300"}
           >
-            {sent || queued || working || !publishable ? <CheckCircle2 size={14} /> : <Send size={13} />}
+            {sent || queued || working || !publishable ? <CheckCircle2 size={14} /> : <Send size={14} />}
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-heading font-semibold text-foreground">
               <span>{title}</span>
               <Badge tone="secondary" data-testid="feedback-lifecycle">{lifecycle}</Badge>
               {!sent && !queued && unsent > 0 && <Badge tone="secondary">{unsent} {toAuthor ? "to copy" : toPullRequest ? "to publish" : "to send"}</Badge>}
-              {status.addressed > 0 && <Badge tone="secondary" className="border-sky-900/50 text-sky-300">{status.addressed} re-review</Badge>}
+              {status.addressed > 0 && <Badge tone="secondary" className="border-cyan-900/50 text-cyan-300">{status.addressed} re-review</Badge>}
               {feedback.orphaned > 0 && <Badge tone="secondary" className="border-amber-900/50 text-amber-300">{feedback.orphaned} orphaned</Badge>}
             </div>
-            <p className="mt-1 max-w-[75ch] text-body leading-5 text-neutral-400" title={detail}>{detail}</p>
+            <p className="mt-1 max-w-[75ch] text-body leading-5 text-muted-foreground" title={detail}>{detail}</p>
           </div>
         </div>
         {open && !recordsCopy && (
@@ -206,31 +206,31 @@ export default function ReviewFeedbackPanel({
             onClick={() => copy()}
             aria-label="Copy review feedback bundle"
           >
-            <Copy size={12} />
+            <Copy size={14} />
             {copyState === "copied" ? "Copied" : copyState === "copying" ? "Copying…" : "Copy feedback"}
           </UiButton>
         )}
         {canDirectSend && open && recordsCopy && !sendBlocked && (
           <UiButton
-            variant="default"
+            variant="solid"
             className="px-3"
             type="button"
             disabled={busy || copyState === "copying"}
             onClick={() => copy(() => onSend({ copied: true }))}
           >
-            <Copy size={12} />
+            <Copy size={14} />
             {copyState === "copying" ? "Copying…" : `Copy ${unsent} for the author`}
           </UiButton>
         )}
         {canDirectSend && open && toPullRequest && reachable && onPublishGitHub && (
-          <UiButton variant="default" className="px-3" type="button" disabled={busy} onClick={onPublishGitHub}>
-            <GitPullRequest size={12} />
+          <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={onPublishGitHub}>
+            <GitPullRequest size={14} />
             Publish {unsent} to {destination}…
           </UiButton>
         )}
         {canDirectSend && open && !toAuthor && !toPullRequest && reachable && !sendBlocked && (
-          <UiButton variant="default" className="px-3" type="button" disabled={busy} onClick={() => void onSend()}>
-            <Send size={12} />
+          <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={() => void onSend()}>
+            <Send size={14} />
             Send {unsent} to {destination}
           </UiButton>
         )}
@@ -242,7 +242,7 @@ export default function ReviewFeedbackPanel({
       </div>
 
       {open && (
-        <div className="flex items-center gap-2 border-t border-neutral-900 px-3 py-1.5 text-caption text-muted-foreground">
+        <div className="flex items-center gap-2 border-t border-border px-3 py-1.5 text-caption text-muted-foreground">
           {recordsCopy ? (
             <span>Copy for the author · recorded only once copied</span>
           ) : toPullRequest ? (
@@ -282,11 +282,11 @@ export default function ReviewFeedbackPanel({
       )}
 
       {open && (
-        <details open className="border-t border-neutral-900">
-          <summary className="cursor-pointer list-none px-3 py-1.5 text-caption font-medium text-muted-foreground hover:bg-muted/40 hover:text-neutral-50 [&::-webkit-details-marker]:hidden">
+        <details open className="border-t border-border">
+          <summary className="cursor-pointer list-none px-3 py-1.5 text-meta font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
             {reachable && !toAuthor ? "Preview exact handoff" : "Preview feedback"}
           </summary>
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-0 border-t border-neutral-900 bg-background px-4 py-3 text-caption leading-5 text-neutral-400">
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-0 border-t border-border bg-background px-4 py-3 text-caption leading-5 text-muted-foreground">
             {feedback.markdown}
           </pre>
         </details>

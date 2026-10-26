@@ -158,6 +158,25 @@ _HOSTED_OWNED: tuple[str, ...] = ("comments", "judgments", "requests", "outcomes
 _HOSTED_RESULT_LIMIT = 64 * 1024
 #: Trust T2 shadow and on-mode consistency lines (operator telemetry, never product UI).
 _TRUST_LOG = logging.getLogger("lemoncrow.review.trust")
+#: The one sentence people see where a hosted workspace cannot run AI review (the technical cause stays in `detail`).
+HOSTED_AI_REVIEW_NOT_ENABLED = "AI review on hosted isn't enabled for this workspace yet"
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:/[\w.@+~-]+){2,}/?")
+
+
+class SurfaceSourceUnavailable(RuntimeError, ValueError):
+    """No source tree can be read for a Snapshot: none was kept, and this server holds no checkout to take one from.
+
+    A pull request captured from its provider's API keeps only the files it changes, and a hosted server clones
+    nothing, so there is nothing to discover rendered surfaces in. That is a fact about the Snapshot, not a failure.
+    It stays a ``ValueError`` too, as the "not a git repository" error it replaces was, so no handler stops catching it.
+    """
+
+
+def _without_paths(reason: object) -> str:
+    """An error text with absolute filesystem paths replaced, so a hosted Reader never prints a server path."""
+
+    return _ABSOLUTE_PATH.sub("<path>", str(reason))
+
 
 # Emitted as real response headers, not a <meta> tag: a meta CSP cannot carry
 # frame-ancestors, and frame-ancestors is exactly the clause that matters here
@@ -1778,6 +1797,7 @@ def register_review_api(
     ai_review_submitter: Callable[..., Mapping[str, Any]] | None = None,
     ai_review_job_lookup: Callable[[ReviewSession, ReviewRevision], Mapping[str, Any] | None] | None = None,
     ai_review_job_cancel: Callable[[ReviewSession, ReviewRevision, str], Mapping[str, Any]] | None = None,
+    ai_review_unavailable: Callable[[], str] | None = None,
     background_budget: Any | None = None,
     acting_reviewer_id: Callable[[], str] | None = None,
     github_publish_enabled: bool = False,
@@ -2694,7 +2714,38 @@ def register_review_api(
             _annotation_context_payload(session, target, item, by_id=by_id, versions=versions.get(item.id, ()))
             for item in annotations
         ]
+        _with_finding_severity(session, target, annotations, payloads, revisions=tuple(by_id.values()))
         return _with_owning_change(session, target, annotations, payloads)
+
+    def _with_finding_severity(
+        session: ReviewSession,
+        target: ReviewRevision,
+        annotations: Sequence[Annotation],
+        payloads: Sequence[dict[str, Any]],
+        *,
+        revisions: Sequence[ReviewRevision] | None = None,
+    ) -> None:
+        """Give each AI finding its P0/P1/P2, by the product's one severity rule (``review_triage.finding_severities``).
+
+        Optional on the wire: a finding with no severity evidence has none, and a human comment never does (it keeps its
+        kind). Snapshots after *target* are not read, so a historical view rates a finding as it stood then.
+        """
+
+        if not any(item.source == "ai_review" and not item.parent_id for item in annotations):
+            return
+        from lemoncrow.pro.capabilities.review.review_triage import finding_severities
+
+        known = store.list_revisions(session.id) if revisions is None else revisions
+        upto = sorted(
+            (item for item in known if item.revision_number <= target.revision_number),
+            key=lambda item: item.revision_number,
+            reverse=True,
+        )
+        rated = finding_severities(store, annotations, [item.id for item in upto])
+        for annotation, payload in zip(annotations, payloads, strict=True):
+            severity = rated.get(annotation.id)
+            if severity is not None:
+                payload["severity"] = severity
 
     def _with_owning_change(
         session: ReviewSession,
@@ -3200,6 +3251,13 @@ def register_review_api(
             document = hosted_authority(revision.review_id, revision.id, path)
             if isinstance(document, TrustedBaseDocument):
                 return document
+        own_checkout = getattr(store, "working_tree_authority", None)
+        if own_checkout is not None:
+            # `lc review --ai` on the developer's own change (never a pull request, the Action or a hosted Review):
+            # nobody else wrote this configuration, so the file as it is on disk is the authority.
+            document = own_checkout.document(path)
+            if isinstance(document, TrustedBaseDocument):
+                return document
         return resolve_trusted_base_document(path, _snapshot_document_text(revision, path, side="old"))
 
     def _snapshot_review_config(revision: ReviewRevision) -> TrustedBaseDocument:
@@ -3273,6 +3331,12 @@ def register_review_api(
             config,
             read_base_document=lambda path: _snapshot_base_document(revision, path),
             organization=organization,
+            # Expands import.rules_files globs (G10); only a path is taken from this listing, every byte is the base's.
+            base_paths=lambda: (
+                _base_tree_paths(revision)
+                if getattr(store, "working_tree_authority", None) is None
+                else store.working_tree_authority.paths()
+            ),
         )
         base_known = config.base_known and governance.base_state != "provisional"
         _bounded_cache_put(_review_governance_cache, revision.id, (governance, base_known))
@@ -11028,6 +11092,33 @@ def register_review_api(
             and (annotation.revision_id == revision.id or annotation.id in anchored_here)
         )
 
+    def _ai_unavailable_reason() -> str:
+        """Why a durable executor cannot run AI review for this deployment now (``""``: it can).
+
+        Asked of the composition per call, never cached: an operator wiring the queue or the model route
+        turns AI review on without a restart of every open Reader.
+        """
+
+        if ai_review_unavailable is None:
+            return ""
+        try:
+            return str(ai_review_unavailable() or "")
+        except Exception:  # an unreadable readiness probe must not offer a run it cannot promise
+            logging.getLogger(__name__).warning("AI review readiness could not be read", exc_info=True)
+            return "AI review readiness could not be read"
+
+    def _no_model_set_up(exc: BaseException) -> bool:
+        """Whether *exc* only says no model route is configured, on a server that runs AI review itself.
+
+        That is the local Reader: the person has not chosen a model yet, nothing is broken, and there is a terminal
+        command that fixes it. A hosted server queues AI review for an operator-managed route, so there the viewer
+        is not the one who sets a model up and the operator wording stays as it is.
+        """
+
+        from lemoncrow.pro.capabilities.review.intelligence_runtime import NoProviderConfigured
+
+        return ai_review_submitter is None and isinstance(exc, NoProviderConfigured)
+
     def _ai_review_projection(
         session: ReviewSession,
         revision: ReviewRevision,
@@ -11047,6 +11138,7 @@ def register_review_api(
         latest = runs[0] if runs else None
         annotations = _current_ai_annotations(session, revision)
         provider_error = ""
+        setup_help: dict[str, Any] | None = None
         resolved_driver = ""
         resolved_model = ""
         route_trust: ModelRouteTrust = "unknown"
@@ -11055,7 +11147,14 @@ def register_review_api(
             resolved_driver, resolved_model = resolved.driver, resolved.model
             route_trust = process_route_trust(resolved.driver)
         except Exception as exc:
-            provider_error = f"{type(exc).__name__}: {exc}"
+            if _no_model_set_up(exc):
+                from lemoncrow.pro.capabilities.review.pr_bot.local import no_route_help
+
+                # The same words and next steps `lc review --ai` prints with no model: one source, so they cannot drift.
+                setup_help = no_route_help().to_wire()
+                provider_error = str(setup_help["headline"])
+            else:
+                provider_error = f"{type(exc).__name__}: {exc}"
         access = {
             target.target_id: content_access_for_path(
                 target.path,
@@ -11108,7 +11207,12 @@ def register_review_api(
         error = provider_error or (
             "" if latest is None or latest.status not in {"failed", "cancelled"} else latest.error
         )
+        unavailable_reason = _ai_unavailable_reason() if ai_review_submitter is not None else ""
         projection = {
+            # Whether this deployment can run AI review at all; false hides every control that would start one.
+            "available": not unavailable_reason,
+            "unavailable_reason": HOSTED_AI_REVIEW_NOT_ENABLED if unavailable_reason else "",
+            "unavailable_detail": unavailable_reason,
             "status": state,
             "effort": effort,
             "candidates": len(candidates),
@@ -11118,6 +11222,7 @@ def register_review_api(
             "resolved_provider": resolved_driver,
             "resolved_model": resolved_model,
             "error": error,
+            **({"setup_help": setup_help} if setup_help is not None else {}),
             "auto_eligible": bool(
                 not historical
                 and state == "none"
@@ -11853,6 +11958,10 @@ def register_review_api(
             "policy": policy,
             "governance": governance,
             "targets": tuple(ordered),
+            # The Snapshot's trusted-base .lemoncrow/review.yaml and the triage policy resolved from it and the
+            # operator layers (the finding threshold among them): what the pull request bot's noise controls read.
+            "review_config": _snapshot_review_config(revision),
+            "triage": _triage_policy(session, revision),
         }
 
     def _worker_ai_publish(
@@ -12022,6 +12131,10 @@ def register_review_api(
                         else {"status": "none", "revision_id": revision.id, "auto_event_driven": True}
                     )
                 }
+            unavailable = _ai_unavailable_reason()
+            if unavailable:
+                # The Reader hides the control; a direct call gets the same plain answer, not a queue error.
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=HOSTED_AI_REVIEW_NOT_ENABLED)
             queued = _submit_durable_ai_review(
                 session,
                 revision,
@@ -12078,6 +12191,7 @@ def register_review_api(
                     stage_plan=stage,
                     reviewer_candidates=configured_reviewer_routes()[0],
                     project_knowledge_loader=_ai_review_knowledge_loader(session, revision, governance.content_access),
+                    project_conventions=governance.imports.conventions if governance.imports is not None else (),
                 )
 
             base_budget = ModelCallBudget.from_env(max_calls=1)
@@ -12334,12 +12448,24 @@ def register_review_api(
         """Whether AI entries can execute here; deterministic entries never depend on it."""
 
         if ai_review_submitter is not None:
+            reason = _ai_unavailable_reason()
+            if reason:
+                return {
+                    "available": False,
+                    "reason": HOSTED_AI_REVIEW_NOT_ENABLED,
+                    "detail": reason,
+                    "executor": "durable",
+                }
             return {"available": True, "reason": "", "executor": "durable"}
         from lemoncrow.pro.capabilities.review.intelligence_runtime import resolve_driver_model
 
         try:
             resolved = resolve_driver_model(None, None)
         except Exception as exc:
+            if _no_model_set_up(exc):
+                from lemoncrow.pro.capabilities.review.pr_bot.local import NO_ROUTE_REASON
+
+                return {"available": False, "reason": NO_ROUTE_REASON, "executor": "local"}
             return {"available": False, "reason": f"no AI provider is configured: {exc}", "executor": "local"}
         return {"available": True, "reason": "", "executor": "local", "provider": resolved.driver}
 
@@ -13816,8 +13942,16 @@ def register_review_api(
                 source_state_projection.get("changed")
             )
         if durable_source_tree is not None or not checkout_is_exact:
+            from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
             from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable
 
+            if durable_source_tree is None:
+                try:
+                    detect_repo_root(resolved_preview_repo)
+                except ValueError as exc:
+                    raise SurfaceSourceUnavailable(
+                        "no source tree was kept for this Snapshot, and this server has no checkout to read one from"
+                    ) from exc
             try:
                 surface_repo = _snapshot_side_tree(revision, side, resolved_preview_repo)
             except ReviewSnapshotUnavailable as exc:
@@ -13870,9 +14004,16 @@ def register_review_api(
         try:
             revision, registry, _runners, context = _surface_runtime(review_id, revision_id)
             surfaces, issues = _discover_surfaces(registry, context)
+        except SurfaceSourceUnavailable:
+            # Nothing to render surfaces from (see the exception): an honest empty list, not a banner on every Review.
+            return {
+                "revision_id": _requested_revision(_session(review_id), revision_id).id,
+                "surfaces": [],
+                "issues": [],
+            }
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {exc}"
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {_without_paths(exc)}"
             ) from exc
         preview_registry = previews_module.built_in_preview_registry()
         comparator_registry = comparisons_module.built_in_comparator_registry()
@@ -13923,7 +14064,7 @@ def register_review_api(
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {exc}"
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {_without_paths(exc)}"
             ) from exc
         surface = next((item for item in surfaces if item.provider == provider and item.id == surface_id), None)
         if surface is None:
@@ -16642,7 +16783,9 @@ def register_review_api(
             # What was said changed (state changes never do): a summarized thread refreshes.
             await asyncio.to_thread(_refresh_thread_summary, session, updated.id)
         await _enforce_armed_landing(session)
-        return {"annotation": _annotation_payload(updated)}
+        payload = _annotation_payload(updated)
+        _with_finding_severity(session, revision, (updated,), (payload,))
+        return {"annotation": payload}
 
     def _feedback_snapshot(session: ReviewSession, revision: ReviewRevision) -> dict[str, Any]:
         packet = read_packet_json(store, revision)

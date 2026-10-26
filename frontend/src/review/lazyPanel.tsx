@@ -30,10 +30,10 @@ class PanelBoundary extends Component<PanelBoundaryProps, { failed: boolean }> {
     return (
       <div
         role="alert"
-        className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-32px))] rounded-lg border border-rose-900/60 bg-background p-3 text-caption shadow-2xl shadow-black/30"
+        className="fixed bottom-4 right-4 z-50 w-[min(360px,calc(100vw-32px))] rounded-lg border border-red-900/60 bg-background p-3 text-caption shadow-float"
       >
         <div className="flex items-start gap-2">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-rose-400" aria-hidden="true" />
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-foreground">{this.props.label} couldn't open</div>
             <p className="mt-1 leading-5 text-muted-foreground">

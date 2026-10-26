@@ -190,6 +190,36 @@ def test_consequential_candidate_is_bounded_and_confirmed_becomes_one_ai_annotat
     assert store.list_marks(revision.review_id) == before_marks
 
 
+def test_the_investigators_rating_is_kept_with_the_severity_evidence_for_the_annotation_wire(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.review_triage import FINDING_EVIDENCE_KIND, finding_severities
+
+    store, revision = _store(tmp_path)
+
+    def rated(**kwargs: Any) -> StructuredExecution:
+        execution = _confirmed(**kwargs)
+        return _execution({**execution.result, "severity": "high"})
+
+    result = run_independent_review(
+        store=store,
+        revision=revision,
+        targets=(_target(),),
+        repo_root=tmp_path,
+        effort="auto",
+        driver="openai",
+        model="review-model",
+        structured_executor=rated,
+    )
+
+    assert result.confirmed == 1
+    [(_stamp, payload)] = store.derived_results(FINDING_EVIDENCE_KIND, [revision.id]).values()
+    # The category policy the triage summary reads is untouched; the rating rides beside it.
+    assert (payload["severity"], payload["impact"]) == ("p1", "high")
+    assert "verified" not in payload  # the target's own source is not evidence beyond the finding
+    annotations = store.list_annotations(revision.review_id)
+    # A security finding rated high but not corroborated is P1 on the wire, never P0.
+    assert finding_severities(store, annotations, [revision.id]) == {annotations[0].id: "p1"}
+
+
 def test_valid_exact_source_ref_is_accepted_and_prose_stays_out_of_evidence(tmp_path: Path) -> None:
     store, revision = _store(tmp_path)
     captured: dict[str, Any] = {}
@@ -643,6 +673,68 @@ def test_parallel_investigators_cannot_race_past_review_budget(tmp_path: Path) -
     assert result.skipped_by_budget >= 1
 
 
+def test_only_the_pull_request_review_scales_auto_to_the_risk_signals_of_a_small_change(tmp_path: Path) -> None:
+    """Three risk signals: the pull request review (``pr_fields``) investigates each; every other caller is unchanged."""
+
+    seen: dict[bool, list[str]] = {}
+    covered: list[str] = []
+    for pr_fields in (False, True):
+        case = tmp_path / f"pr-fields-{pr_fields}"
+        case.mkdir()
+        store, revision = _store(case)
+        schemas: list[str] = []
+
+        def execute(_schemas: list[str] = schemas, _pr: bool = pr_fields, **kwargs: Any) -> StructuredExecution:
+            if kwargs["output_schema"] == HYPOTHESIS_SCHEMA:
+                _schemas.append("synthesis")
+                return _execution({"hypotheses": [_hypothesis(t) for t in ("target-a", "target-b")]})
+            _schemas.append("investigation")
+            if _pr:
+                covered.extend(json.loads(kwargs["prompt"])["hypothesis"]["value"]["target_ids"])
+            return _execution(
+                {
+                    "status": "not_confirmed",
+                    "category": "security",
+                    "target_ids": [],
+                    "title": "",
+                    "explanation": "",
+                    "consequence": "",
+                    "evidence_refs": [],
+                }
+            )
+
+        result = run_independent_review(
+            store=store,
+            revision=revision,
+            targets=tuple(_target(target_id=f"target-{name}", path=f"src/auth/{name}.py") for name in ("a", "b", "c")),
+            repo_root=case,
+            effort="auto",
+            driver="openai",
+            model="review-model",
+            budget=ModelCallBudget(max_calls=1, max_review_calls=20),
+            structured_executor=execute,
+            pr_fields=pr_fields,
+        )
+        seen[pr_fields] = schemas
+        assert result.candidates == 3
+    assert sorted(seen[False]) == ["investigation", "investigation", "synthesis"], "the Reader's Auto: group, then two"
+    # The pull request review looks at all three signals, with no grouping call: the three small files share one call.
+    assert seen[True] == ["investigation"], "the pull request review: all three in one batched call, no grouping call"
+    assert covered == ["target-a", "target-b", "target-c"]
+
+
+def _hypothesis(target: str) -> dict[str, Any]:
+    return {
+        "category": "security",
+        "target_ids": [target],
+        "failure_mode": "Authorization may be skipped",
+        "investigation_rationale": "auth boundary changed",
+        "priority_rationale": "security boundary",
+        "evidence_needed": "Trace the branch",
+        "rule_refs": [],
+    }
+
+
 def test_failed_and_cancelled_runs_produce_no_annotations(tmp_path: Path) -> None:
     store, revision = _store(tmp_path)
 
@@ -888,6 +980,55 @@ def test_identical_hypotheses_are_deduped_before_investigation(tmp_path: Path) -
     assert calls == 2  # one hypothesis call + one investigation
     assert result.hypotheses == 1
     assert result.not_confirmed == 1
+
+
+def test_a_synthesis_whose_hypotheses_the_triage_rejects_falls_back_to_the_top_candidates(tmp_path: Path) -> None:
+    store, revision = _store(tmp_path)
+    schemas: list[str] = []
+    # A real model pairs a category with a target the triage raised for another category: this one is rejected.
+    crossed = {
+        "category": "performance",
+        "target_ids": ["target-auth"],
+        "failure_mode": "The session lookup may be slow",
+        "investigation_rationale": "auth path changed",
+        "priority_rationale": "hot path",
+        "evidence_needed": "Trace the lookup",
+    }
+
+    def execute(**kwargs: Any) -> StructuredExecution:
+        if kwargs["output_schema"] == HYPOTHESIS_SCHEMA:
+            schemas.append("synthesis")
+            return _execution({"hypotheses": [crossed]})
+        schemas.append("investigation")
+        return _execution(
+            {
+                "status": "not_confirmed",
+                "category": "security",
+                "target_ids": ["target-auth"],
+                "title": "",
+                "explanation": "",
+                "consequence": "",
+                "evidence_refs": [],
+            }
+        )
+
+    result = run_independent_review(
+        store=store,
+        revision=revision,
+        targets=(
+            _target(target_id="target-auth", path="src/auth/session.py"),
+            _target(target_id="target-cache", path="src/cache/query.py"),
+        ),
+        repo_root=tmp_path,
+        effort="thorough",
+        driver="openai",
+        model="review-model",
+        structured_executor=execute,
+    )
+    # The call is not wasted: the two candidates the triage raised are investigated.
+    assert schemas == ["synthesis", "investigation", "investigation"]
+    assert result.hypotheses == 2 and result.not_confirmed == 2
+    assert result.status == "completed"
 
 
 def test_independent_provider_preference_is_used_when_configured_route_succeeds(tmp_path: Path) -> None:

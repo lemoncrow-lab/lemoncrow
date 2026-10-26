@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import type {
   DegradedNote,
@@ -134,18 +134,16 @@ export default function FinishSheet({
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent onCloseAutoFocus={onCloseAutoFocus}>
         <SheetHeader>
-          <div className="min-w-0 flex-1">
-            <SheetTitle>Finish review</SheetTitle>
-            <SheetDescription>
-              Record your verdict for this Snapshot. Sending pending feedback is a separate explicit choice.
-            </SheetDescription>
-          </div>
+          <SheetTitle>Finish review</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review outcome">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <SheetLede>
+          Record your verdict for this Snapshot. Sending pending feedback is a separate explicit choice.
+        </SheetLede>
 
         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
           <section>
@@ -203,15 +201,15 @@ export default function FinishSheet({
             <section className="mt-4 rounded-md border border-border/80 px-3 py-2" aria-label="Where fixes go">
               <div className="flex items-center gap-2 text-caption">
                 <span className="text-muted-foreground">Pending feedback</span>
-                <span className="font-mono text-neutral-200">{plural(unsent)}</span>
+                <span className="font-mono text-foreground">{plural(unsent)}</span>
                 <span aria-hidden="true">→</span>
-                <span className="min-w-0 truncate text-neutral-200">{handoff.label}</span>
+                <span className="min-w-0 truncate text-foreground">{handoff.label}</span>
                 <span className="flex-1" />
                 {destinationControl}
               </div>
               {requestChanges ? (
                 unsent > 0 ? (
-                  <p className={reachable ? "mt-1 text-caption text-muted-foreground" : "mt-1 text-caption text-rose-300"}>
+                  <p className={reachable ? "mt-1 text-caption text-muted-foreground" : "mt-1 text-caption text-red-300"}>
                     {reachable
                       ? `Finish will ${deliveryVerb(handoff)} this pending feedback explicitly.`
                       : handoff.reason || "This destination cannot receive feedback."}
@@ -224,7 +222,7 @@ export default function FinishSheet({
                   </p>
                 )
               ) : offerSend && (
-                <label className="mt-2 flex items-center gap-2 text-caption text-neutral-300">
+                <label className="mt-2 flex items-center gap-2 text-caption text-subtle">
                   <UiInput
                     unstyled
                     type="checkbox"
@@ -238,12 +236,12 @@ export default function FinishSheet({
           )}
 
           {sendError && (
-            <div role="alert" className="mt-4 rounded-md border border-rose-900/50 bg-rose-950/20 px-3 py-2 text-caption text-rose-300">
+            <div role="alert" className="mt-4 rounded-md border border-red-900/50 bg-red-950/20 px-3 py-2 text-caption text-red-300">
               Nothing was finished; the comments were not sent: {sendError}
             </div>
           )}
           {finishError && (
-            <div role="alert" className="mt-4 rounded-md border border-rose-900/50 bg-rose-950/20 px-3 py-2 text-caption text-rose-300">
+            <div role="alert" className="mt-4 rounded-md border border-red-900/50 bg-red-950/20 px-3 py-2 text-caption text-red-300">
               {finishError}
             </div>
           )}
@@ -275,7 +273,7 @@ export default function FinishSheet({
                 Continue reviewing
               </UiButton>
               <UiButton
-                variant="default"
+                variant="solid"
                 type="button"
                 disabled={busy || blockedRequest}
                 onClick={() => onFinish(outcome, outcomeSummary.trim(), { send: sending })}

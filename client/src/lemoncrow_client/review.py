@@ -26,6 +26,7 @@ from .config import ClientConfig, load_config
 from .errors import AgentAction, ClientError, ErrorCode
 from .review_base import EMPTY_TREE_SHA, branch_review_failed, capture_review_base, parse_branch_review
 from .review_session import ReviewSession
+from .workspace_paths import REVIEW_CONFIG_PATH
 
 __all__ = ["ReviewRange", "resolve_review_range", "review_main"]
 
@@ -425,7 +426,13 @@ def _worktree_paths(repo: Path) -> tuple[str, ...]:
         ".",
         *[f":(exclude){path}" for path in _INTERNAL_PATHS],
     )
-    return tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
+    paths = tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
+    # `.lemoncrow/` is excluded as LemonCrow's own scratch space, but its one committed file is repository source that
+    # sets the review policy, and the base side (a checkout of the commit) carries it. Leaving it out of the working
+    # tree would show an unchanged policy file as deleted: "LemonCrow policy removed", a critical change.
+    config = _git_bytes(repo, "ls-files", "-co", "--exclude-standard", "-z", "--", REVIEW_CONFIG_PATH)
+    kept = config.decode("utf-8", errors="surrogateescape").split("\0")[0]
+    return (*paths, kept) if kept and kept not in paths else paths
 
 
 def _materialize_worktree(repo: Path, target: Path) -> None:
@@ -737,27 +744,134 @@ def _capture(
             remote.close()
 
 
+# Switches that only mean something on an AI review; alone they would be silently ignored, so they say what to add.
+_AI_ONLY_OPTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "--agent",
+        "--remember",
+        "--depth",
+        "--fail-on",
+        "--strict",
+        "--fresh",
+        "--max-usd-per-pr",
+        "--max-runs-per-pr",
+        "--all",
+        "-a",
+        "--no-color",
+    }
+)
+
+
+def _without_hosted(command: str, sink: TextIO) -> int:
+    sink.write(
+        f"lc review {command} belongs to Hosted Review's machine companion, which this install does not include.\n"
+    )
+    sink.write("Run `lc review --help` for what this install does.\n")
+    return 2
+
+
+def _help_text() -> str:
+    """The short help: what to type, in the order a first review goes. Hosted-only lines appear only where they run."""
+
+    from importlib.util import find_spec
+
+    hosted = find_spec(f"{__package__}.review_service") is not None
+    lines = [
+        "LemonCrow Review: see what changed, or get an AI review of it, from your terminal.",
+        "",
+        "Usage:",
+        "  lc review [REV] [OPTIONS]",
+        "",
+        "What to type:",
+        "  lc review                  Capture your change and open it in the Reader. No AI, no model call.",
+        "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
+        "                             (or OPENAI_API_KEY), or add --agent claude|codex|opencode.",
+        "  lc review --staged         Review exactly what is staged (works with --ai too)",
+        "  lc review main...HEAD      Review a branch against main (works with --ai too)",
+        "  lc review hook install     Git hook: AI review before each push. It stops only on a real finding,",
+        "                             never because LemonCrow failed.",
+        "  lc review init-action      Write the GitHub Action workflow that reviews pull requests",
+        "  lc review config           Show the review rules this repository sets (--effective)",
+    ]
+    if hosted:
+        lines += [
+            "  lcr watch                  Keep local or hosted Review current as source settles",
+            "  lcr connect                Pair an optional Hosted Review machine with a one-time code",
+            "  lcr pending                Show paired Hosted Review work waiting on this machine",
+            "  lcr pending --watch        Receive scoped work hints over WSS (HTTPS fallback)",
+            "  lcr device check           Verify hosted connection and pinned worker signer",
+            "  lcr device online          Announce presence without executing jobs",
+            "  lcr task run JOB_ID        Run one explicitly approved AI task with a local spend cap",
+            "  lcr device serve           Foreground Review capture + machine presence on VPS/laptop",
+            "  lcr service install        Optional user-owned Review capture service (explicit opt-in)",
+            "  lcr hook after-edit|after-checkpoint|on-exit  Agent checkpoint capture",
+        ]
+    lines += [
+        "",
+        "Range options:",
+        "  --working-tree      Review current working-tree changes (the default)",
+        "  --staged            Review staged changes",
+        "  --base REV          Explicit base revision",
+        "  --head REV          Explicit head revision (default HEAD)",
+        "",
+        "Options:",
+        "  --title TITLE       Set the Review title",
+        "  --no-impact         Skip impact analysis",
+        "  --open              Open the Review Reader (default)",
+        "  --no-open           Capture without opening a browser",
+        "  --reopen-review     Restore an archived matching Review",
+        "  --json              Emit machine-readable output",
+        "",
+        "AI options (with --ai):",
+        "  --pr N              A GitHub pull request (needs `gh`): prints what the bot would post, posts nothing",
+        "  --agent NAME        Use a signed-in agent CLI instead of a key: claude, codex or opencode",
+        "  --remember          With --agent: use that agent whenever no API key is set",
+        "  --fail-on p0|p1|none  Exit 1 while a finding at least this severe is open (default p0)",
+        "  --strict            Exit 2 when the review could not finish (no model, spent budget)",
+        "  --depth auto|thorough|deep, --fresh, --max-usd-per-pr USD, --json, --all",
+        "  Run `lc review --ai --help` for every AI option.",
+        "",
+        "Hosted Review requires `lc auth login` once before first use.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def review_main(arguments: list[str], *, sink: TextIO) -> int:
-    """Thin ``review`` CLI. Capture first; richer terminal actions follow later."""
+    """Thin ``review`` CLI. Capture first; the commands that call a model run in the Review engine."""
 
+    from .review_engine import needs_engine
+
+    if needs_engine(arguments):
+        from .review_engine import run_engine
+
+        return run_engine(arguments, sink)
     if arguments and arguments[0] == "service":
-        from .review_service import service_main
-
+        try:
+            from .review_service import service_main
+        except ModuleNotFoundError:
+            return _without_hosted("service", sink)
         return service_main(arguments[1:], sink=sink)
     if arguments and arguments[0] == "hook":
-        from .review_hooks import hook_main
-
+        try:
+            from .review_hooks import hook_main
+        except ModuleNotFoundError:
+            return _without_hosted("hook " + arguments[1], sink)
         return hook_main(arguments[1:], sink=sink)
 
     if arguments and arguments[0] == "connect":
-        from .review_device_connect import connect_main
-
+        try:
+            from .review_device_connect import connect_main
+        except ModuleNotFoundError:
+            return _without_hosted("connect", sink)
         return connect_main(arguments[1:], sink=sink)
 
     # Public Review commands stay directly under `lcr`. The older companion
     # namespace is a compatibility alias, not a distinct product or daemon.
     if arguments and arguments[0] in {"pending", "device", "task", "companion"}:
-        from .review_companion_cli import companion_main
+        try:
+            from .review_companion_cli import companion_main
+        except ModuleNotFoundError:
+            return _without_hosted(arguments[0], sink)
 
         command, rest = arguments[0], arguments[1:]
         if command == "pending":
@@ -779,44 +893,14 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         return companion_main(rest, sink=sink)
 
     if arguments and arguments[0] == "watch":
-        from .review_watch import watch_main
-
+        try:
+            from .review_watch import watch_main
+        except ModuleNotFoundError:
+            return _without_hosted("watch", sink)
         return watch_main(arguments[1:], sink=sink)
 
     if arguments and arguments[0] in {"-h", "--help", "help"}:
-        sink.write(
-            "LemonCrow Review — freeze the code you want reviewed and open the Review Reader.\n\n"
-            "Usage:\n"
-            "  lcr [REV] [OPTIONS]\n"
-            "  lc review [REV] [OPTIONS]\n\n"
-            "Common flows:\n"
-            "  lcr                 Review working-tree changes; if clean, review the last commit\n"
-            "  lcr --staged        Review exactly what is staged\n"
-            "  lcr watch           Keep local or hosted Review current as source settles\n"
-            "  lcr connect         Pair an optional Hosted Review machine with a one-time code\n"
-            "  lcr pending         Show paired Hosted Review work waiting on this machine\n"
-            "  lcr pending --watch Receive scoped work hints over WSS (HTTPS fallback)\n"
-            "  lcr device check    Verify hosted connection and pinned worker signer\n"
-            "  lcr device online   Announce presence without executing jobs\n"
-            "  lcr task run JOB_ID Run one explicitly approved AI task with a local spend cap\n"
-            "  lcr device serve    Foreground Review capture + machine presence on VPS/laptop\n"
-            "  lcr service install Optional user-owned Review capture service (explicit opt-in)\n"
-            "  lcr hook after-edit|after-checkpoint|on-exit  Agent checkpoint capture\n"
-            "  lcr main...HEAD     Review the branch change from its merge base with main\n\n"
-            "Range options:\n"
-            "  --working-tree      Review current working-tree changes\n"
-            "  --staged            Review staged changes\n"
-            "  --base REV          Explicit base revision\n"
-            "  --head REV          Explicit head revision (default HEAD)\n\n"
-            "Review options:\n"
-            "  --title TITLE       Set the Review title\n"
-            "  --no-impact         Skip impact analysis\n"
-            "  --open              Open the Review Reader (default)\n"
-            "  --no-open           Capture without opening a browser\n"
-            "  --reopen-review     Restore an archived matching Review\n"
-            "  --json              Emit machine-readable output\n\n"
-            "Hosted Review requires `lc auth login` once before first use.\n"
-        )
+        sink.write(_help_text())
         return 0
     rev: str | None = None
     base: str | None = None
@@ -861,7 +945,13 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
                     return 2
         elif argument.startswith("-"):
             sink.write(f"unknown review option: {argument}\n")
-            if argument.partition("=")[0] in _FULL_CLI_REVIEW_OPTIONS:
+            name = argument.partition("=")[0]
+            if name in _AI_ONLY_OPTIONS or name == "--pr":
+                # Never run a model because of a flag that merely sounds like it: say what to add.
+                sink.write(
+                    f"{name} belongs to an AI review: add --ai to the same command (`lc review --ai {name} ...`).\n"
+                )
+            elif name in _FULL_CLI_REVIEW_OPTIONS:
                 sink.write(
                     "That option belongs to the full Review CLI in a LemonCrow source checkout (`uv run lc review`).\n"
                     "With this client, mark, comment, see changes since your review and copy feedback"
@@ -912,6 +1002,12 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         # keeps the title as this Snapshot's author title (``auto_title``).
         if title and title not in {kept, str(review_row.get("auto_title") or "")}:
             sink.write(f'--title was not applied; the Review this Snapshot joined keeps the title "{kept}"\n')
+        if getattr(sink, "isatty", lambda: False)():
+            from .review_engine import model_route_hint
+
+            hint = model_route_hint()
+            if hint:
+                sink.write(hint + "\n")
     if open_browser:
         _arm_local_browser(config, url)
         try:
@@ -931,10 +1027,8 @@ def _arm_local_browser(config: ClientConfig, url: str) -> None:
         return
     from urllib.parse import urlsplit
 
-    from .session import RemoteSession
-
     try:
-        remote = RemoteSession(config)
+        remote = ReviewSession(config)
         try:
             remote.pair_local_review_browser(urlsplit(url).path or "/", timeout_s=2.0)
         finally:

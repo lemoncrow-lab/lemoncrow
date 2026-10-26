@@ -16,7 +16,8 @@
  */
 
 import type { Annotation, AnnotationKind, AnnotationSource, DiffSide } from "./types";
-import { agentColors } from "../lib/agentColors";
+import type { BadgeTone } from "../components/ui/badge";
+import type { HunkRail } from "../components/ui/hunk";
 
 /** New human comments have three dispositions. `looks_good` remains render-only compatibility. */
 export const KIND_ORDER: AnnotationKind[] = ["comment", "request_change", "suggestion"];
@@ -35,11 +36,24 @@ export const SOURCE_LABELS: Record<AnnotationSource, string> = {
   ai_review: "AI REVIEW",
 };
 
+/**
+ * Who is making the claim is attribution, not severity: sources are neutral chips. Only AI and agent
+ * authorship takes the `ai` (violet) tone, and only in these chips; red, amber and cyan stay reserved
+ * for P0, P1 and P2 and the human kinds below.
+ */
+export const SOURCE_BADGE_TONES: Record<AnnotationSource, BadgeTone> = {
+  human: "neutral",
+  author: "ai",
+  lemoncrow: "neutral",
+  ai_review: "ai",
+};
+
+/** Text colour for a source label shown outside a badge (lists, replies). */
 export const SOURCE_ACCENTS: Record<AnnotationSource, string> = {
-  human: "border-amber-900 text-amber-300",
-  author: "border-violet-900 text-violet-300",
-  lemoncrow: "border-emerald-900 text-emerald-300",
-  ai_review: "border-violet-900 text-violet-300",
+  human: "text-muted-foreground",
+  author: "text-ai",
+  lemoncrow: "text-muted-foreground",
+  ai_review: "text-ai",
 };
 
 export function annotationSource(annotation: Annotation): AnnotationSource {
@@ -47,9 +61,12 @@ export function annotationSource(annotation: Annotation): AnnotationSource {
 }
 
 export function annotationIdentityColor(annotation: Annotation): string {
-  return annotation.created_by_actor === "agent"
-    ? agentColors(annotation.agent_role || "unknown").text
-    : SOURCE_ACCENTS[annotationSource(annotation)].split(" ").at(-1) ?? "text-neutral-400";
+  return annotation.created_by_actor === "agent" ? "text-ai" : SOURCE_ACCENTS[annotationSource(annotation)];
+}
+
+/** Badge tone for the source chip of one annotation: AI and agent authorship is `ai`, everything else neutral. */
+export function annotationSourceTone(annotation: Annotation): BadgeTone {
+  return annotation.created_by_actor === "agent" ? "ai" : SOURCE_BADGE_TONES[annotationSource(annotation)];
 }
 
 export function annotationIdentityLabel(annotation: Annotation): string {
@@ -82,13 +99,56 @@ export function isHumanJudgment(annotation: Annotation): boolean {
   return (annotation.is_human_judgment ?? annotationSource(annotation) === "human") === true;
 }
 
-/** Tailwind accents per disposition. A request for change must not read as a note. */
+/**
+ * Tailwind accents per disposition (the composer's kind toggle). A request for change must not read as
+ * a note: request_change is P0 red, suggestion is P2 cyan, a plain comment is neutral.
+ */
 export const KIND_ACCENTS: Record<AnnotationKind, string> = {
-  comment: "border-sky-900 text-sky-300",
-  request_change: "border-rose-900 text-rose-300",
-  suggestion: "border-violet-900 text-violet-300",
-  looks_good: "border-emerald-900 text-emerald-300",
+  comment: "border-border bg-muted text-foreground",
+  request_change: "border-p0-line bg-p0-bg text-p0",
+  suggestion: "border-p2-line bg-p2-bg text-p2",
+  looks_good: "border-ok-line bg-ok-bg text-ok",
 };
+
+/** The same dispositions as `Badge` tones. */
+export const KIND_BADGE_TONES: Record<AnnotationKind, BadgeTone> = {
+  comment: "neutral",
+  request_change: "p0",
+  suggestion: "p2",
+  looks_good: "success",
+};
+
+/** Severity of an AI finding, as the annotation wire carries it. */
+export type FindingSeverityLevel = NonNullable<Annotation["severity"]>;
+
+export const SEVERITY_LABELS: Record<FindingSeverityLevel, string> = {
+  p0: "P0",
+  p1: "P1",
+  p2: "P2",
+};
+
+/** Badge tone for a severity: the severity tones are named after the levels. */
+export function severityTone(severity: FindingSeverityLevel): BadgeTone {
+  return severity;
+}
+
+/** The severity an AI finding carries, if the server gave it one. A reply never has one. */
+export function annotationSeverity(annotation: Annotation): FindingSeverityLevel | null {
+  return annotation.source === "ai_review" && !annotation.parent_id ? annotation.severity ?? null : null;
+}
+
+/**
+ * The 3px gutter rail of a thread card. It carries state, never decoration, and is always redundant with
+ * a text badge: AI findings by severity, human comments by kind (request_change red, suggestion cyan,
+ * a plain comment neutral).
+ */
+export function annotationRail(annotation: Annotation): HunkRail {
+  if (annotation.source === "ai_review") {
+    return annotationSeverity(annotation) ?? "neutral";
+  }
+  const byKind: Record<AnnotationKind, HunkRail> = { comment: "neutral", request_change: "p0", suggestion: "p2", looks_good: "ok" };
+  return byKind[annotation.kind];
+}
 
 /**
  * Tailwind accent for the line that says how a comment got where it is drawn.
@@ -103,10 +163,10 @@ export const KIND_ACCENTS: Record<AnnotationKind, string> = {
  * or not the line number happened to change.
  */
 export function anchorAccent(annotation: Annotation): string {
-  if (!annotation.anchored) return "border-amber-800 text-amber-300";
+  if (!annotation.anchored) return "border-p1-line bg-p1-bg text-p1";
   return annotation.anchor_exact
     ? "border-border text-muted-foreground"
-    : "border-amber-900/70 text-amber-300/80";
+    : "border-p1-line text-p1";
 }
 
 /** The id a draft comment carries while it has no server id yet. */

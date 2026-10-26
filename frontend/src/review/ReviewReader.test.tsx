@@ -10,6 +10,7 @@ import {
   ProductCapabilitiesProvider,
   REVIEW_ONLY_PRODUCT_CAPABILITIES,
 } from "../lib/RuntimeCapabilities";
+import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import ReviewReader from "./ReviewReader";
 import { readReviewBacktrail, writeReviewBacktrail } from "./reviewBacktrail";
 import { commentDraftKey } from "./reviewDraftPersistence";
@@ -1421,17 +1422,19 @@ describe("ReviewReader Brief", () => {
     expect(await screen.findByTestId("review-brief")).toBeInTheDocument();
   });
 
-  it("names a feature the server declares off instead of silently hiding it", async () => {
+  it("names a feature the server declares off, and why, instead of silently hiding it", async () => {
     environment.unsupported = ["Ask"];
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect((await screen.findAllByText(/does not support Ask/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Ask is not available")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Ask needs an AI model, and none is set up for this workspace yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/does not support/i)).toBeNull(); // "server" is internal wording
   });
 
-  it("says nothing about unsupported features when the server supports them all", async () => {
+  it("says nothing about unavailable features when the server supports them all", async () => {
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect(screen.queryByText(/does not support/)).toBeNull();
+    expect(screen.queryByText(/is not available|does not support/)).toBeNull();
   });
 
   it("keeps Code as the only persistent Review category when Brief capability is off", async () => {
@@ -2081,6 +2084,22 @@ describe("ReviewReader R22 shell", () => {
 
     expect(await screen.findByText("30 streamed targets")).toBeTruthy();
     expect(api.fetchOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("a browser the terminal never connected is told to run lc review, not to ask an administrator", async () => {
+    api.fetchOverview.mockRejectedValueOnce(
+      Object.assign(new Error(LOCAL_BROWSER_RECONNECT_MESSAGE), { status: 401 }),
+    );
+
+    render(<ReviewReader />);
+
+    expect(await screen.findByText("This browser isn't connected to your local review")).toBeTruthy();
+    expect(screen.getByText("lc review --open")).toBeTruthy();
+    expect(screen.queryByText(/administrator/)).toBeNull();
+    expect(screen.queryByText("You no longer have access to this review")).toBeNull();
+    // Connecting from the terminal, then retrying, opens the review.
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("30 streamed targets")).toBeTruthy();
   });
 
   it("a 403 on load says access was lost and offers All reviews instead of a Retry that cannot work", async () => {
@@ -6096,7 +6115,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     const bar = await screen.findByTestId("review-proposals");
     expect(bar).toHaveTextContent("1 ready");
     expect(bar).toHaveTextContent("1 awaiting update");
-    expect(bar.className).toContain("border-sky-900/45");
+    expect(bar.className).toContain("border-cyan-900/45");
     expect(bar).not.toHaveTextContent("need attention");
     expect(bar).not.toHaveTextContent("from older Snapshot");
   });
@@ -7297,8 +7316,8 @@ describe("ReviewReader 8F in-Review backtrail and residual presentation", () => 
     // §5.1 item 2: directly after "What changed".
     const sections = [...brief.querySelectorAll("section[aria-label]")].map((section) => section.getAttribute("aria-label"));
     expect(sections.slice(0, 2)).toEqual(["Change summary", "Architecture delta"]);
-    // Still one primary CTA in the Brief: the summary's own.
-    expect([...brief.querySelectorAll("button.bg-primary")].map((button) => button.textContent)).toEqual(["Open code"]);
+    // The Brief body adds no second filled CTA: the view's one primary action lives in the header.
+    expect([...brief.querySelectorAll("button.bg-primary, button.bg-brand")].map((button) => button.textContent)).toEqual([]);
     expect(within(card).getByRole("button", { name: "Open architecture view" }).className).not.toContain("bg-primary");
 
     briefScrollRoot().scrollTop = 240;

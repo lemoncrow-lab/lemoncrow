@@ -15,7 +15,7 @@ import { cn } from "../../lib/utils";
 import { usePortalContainer } from "./portal-container";
 
 const TOOLTIP_CONTENT_CLASS =
-  "z-50 max-w-xs whitespace-pre-line break-words rounded-md border border-border bg-popover px-2 py-1 text-caption leading-4 text-popover-foreground shadow-md shadow-black/30";
+  "z-50 max-w-xs whitespace-pre-line break-words rounded-md border border-border bg-popover px-2 py-1 text-meta text-popover-foreground shadow-float";
 
 export function TooltipProvider({
   delayDuration = 400,

@@ -89,13 +89,13 @@ export default function ImageOverlayCompare({
           >
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-sky-300 shadow-[0_0_0_1px_rgba(0,0,0,0.45)] transition-[width] group-hover:w-0.5 group-focus-visible:w-0.5"
+              className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-cyan-300 transition-[width] group-hover:w-0.5 group-focus-visible:w-0.5"
             />
             {showHint && (
               <div
                 aria-hidden="true"
                 data-testid="image-overlay-drag-hint"
-                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-neutral-700/80 bg-background/90 px-2 py-1 text-caption font-medium text-neutral-200 shadow-lg backdrop-blur"
+                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-border/80 bg-background/90 px-2 py-1 text-caption font-medium text-foreground shadow-float backdrop-blur"
               >
                 ↔ Drag to compare
               </div>

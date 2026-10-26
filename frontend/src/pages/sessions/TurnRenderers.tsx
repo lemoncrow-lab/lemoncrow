@@ -138,7 +138,7 @@ function shouldShowArtifactLabel(turn: ConversationEntry): boolean {
 
 function ModelPill({ model }: { model: string }) {
   return (
-    <span className="max-w-full truncate border border-sky-900/30 bg-sky-950/25 px-2 py-0.5 text-caption normal-case tracking-normal text-sky-200">
+    <span className="max-w-full truncate border border-cyan-900/30 bg-cyan-950/25 px-2 py-0.5 text-caption normal-case tracking-normal text-cyan-200">
       {model}
     </span>
   );
@@ -146,7 +146,7 @@ function ModelPill({ model }: { model: string }) {
 
 function MarkdownConversationText({ text }: { text: string }) {
   return (
-    <div className="space-y-3 break-words [&_a]:text-cyan-300 [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 [&_code]:rounded [&_code]:bg-surface-code [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.92em] [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_p]:leading-7 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-surface-code [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+    <div className="space-y-3 break-words [&_a]:text-cyan-300 [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-input [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-surface-code [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_h1]:text-title [&_h1]:font-semibold [&_h2]:text-heading [&_h2]:font-semibold [&_h3]:text-heading [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_p]:leading-7 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-surface-code [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
@@ -181,15 +181,15 @@ function TextBlock({
         <UiButton unstyled
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="mt-4 border border-border px-2.5 py-1 text-caption font-mono uppercase tracking-[0.2em] text-neutral-400 transition hover:text-neutral-200 flex items-center gap-1.5"
+          className="mt-4 border border-border px-2.5 py-1 text-meta font-mono uppercase tracking-tag text-muted-foreground transition hover:text-foreground flex items-center gap-1.5"
         >
           {expanded ? (
             <>
-              Collapse <ChevronUp size={10} />
+              Collapse <ChevronUp size={14} />
             </>
           ) : (
             <>
-              Expand <ChevronDown size={10} />
+              Expand <ChevronDown size={14} />
             </>
           )}
         </UiButton>
@@ -204,14 +204,14 @@ function TodoCard({ turn }: { turn: ConversationEntry }) {
     <div className="w-full rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3">
       <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/70 pb-2">
         <div>
-          <div className="text-caption font-mono uppercase tracking-[0.3em] text-amber-300">
+          <div className="text-caption font-mono uppercase tracking-tag text-amber-300">
             Task List
           </div>
-          <div className="mt-1 text-sm font-semibold text-amber-100">
+          <div className="mt-1 text-heading font-semibold text-amber-100">
             {turn.summary}
           </div>
         </div>
-        <div className="text-label font-mono font-bold text-amber-300">
+        <div className="text-label font-mono font-semibold text-amber-300">
           {todos.length} item{todos.length === 1 ? "" : "s"}
         </div>
       </div>
@@ -221,17 +221,17 @@ function TodoCard({ turn }: { turn: ConversationEntry }) {
             key={`${todo.content}-${index}`}
             className="grid gap-2 rounded-md border border-border/70 bg-surface-code px-3 py-2 md:grid-cols-[1fr_auto]"
           >
-            <div className="text-sm leading-6 text-foreground">
+            <div className="text-heading leading-6 text-foreground">
               {todo.content}
             </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
               {todo.priority && (
-                <span className="border border-red-900/30 bg-red-950/20 px-2 py-0.5 text-caption font-mono uppercase tracking-[0.2em] text-red-300">
+                <span className="border border-red-900/30 bg-red-950/20 px-2 py-0.5 text-caption font-mono uppercase tracking-tag text-red-300">
                   {todo.priority}
                 </span>
               )}
               {todo.status && (
-                <span className="rounded-md border border-amber-900/40 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-[0.12em] text-amber-300">
+                <span className="rounded-md border border-amber-900/40 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-tag text-amber-300">
                   {todo.status}
                 </span>
               )}
@@ -314,19 +314,19 @@ function AttachmentPreview({
 
   if (loading) {
     return (
-      <div className="text-caption font-mono uppercase tracking-[0.2em] text-neutral-400">
+      <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
         Loading preview...
       </div>
     );
   }
 
   if (error) {
-    return <div className="text-xs text-red-300">{error}</div>;
+    return <div className="text-body text-red-300">{error}</div>;
   }
 
   if (remoteContent) {
     return (
-      <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-neutral-300">
+      <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-subtle">
         <TextBlock text={remoteContent} forceExpand={forceExpand} />
       </div>
     );
@@ -348,16 +348,16 @@ function AttachmentCard({
     <div className="w-full space-y-3 rounded-lg border border-border/70 border-l-2 border-l-cyan-600/45 bg-background/60 p-3">
       <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-2">
         <div>
-          <div className="text-caption font-mono uppercase tracking-[0.3em] text-cyan-300">
+          <div className="text-caption font-mono uppercase tracking-tag text-cyan-300">
             {turn.kind === "pasted_content"
               ? "Pasted Context"
               : "Attached Context"}
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.summary}
           </div>
         </div>
-        <div className="text-label font-mono font-bold text-cyan-300">
+        <div className="text-label font-mono font-semibold text-cyan-300">
           {attachments.length} asset{attachments.length === 1 ? "" : "s"}
         </div>
       </div>
@@ -372,28 +372,28 @@ function AttachmentCard({
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-foreground">
+                <div className="text-body font-semibold text-foreground">
                   {attachment.display_name ||
                     attachment.title ||
                     attachment.type}
                 </div>
                 {attachment.path && (
-                  <div className="mt-1 truncate font-mono text-caption text-neutral-400">
+                  <div className="mt-1 truncate font-mono text-caption text-muted-foreground">
                     {attachment.path}
                   </div>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-md border border-cyan-900/40 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-[0.12em] text-cyan-300">
+                <span className="rounded-md border border-cyan-900/40 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-tag text-cyan-300">
                   {attachment.type}
                 </span>
                 {attachment.size_label && (
-                  <span className="text-caption font-mono text-neutral-400">
+                  <span className="text-caption font-mono text-muted-foreground">
                     {attachment.size_label}
                   </span>
                 )}
                 {attachment.line_count !== undefined && (
-                  <span className="text-caption font-mono text-neutral-400">
+                  <span className="text-caption font-mono text-muted-foreground">
                     {attachment.line_count} lines
                   </span>
                 )}
@@ -406,7 +406,7 @@ function AttachmentCard({
                         })}
                         target="_blank"
                         rel="noreferrer"
-                        className="border border-border px-2 py-0.5 text-caption font-mono uppercase tracking-[0.2em] text-neutral-400 transition hover:text-cyan-200"
+                        className="border border-border px-2 py-0.5 text-meta font-mono uppercase tracking-tag text-muted-foreground transition hover:text-cyan-200"
                         title="Inspect compact projection metadata"
                       >
                         Projection
@@ -416,7 +416,7 @@ function AttachmentCard({
                       href={fileUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="border border-border px-2 py-0.5 text-caption font-mono uppercase tracking-[0.2em] text-neutral-400 transition hover:text-cyan-200"
+                      className="border border-border px-2 py-0.5 text-meta font-mono uppercase tracking-tag text-muted-foreground transition hover:text-cyan-200"
                     >
                       Open
                     </a>
@@ -438,30 +438,30 @@ function AttachmentCard({
 function SubagentCard({ turn }: { turn: ConversationEntry }) {
   const status = (turn.subagent_status || "started").toUpperCase();
   return (
-    <div className="w-full rounded-lg border border-border/70 border-l-2 border-l-violet-600/45 bg-background/60 p-3">
+    <div className="w-full rounded-lg border border-border/70 border-l-2 border-l-ai-solid bg-background/60 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-2">
         <div>
-          <div className="text-caption font-mono uppercase tracking-[0.3em] text-violet-300">
+          <div className="text-caption font-mono uppercase tracking-tag text-ai">
             Subagent Lifecycle
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.subagent_name || turn.summary}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {turn.model && <ModelPill model={turn.model} />}
-          <span className="rounded-md border border-violet-900/45 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-[0.12em] text-violet-300">
+          <span className="rounded-md border border-ai-line bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-tag text-ai">
             {status}
           </span>
         </div>
       </div>
       {(turn.subagent_description || turn.content) && (
-        <div className="mt-4 text-sm leading-6 text-neutral-300">
+        <div className="mt-4 text-heading leading-6 text-subtle">
           <MarkdownConversationText text={turn.subagent_description || turn.content || ""} />
         </div>
       )}
       {turn.subagent_id && (
-        <div className="mt-4 font-mono text-caption uppercase tracking-[0.2em] text-neutral-400">
+        <div className="mt-4 font-mono text-caption uppercase tracking-tag text-muted-foreground">
           {turn.subagent_id}
         </div>
       )}
@@ -487,30 +487,30 @@ function ToolConversationCard({
     <div className="w-full space-y-3 rounded-lg border border-border/70 bg-background/60 p-3">
       <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-2">
         <div>
-          <div className="text-caption font-mono uppercase tracking-[0.3em] text-neutral-400">
+          <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
             Tool Call
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.tool_name || getNormName(turn)}
           </div>
         </div>
       </div>
       {turn.arguments !== undefined && (
         <div className="space-y-2">
-          <div className="text-caption font-mono uppercase tracking-[0.2em] text-neutral-400">
+          <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
             Arguments
           </div>
-          <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-neutral-300">
+          <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-subtle">
             <TextBlock text={argsText} forceExpand={forceExpand} />
           </div>
         </div>
       )}
       {showContent && (
         <div className="space-y-2">
-          <div className="text-caption font-mono uppercase tracking-[0.2em] text-neutral-400">
+          <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
             Result
           </div>
-          <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-neutral-300">
+          <div className="rounded-md border border-border/70 bg-surface-code p-3 font-mono text-label text-subtle">
             <TextBlock text={turn.content || ""} forceExpand={forceExpand} />
           </div>
         </div>
@@ -563,7 +563,7 @@ export function ConversationTurn({
     >
       <div
         className={cx(
-          "flex w-full items-center justify-between px-2 text-caption font-mono font-bold uppercase tracking-widest",
+          "flex w-full items-center justify-between px-2 text-caption font-mono font-semibold uppercase tracking-widest",
           isUser ? "flex-row-reverse text-right" : "flex-row"
         )}
       >
@@ -579,10 +579,10 @@ export function ConversationTurn({
               isUser
                 ? "border-emerald-500/20 bg-emerald-500/[0.03] text-emerald-300"
                 : isAgent
-                  ? "border-violet-500/20 bg-violet-500/[0.03] text-violet-300"
+                  ? "border-ai-line bg-ai-bg text-ai"
                   : isThinking
                     ? "border-cyan-500/20 bg-cyan-500/[0.03] text-cyan-300"
-                    : "border-border bg-muted/50 text-neutral-400"
+                    : "border-border bg-muted/50 text-muted-foreground"
             )}
           >
             {turnKindLabel(turn)}
@@ -594,17 +594,17 @@ export function ConversationTurn({
           )}
           {turn.model && <ModelPill model={turn.model} />}
           {turn.count && turn.count > 1 && (
-            <span className="border border-border bg-muted/60 px-2 py-0.5 text-caption text-neutral-400">
+            <span className="border border-border bg-muted/60 px-2 py-0.5 text-caption text-muted-foreground">
               ×{turn.count}
             </span>
           )}
           {turn.source_scope === "subagent" && (
-            <span className="rounded-md border border-violet-900/40 bg-background/60 px-2 py-0.5 text-caption text-violet-300">
+            <span className="rounded-md border border-ai-line bg-background/60 px-2 py-0.5 text-caption text-ai">
               subagent
             </span>
           )}
           {showArtifactLabel && (
-            <span className="truncate text-caption font-normal normal-case tracking-normal text-neutral-400">
+            <span className="truncate text-caption font-normal normal-case tracking-normal text-muted-foreground">
               source · {turn.artifact_label}
             </span>
           )}
@@ -622,7 +622,7 @@ export function ConversationTurn({
                   (tok.cache_write ?? 0)
                 : 0;
               return (
-                <div className="text-caption font-black tracking-tight text-red-300">
+                <div className="text-caption font-semibold tracking-tight text-red-300">
                   - {fmtUsd(turn.cost)}
                   {totalTok > 0 && (
                     <span className="ml-1 font-normal text-red-300">
@@ -635,7 +635,7 @@ export function ConversationTurn({
           {turn.saved &&
             ((turn.saved.tokens ?? 0) > 0 || (turn.saved.calls ?? 0) > 0) && (
               <span
-                className="text-caption font-black tracking-tight text-emerald-300"
+                className="text-caption font-semibold tracking-tight text-emerald-300"
                 title={`LemonCrow saved ${turn.saved.tokens.toLocaleString()} tokens${turn.saved.calls > 0 ? ` and ${turn.saved.calls} call${turn.saved.calls === 1 ? "" : "s"}` : ""}${turn.saved.usd > 0 ? ` (≈ $${turn.saved.usd.toFixed(4)} at the model's input rate)` : ""}`}
               >
                 ↓{" "}
@@ -649,7 +649,7 @@ export function ConversationTurn({
                 )}
               </span>
             )}
-          <span className="font-normal tracking-tight text-neutral-400 transition-colors group-hover:text-neutral-300">
+          <span className="font-normal tracking-tight text-muted-foreground transition-colors group-hover:text-subtle">
             {parseAt(turn.at)?.toLocaleTimeString() ?? ""}
           </span>
         </div>
@@ -685,7 +685,7 @@ export function ConversationTurn({
             isUser
               ? "border-border/70 border-l-2 border-l-emerald-600/45 bg-background/60 p-4 text-foreground"
               : isAgent
-                ? "border-border/70 border-l-2 border-l-violet-600/45 bg-background/60 p-4 text-neutral-200"
+                ? "border-border/70 border-l-2 border-l-ai-solid bg-background/60 p-4 text-foreground"
                 : isThinking
                   ? "border-border/70 border-l-2 border-l-cyan-600/45 bg-background/60 p-4"
                   : "w-full border-border/70 bg-background/60 p-4"
@@ -694,14 +694,14 @@ export function ConversationTurn({
           <div
             className={cx(
               isThinking
-                ? "text-xs italic leading-relaxed tracking-tight text-cyan-200/40"
+                ? "text-body italic leading-relaxed tracking-tight text-cyan-200/40"
                 : isUser || isAgent
-                  ? "text-sm leading-7 text-neutral-200"
-                  : "font-mono text-xs leading-relaxed tracking-tight text-neutral-300"
+                  ? "text-heading leading-7 text-foreground"
+                  : "font-mono text-body leading-relaxed tracking-tight text-subtle"
             )}
           >
             {!turn.content && (
-              <div className="mb-4 border-b border-border/40 pb-3 font-mono text-label font-bold uppercase tracking-wide text-foreground/90">
+              <div className="mb-4 border-b border-border/40 pb-3 font-mono text-label font-semibold uppercase tracking-wide text-foreground/90">
                 {turn.summary}
               </div>
             )}
@@ -719,16 +719,16 @@ export function ConversationTurn({
               <UiButton unstyled
                 type="button"
                 onClick={() => setInternalExpanded((value) => !value)}
-                className="mt-6 border border-border bg-muted/50 px-3 py-1 text-caption font-black uppercase tracking-[0.2em] text-neutral-400 transition-all hover:text-neutral-200 flex items-center gap-1.5"
+                className="mt-6 border border-border bg-muted/50 px-3 py-1 text-meta font-semibold uppercase tracking-tag text-muted-foreground transition-all hover:text-foreground flex items-center gap-1.5"
               >
                 {internalExpanded ? (
                   <>
-                    Shrink <ChevronUp size={10} />
+                    Shrink <ChevronUp size={14} />
                   </>
                 ) : (
                   <>
                     Expand ({turn.content?.length || 0} chars){" "}
-                    <ChevronDown size={10} />
+                    <ChevronDown size={14} />
                   </>
                 )}
               </UiButton>
@@ -757,28 +757,28 @@ export function ToolCallDetail({
     <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60 group/tool">
       <UiButton unstyled
         onClick={() => setInternalExpanded(!internalExpanded)}
-        className="w-full p-4 text-left transition-all hover:bg-neutral-800/20"
+        className="w-full p-4 text-left transition-all hover:bg-accent/20"
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <span className="rounded-md border border-blue-500/20 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-[0.12em] text-blue-300">
+            <span className="rounded-md border border-cyan-500/20 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-tag text-cyan-300">
               SYSTEM_TOOL
             </span>
-            <span className="text-xs font-mono font-bold tracking-wide text-neutral-400 transition-colors group-hover/tool:text-blue-300">
+            <span className="text-body font-mono font-semibold tracking-wide text-muted-foreground transition-colors group-hover/tool:text-cyan-300">
               {tool.count > 1 && (
-                <span className="mr-2 text-blue-300">{tool.count}x</span>
+                <span className="mr-2 text-cyan-300">{tool.count}x</span>
               )}
               {tool.name}
             </span>
           </div>
-          <span className="text-caption font-black uppercase tracking-widest text-neutral-400 transition-colors group-hover/tool:text-neutral-300 flex items-center gap-1.5">
+          <span className="text-caption font-semibold uppercase tracking-widest text-muted-foreground transition-colors group-hover/tool:text-subtle flex items-center gap-1.5">
             {expanded ? (
               <>
-                Collapse <ChevronUp size={10} />
+                Collapse <ChevronUp size={14} />
               </>
             ) : (
               <>
-                Inspect <ChevronDown size={10} />
+                Inspect <ChevronDown size={14} />
               </>
             )}
           </span>
@@ -788,17 +788,17 @@ export function ToolCallDetail({
         <div className="space-y-4 border-t border-border/70 bg-surface-code p-4">
           {tool.args && (
             <div className="space-y-2">
-              <div className="text-caption font-black uppercase tracking-[0.3em] text-neutral-400">
+              <div className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                 Parameters
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap border border-border/40 bg-surface-code p-4 text-caption font-mono text-neutral-400">
+              <pre className="overflow-x-auto whitespace-pre-wrap border border-border/40 bg-surface-code p-4 text-caption font-mono text-muted-foreground">
                 {JSON.stringify(tool.args, null, 2)}
               </pre>
             </div>
           )}
           {tool.result_summary && (
             <div className="space-y-2">
-              <div className="text-caption font-black uppercase tracking-[0.3em] text-neutral-400">
+              <div className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                 Outcome
               </div>
               <pre className="overflow-x-auto whitespace-pre-wrap border border-border/40 bg-surface-code p-4 text-caption font-mono text-emerald-300">
@@ -837,14 +837,14 @@ export function CommandDetail({
     <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60 group/cmd">
       <UiButton unstyled
         onClick={() => setInternalExpanded(!internalExpanded)}
-        className="w-full p-4 text-left transition-all hover:bg-neutral-800/20"
+        className="w-full p-4 text-left transition-all hover:bg-accent/20"
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-4">
-            <span className="rounded-md border border-amber-500/25 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-[0.12em] text-amber-300">
+            <span className="rounded-md border border-amber-500/25 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-tag text-amber-300">
               SHELL_CMD
             </span>
-            <span className="truncate font-mono text-xs text-amber-200/80 transition-colors group-hover/cmd:text-amber-100">
+            <span className="truncate font-mono text-body text-amber-200/80 transition-colors group-hover/cmd:text-amber-100">
               $ {text}
             </span>
           </div>
@@ -852,9 +852,9 @@ export function CommandDetail({
             {isObj && (
               <span
                 className={cx(
-                  "text-caption font-black tracking-widest font-mono",
+                  "text-caption font-semibold tracking-widest font-mono",
                   unknownExit
-                    ? "text-neutral-400"
+                    ? "text-muted-foreground"
                     : ok
                       ? "text-emerald-600"
                       : "text-red-600"
@@ -863,14 +863,14 @@ export function CommandDetail({
                 EXIT_{rc ?? "?"}
               </span>
             )}
-            <span className="text-caption font-black uppercase tracking-widest text-neutral-400 transition-colors group-hover/cmd:text-neutral-300 flex items-center gap-1.5">
+            <span className="text-caption font-semibold uppercase tracking-widest text-muted-foreground transition-colors group-hover/cmd:text-subtle flex items-center gap-1.5">
               {expanded ? (
                 <>
-                  Hide <ChevronUp size={10} />
+                  Hide <ChevronUp size={14} />
                 </>
               ) : (
                 <>
-                  Logs <ChevronDown size={10} />
+                  Logs <ChevronDown size={14} />
                 </>
               )}
             </span>
@@ -881,17 +881,17 @@ export function CommandDetail({
         <div className="space-y-4 border-t border-border/70 bg-surface-code p-4 font-mono text-caption">
           {command.stdout && (
             <div className="space-y-2">
-              <div className="text-caption font-black uppercase tracking-[0.3em] text-neutral-400">
+              <div className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                 stdout
               </div>
-              <pre className="whitespace-pre-wrap border border-border/30 bg-surface-code p-3 text-neutral-400">
+              <pre className="whitespace-pre-wrap border border-border/30 bg-surface-code p-3 text-muted-foreground">
                 {command.stdout}
               </pre>
             </div>
           )}
           {command.stderr && (
             <div className="space-y-2">
-              <div className="text-caption font-black uppercase tracking-[0.3em] text-red-700">
+              <div className="text-caption font-semibold uppercase tracking-tag text-red-700">
                 stderr
               </div>
               <pre className="whitespace-pre-wrap border border-red-900/20 bg-red-950/[0.05] p-3 text-red-300">

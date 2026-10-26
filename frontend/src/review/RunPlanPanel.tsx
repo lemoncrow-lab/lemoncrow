@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_TONE: Record<string, string> = {
   run: "text-emerald-300",
   satisfied: "text-emerald-300/80",
-  on_request: "text-sky-300",
+  on_request: "text-cyan-300",
   limited_by_budget: "text-amber-300",
   not_available: "text-muted-foreground",
   skipped: "text-muted-foreground",
@@ -138,7 +138,7 @@ function EntryRow({ entry }: { entry: RunPlanEntry }) {
   return (
     <div className="border-t border-border/60 py-1.5 first:border-t-0" data-testid={`run-plan-entry-${entry.id}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-neutral-200" title={entry.id}>
+        <span className="min-w-0 flex-1 truncate text-label text-foreground" title={entry.id}>
           {entry.title || entry.id}
         </span>
         <span className={`text-caption ${tone}`}>{statusLabel(entry)}</span>
@@ -167,7 +167,7 @@ function EntryRow({ entry }: { entry: RunPlanEntry }) {
       )}
       {entryEscalationLine(entry) && (
         <div
-          className={`text-micro ${entry.escalation?.state === "limited_by_budget" ? "text-amber-300/80" : "text-sky-300/80"}`}
+          className={`text-micro ${entry.escalation?.state === "limited_by_budget" ? "text-amber-300/80" : "text-cyan-300/80"}`}
           data-testid={`run-plan-escalation-${entry.id}`}
         >
           {entryEscalationLine(entry)}
@@ -340,7 +340,7 @@ export default function RunPlanPanel({
       }
     >
       <div className="space-y-2" data-testid="run-plan-panel">
-        <div className="text-caption text-neutral-300">
+        <div className="text-caption text-subtle">
           {selectionLabel(plan)}
           <span className="text-muted-foreground">
             {" "}
@@ -354,18 +354,20 @@ export default function RunPlanPanel({
         )}
         {data.ai_availability && !data.ai_availability.available && (
           <div className="text-micro leading-relaxed text-amber-300/80" data-testid="run-plan-ai-unavailable">
-            AI review unavailable: {data.ai_availability.reason}. Deterministic checks still run.
+            {data.ai_availability.executor === "durable"
+              ? `${data.ai_availability.reason}. Deterministic checks still run.`
+              : `AI review unavailable: ${data.ai_availability.reason}. Deterministic checks still run.`}
           </div>
         )}
         {plan.run_on_note && <div className="text-micro text-amber-300/80">{plan.run_on_note}</div>}
         {plan.policy_error && (
-          <div className="text-micro leading-relaxed text-rose-300" data-testid="run-plan-policy-invalid">
+          <div className="text-micro leading-relaxed text-red-300" data-testid="run-plan-policy-invalid">
             Review policy invalid: {plan.policy_error}. Nothing runs until the trusted-base config is fixed.
           </div>
         )}
         {data.historical && <div className="text-micro text-muted-foreground">Plan for an earlier Snapshot.</div>}
         {data.future_settings.changed && (
-          <div className="text-micro leading-relaxed text-sky-300/80">
+          <div className="text-micro leading-relaxed text-cyan-300/80">
             This Change edits Review settings. They apply to later Reviews after it lands, not to this one.
           </div>
         )}
@@ -394,7 +396,7 @@ export default function RunPlanPanel({
               plan.escalation.state === "limited_by_budget"
                 ? "text-amber-300/80"
                 : plan.escalation.state === "escalated"
-                  ? "text-sky-300/80"
+                  ? "text-cyan-300/80"
                   : "text-muted-foreground"
             }`}
             data-testid="run-plan-escalation"
@@ -418,7 +420,7 @@ export default function RunPlanPanel({
         ))}
         {data.compute && data.compute.totals.runs > 0 && (
           <details data-testid="run-plan-compute">
-            <summary className="cursor-pointer text-micro text-muted-foreground">
+            <summary className="cursor-pointer text-meta text-muted-foreground">
               Compute used here: {Math.round(data.compute.totals.compute_minutes * 100) / 100} min · {data.compute.totals.runs} run
               {data.compute.totals.runs === 1 ? "" : "s"}
             </summary>
@@ -433,7 +435,7 @@ export default function RunPlanPanel({
 
         {data.economy && data.economy.rows.length > 0 && (
           <details data-testid="run-plan-economy">
-            <summary className="cursor-pointer text-micro text-muted-foreground">
+            <summary className="cursor-pointer text-meta text-muted-foreground">
               Compute saved: {minutesLabel(data.economy.saved_minutes)} · spent {minutesLabel(data.economy.spent_minutes)}
               {data.economy.saved_estimated_minutes > 0 && ` (${minutesLabel(data.economy.saved_estimated_minutes)} estimated)`}
             </summary>
@@ -482,7 +484,7 @@ export default function RunPlanPanel({
         )}
         {groups.notRunning.length > 0 && (
           <details>
-            <summary className="cursor-pointer text-micro uppercase tracking-wider text-muted-foreground">
+            <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">
               Not running · {groups.notRunning.length}
             </summary>
             {groups.notRunning.map((entry) => (
@@ -516,7 +518,7 @@ export default function RunPlanPanel({
                   key={row.id}
                   type="button"
                   size="xs"
-                  variant={selected ? "default" : "outline"}
+                  variant={selected ? "solid" : "outline"}
                   aria-pressed={selected}
                   className="w-full justify-start"
                   onClick={() => {
@@ -530,7 +532,7 @@ export default function RunPlanPanel({
               );
             })}
             {preview && (
-              <div className="text-caption text-neutral-300" data-testid="run-specific-preview">
+              <div className="text-caption text-subtle" data-testid="run-specific-preview">
                 Adds {cost(preview.incremental.minutes, preview.incremental.model_calls)}
                 {preview.changes.length > 0 && (
                   <span className="text-muted-foreground">
@@ -543,10 +545,10 @@ export default function RunPlanPanel({
                 )}
               </div>
             )}
-            {actionError && <div className="text-micro text-rose-300">{actionError}</div>}
+            {actionError && <div className="text-micro text-red-300">{actionError}</div>}
             <div className="flex gap-2">
               {preview ? (
-                <UiButton type="button" size="xs" variant="default" disabled={busy} onClick={() => void confirmPicks()}>
+                <UiButton type="button" size="xs" variant="solid" disabled={busy} onClick={() => void confirmPicks()}>
                   Add to this Review
                 </UiButton>
               ) : (

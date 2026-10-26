@@ -17,7 +17,7 @@ export function PanelCard({ title, action, children }: { title: string; action?:
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-2">
-        <h3 className="text-caption font-medium text-neutral-300">{title}</h3>
+        <h3 className="text-caption font-medium text-subtle">{title}</h3>
         <span className="flex-1" />
         {action}
       </div>
@@ -28,7 +28,7 @@ export function PanelCard({ title, action, children }: { title: string; action?:
 
 const STATUS_TONE: Record<string, string> = {
   PASS: "text-emerald-300",
-  FAIL: "text-rose-300",
+  FAIL: "text-red-300",
   UNKNOWN: "text-amber-300",
   NOT_RUN: "text-amber-300",
 };
@@ -79,12 +79,12 @@ export function ExecutionEnvironment({ execution }: { execution: ExecutionVerifi
 export function Verification({ rows }: { rows: EvidenceRow[] }) {
   if (rows.length === 0) return <div className="text-caption text-muted-foreground">No verification evidence recorded.</div>;
   return (
-    <div className="divide-y divide-neutral-900 border-y border-neutral-900">
+    <div className="divide-y divide-border border-y border-border">
       {rows.map((row, index) => (
         <div key={`${row.name}:${row.scope ?? "review"}:${index}`} className="py-2 first:pt-1.5 last:pb-1.5">
           <div className="flex items-baseline gap-2 text-caption">
             <span className={`w-14 shrink-0 font-medium ${STATUS_TONE[row.status] ?? "text-muted-foreground"}`}>{STATUS_LABEL[row.status] ?? row.status}</span>
-            <span className="min-w-0 flex-1 text-neutral-300">{row.name}</span>
+            <span className="min-w-0 flex-1 text-subtle">{row.name}</span>
           </div>
           {row.detail && <div className="mt-0.5 pl-16 text-caption leading-4 text-muted-foreground">{row.detail}</div>}
           {row.execution && <ExecutionEnvironment execution={row.execution} />}
@@ -107,7 +107,7 @@ export function Impact({ sites, onOpen }: { sites: ImpactSite[]; onOpen(site: Im
           className="block w-full border-l border-border pl-2 text-left hover:bg-muted/40"
         >
           <div className="flex items-baseline gap-2 text-caption">
-            <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={site.path}>{site.path}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={site.path}>{site.path}</span>
             <span className="text-muted-foreground">{site.in_patch ? "in patch" : "outside patch"}</span>
           </div>
           <div className={`mt-0.5 text-caption ${site.uncertainty ? "text-amber-400/80" : "text-muted-foreground"}`}>
@@ -147,11 +147,11 @@ export function Provenance({ info }: { info: ProvenanceInfo }) {
   return (
     <div className="space-y-2 text-caption">
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-        <span className="text-neutral-300">{info.host || "unknown host"}</span>
+        <span className="text-subtle">{info.host || "unknown host"}</span>
         {info.model && <span className="text-muted-foreground">· {info.model}</span>}
         <span className="text-muted-foreground">· {info.certainty || "unknown"}</span>
       </div>
-      {info.task && <div className="leading-4 text-neutral-400">{info.task}</div>}
+      {info.task && <div className="leading-4 text-muted-foreground">{info.task}</div>}
       <div className="text-caption">
         {!info.reads_recorded ? (
           <span className="text-muted-foreground">File-read history was not recorded.</span>
@@ -164,8 +164,8 @@ export function Provenance({ info }: { info: ProvenanceInfo }) {
         )}
       </div>
       {technical && (
-        <details className="border-t border-neutral-900 pt-2 text-caption text-muted-foreground">
-          <summary className="cursor-pointer hover:text-neutral-50">Technical provenance</summary>
+        <details className="border-t border-border pt-2 text-meta text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground">Technical provenance</summary>
           <div className="mt-2 space-y-1.5 border-l border-border pl-2">
             {info.session_id && <div className="truncate font-mono" title={info.session_id}>session · {info.session_id}</div>}
             {info.commands_run.map((command, index) => <div key={`${index}:${command}`} className="truncate font-mono" title={command}>command · {command}</div>)}
@@ -192,8 +192,8 @@ export function Discussion({ annotations, path }: { annotations: Annotation[]; p
             {/* Raw model confidence is intentionally not a default reviewer signal.
                 Source/model details remain available in the finding's explicit details. */}
           </div>
-          {item.title && <div className="mt-1 text-caption font-medium text-neutral-300">{item.title}</div>}
-          <div className="mt-1 whitespace-pre-wrap text-caption leading-4 text-neutral-400">{item.body}</div>
+          {item.title && <div className="mt-1 text-caption font-medium text-subtle">{item.title}</div>}
+          <div className="mt-1 whitespace-pre-wrap text-caption leading-4 text-muted-foreground">{item.body}</div>
         </div>
       )} />
     </div>
@@ -228,13 +228,13 @@ export function ArtifactCard({ artifact }: { artifact: ReviewEvidence }) {
     <div className="border border-border bg-muted/20 p-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-caption text-neutral-300">{artifact.title || artifact.kind}</div>
+          <div className="truncate text-caption text-subtle">{artifact.title || artifact.kind}</div>
           <div className="mt-0.5 font-mono text-caption text-muted-foreground">
             {artifact.kind} · {artifact.source}{artifact.verification_status ? ` · ${artifact.verification_status}` : ""} · {artifact.revision_number != null ? `Snapshot ${artifact.revision_number}` : `Snapshot ${artifact.revision_id}`}{artifact.status === "stale" ? " · stale" : ""}
           </div>
         </div>
         {(artifact.url || artifact.content_url) && (
-          <UiButton type="button" variant="link" onClick={() => void openArtifact()} disabled={opening} className="text-caption text-sky-400 hover:text-sky-300 disabled:opacity-40">{opening ? "Opening…" : "Open"}</UiButton>
+          <UiButton type="button" variant="link" onClick={() => void openArtifact()} disabled={opening} className="text-meta text-cyan-400 hover:text-cyan-300 disabled:opacity-40">{opening ? "Opening…" : "Open"}</UiButton>
         )}
       </div>
       {artifact.status === "stale" && <div className="mt-1 text-caption leading-4 text-amber-400/70">This artifact belongs to an older Snapshot and is not current proof.</div>}

@@ -13,12 +13,20 @@ from __future__ import annotations
 
 import pytest
 
-from lemoncrow.core.capabilities.pricing import _intro_pricing_active, get_model_pricing
+from lemoncrow.core.capabilities.pricing import (
+    ModelPricing,
+    _intro_pricing_active,
+    exact_model_pricing,
+    get_model_pricing,
+)
 from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
 # Sonnet 5's launch rates ($2/$10 + standard cache multipliers) became the
 # standard price; the planned Sep 1, 2026 increase to $3/$15 was cancelled.
 _SONNET_5_RATES = (2.0, 10.0, 0.2, 2.5)
+# Sonnet 5.5 has the same $2/$10, but its cache hits are 0.05x the input price ($0.10), not Sonnet 5's 0.1x ($0.20)
+# (Anthropic's pricing page, footnote 2, 2026-10-26).
+_SONNET_5_5_RATES = (2.0, 10.0, 0.1, 2.5)
 
 # model -> (input, output, cache_read, cache_write) USD per 1M tokens
 _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
@@ -29,7 +37,7 @@ _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-4-6": (5.0, 25.0, 0.5, 6.25),
     "claude-opus-5-5": (4.0, 20.0, 0.2, 5.0),
     "claude-sonnet-5": _SONNET_5_RATES,
-    "claude-sonnet-5-5": _SONNET_5_RATES,
+    "claude-sonnet-5-5": _SONNET_5_5_RATES,
     "claude-sonnet-4-6": (3.0, 15.0, 0.3, 3.75),
 }
 
@@ -87,7 +95,7 @@ def test_sonnet_5_5_uses_the_shipped_full_window_rates() -> None:
         pricing.cache_write_1h,
         pricing.thinking,
         pricing.context_window,
-    ) == (2.0, 10.0, 0.2, 2.5, 4.0, 10.0, 1_000_000)
+    ) == (2.0, 10.0, 0.1, 2.5, 4.0, 10.0, 1_000_000)
     assert pricing.long_context_threshold() == 0
 
 
@@ -122,3 +130,61 @@ def test_display_names_resolve_to_priced_models() -> None:
     ):
         assert resolve_model_id(display) == canonical
         assert get_model_pricing(canonical).known
+
+
+def test_exact_model_pricing_refuses_a_nearest_sibling_and_an_empty_id() -> None:
+    for listed in ("claude-sonnet-5-5", "anthropic/claude-sonnet-5-5", "claude-haiku-5-5"):
+        card = exact_model_pricing(listed)
+        assert card is not None and card.known and not card.approximate, listed
+    # The table would price these as a sibling (approximate) or not at all; neither is an exact price.
+    for unlisted in ("", "claude-sonnet-9-9", "anthropic/claude-haiku-9-9", "no-such-model"):
+        assert exact_model_pricing(unlisted) is None, unlisted
+
+
+def test_haiku_5_5_call_bills_the_whole_request_at_the_tier_its_prompt_length_picks() -> None:
+    card = get_model_pricing("claude-haiku-5-5")
+
+    # Up to 100,000 prompt tokens is the base card; a prompt of exactly 100,000 is still under it.
+    assert card.call_cost_usd(prompt_tokens=100_000, output_tokens=1_000) == pytest.approx(
+        (100_000 * 0.10 + 1_000 * 0.50) / 1_000_000
+    )
+    # Past it, every token of the request bills at the higher card, not only the tokens past 100,000 (which is what
+    # ``cost_usd``'s progressive tiers would charge).
+    over = card.call_cost_usd(prompt_tokens=150_000, output_tokens=1_000)
+    assert over == pytest.approx((150_000 * 0.50 + 1_000 * 2.50) / 1_000_000)
+    assert over > card.cost_usd(input_tokens=150_000, output_tokens=1_000)
+    # Cache reads and writes count toward the prompt length, and bill at the higher card's cache rates.
+    cached = card.call_cost_usd(
+        prompt_tokens=100_001, output_tokens=0, cache_read_tokens=80_000, cache_write_tokens=10_000
+    )
+    assert cached == pytest.approx((10_001 * 0.50 + 80_000 * 0.05 + 10_000 * 0.625) / 1_000_000)
+
+
+def test_call_cost_usd_bills_cached_tokens_once_at_their_own_rates() -> None:
+    card = get_model_pricing("claude-sonnet-5-5")
+
+    # 10,000 prompt tokens, of which 4,000 were read from the cache and 2,000 written to it: 4,000 plain input.
+    cost = card.call_cost_usd(
+        prompt_tokens=10_000, output_tokens=500, cache_read_tokens=4_000, cache_write_tokens=2_000
+    )
+
+    assert cost == pytest.approx((4_000 * 2.0 + 500 * 10.0 + 4_000 * 0.10 + 2_000 * 2.50) / 1_000_000)
+    # A model without a long-context tier bills the same at any length.
+    assert card.call_cost_usd(prompt_tokens=900_000, output_tokens=0) == pytest.approx(900_000 * 2.0 / 1_000_000)
+
+
+def test_call_cost_usd_never_goes_negative_on_counts_that_are_not_a_subset() -> None:
+    card = get_model_pricing("claude-sonnet-5-5")
+
+    # More cached tokens than prompt tokens cannot be a subset of it: the prompt is at least what was cached.
+    assert card.call_cost_usd(prompt_tokens=1_000, output_tokens=0, cache_read_tokens=3_000) == pytest.approx(
+        3_000 * 0.10 / 1_000_000
+    )
+
+
+def test_a_cache_rate_the_table_leaves_at_zero_bills_as_plain_input_never_as_free() -> None:
+    card = ModelPricing(model_id="no-cache-rates", input=1.0, output=2.0)
+
+    cost = card.call_cost_usd(prompt_tokens=1_000, output_tokens=100, cache_read_tokens=400, cache_write_tokens=100)
+
+    assert cost == pytest.approx((1_000 * 1.0 + 100 * 2.0) / 1_000_000)

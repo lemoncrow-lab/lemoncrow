@@ -1392,6 +1392,11 @@ class ReviewStore(SqliteTableStore):
     DRIVER_ERRORS: ClassVar[tuple[type[Exception], ...]] = (sqlite3.Error,)
     """Database-driver failures a hosted subclass may raise from ``_transaction``."""
 
+    working_tree_authority: Any = None
+    """Set by ``lc review --ai`` on a developer's own change: a ``WorkingTreeAuthority`` the Review API reads the
+    configuration documents from instead of the base commit. ``None`` (a pull request, the Action, a hosted Review):
+    the trusted base."""
+
     MIGRATIONS: ClassVar[tuple[str, ...]] = (
         "v3_001_review_annotations.sql",
         "v3_002_review_source_fingerprint.sql",

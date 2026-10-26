@@ -1,0 +1,129 @@
+{
+  "version": "1.32.0",
+  "results": [
+    {
+      "check_id": "lemoncrow.python.os-command-dynamic",
+      "path": "./app/handlers.py",
+      "start": {"line": 14, "col": 5, "offset": 210},
+      "end": {"line": 14, "col": 43, "offset": 248},
+      "extra": {
+        "metavars": {"$CMD": {"start": {"line": 14, "col": 15, "offset": 220}, "end": {"line": 14, "col": 42, "offset": 247}, "abstract_content": "\"rm -rf /tmp/\" + name"}},
+        "message": "os.system or os.popen is given a command that is not a string literal. A value an attacker can influence becomes a shell command. Use subprocess with a list of arguments and no shell.",
+        "metadata": {
+          "category": "security",
+          "confidence": "HIGH",
+          "cwe": ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"],
+          "title": "Command injection: os.system or os.popen with a dynamic command"
+        },
+        "severity": "ERROR",
+        "fingerprint": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0_0",
+        "lines": "    os.system(\"rm -rf /tmp/\" + name)  # BUG: the shell command is built from the caller's name",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "lemoncrow.python.subprocess-shell-true",
+      "path": "app/handlers.py",
+      "start": {"line": 6, "col": 5, "offset": 70},
+      "end": {"line": 6, "col": 36, "offset": 101},
+      "extra": {
+        "metavars": {},
+        "message": "A subprocess call runs through a shell (shell=True) with a command that is not a string literal.",
+        "metadata": {"category": "security", "confidence": "HIGH", "cwe": ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]},
+        "severity": "ERROR",
+        "fingerprint": "aa",
+        "lines": "    subprocess.run(cmd, shell=True)",
+        "is_ignored": false,
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "lemoncrow.python.weak-hash",
+      "path": "app/hashing.py",
+      "start": {"line": 5, "col": 12, "offset": 70},
+      "end": {"line": 5, "col": 30, "offset": 88},
+      "extra": {
+        "metavars": {},
+        "message": "MD5 and SHA-1 are broken for security purposes (passwords, signatures, integrity checks).",
+        "metadata": {"category": "security", "confidence": "MEDIUM", "cwe": ["CWE-328: Use of Weak Hash"], "title": "Weak hash: MD5 or SHA-1"},
+        "severity": "WARNING",
+        "fingerprint": "bb",
+        "lines": "    return hashlib.md5(data).hexdigest()",
+        "is_ignored": false,
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "acme.style.todo-comment",
+      "path": "app/hashing.py",
+      "start": {"line": 4, "col": 1, "offset": 40},
+      "end": {"line": 4, "col": 15, "offset": 54},
+      "extra": {
+        "metavars": {},
+        "message": "Informational only.",
+        "metadata": {},
+        "severity": "INFO",
+        "fingerprint": "cc",
+        "lines": "def etag(data):",
+        "is_ignored": false,
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "acme.crypto.maybe-bad",
+      "path": "app/hashing.py",
+      "start": {"line": 5, "col": 5, "offset": 60},
+      "end": {"line": 5, "col": 10, "offset": 65},
+      "extra": {
+        "metavars": {},
+        "message": "A rule that says it is only a low-confidence guess.",
+        "metadata": {"confidence": "LOW", "cwe": "CWE-327"},
+        "severity": "ERROR",
+        "fingerprint": "dd",
+        "lines": "    return hashlib.md5(data).hexdigest()",
+        "is_ignored": false,
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "lemoncrow.python.eval-exec-dynamic",
+      "path": "app/handlers.py",
+      "start": {"line": 9, "col": 5, "offset": 120},
+      "end": {"line": 9, "col": 20, "offset": 135},
+      "extra": {
+        "metavars": {},
+        "message": "Suppressed by the engine.",
+        "metadata": {"confidence": "HIGH"},
+        "severity": "ERROR",
+        "fingerprint": "ee",
+        "lines": "    eval(x)",
+        "is_ignored": true,
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "lemoncrow.secrets.cloud-or-vcs-token",
+      "path": "app/settings.txt",
+      "start": {"line": 2, "col": 20, "offset": 40},
+      "end": {"line": 2, "col": 40, "offset": 60},
+      "extra": {
+        "metavars": {},
+        "message": "A credential in a well-known provider format is committed to the repository. Treat it as leaked.",
+        "metadata": {"category": "security", "confidence": "HIGH", "cwe": ["CWE-798: Use of Hard-coded Credentials"]},
+        "severity": "ERROR",
+        "fingerprint": "ff",
+        "lines": "aws_access_key_id = AKIA****************",
+        "is_ignored": false,
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [
+    {"code": 3, "level": "warn", "type": ["PartialParsing", [{"path": "app/broken.py", "start": {"line": 1, "col": 1, "offset": 0}, "end": {"line": 1, "col": 2, "offset": 1}}]], "message": "Syntax error", "path": "app/broken.py"}
+  ],
+  "paths": {"scanned": ["app/handlers.py", "app/hashing.py", "app/settings.txt"]},
+  "interfile_languages_used": [],
+  "skipped_rules": []
+}

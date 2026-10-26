@@ -40,8 +40,8 @@ const TONE_BADGE_CLASS: Record<StatusTone, string> = {
   warning: "text-amber-300 border-amber-500/30 bg-amber-500/5",
   destructive: "text-red-300 border-red-500/30 bg-red-500/5",
   paused: "text-violet-300 border-violet-500/30 bg-violet-500/5",
-  info: "text-sky-300 border-sky-500/30 bg-sky-500/5",
-  neutral: "text-neutral-400 border-neutral-500/30 bg-neutral-500/5",
+  info: "text-cyan-300 border-cyan-500/30 bg-cyan-500/5",
+  neutral: "text-muted-foreground border-input/30 bg-muted-foreground/5",
 };
 
 const TONE_DOT_CLASS: Record<StatusTone, string> = {
@@ -49,8 +49,8 @@ const TONE_DOT_CLASS: Record<StatusTone, string> = {
   warning: "bg-amber-500",
   destructive: "bg-red-500",
   paused: "bg-violet-500",
-  info: "bg-sky-500",
-  neutral: "bg-neutral-500",
+  info: "bg-cyan-500",
+  neutral: "bg-muted-foreground",
 };
 
 export function statusBadgeClass(status: string): string {

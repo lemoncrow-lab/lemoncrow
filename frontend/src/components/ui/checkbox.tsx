@@ -8,7 +8,7 @@ export const Checkbox = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HT
       type="checkbox"
       ref={ref}
       className={cn(
-        "h-4 w-4 shrink-0 rounded-sm border border-input accent-primary focus-visible:outline-1 focus-visible:outline-ring/40 disabled:opacity-40",
+        "h-4 w-4 shrink-0 rounded-sm border border-input accent-brand disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}

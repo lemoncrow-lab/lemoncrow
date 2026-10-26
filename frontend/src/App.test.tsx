@@ -232,19 +232,19 @@ describe("App router smoke test", () => {
     expect(screen.getByText("Hosted settings page")).toBeInTheDocument();
   });
 
-  it("types the LemonCrow wordmark on hover and collapses back to the prompt", () => {
+  it("types the LemonCrow wordmark on hover and collapses back to the lemon mark", () => {
     vi.useFakeTimers();
     mockAllFetches();
     renderAt("/home");
 
     const brand = screen.getByRole("link", { name: "LemonCrow home" });
     const mark = screen.getByTestId("lemoncrow-brand-mark");
-    expect(mark).toHaveTextContent("_");
-    expect(mark).not.toHaveTextContent("LEMONCROW");
-    expect(brand).toHaveStyle({ width: "2.5ch" });
+    expect(brand.querySelector("img")).toBeInTheDocument();
+    expect(mark).toBeEmptyDOMElement();
+    expect(brand).toHaveStyle({ width: "1.5rem" });
 
     fireEvent.mouseEnter(brand);
-    expect(brand).toHaveStyle({ width: "14.5ch" });
+    expect(brand).toHaveStyle({ width: "calc(1.5rem + 0.5rem + 10 * (1ch + 0.14em))" });
     act(() => {
       vi.advanceTimersByTime(36 * 3);
     });
@@ -261,8 +261,8 @@ describe("App router smoke test", () => {
     expect(mark).toHaveTextContent("LEMONCROW");
 
     fireEvent.mouseLeave(brand);
-    expect(mark).toHaveTextContent("_");
-    expect(brand).toHaveStyle({ width: "2.5ch" });
+    expect(mark).toBeEmptyDOMElement();
+    expect(brand).toHaveStyle({ width: "1.5rem" });
 
     vi.useRealTimers();
   });

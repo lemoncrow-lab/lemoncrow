@@ -70,8 +70,8 @@ function Observation({ label, value }: { label: string; value: ReviewBehaviorObs
       <div className="text-micro uppercase tracking-wide text-muted-foreground">{label}</div>
       {value ? (
         <>
-          {value.status && <div className="font-mono text-caption text-neutral-200">{value.status}</div>}
-          <div className="text-caption text-neutral-300">{value.summary || "observed"}</div>
+          {value.status && <div className="font-mono text-caption text-foreground">{value.status}</div>}
+          <div className="text-caption text-subtle">{value.summary || "observed"}</div>
           {value.evidence_ref && <div className="truncate font-mono text-micro text-muted-foreground">{value.evidence_ref}</div>}
         </>
       ) : (
@@ -93,7 +93,7 @@ export function BehaviorEvidenceBlock({ evidence }: { evidence: ReviewBehaviorEv
           {evidence.facts.map((fact) => (
             <div key={fact.name} className="contents">
               <dt className="text-muted-foreground">{fact.name}</dt>
-              <dd className="text-neutral-300">{fact.value}</dd>
+              <dd className="text-subtle">{fact.value}</dd>
             </div>
           ))}
         </dl>
@@ -175,14 +175,14 @@ function BehaviorRow({
   const judgeable = Boolean(displayedDigest);
   return (
     <div
-      className={`rounded-md border px-2.5 py-2 text-caption ${target.critical ? "border-rose-900/60 bg-rose-950/15" : "border-border/70"}`}
+      className={`rounded-md border px-2.5 py-2 text-caption ${target.critical ? "border-red-900/60 bg-red-950/15" : "border-border/70"}`}
       data-testid={`behavior-target-${target.behavior_key}`}
       data-behavior-key={target.behavior_key}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-neutral-100">{`${target.kind_label} · ${target.title}`}</div>
-          <div className="text-neutral-300">{target.summary}</div>
+          <div className="font-medium text-foreground">{`${target.kind_label} · ${target.title}`}</div>
+          <div className="text-subtle">{target.summary}</div>
           <div className="text-micro text-muted-foreground">
             {[STATE_LABELS[target.state] ?? target.state, target.critical ? "Critical · judged individually" : "", executor]
               .filter(Boolean)
@@ -224,7 +224,7 @@ function BehaviorRow({
           {!judgeable && <span className="text-micro text-muted-foreground">Show the evidence to judge this change.</span>}
         </div>
       )}
-      {error && <div className="mt-1 text-rose-300" role="alert">{error}</div>}
+      {error && <div className="mt-1 text-red-300" role="alert">{error}</div>}
     </div>
   );
 }
@@ -319,7 +319,7 @@ export default function BehaviorChanges({
               {narrating ? "Explaining…" : "Explain before/after"}
             </UiButton>
           )}
-          {narrateError && <span className="text-rose-300" role="alert">{narrateError}</span>}
+          {narrateError && <span className="text-red-300" role="alert">{narrateError}</span>}
         </div>
       )}
       {behavior.targets.map((target) => (
@@ -342,7 +342,7 @@ export default function BehaviorChanges({
       ))}
       {agentActions.length > 0 && (
         <div className="mt-1">
-          <div className="mb-1 text-caption font-semibold text-neutral-300">Agent actions outside the repository</div>
+          <div className="mb-1 text-caption font-semibold text-subtle">Agent actions outside the repository</div>
           <AgentActionList rows={agentActions} />
         </div>
       )}
@@ -381,7 +381,7 @@ export function ManualChecklist({
   };
   return (
     <div className="mt-3" data-testid="manual-checklist">
-      <div className="mb-1 flex items-center gap-2 text-caption font-semibold text-neutral-300">
+      <div className="mb-1 flex items-center gap-2 text-caption font-semibold text-subtle">
         <span>Manual verification</span>
         <span className="font-normal text-muted-foreground">{checklist.required ? "required by repository policy" : "optional"}</span>
       </div>
@@ -392,8 +392,8 @@ export function ManualChecklist({
       <ul className="flex flex-col gap-2">
         {checklist.items.map((item) => (
           <li key={item.item_id} className="rounded-md border border-border/70 px-2.5 py-2 text-caption" data-testid={`manual-check-${item.item_id}`}>
-            <div className="font-medium text-neutral-200">{item.title}</div>
-            <ol className="ml-4 list-decimal text-neutral-300">
+            <div className="font-medium text-foreground">{item.title}</div>
+            <ol className="ml-4 list-decimal text-subtle">
               {item.steps.map((step) => <li key={step}>{step}</li>)}
             </ol>
             <div className="mt-1 text-muted-foreground">
@@ -428,7 +428,7 @@ export function ManualChecklist({
           </li>
         ))}
       </ul>
-      {error && <div className="mt-1 text-caption text-rose-300" role="alert">{error}</div>}
+      {error && <div className="mt-1 text-caption text-red-300" role="alert">{error}</div>}
     </div>
   );
 }

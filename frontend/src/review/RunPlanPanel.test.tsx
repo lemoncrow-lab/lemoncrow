@@ -604,6 +604,22 @@ describe("RunPlanPanel", () => {
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual(["Run specific…"]);
   });
 
+  it("states a hosted workspace without an executor in one plain sentence", async () => {
+    api.fetchRunPlan.mockResolvedValue(
+      projection(plan(ENTRIES), {
+        ai_availability: {
+          available: false,
+          reason: "AI review on hosted isn't enabled for this workspace yet",
+          executor: "durable",
+        },
+      }),
+    );
+    render(<RunPlanPanel reviewId="review-1" />);
+    expect(await screen.findByTestId("run-plan-ai-unavailable")).toHaveTextContent(
+      "AI review on hosted isn't enabled for this workspace yet. Deterministic checks still run.",
+    );
+  });
+
   it("reports an unavailable plan without guessing", async () => {
     api.fetchRunPlan.mockRejectedValue(new Error("409"));
     render(<RunPlanPanel reviewId="review-1" />);

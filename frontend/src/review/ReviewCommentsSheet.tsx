@@ -6,13 +6,16 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Badge } from "../components/ui/badge";
+import { hunkRowVariants } from "../components/ui/hunk";
+import { cn } from "../lib/utils";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, CornerUpRight, MessageSquareText, RefreshCw, X } from "lucide-react";
 
 import "./reviewUi.css";
-import { annotationIdentityColor, annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, annotationSource, isUnanchoredComment } from "./annotationModel";
+import { annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, annotationRail, annotationSeverity, annotationSource, annotationSourceTone, isUnanchoredComment, KIND_BADGE_TONES, KIND_LABELS, SEVERITY_LABELS, severityTone } from "./annotationModel";
 import { BelowThresholdList } from "./findingThreshold";
 import { handoffDestinationLabel, handoffToCodingAgent } from "./reviewPrimaryAction";
 import type { Annotation, FeedbackDeliveryCapability, FeedbackStatus } from "./types";
@@ -136,31 +139,29 @@ export default function ReviewCommentsSheet({
           closeRef.current?.focus();
         }}
       >
-        <SheetHeader className="items-start px-5 py-5">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-lg tracking-tight">Comments</SheetTitle>
-            <div className="mt-1 text-body text-neutral-400">
-              {handoffParts.length > 0
-                ? handoffParts.join(" · ")
-                : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
-            </div>
-            {feedbackStatus && feedbackStatus.open_total > 0 && (
-              <details className="mt-3 text-body leading-5 text-neutral-400">
-                <summary className="cursor-pointer">How feedback works</summary>
-                <p className="mt-2">
-                {toAgent
-                  ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
-                  : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
-                </p>
-              </details>
-            )}
-          </div>
+        <SheetHeader>
+          <SheetTitle>Comments</SheetTitle>
           <SheetClose asChild>
             <UiButton ref={closeRef} variant="ghost" size="icon" type="button" aria-label="Close review comments">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <div className={SHEET_LEDE_CLASS}>
+          {handoffParts.length > 0
+            ? handoffParts.join(" · ")
+            : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
+          {feedbackStatus && feedbackStatus.open_total > 0 && (
+            <details className="mt-2 leading-5">
+              <summary className="cursor-pointer">How feedback works</summary>
+              <p className="mt-2">
+              {toAgent
+                ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
+                : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
+              </p>
+            </details>
+          )}
+        </div>
 
         <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)} className="contents">
         <div className="review-comments-filters flex items-center gap-2">
@@ -180,13 +181,13 @@ export default function ReviewCommentsSheet({
                 <UiButton
                   size="xs"
                   aria-label={`Comment source: ${sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}`}
-                  className="min-w-[132px] justify-between gap-2 bg-muted/70 font-medium shadow-sm"
+                  className="min-w-[132px] justify-between gap-2 bg-muted/70 font-medium"
                 >
                   <span className="min-w-0 flex-1 truncate text-left">
                     {sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}
                   </span>
                   <span className="font-mono text-micro text-muted-foreground">{sourceCounts[sourceFilter]}</span>
-                  <ChevronDown size={11} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                 </UiButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" aria-label="Comment source options" className="w-44">
@@ -204,8 +205,9 @@ export default function ReviewCommentsSheet({
         </div>
 
         <TabsContent value={filter} className="min-h-0 flex-1 overflow-auto px-5 py-2">
-          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={24} strokeWidth={1.5} aria-hidden="true" /><p>No matching comments.</p></div>}
-          <div className="divide-y divide-neutral-800/70">
+          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={20} aria-hidden="true" /><p>No matching comments.</p></div>}
+          {/* Rows draw their own top hairline: `divide-border` on this wrapper would repaint every row's left border (the severity rail) in the hairline colour. */}
+          <div>
             <BelowThresholdList items={visible} render={(item) => {
               const canJump = item.anchored && item.state !== "orphaned" && Boolean(item.path);
               const orphaned = isUnanchoredComment(item);
@@ -213,20 +215,20 @@ export default function ReviewCommentsSheet({
               const replyCount = replies.get(item.id) ?? 0;
               const StateIcon = orphaned ? AlertTriangle : reReview ? RefreshCw : item.state === "resolved" ? CheckCircle2 : MessageSquareText;
               const stateTone = orphaned
-                ? "border-amber-900/50 bg-amber-950/15 text-amber-300"
+                ? "border-p1-line bg-p1-bg text-p1"
                 : reReview
-                  ? "border-sky-900/55 bg-sky-950/15 text-sky-300"
+                  ? "border-p2-line bg-p2-bg text-p2"
                   : item.state === "resolved"
-                    ? "border-emerald-900/45 bg-emerald-950/10 text-emerald-400"
-                    : "border-border bg-muted/35 text-neutral-400";
+                    ? "border-ok-line bg-ok-bg text-ok"
+                    : "border-border bg-muted text-muted-foreground";
+              const severity = annotationSeverity(item);
               return (
-                <article key={item.id} className="review-comment-list-item py-5">
+                <article key={item.id} className={cn("review-comment-list-item border-t border-t-border py-5 pl-3 first:border-t-0", hunkRowVariants({ rail: annotationRail(item) }))}>
                   <div className="flex flex-wrap items-center gap-2 text-body">
-                    <span className="font-medium text-neutral-200" title={annotationProducerTitle(item)}>{annotationProducerDetail(item) || "unknown"}</span>
-                    <span className={`rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-micro font-semibold tracking-[0.08em] ${annotationIdentityColor(item)}`}>
-                      {annotationIdentityLabel(item)}
-                    </span>
-                    {item.kind !== "comment" && <span className="capitalize text-muted-foreground">{item.kind.replace("_", " ")}</span>}
+                    {severity && <Badge tone={severityTone(severity)}>{SEVERITY_LABELS[severity]}</Badge>}
+                    {item.kind !== "comment" && <Badge tone={KIND_BADGE_TONES[item.kind]}>{KIND_LABELS[item.kind]}</Badge>}
+                    <Badge tone={annotationSourceTone(item)}>{annotationIdentityLabel(item)}</Badge>
+                    <span className="font-medium text-foreground" title={annotationProducerTitle(item)}>{annotationProducerDetail(item) || "unknown"}</span>
                     {item.origin_revision_number != null && (
                       <span
                         className="font-mono text-caption text-muted-foreground"
@@ -236,14 +238,14 @@ export default function ReviewCommentsSheet({
                       </span>
                     )}
                     {orphaned || reReview || item.state === "resolved" ? (
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium ${stateTone}`}>
-                        <StateIcon size={9} aria-hidden="true" />
+                      <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-medium ${stateTone}`}>
+                        <StateIcon size={14} aria-hidden="true" />
                         {orphaned ? "orphaned" : reReview ? "re-review" : "resolved"}
                       </span>
                     ) : null}
                     {replyCount > 0 && (
                       <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
-                        <CornerUpRight size={10} aria-hidden="true" />
+                        <CornerUpRight size={14} aria-hidden="true" />
                         {replyCount} repl{replyCount === 1 ? "y" : "ies"}
                       </span>
                     )}
@@ -251,7 +253,7 @@ export default function ReviewCommentsSheet({
                   {item.title && <h3 className="mt-3 text-title font-semibold text-foreground">{item.title}</h3>}
                   <div className="review-thread-body mt-2">{item.body}</div>
                   {item.rule_refs && item.rule_refs.length > 0 && (
-                    <details className="mt-2 text-caption text-muted-foreground">
+                    <details className="mt-2 text-meta text-muted-foreground">
                       <summary className="cursor-pointer">Review rules · {item.rule_refs.length}</summary>
                       <div className="mt-1 space-y-0.5 pl-2 font-mono text-micro">
                         {item.rule_refs.map((ref) => <div key={ref} className="break-all">{ref}</div>)}
@@ -259,7 +261,7 @@ export default function ReviewCommentsSheet({
                     </details>
                   )}
                   {reReview && (
-                    <div className="mt-2 rounded-md border border-sky-900/35 bg-sky-950/10 px-2.5 py-1.5 text-caption text-sky-300/85">
+                    <div className="mt-2 rounded-md border border-p2-line bg-p2-bg px-2.5 py-1.5 text-meta text-p2">
                       {/* Who claimed it is a fact of the record (the exact agent session
                           that marked it), not of whether the current Snapshot can be
                           sent to an agent, which changes as comments are resolved. */}
@@ -269,17 +271,17 @@ export default function ReviewCommentsSheet({
                     </div>
                   )}
                   <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 text-label">
-                    <span className="min-w-0 flex-1 truncate font-mono text-neutral-400" title={item.path}>
+                    <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={item.path}>
                       {item.comment_scope === "change" ? (item.revision_id ? "Change discussion" : "Draft discussion") : item.path || "No current path"}{item.start_line > 0
                         ? `:${item.start_line}${item.end_line > item.start_line ? `-${item.end_line}` : ""}`
                         : ""}
                     </span>
                     {canJump ? (
-                      <UiButton variant="ghost" size="compact" type="button" onClick={() => onJump(item)} className="text-sky-400 hover:text-sky-300">
+                      <UiButton variant="ghost" size="compact" type="button" onClick={() => onJump(item)}>
                         Show in review
                       </UiButton>
                     ) : (
-                      item.comment_scope !== "change" && <span className="text-amber-500/80">Not anchored in the current Snapshot</span>
+                      item.comment_scope !== "change" && <span className="text-p1">Not anchored in the current Snapshot</span>
                     )}
                     {orphaned && onSetAnnotationState && item.state !== "obsolete" && (
                       <UiButton

@@ -1,0 +1,154 @@
+# LemonCrow default security rules for Go.
+#
+# SPDX-License-Identifier: Apache-2.0
+# Original rules written for LemonCrow (see README.md in this directory for provenance and licensing). Tests:
+# tests/fixtures/opengrep/go.go (`opengrep scan --test`).
+rules:
+  - id: lemoncrow.go.exec-shell-dynamic
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A command is run through a shell (sh -c, bash -c, cmd /c) with a string that is not a literal. A value an
+      attacker controls becomes a shell command. Run the program directly with exec.Command(name, args...).
+    patterns:
+      - pattern-either:
+          - pattern: exec.Command("$SH", "-c", $CMD, ...)
+          - pattern: exec.Command("$SH", "/c", $CMD, ...)
+          - pattern: exec.CommandContext($CTX, "$SH", "-c", $CMD, ...)
+          - pattern: exec.CommandContext($CTX, "$SH", "/c", $CMD, ...)
+      - metavariable-regex:
+          metavariable: $SH
+          regex: ^(sh|bash|zsh|/bin/sh|/bin/bash|cmd|cmd.exe|powershell|pwsh)$
+      - pattern-not: exec.Command("$SH", "$FLAG", "...", ...)
+      - pattern-not: exec.CommandContext($CTX, "$SH", "$FLAG", "...", ...)
+    metadata:
+      title: "Command injection: shell command built from a dynamic string"
+      category: security
+      confidence: HIGH
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]
+
+  - id: lemoncrow.go.sql-string-building
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A SQL statement is built with fmt.Sprintf or string concatenation. Any value an attacker controls changes
+      the query. Use placeholders and pass the values as arguments (db.Query("... WHERE id = ?", id)).
+    patterns:
+      - pattern-either:
+          - pattern: $DB.$M(fmt.Sprintf(...), ...)
+          - pattern: $DB.$M($CTX, fmt.Sprintf(...), ...)
+          - pattern: $DB.$M("..." + $X, ...)
+          - pattern: $DB.$M($CTX, "..." + $X, ...)
+          - pattern: $DB.$M($X + "...", ...)
+          - pattern: $DB.$M($CTX, $X + "...", ...)
+      - pattern-not: $DB.$M("..." + "...", ...)
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(Query|QueryRow|Exec|QueryContext|QueryRowContext|ExecContext|Prepare|PrepareContext)$
+    metadata:
+      title: "SQL injection: query built from strings"
+      category: security
+      confidence: HIGH
+      cwe: ["CWE-89: Improper Neutralization of Special Elements used in an SQL Command"]
+
+  - id: lemoncrow.go.weak-hash
+    languages: [go]
+    severity: WARNING
+    message: >-
+      MD5 and SHA-1 are broken for security purposes (passwords, signatures, integrity checks). If this is only a
+      cache key or checksum it is fine; otherwise use SHA-256 or a password hash (argon2, bcrypt).
+    pattern-either:
+      - pattern: md5.New()
+      - pattern: md5.Sum(...)
+      - pattern: sha1.New()
+      - pattern: sha1.Sum(...)
+    metadata:
+      title: "Weak hash: MD5 or SHA-1"
+      category: security
+      confidence: MEDIUM
+      cwe: ["CWE-328: Use of Weak Hash"]
+
+  - id: lemoncrow.go.weak-cipher
+    languages: [go]
+    severity: ERROR
+    message: >-
+      DES, 3DES and RC4 are broken ciphers. Use AES with an authenticated mode (cipher.NewGCM) or
+      chacha20poly1305.
+    pattern-either:
+      - pattern: des.NewCipher(...)
+      - pattern: des.NewTripleDESCipher(...)
+      - pattern: rc4.NewCipher(...)
+    metadata:
+      title: "Broken cipher: DES, 3DES or RC4"
+      category: security
+      confidence: HIGH
+      cwe: ["CWE-327: Use of a Broken or Risky Cryptographic Algorithm"]
+
+  - id: lemoncrow.go.tls-verification-disabled
+    languages: [go]
+    severity: ERROR
+    message: >-
+      InsecureSkipVerify turns off TLS certificate verification, so the connection can be intercepted and the
+      server cannot be authenticated. Remove it (or trust the right CA through RootCAs).
+    pattern: "tls.Config{..., InsecureSkipVerify: true, ...}"
+    metadata:
+      title: "TLS certificate verification disabled"
+      category: security
+      confidence: HIGH
+      cwe: ["CWE-295: Improper Certificate Validation"]
+
+  - id: lemoncrow.go.ssrf-user-controlled-url
+    languages: [go]
+    severity: ERROR
+    mode: taint
+    message: >-
+      A URL taken from the request reaches an outbound HTTP call. An attacker can make the server call internal
+      services or cloud metadata endpoints. Check the host against an allowlist before fetching.
+    pattern-sources:
+      - pattern: "($R : *http.Request).FormValue(...)"
+      - pattern: "($R : *http.Request).PostFormValue(...)"
+      - pattern: "($R : *http.Request).URL.Query().Get(...)"
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.Get($URL)
+              - pattern: http.Head($URL)
+              - pattern: http.Post($URL, ...)
+              - pattern: http.NewRequest($METHOD, $URL, ...)
+              - pattern: http.NewRequestWithContext($CTX, $METHOD, $URL, ...)
+          - focus-metavariable: $URL
+    metadata:
+      title: "SSRF: request data reaches an outbound HTTP call"
+      category: security
+      confidence: MEDIUM
+      cwe: ["CWE-918: Server-Side Request Forgery (SSRF)"]
+
+  - id: lemoncrow.go.path-traversal-user-input
+    languages: [go]
+    severity: ERROR
+    mode: taint
+    message: >-
+      A path taken from the request reaches a file operation. An attacker can read or delete files outside the
+      intended directory with ../ segments. Reduce it to a file name (filepath.Base) and resolve it inside a
+      fixed directory.
+    pattern-sources:
+      - pattern: "($R : *http.Request).FormValue(...)"
+      - pattern: "($R : *http.Request).PostFormValue(...)"
+      - pattern: "($R : *http.Request).URL.Query().Get(...)"
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($PATH)
+              - pattern: os.ReadFile($PATH)
+              - pattern: os.Remove($PATH)
+              - pattern: os.RemoveAll($PATH)
+              - pattern: ioutil.ReadFile($PATH)
+              - pattern: http.ServeFile($W, $R, $PATH)
+          - focus-metavariable: $PATH
+    metadata:
+      title: "Path traversal: request data reaches a file operation"
+      category: security
+      confidence: MEDIUM
+      cwe: ["CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"]

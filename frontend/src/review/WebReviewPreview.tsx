@@ -143,14 +143,14 @@ function themedUrl(url: string, theme: Theme): string {
 }
 
 function DeviceIcon({ preset }: { preset: ViewportPreset }) {
-  if (preset === "desktop") return <Monitor size={14} strokeWidth={1.7} />;
-  if (preset === "tablet") return <TabletIcon size={14} strokeWidth={1.7} />;
-  return <Smartphone size={14} strokeWidth={1.7} />;
+  if (preset === "desktop") return <Monitor size={14} />;
+  if (preset === "tablet") return <TabletIcon size={14} />;
+  return <Smartphone size={14} />;
 }
 
 function DevicePicker({ value, onChange }: { value: ViewportPreset; onChange(value: ViewportPreset): void }) {
   return (
-    <div role="group" aria-label="Preview device" className="inline-flex shrink-0 overflow-hidden rounded border border-neutral-700 bg-background">
+    <div role="group" aria-label="Preview device" className="inline-flex shrink-0 overflow-hidden rounded border border-border bg-background">
       {(Object.keys(VIEWPORTS) as ViewportPreset[]).map((preset) => {
         const item = VIEWPORTS[preset];
         const selected = value === preset;
@@ -163,8 +163,8 @@ function DevicePicker({ value, onChange }: { value: ViewportPreset; onChange(val
             aria-pressed={selected}
             onClick={() => onChange(preset)}
             className={`h-7 w-8 rounded-none border-r border-border last:border-r-0 ${selected
-              ? "bg-violet-500/15 text-violet-200"
-              : "text-muted-foreground hover:bg-muted hover:text-neutral-50"}`}
+ ? "bg-accent text-muted-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
           >
             <DeviceIcon preset={preset} />
           </UiButton>
@@ -185,9 +185,9 @@ function PreviewThemeToggle({ value, chromeTheme, onChange }: { value: PreviewTh
       variant="ghost"
       aria-label={`Preview theme: ${label}. Switch to ${nextLabel}`}
       onClick={() => onChange(next)}
-      className="h-7 w-8 shrink-0 rounded border-neutral-700 bg-background text-violet-200 hover:bg-muted"
+      className="h-7 w-8 shrink-0 rounded border-border bg-background text-muted-foreground hover:bg-muted"
     >
-      <Icon size={13} strokeWidth={1.7} />
+      <Icon size={14} />
     </UiButton>
   );
 }
@@ -253,7 +253,7 @@ function LiveFrame({
   const resolvedUrl = url ? themedUrl(url, theme) : "";
   return (
     <section
-      className={`flex shrink-0 flex-col overflow-hidden rounded-md border border-neutral-700 shadow-sm ${theme === "dark" ? "bg-background" : "bg-white"}`}
+      className={`flex shrink-0 flex-col overflow-hidden rounded-md border border-border ${theme === "dark" ? "bg-background" : "bg-white"}`}
       data-testid={`web-live-${side}`}
       style={{ width: `${viewportWidth}px`, height: `${FRAME_HEIGHT}px` }}
     >
@@ -275,13 +275,13 @@ function LiveFrame({
           style={{ width: `${viewportWidth}px`, colorScheme: theme }}
         />
       ) : error ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken px-6 py-10 text-center text-label text-neutral-400">
-          <div className="max-w-xl rounded border border-rose-900/60 bg-rose-950/15 px-4 py-3">
-            <div className="font-medium text-rose-300">Preview build failed</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken px-6 py-10 text-center text-label text-muted-foreground">
+          <div className="max-w-xl rounded border border-red-900/60 bg-red-950/15 px-4 py-3">
+            <div className="font-medium text-red-300">Preview build failed</div>
             <div className="mt-2 flex items-center justify-center gap-3">
               <details className="text-left">
-                <summary className="cursor-pointer text-caption text-muted-foreground hover:text-neutral-50">View details</summary>
-                <pre className="mt-2 max-h-32 max-w-lg overflow-auto whitespace-pre-wrap text-caption leading-4 text-rose-400/80">{error}</pre>
+                <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground">View details</summary>
+                <pre className="mt-2 max-h-32 max-w-lg overflow-auto whitespace-pre-wrap text-caption leading-4 text-red-400/80">{error}</pre>
               </details>
               <UiButton
                 type="button"
@@ -347,8 +347,8 @@ function FrozenScreenshotCompare({
 
   if (error) {
     return (
-      <div className="flex min-h-[420px] items-center justify-center bg-muted p-6 text-center text-label text-rose-300">
-        <div className="max-w-xl rounded border border-rose-900/60 bg-rose-950/15 px-4 py-3">
+      <div className="flex min-h-[420px] items-center justify-center bg-muted p-6 text-center text-label text-red-300">
+        <div className="max-w-xl rounded border border-red-900/60 bg-red-950/15 px-4 py-3">
           <div className="font-medium">Frozen screenshot diff unavailable</div>
           <div className="mt-1 text-caption text-muted-foreground">{error}</div>
         </div>
@@ -651,9 +651,9 @@ export default function WebReviewPreview({
           onClick={onOpenDedicated}
           aria-label={`Open web surface ${surfaceTitle} in dedicated tab`}
           tooltip={`${framework} rendered surface · open in dedicated tab`}
-          className="h-auto shrink-0 gap-1 border-transparent px-0 text-caption font-medium uppercase tracking-[0.12em] text-sky-400/75 hover:bg-transparent hover:text-sky-300"
+          className="h-auto shrink-0 gap-1 border-transparent px-0 text-meta font-medium uppercase tracking-tag text-cyan-400/75 hover:bg-transparent hover:text-cyan-300"
         >
-          <Monitor size={12} /> Web <span className="normal-case tracking-normal text-sky-300/90">· {serviceName}</span> <ExternalLink size={10} />
+          <Monitor size={14} /> Web <span className="normal-case tracking-normal text-cyan-300/90">· {serviceName}</span> <ExternalLink size={14} />
         </UiButton>
         {rankedRouteOptions.length > 1 ? (
           <SurfacePicker
@@ -681,7 +681,7 @@ export default function WebReviewPreview({
             }}
           />
         ) : (
-          <span className="max-w-48 shrink-0 truncate font-mono text-label text-neutral-200" title={surfaceTitle}>{route}</span>
+          <span className="max-w-48 shrink-0 truncate font-mono text-label text-foreground" title={surfaceTitle}>{route}</span>
         )}
 
         {rankingRoutes && (
@@ -691,7 +691,7 @@ export default function WebReviewPreview({
         )}
 
         {revisionId && (
-          <span className="shrink-0 rounded border border-violet-900/50 bg-violet-950/20 px-1.5 py-0.5 font-mono text-micro text-violet-300" title={revisionId}>
+          <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground" title={revisionId}>
             Snapshot {revisionId}
           </span>
         )}
@@ -700,10 +700,10 @@ export default function WebReviewPreview({
           <span
             key={check.check_key || `${check.name}:${index}`}
             className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-micro ${
-              check.status === "PASS"
+ check.status === "PASS"
                 ? "border-emerald-900/50 text-emerald-300"
                 : check.status === "FAIL"
-                  ? "border-rose-900/50 text-rose-300"
+                  ? "border-red-900/50 text-red-300"
                   : "border-amber-900/50 text-amber-300"
             }`}
             title={`${check.name}${check.required ? " · required" : " · optional"} — ${check.detail || check.status}. Full browser evidence is in Overview → Snapshot verification.`}
@@ -713,7 +713,7 @@ export default function WebReviewPreview({
         ))}
 
         {previewStatus !== "ready" && (
-          <span className={`shrink-0 text-caption ${previewStatus === "failed" ? "text-rose-400/80" : "text-amber-400/70"}`}>
+          <span className={`shrink-0 text-caption ${previewStatus === "failed" ? "text-red-400/80" : "text-amber-400/70"}`}>
             {previewStatus === "failed" ? "Failed" : "Preparing…"}
           </span>
         )}
@@ -740,9 +740,9 @@ export default function WebReviewPreview({
             aria-label={preferences.linkedScroll ? "Unlink compare scrolling" : "Link compare scrolling"}
             aria-pressed={preferences.linkedScroll}
             onClick={() => updatePreferences({ linkedScroll: !preferences.linkedScroll })}
-            className={`h-7 w-7 ${preferences.linkedScroll ? "text-sky-300" : "text-muted-foreground"}`}
+            className={`h-7 w-7 ${preferences.linkedScroll ? "text-cyan-300" : "text-muted-foreground"}`}
           >
-            {preferences.linkedScroll ? <Link2 size={13} /> : <Unlink2 size={13} />}
+            {preferences.linkedScroll ? <Link2 size={14} /> : <Unlink2 size={14} />}
           </UiButton>
         )}
 
@@ -767,7 +767,7 @@ export default function WebReviewPreview({
                 />
               </div>
               <div className="border-t border-border pt-2.5 text-micro leading-4 text-muted-foreground">
-                <span className="font-medium text-neutral-400">Shortcuts</span>
+                <span className="font-medium text-muted-foreground">Shortcuts</span>
                 <span className="ml-2 font-mono">1/2/3 modes · D/T/M viewport · {"{"}/{"}"} routes</span>
               </div>
               {affectedPaths.length > 0 && (
@@ -779,9 +779,9 @@ export default function WebReviewPreview({
                         key={path}
                         type="button"
                         onClick={() => onOpenPath(path)}
-                        className="flex w-full items-center gap-2 px-1 py-1.5 text-left font-mono text-caption text-neutral-400 hover:text-neutral-50"
+                        className="flex w-full items-center gap-2 px-1 py-1.5 text-left font-mono text-meta text-muted-foreground hover:text-foreground"
                       >
-                        <FileCode2 size={11} className="shrink-0 text-muted-foreground" />
+                        <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
                         <span className="truncate" title={path}>{path}</span>
                       </UiButton>
                     ))}

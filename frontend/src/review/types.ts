@@ -2665,6 +2665,12 @@ export interface Annotation {
    * "N below threshold" disclosure; counts and readiness still include it.
    */
   below_threshold?: boolean;
+  /**
+   * P0/P1/P2 of an AI finding, from the server's one severity rule (`criticality.severity_for`, the same
+   * function the pull request bot uses). Present only on AI findings that have severity evidence; a human
+   * comment never carries it (it keeps its `kind`) and an older server omits it. Never guess it client-side.
+   */
+  severity?: "p0" | "p1" | "p2";
   created_at: string;
   updated_at: string;
   anchor_method: string;
@@ -3437,7 +3443,23 @@ export interface ReviewAiAssurance {
   fresh_rerun: ReviewAiFreshRerunPreview;
 }
 
+/** What a person with no AI model set up is told: the same words and next steps as `lc review --ai` prints. */
+export interface ReviewAiSetupHelp {
+  headline: string;
+  steps: Array<{ lead: string; command: string; note: string }>;
+  docs_url: string;
+}
+
 export interface ReviewAiReviewStatus {
+  /**
+   * Whether this deployment can run AI review at all. `false` (hosted without an executor) hides every control
+   * that would start one; absent means available, as every server before this field behaved.
+   */
+  available?: boolean;
+  /** The one sentence to show when `available` is false. */
+  unavailable_reason?: string;
+  /** The technical cause, for operators. */
+  unavailable_detail?: string;
   status: "none" | "skipped_unnecessary" | "pending" | "ready" | "failed" | "cancelled";
   effort: "auto" | "quick" | "thorough" | "deep";
   candidates: number;
@@ -3445,6 +3467,8 @@ export interface ReviewAiReviewStatus {
   provider?: string;
   model?: string;
   error?: string;
+  /** Set when this server runs AI review itself and no model is set up yet (the local Reader); `error` is then its headline. */
+  setup_help?: ReviewAiSetupHelp;
   budget: { calls_used: number; max_calls: number };
   skipped_by_budget?: number;
   /** Backend-derived Auto eligibility for this exact latest Snapshot. */

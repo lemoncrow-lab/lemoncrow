@@ -37,11 +37,15 @@ preserve human review state across revisions.
 
 ## Quick start
 
-Install LemonCrow:
+Three steps to an AI review of your own change, in your terminal:
 
 ```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash
+curl -fsSL https://lemoncrow.com/install.sh | bash         # 1. install
+export ANTHROPIC_API_KEY=sk-ant-...                         # 2. a key (or OPENAI_API_KEY), or skip it and use an agent you are signed in to
+cd your-project && lc review --ai                           # 3. the review, printed here; it posts nothing
 ```
+
+No key? Use the agent you already have, with no key: `lc review --ai --agent claude` (also `codex`, `opencode`). Add `--remember` once and `lc review --ai` uses it whenever no key is set. If there is neither, `lc review --ai` says what to do in three lines and exits 3. To keep a key instead of exporting it in every terminal: `lc settings set llm.anthropic_api_key` (asks for it; stored in `~/.lemoncrow/plugin_settings.json`, readable only by you). [Your first AI review](docs/setup/ai-review.md) has the details.
 
 The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch. Upgrading from an earlier release? Read the [behaviour changes](CHANGELOG.md#behaviour-changes-for-local-installs) first.
 
@@ -73,10 +77,10 @@ lc rt enable claude --hosted
 
 Signing in does not change a local integration into hosted execution. Local Runtime Lite stays local. `lc code` is an explicit Hosted Runtime entry point.
 
-Review what an agent changed:
+To look at the change in the browser first (no model is called):
 
 ```bash
-lc review --open
+lc review                          # capture the change and open it in the Reader
 ```
 
 Runtime and Review remain separate product surfaces: Runtime does not require
@@ -118,8 +122,11 @@ Architecture details: [Runtime Lite](docs/architecture/runtime-lite.md) and the
 ## Review agent changes
 
 Coding agents can produce changes faster than a human can confidently review
-them. LemonCrow treats human review state as the durable object instead of
-asking a model to write another review summary.
+them. LemonCrow treats human review state as the durable object. The default
+review is deterministic and calls no model. When you configure a model route,
+Auto AI review adds findings as hints for the reviewer, never as a verdict, and
+in CI the [GitHub Action](docs/setup/github-action.md) posts them on your pull
+requests with your own model key.
 
 Start with the local review reader:
 
@@ -127,6 +134,18 @@ Start with the local review reader:
 lc review           # freeze the current change and open the Review Reader
 lc review --staged  # exactly what you are about to commit
 lc review --no-open # capture and print the Review URL without opening a browser
+```
+
+A plain `lc review` never calls a model, even when a key is in your environment:
+a key exported for other tools is not consent to spend. Ask for the AI review
+with `--ai`, in the same installed `lc`:
+
+```bash
+lc review --ai                  # AI review of your change, printed in the terminal
+lc review --ai --agent claude   # use your signed-in Claude Code (or codex, opencode) instead of a key
+lc review hook install          # before each push; it stops only on a real finding, never because LemonCrow failed
+lc review init-action           # write the GitHub Action workflow for pull requests
+lc review config --effective    # the review rules this repository sets
 ```
 
 <p align="center">
@@ -181,6 +200,69 @@ LemonCrow does not synthesize a passing test status.
 
 See the [10-minute review walkthrough](docs/reference/review-walkthrough.md) or
 the [CLI reference](docs/reference/cli.md#reviewing-agent-written-changes).
+
+### Install the GitHub Action
+
+Early access. A workflow in your repository reviews each pull request on your
+own model key and posts the result as a bot: one summary comment with a verdict,
+inline P0/P1 findings, and a `LemonCrow Review` status. On each push it
+re-reviews only what changed and carries the rest forward, so a push to a
+long-running pull request does not pay to review the same code twice.
+
+Add your model key as the repository secret `ANTHROPIC_API_KEY` (or
+`OPENAI_API_KEY`, passed as `openai-api-key`), and save this as
+`.github/workflows/lemoncrow-review.yml`:
+
+```yaml
+name: LemonCrow
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read        # fetch the pull request's commits
+  pull-requests: write  # the summary comment, inline findings, thread replies and resolves
+  statuses: write       # the "LemonCrow Review" commit status
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+That is the whole file: the Action checks out the pull request itself, fetches
+the history it needs and cleans up its own status, and a bad key or a token
+without `pull-requests: write` fails loudly instead of passing quietly. Replace
+`<sha>` with the release commit the
+[latest release](https://github.com/lemoncrow-lab/lemoncrow/releases/latest)
+prints (a commit, not a branch: the commit is the version that reviews). The
+options (depth, `fail-on`, strictness, chat, budgets), the permissions, the one
+status to require and the fork-pull-request behavior are in
+[Install the GitHub Action](docs/setup/github-action.md). To try it without CI:
+`lc review --pr 123 --ai` prints the summary and each inline comment the bot
+would post, and posts nothing.
+
+<!-- lemoncrow:benchmark:start -->
+
+### Code-review benchmark
+
+F-score on the public 50-PR code-review benchmark, highest first. Rows scored by LemonCrow's judge are our own runs; every other row is a figure its source published. Each row links its source.
+
+| Tool | Precision | Recall | F-score | Median cost / PR | Scored by |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Augment Code Review | 65% | 55% | 59% | n/a | Augment's judge, its own tool ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Cursor Bugbot | 60% | 41% | 49% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| **LemonCrow** | **43%** | **48%** | **46%** | **$0.52** | LemonCrow's judge ([run report](https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-10-26.json), 2026-10-26) |
+| Greptile | 45% | 45% | 45% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Codex Code Review | 68% | 29% | 41% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| CodeRabbit | 36% | 43% | 39% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Claude Code | 23% | 51% | 31% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| GitHub Copilot | 20% | 34% | 25% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+
+**Method.** 50 pull requests from Sentry, Cal.com, Grafana, Keycloak, Discourse (Python, TypeScript, Go, Java, Ruby), the set Greptile published ([AI Code Review Benchmarks 2025](https://www.greptile.com/benchmarks), 2025-07), scored against the answer key Augment Code expanded ([golden_comments @ 3f2c8ab](https://github.com/ai-code-review-evaluations/golden_comments/tree/3f2c8ab794b4ed71c099cbf0a7670555e90906dc)): 97 comments count, after dropping 40 Low-severity ones. An LLM judge decides whether a tool's comment and an answer-key comment refer to the same underlying issue (not by file or line number). Low-severity answer-key comments count as neither a true positive, a false negative nor a false positive. LemonCrow's row is our own run on 2026-10-26: review model sonnet through claude at depth thorough, engine 0.8.0 (00b8f16), judged by sonnet with a prompt whose sha256 starts cfe685620f23. The 50 reviews made 350 model calls and cost $28.75 in all; the median pull request took 7 calls. Every comment and judgment is in the [raw run report](https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-10-26.json). The other rows are the figures Augment Code published ([We benchmarked 7 AI code review tools on large open-source projects. Here are the results.](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11; run 2025-11-14, default settings, their judge). We did not re-run those tools, so the columns are not strictly like for like. Greptile reports an 82% catch rate (41 of 50 pull requests) on this set ([AI Code Review Benchmarks 2025](https://www.greptile.com/benchmarks), 2025-07): it counts whether the tool commented on the one hidden bug in each of the 50 pull requests, and does not count false positives, style suggestions or unrelated comments against it. A recall-type figure on one bug per pull request with false alarms ignored; it cannot be compared with precision-aware F-scores.
+
+<!-- lemoncrow:benchmark:end -->
 
 ---
 
@@ -319,7 +401,10 @@ installs send no product telemetry. `lc audit` prints
 `"product_telemetry": false`, and there is nothing to turn off.
 
 The full LemonCrow engine you run from a source checkout (`uv run lc ...`)
-sends anonymous aggregate telemetry, **on by default**. It contains aggregate
+sends anonymous aggregate telemetry, **on by default**, and says so once, on your
+first run: `Telemetry is on: LemonCrow sends anonymous counts and timings, never
+code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
+It contains aggregate
 counts, bucketed durations, dollar estimates, hashed install/session
 identifiers, version, host source, retrieval domain, and timestamps. It does
 **not** contain source code, prompts, repository paths, file paths, or symbol
@@ -382,14 +467,16 @@ has to reread without outsourcing the engineering judgment.
 
 ### Removal
 
-Check state, update, and remove products with the client. Uninstall needs a
-product and never prompts:
+Check state, update, and remove products with the client. `lc uninstall` lists exactly
+what it will remove first, and asks before it deletes anything of yours (your settings,
+the reviews you opened, a git hook it wrote, a repository's `.lemoncrow` folder):
 
 ```bash
 lc status
 lc update                      # re-runs the installer for each installed product; host registrations are untouched
-lc uninstall review            # or: runtime | all
-lc uninstall all --dry-run     # preview
+lc uninstall all --dry-run     # list what would be removed; changes nothing
+lc uninstall all               # asks; add --yes to skip the question (your data stays) or --purge to remove it too
+lc uninstall review            # or: runtime
 ```
 
 ### Building from source

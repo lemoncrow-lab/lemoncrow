@@ -64,6 +64,35 @@ describe("ReviewCommentsSheet", () => {
     expect(screen.queryByText("Plan before implementation")).toBeNull();
   });
 
+  it("badges and rails each AI finding by the severity on the wire, and a human comment by its kind", () => {
+    render(
+      <ReviewCommentsSheet
+        annotations={[
+          annotation({ id: "human", source: "human", kind: "request_change", body: "Human request" }),
+          annotation({ id: "p0", source: "ai_review", severity: "p0", body: "Finding zero", created_by: "review-agent" }),
+          annotation({ id: "p1", source: "ai_review", severity: "p1", body: "Finding one", created_by: "review-agent" }),
+          annotation({ id: "p2", source: "ai_review", severity: "p2", body: "Finding two", created_by: "review-agent" }),
+          annotation({ id: "unrated", source: "ai_review", body: "Finding unrated", created_by: "review-agent" }),
+        ]}
+        onClose={vi.fn()}
+        onJump={vi.fn()}
+      />,
+    );
+    const row = (text: string) => screen.getByText(text).closest("article") as HTMLElement;
+    expect(row("Finding zero").className).toContain("border-l-p0-solid");
+    expect(row("Finding one").className).toContain("border-l-p1-solid");
+    expect(row("Finding two").className).toContain("border-l-p2-solid");
+    expect(row("Finding unrated").className).toContain("border-l-border");
+    expect(row("Human request").className).toContain("border-l-p0-solid");
+    expect(within(row("Finding zero")).getByText("P0")).toBeVisible();
+    expect(within(row("Finding one")).getByText("P1")).toBeVisible();
+    expect(within(row("Finding two")).getByText("P2")).toBeVisible();
+    expect(within(row("Finding unrated")).queryByText(/^P[012]$/)).toBeNull();
+    expect(within(row("Human request")).queryByText(/^P[012]$/)).toBeNull();
+    // A `divide-*` colour on the list would repaint every row's left border, and with it the rail.
+    expect(row("Finding one").parentElement?.className ?? "").not.toMatch(/\bdivide-/);
+  });
+
   it("filters Human, AI, and LemonCrow independently from comment status", async () => {
     const user = userEvent.setup();
     render(

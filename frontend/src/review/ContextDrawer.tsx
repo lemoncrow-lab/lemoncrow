@@ -289,7 +289,7 @@ export default function ContextDrawer({
       <div className="shrink-0 border-b border-border px-2.5 pt-1.5">
         <div className="flex items-start gap-1.5 pb-1.5">
           <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-label font-medium text-neutral-200" title={targetLabel}>{targetLabel}</div>
+            <div className="truncate font-mono text-label font-medium text-foreground" title={targetLabel}>{targetLabel}</div>
             <div className="mt-0.5 truncate font-mono text-caption text-muted-foreground" title={target.path}>{target.path}</div>
           </div>
           {onOpenInCode && detail?.status !== "deleted" && (
@@ -302,7 +302,7 @@ export default function ContextDrawer({
               tooltip="Open the working tree's current file in Code (current index)"
               className="h-7 w-7"
             >
-              <Code2 size={12} />
+              <Code2 size={14} />
             </UiButton>
           )}
           <UiButton
@@ -313,12 +313,12 @@ export default function ContextDrawer({
             aria-pressed={pinned}
             aria-label={pinned ? "Unpin" : "Pin"}
             tooltip={pinned ? "Unpin context drawer" : "Pin context drawer"}
-            className={`h-7 w-7 ${pinned ? "text-sky-300" : ""}`}
+            className={`h-7 w-7 ${pinned ? "text-cyan-300" : ""}`}
           >
-            {pinned ? <PinOff size={12} /> : <Pin size={12} />}
+            {pinned ? <PinOff size={14} /> : <Pin size={14} />}
           </UiButton>
           <UiButton ref={closeRef} type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close review context" className="h-7 w-7">
-            <X size={13} />
+            <X size={14} />
           </UiButton>
         </div>
         <div className="flex min-w-0 items-end gap-1">
@@ -326,7 +326,7 @@ export default function ContextDrawer({
             {ALL_TABS.map((item) => {
               const count = tabCount(item);
               return (
-                <TabsTrigger key={item} value={item} variant="underline" className="gap-1 data-[state=active]:border-sky-500">
+                <TabsTrigger key={item} value={item} variant="underline" className="gap-1 data-[state=active]:border-cyan-500">
                   {tabLabel(item)}
                   {count > 0 && <span className="font-mono text-caption leading-none text-muted-foreground">{count}</span>}
                 </TabsTrigger>
@@ -342,12 +342,12 @@ export default function ContextDrawer({
             {meaningfulReasons.length > 0 && (
               <section>
                 <div className="review-kicker mb-1.5">Why review this</div>
-                <div className="space-y-1 text-caption leading-4 text-neutral-300">
+                <div className="space-y-1 text-caption leading-4 text-subtle">
                   {meaningfulReasons.map((reason) => <div key={reason}>{reason}</div>)}
                 </div>
               </section>
             )}
-            <section className="border-t border-neutral-900 pt-3 first:border-t-0 first:pt-0">
+            <section className="border-t border-border pt-3 first:border-t-0 first:pt-0">
               <div className="review-kicker mb-2">Affected code</div>
               <Impact sites={detail?.impact ?? []} onOpen={onOpenImpact} />
             </section>
@@ -368,12 +368,12 @@ export default function ContextDrawer({
               onOpenInCode={onOpenInCode}
             />
             {symbols.length > 0 && (
-              <details className="border-t border-neutral-900 pt-3">
-                <summary className="cursor-pointer text-caption text-muted-foreground hover:text-neutral-50">Definitions in this file · {symbols.length}</summary>
+              <details className="border-t border-border pt-3">
+                <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground">Definitions in this file · {symbols.length}</summary>
                 <div className="mt-2 space-y-1.5 border-l border-border pl-2">
                   {symbols.slice(0, 12).map((symbol) => (
                     <div key={`${symbol.qualified_name}:${symbol.start_line}`} className="flex items-baseline gap-2 text-caption">
-                      <span className="min-w-0 flex-1 truncate font-mono text-neutral-300">{symbol.qualified_name || symbol.symbol_name}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-subtle">{symbol.qualified_name || symbol.symbol_name}</span>
                       <span className="text-muted-foreground">{symbol.change}</span>
                       <span className="font-mono text-muted-foreground">{symbol.caller_count >= 0 ? `${symbol.caller_count} callers` : "? callers"}</span>
                       {onOpenInCode && symbol.start_line > 0 && detail?.status !== "deleted" && (
@@ -386,7 +386,7 @@ export default function ContextDrawer({
                           tooltip="Open in Code (current index)"
                           className="h-5 w-5 shrink-0 self-center"
                         >
-                          <Code2 size={11} />
+                          <Code2 size={14} />
                         </UiButton>
                       )}
                     </div>
@@ -396,10 +396,10 @@ export default function ContextDrawer({
               </details>
             )}
             {degraded.length > 0 && (
-              <details className="border-t border-neutral-900 pt-3">
-                <summary className="cursor-pointer text-caption text-amber-300/80">Analysis limitations · {degraded.length}</summary>
+              <details className="border-t border-border pt-3">
+                <summary className="cursor-pointer text-meta text-amber-300/80">Analysis limitations · {degraded.length}</summary>
                 <div className="mt-2 space-y-2 border-l border-border pl-2">
-                  {degraded.map((item) => <div key={item.name} className="text-caption leading-relaxed text-muted-foreground"><span className="font-mono text-neutral-400">{item.name}</span><div>{item.note}</div></div>)}
+                  {degraded.map((item) => <div key={item.name} className="text-caption leading-relaxed text-muted-foreground"><span className="font-mono text-muted-foreground">{item.name}</span><div>{item.note}</div></div>)}
                 </div>
               </details>
             )}
@@ -439,11 +439,11 @@ export default function ContextDrawer({
                 </section>
 
                 {agentPlan.length > 0 && (
-                  <section className="border-t border-neutral-900 pt-3">
+                  <section className="border-t border-border pt-3">
                     <div className="review-kicker mb-2">Plan</div>
                     <div className="space-y-2">
                       {agentPlan.map((item) => (
-                        <div key={item.id} className="border-l border-sky-900/60 pl-2 text-caption leading-relaxed text-neutral-300">
+                        <div key={item.id} className="border-l border-cyan-900/60 pl-2 text-caption leading-relaxed text-subtle">
                           <div>{item.summary}</div>
                           {item.detail && <div className="mt-1 whitespace-pre-wrap text-muted-foreground">{item.detail}</div>}
                         </div>
@@ -453,11 +453,11 @@ export default function ContextDrawer({
                 )}
 
                 {agentDecisions.length > 0 && (
-                  <section className="border-t border-neutral-900 pt-3">
+                  <section className="border-t border-border pt-3">
                     <div className="review-kicker mb-2">Decisions & facts</div>
                     <div className="space-y-1.5 text-caption leading-relaxed">
                       {agentDecisions.map((item) => (
-                        <div key={item.id} className={`border-l pl-2 ${item.kind === "fact" ? "border-emerald-900/60 text-neutral-300" : "border-violet-900/60 text-neutral-400"}`}>
+                        <div key={item.id} className={`border-l pl-2 ${item.kind === "fact" ? "border-emerald-900/60 text-subtle" : "border-border text-muted-foreground"}`}>
                           {item.summary}
                           {item.detail && <div className="mt-1 text-muted-foreground">{item.detail}</div>}
                         </div>
@@ -467,11 +467,11 @@ export default function ContextDrawer({
                 )}
 
                 {agentOpen.length > 0 && (
-                  <section className="border-t border-neutral-900 pt-3">
+                  <section className="border-t border-border pt-3">
                     <div className="review-kicker mb-2">Still open</div>
                     <div className="space-y-1.5 text-caption leading-relaxed">
                       {agentOpen.map((item) => (
-                        <div key={item.id} className={item.kind === "blocker" ? "text-rose-300/90" : "text-amber-300/80"}>
+                        <div key={item.id} className={item.kind === "blocker" ? "text-red-300/90" : "text-amber-300/80"}>
                           {item.summary}
                         </div>
                       ))}
@@ -479,7 +479,7 @@ export default function ContextDrawer({
                   </section>
                 )}
 
-                <section className="border-t border-neutral-900 pt-3">
+                <section className="border-t border-border pt-3">
                   <div className="review-kicker mb-2">Relevant activity</div>
                   {agentActivity.length === 0 ? (
                     <div className="text-caption text-muted-foreground">No recorded agent activity is scoped to this file yet.</div>
@@ -489,9 +489,9 @@ export default function ContextDrawer({
                         <div key={item.id} className="border-l border-border pl-2 text-caption">
                           <div className="flex min-w-0 items-baseline gap-2">
                             <span className="shrink-0 font-mono text-muted-foreground">{item.kind}</span>
-                            <span className="min-w-0 flex-1 truncate text-neutral-300" title={item.summary}>{item.summary}</span>
+                            <span className="min-w-0 flex-1 truncate text-subtle" title={item.summary}>{item.summary}</span>
                             {item.status && (
-                              <span className={item.status === "pass" ? "text-emerald-300" : item.status === "fail" ? "text-rose-300" : "text-muted-foreground"}>{item.status}</span>
+                              <span className={item.status === "pass" ? "text-emerald-300" : item.status === "fail" ? "text-red-300" : "text-muted-foreground"}>{item.status}</span>
                             )}
                           </div>
                           {item.detail && <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-4 text-muted-foreground">{item.detail}</div>}
@@ -502,7 +502,7 @@ export default function ContextDrawer({
                   )}
                 </section>
 
-                <div className="border-t border-neutral-900 pt-2 text-micro leading-relaxed text-muted-foreground">
+                <div className="border-t border-border pt-2 text-micro leading-relaxed text-muted-foreground">
                   Review shows observable plans, decisions, tool/test evidence, messages, and edit activity. Hidden chain-of-thought is not captured.
                 </div>
               </>
@@ -514,7 +514,7 @@ export default function ContextDrawer({
           <div className="space-y-3">
             {verification.length > 0 && (
               <div className="flex flex-wrap gap-2 text-caption">
-                {failedChecks > 0 && <span className="text-rose-300">{failedChecks} failed</span>}
+                {failedChecks > 0 && <span className="text-red-300">{failedChecks} failed</span>}
                 {unresolvedChecks > 0 && <span className="text-amber-300">{unresolvedChecks} unresolved</span>}
                 {passedChecks > 0 && <span className="text-emerald-300/70">{passedChecks} passed</span>}
               </div>
@@ -554,7 +554,7 @@ export default function ContextDrawer({
             </PanelCard>
             {staleEvidence.length > 0 && (
               <details className="border-t border-border pt-2">
-                <summary className="cursor-pointer text-caption uppercase tracking-wider text-muted-foreground">Previous Snapshots · {staleEvidence.length}</summary>
+                <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">Previous Snapshots · {staleEvidence.length}</summary>
                 <div className="mt-2 space-y-2">{staleEvidence.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} />)}</div>
               </details>
             )}
@@ -562,7 +562,7 @@ export default function ContextDrawer({
               <div className="border border-border px-2.5 py-2 text-caption text-muted-foreground">Evidence is read-only until this review is restored.</div>
             ) : (
               <details className="border border-border bg-muted/20">
-                <summary className="cursor-pointer px-2.5 py-2 text-caption uppercase tracking-wider text-muted-foreground">Add evidence</summary>
+                <summary className="cursor-pointer px-2.5 py-2 text-meta uppercase tracking-wider text-muted-foreground">Add evidence</summary>
                 <div className="space-y-2 border-t border-border p-2.5">
                   <label
                     onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
@@ -574,7 +574,7 @@ export default function ContextDrawer({
                       const files = Array.from(event.dataTransfer.files);
                       if (files.length > 0) onUploadEvidence(files);
                     }}
-                    className={`block cursor-pointer border border-dashed p-3 text-center focus-within:border-brand-400/35 ${dragging ? "border-sky-600 bg-sky-950/20" : "border-neutral-700"}`}
+                    className={`block cursor-pointer border border-dashed p-3 text-center focus-within:border-input/35 ${dragging ? "border-cyan-600 bg-cyan-950/20" : "border-border"}`}
                   >
                     <UiInput unstyled
                       ref={fileInputRef}
@@ -589,7 +589,7 @@ export default function ContextDrawer({
                         event.currentTarget.value = "";
                       }}
                     />
-                    <div className="text-caption text-neutral-300">{uploading ? "Adding evidence…" : "Drop screenshot, video, trace.zip, or document"}</div>
+                    <div className="text-caption text-subtle">{uploading ? "Adding evidence…" : "Drop screenshot, video, trace.zip, or document"}</div>
                   </label>
                   {/*
                     Dropping a file and clicking the drop zone are both pointer
@@ -635,15 +635,15 @@ export default function ContextDrawer({
               ) : (
                 <div className="space-y-2">
                   {authorNotes.map((note) => (
-                    <div key={note.id} className="border-l border-amber-900/70 pl-2 text-caption leading-relaxed text-neutral-300">
-                      {note.title && <div className="font-medium text-neutral-200">{note.title}</div>}
+                    <div key={note.id} className="border-l border-amber-900/70 pl-2 text-caption leading-relaxed text-subtle">
+                      {note.title && <div className="font-medium text-foreground">{note.title}</div>}
                       <div className="whitespace-pre-wrap">{note.body}</div>
                     </div>
                   ))}
                 </div>
               )}
             </section>
-            <section className="border-t border-neutral-900 pt-3">
+            <section className="border-t border-border pt-3">
               <div className="review-kicker mb-2">Authored by</div>
               <Provenance info={detail?.provenance ?? emptyProvenance()} />
             </section>
@@ -679,7 +679,7 @@ export default function ContextDrawer({
           <div className="space-y-3">
             <PanelCard title="Judgment history" action={<span className="font-mono text-caption text-muted-foreground">{history.length}</span>}>
               {historyError ? (
-                <div className="text-caption text-rose-300">{historyError}</div>
+                <div className="text-caption text-red-300">{historyError}</div>
               ) : history.length === 0 ? (
                 <div className="text-caption text-muted-foreground">No recorded judgment transitions for this review area yet.</div>
               ) : (
@@ -687,10 +687,10 @@ export default function ContextDrawer({
                   {[...history].reverse().map((event) => (
                     <div key={event.id} className="border-l border-border pl-2 text-caption">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={event.actor_type === "human" ? "text-emerald-300" : event.actor_type === "agent" ? "text-violet-300" : "text-neutral-400"}>
+                        <span className={event.actor_type === "human" ? "text-emerald-300" : event.actor_type === "agent" ? "text-muted-foreground" : "text-muted-foreground"}>
                           {event.reviewer_id || (event.actor_type === "agent" ? "agent" : "LemonCrow")}
                         </span>
-                        <span className="font-mono text-neutral-300">{event.from_state || "none"} → {event.to_state || "removed"}</span>
+                        <span className="font-mono text-subtle">{event.from_state || "none"} → {event.to_state || "removed"}</span>
                         <span className="text-muted-foreground">{event.event_kind}</span>
                       </div>
                       <div className="mt-0.5 text-caption text-muted-foreground">{event.created_at ? new Date(event.created_at).toLocaleString() : ""}</div>

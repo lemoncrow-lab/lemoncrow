@@ -471,7 +471,17 @@ _SCHEMA: dict[str, Any] = {
 def _fake_cli(monkeypatch: pytest.MonkeyPatch, stdout: str) -> None:
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_run(command: Any, *, cwd: Any, env: Any = None, capture_output: Any, text: Any, check: Any, timeout: Any):
+    def fake_run(
+        command: Any,
+        *,
+        cwd: Any,
+        env: Any = None,
+        input: Any = None,
+        capture_output: Any,
+        text: Any,
+        check: Any,
+        timeout: Any,
+    ):
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(intelligence_drivers.subprocess, "run", fake_run)
@@ -516,7 +526,9 @@ def test_streaming_cli_reports_each_observed_model(tmp_path: Path, monkeypatch: 
         {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps({"ok": True})}},
     ]
 
-    def runner(command: Any, *, cwd: Any, env: Any, on_stdout: Any, timeout: Any) -> tuple[int, str, str]:
+    def runner(
+        command: Any, *, cwd: Any, env: Any, on_stdout: Any, timeout: Any, stdin_text: Any = None
+    ) -> tuple[int, str, str]:
         for event in events:
             on_stdout(json.dumps(event))
         return (0, "\n".join(json.dumps(event) for event in events), "")

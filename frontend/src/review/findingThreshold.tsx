@@ -48,8 +48,8 @@ export function BelowThresholdList<T extends Annotation>({
     <>
       {shown.map(render)}
       {below.length > 0 && (
-        <details data-testid="below-threshold" className="py-1 text-caption text-muted-foreground">
-          <summary className="cursor-pointer select-none">{below.length} below threshold</summary>
+        <details data-testid="below-threshold" className="group rounded-md border border-border py-1 text-meta text-muted-foreground">
+          <summary className="flex min-h-7 cursor-pointer select-none items-center gap-2 px-3">{below.length} below threshold</summary>
           {below.map(render)}
         </details>
       )}

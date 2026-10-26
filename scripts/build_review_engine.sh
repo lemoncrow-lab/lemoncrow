@@ -51,7 +51,10 @@ FRONTEND_DIST="${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-frontend/dist}"
 if [[ -z "${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-}" ]]; then
     frontend_stale=1
     if [[ -f frontend/dist/index.html ]]; then
-        frontend_changed="$(find frontend \
+        # design/ holds the canonical tokens that frontend/src/design vendors (absent in the public mirror).
+        frontend_inputs=(frontend)
+        [[ -d design ]] && frontend_inputs+=(design)
+        frontend_changed="$(find "${frontend_inputs[@]}" \
             -type d \( -name node_modules -o -name dist -o -name .git \) -prune -o \
             -type f ! -name '*.tsbuildinfo' -newer frontend/dist/index.html -print -quit)"
         [[ -n "$frontend_changed" ]] || frontend_stale=0
@@ -66,6 +69,26 @@ fi
 rm -rf "$WORK/frontend"
 mkdir -p "$WORK/frontend"
 cp -R "$FRONTEND_DIST"/. "$WORK/frontend/"
+# A Reader built without Tailwind passes `@tailwind` directives through as raw CSS and renders unstyled: the
+# v0.8.0 release shipped 11.7 KB of CSS where this build makes about 97 KB. Refuse such a bundle. An override
+# bundle (the engine smoke test's stub) is not releasable and is not held to this.
+if [[ -z "${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-}" ]]; then
+    python3 - "$WORK/frontend" <<'PY'
+import sys
+from pathlib import Path
+
+assets = Path(sys.argv[1]) / "assets"
+floor = 40_000
+stylesheets = sorted(assets.glob("index-*.css"))
+if len(stylesheets) != 1:
+    raise SystemExit(f"build_review_engine.sh: expected one assets/index-*.css in the frontend bundle, found {len(stylesheets)}")
+text = stylesheets[0].read_text(encoding="utf-8")
+if "@tailwind" in text:
+    raise SystemExit("build_review_engine.sh: the frontend CSS still holds @tailwind directives: PostCSS did not run (is frontend/postcss.config.js missing?)")
+if len(text.encode("utf-8")) < floor:
+    raise SystemExit(f"build_review_engine.sh: the frontend CSS is {len(text)} bytes, under the {floor} floor: the Reader would render unstyled")
+PY
+fi
 # The engine records which frontend it packaged, machine-readably, in its wheel:
 # lemoncrow_server_core/review_engine_build.json says whether frontend/ came from
 # this checkout's frontend/dist or from the override, and the digest of the
@@ -119,6 +142,8 @@ classifiers = [
 ]
 dependencies = [
   "aiohttp>=3.14.1",
+  "click>=8.1",
+  "diff-match-patch>=2.1",
   "fastapi>=0.139.2",
   "pydantic>=2.6",
   "pygit2==1.19.2",
@@ -171,6 +196,9 @@ with zipfile.ZipFile(wheel) as zf:
     required = {
         "lemoncrow/pro/capabilities/review/models.py",
         "lemoncrow/pro/capabilities/review/gate_h_contract.yaml",
+        "lemoncrow/pro/capabilities/review/local_cli/main.py",
+        "lemoncrow/pro/capabilities/review/pr_bot/local.py",
+        "lemoncrow/pro/capabilities/review/security_rules/python.yaml",
         "lemoncrow_server_core/bootstrap.py",
         "lemoncrow_server_core/local_review.py",
         "lemoncrow_client/kit/redaction.py",
@@ -190,6 +218,29 @@ lc_run uv venv --python "${LEMONCROW_BUILD_PYTHON:-3.13}" "$SMOKE"
 lc_run uv pip install --python "$SMOKE/bin/python" "$wheel"
 HOME="$WORK/home" "$SMOKE/bin/python" -m lemoncrow_server_core up \
     --directory "$WORK/state" --local-no-auth --product review --ephemeral --check-only
+# Import every module the wheel ships. The server only imports what a request reaches, so a module the allowlist
+# forgot (config_import.py and repo_context.py were) is a 500 in the Reader, not a build failure, unless every
+# shipped module is imported here. The installed interpreter sees the wheel, never the checkout.
+HOME="$WORK/home" "$SMOKE/bin/python" - "$wheel" <<'PY_IMPORTS'
+import importlib
+import sys
+import zipfile
+
+failures = []
+with zipfile.ZipFile(sys.argv[1]) as wheel:
+    names = sorted(n for n in wheel.namelist() if n.endswith(".py") and not n.endswith("__main__.py"))
+for name in names:
+    module = name[: -len(".py")].replace("/", ".")
+    if module.endswith(".__init__"):
+        module = module[: -len(".__init__")]
+    try:
+        importlib.import_module(module)
+    except Exception as exc:  # any failure to import is the finding
+        failures.append(f"{module}: {type(exc).__name__}: {exc}")
+if failures:
+    raise SystemExit("Review engine ships modules that do not import:\n  " + "\n  ".join(failures))
+print(f"imported {len(names)} shipped modules")
+PY_IMPORTS
 LEMONCROW_REVIEW_SMOKE_STATE="$WORK/state-capabilities" "$SMOKE/bin/python" - <<'PY'
 import importlib.util
 import os

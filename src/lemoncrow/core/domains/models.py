@@ -25,7 +25,7 @@ class DomainBundle(BaseModel):
     bundle_id: str
     domain: str
     description: str
-    author: str = "Beseam"
+    author: str = "LemonCrow"
 
     playbooks: list[str] = Field(default_factory=list)
     rubrics: list[str] = Field(default_factory=list)

@@ -52,7 +52,7 @@ export interface CodeMapViewProps {
 }
 
 function Status({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-full min-h-[420px] items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground">{children}</div>;
+  return <div className="flex h-full min-h-[420px] items-center justify-center gap-2 p-6 text-center text-body text-muted-foreground">{children}</div>;
 }
 
 export default function CodeMapView({
@@ -144,14 +144,14 @@ export default function CodeMapView({
         <Status>
           <span className="text-red-300/80">{overviewError}</span>
           <UiButton type="button" size="xs" variant="outline" onClick={onRetry}>
-            <RotateCw size={10} /> Retry
+            <RotateCw size={14} /> Retry
           </UiButton>
         </Status>
       );
     } else if (!columnModel) {
       body = (
         <Status>
-          <Loader2 size={13} className="animate-spin" /> Grouping the repository into modules…
+          <Loader2 size={14} className="animate-spin" /> Grouping the repository into modules…
         </Status>
       );
     } else if (!columnModel.cards.length) {
@@ -174,14 +174,14 @@ export default function CodeMapView({
       <Status>
         <span className="text-red-300/80">{focusError}</span>
         <UiButton type="button" size="xs" variant="outline" onClick={onRetry}>
-          <RotateCw size={10} /> Retry
+          <RotateCw size={14} /> Retry
         </UiButton>
       </Status>
     );
   } else if (!focusModel || (focusLoading && !focus)) {
     body = (
       <Status>
-        <Loader2 size={13} className="animate-spin" /> Reading what uses it and what it uses…
+        <Loader2 size={14} className="animate-spin" /> Reading what uses it and what it uses…
       </Status>
     );
   } else {
@@ -211,9 +211,9 @@ export default function CodeMapView({
         <nav aria-label="Map location" className="flex min-w-0 items-center gap-1">
           {crumbs.map((crumb, index) => (
             <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1">
-              {index > 0 && <ChevronRight size={11} className="shrink-0 text-muted-foreground" />}
+              {index > 0 && <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
               {index === crumbs.length - 1 ? (
-                <span className="truncate font-medium text-neutral-200" aria-current="location">
+                <span className="truncate font-medium text-foreground" aria-current="location">
                   {crumb.label}
                 </span>
               ) : (
@@ -225,7 +225,7 @@ export default function CodeMapView({
           ))}
         </nav>
         <span className="ml-auto flex shrink-0 items-center gap-2 pl-3">
-          {(spec ? focusLoading && focus : overviewLoading && overview) && <Loader2 size={11} className="animate-spin text-muted-foreground" aria-label="Refreshing" />}
+          {(spec ? focusLoading && focus : overviewLoading && overview) && <Loader2 size={14} className="animate-spin text-muted-foreground" aria-label="Refreshing" />}
           {context && <span className="text-caption text-muted-foreground" title={context.readiness?.reason || undefined}>{indexNote(context)}</span>}
           {filteredCount > 0 && (
             <span className="text-caption text-muted-foreground" title="Name matches across languages or from shipping code into tests are not drawn.">
@@ -235,7 +235,7 @@ export default function CodeMapView({
           {(spec ? focus?.graph.truncated : overview?.links_truncated) && <span className="text-caption text-amber-300/80">bounded</span>}
           {last?.source && (
             <UiButton type="button" size="xs" variant="ghost" onClick={() => onOpenSource(last.source!)}>
-              <FileCode2 size={10} /> Open in Source
+              <FileCode2 size={14} /> Open in Source
             </UiButton>
           )}
           <UiButton
@@ -248,7 +248,7 @@ export default function CodeMapView({
             onClick={() => onFollow(!follow)}
             title={followAvailable ? "Keep the map on the file the followed session is editing, except while you are using the map." : "No agent session to follow."}
           >
-            <Crosshair size={10} /> Follow
+            <Crosshair size={14} /> Follow
           </UiButton>
         </span>
       </div>

@@ -1,11 +1,14 @@
 """``lc review`` — what changed, what it affects, and who made it.
 
-A deterministic, LLM-free review surface: one libgit2 pass over a revision
-range produces a packet that names the changed files, the reading order, the
-places the change reaches outside the patch, and the agent session that
-produced it. No model is called and no verdict is issued — the packet is
-evidence for a human reviewer, which is why every rendering ends in
-``Human review  REQUIRED``.
+A deterministic review surface: one libgit2 pass over a revision range produces
+a packet that names the changed files, the reading order, the places the change
+reaches outside the patch, and the agent session that produced it. No model is
+called and no verdict is issued — the packet is evidence for a human reviewer,
+which is why every rendering ends in ``Human review  REQUIRED``. The one
+exception is ``--ai``: it runs the AI review on the caller's own model route and
+prints the findings -- of a pull request with ``--pr N``, ``--publish-bot`` posts them as a bot in CI, and
+of the working tree, the index or a commit range with no pull request at all (exit codes for a hook; see
+:mod:`lemoncrow.pro.capabilities.review.pr_bot.local`).
 
 The default range is the working tree, not a commit range, because the moment a
 developer actually reviews agent output is the one where the agent has stopped
@@ -28,6 +31,15 @@ import click
 
 from lemoncrow.gateway.cli.commands._shared import _emit
 from lemoncrow.gateway.cli.commands.review_record_cli import ReviewCommand
+from lemoncrow.pro.capabilities.review.local_cli.ai import (
+    AGENT_CLIS,
+    DEFAULT_LOCAL_FAIL_ON,
+    _check_ai_review_flags,
+    _LocalUsageError,
+    _review_local_with_ai,
+    _review_pull_request_with_ai,
+    use_agent_cli,
+)
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
     from collections.abc import Callable, Mapping, Sequence
@@ -190,7 +202,129 @@ class _ReviewCliProgress:
     is_flag=True,
     help="With --pr, post your comments and verdict to the pull request as one GitHub review via your `gh` login.",
 )
-@click.option("--dry-run", "dry_run", is_flag=True, help="With --publish, show what would be posted and post nothing.")
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help=(
+        "With --pr, show what would be posted (the summary comment and each inline comment, with its file and lines) "
+        "and post nothing. --pr N --ai already works this way, so there --dry-run only says it out loud; it also "
+        "applies to --publish-bot and --publish."
+    ),
+)
+@click.option(
+    "--ai",
+    "ai_review",
+    is_flag=True,
+    help=(
+        "Run the AI review headlessly on your own model route (no browser, no server) and print the findings: of "
+        "the pull request --pr names, or, with no --pr, of the working tree, --staged, REV or --base/--head, posting "
+        "nothing. With --pr it prints what the bot would post (the summary and each inline comment with its place) and "
+        "writes nothing to GitHub, so it also reviews a closed or merged pull request. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local "
+        "review exits 0 when clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, "
+        "3 on a usage error."
+    ),
+)
+@click.option(
+    "--publish-bot",
+    "publish_bot",
+    is_flag=True,
+    help=(
+        "With --pr, post the AI findings to the pull request as a bot: one summary comment and inline comments, "
+        "event COMMENT only. The only flag that writes to GitHub, and only in GitHub Actions, with the workflow's "
+        "GITHUB_TOKEN; to see the same comments from a terminal use --pr N --ai (or add --dry-run). Implies --ai."
+    ),
+)
+@click.option(
+    "--agent",
+    type=click.Choice(AGENT_CLIS),
+    default=None,
+    help="With --ai, review with a local agent CLI you are signed in to instead of an API key (uses that tool's plan).",
+)
+@click.option(
+    "--remember",
+    is_flag=True,
+    help="With --ai --agent NAME: save that agent as the default for when no API key is set.",
+)
+@click.option(
+    "--depth",
+    type=click.Choice(["auto", "thorough", "deep"]),
+    default="auto",
+    show_default=True,
+    help=(
+        "Depth of the --ai review. auto follows review.effort in .lemoncrow/review.yaml; the others go deeper. "
+        "The hard model-call cap applies at every depth."
+    ),
+)
+@click.option(
+    "--fail-on",
+    type=click.Choice(["none", "p0", "p1"]),
+    default=None,
+    help=(
+        "Which open findings fail the review (none, p0 or p1). p1 fails on a P0 or a P1, p0 on a P0 only, none never. "
+        "With --publish-bot, the LemonCrow Review commit status goes to failure and the command exits 1 while one is "
+        "open, and also when the review could not run (default none). With a local --ai review, exit 1 while one is "
+        "open (default p0)."
+    ),
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    help=(
+        "With a local --ai review, exit 2 when the review is incomplete (no model route, the kill switch, a spent "
+        "budget, risk signals left unexamined) instead of failing open with exit 0."
+    ),
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="With a local --ai review, ignore the result carried from the last review of this scope and review it all again.",
+)
+@click.option(
+    "--max-usd-per-pr",
+    "max_usd_per_pr",
+    type=click.FloatRange(min=0, min_open=True),
+    default=None,
+    metavar="USD",
+    help=(
+        "With --publish-bot, stop reviewing a pull request once its reviews have cost this much in total, read from "
+        "the usage the summary comment carries (for a local --ai review, the usage carried for this working tree or "
+        "range). Needs a known cost (the provider's, or a model in the local price "
+        "table); a cancelled run's spend is not counted. Default: no limit."
+    ),
+)
+@click.option(
+    "--max-runs-per-pr",
+    "max_runs_per_pr",
+    type=click.IntRange(min=1),
+    default=None,
+    metavar="N",
+    help=(
+        "With --publish-bot, stop reviewing a pull request after this many reviews of it (for a local --ai review, "
+        "of this working tree or range). Default: no limit."
+    ),
+)
+@click.option(
+    "--review-drafts/--skip-drafts",
+    default=False,
+    help="With --ai, review draft pull requests too (default: skip them).",
+)
+@click.option(
+    "--on-push/--no-on-push",
+    default=True,
+    help="With --ai, review pushes to an open pull request, not only when it opens (default: on).",
+)
+@click.option(
+    "--diagram",
+    type=click.Choice(["auto", "off"]),
+    default="auto",
+    show_default=True,
+    help=(
+        "With --publish-bot, the open Diagram section of the summary comment: auto draws the relationships the "
+        "pull request added, removed or changed (from the Snapshot's architecture delta, no model call) when there is "
+        "one worth drawing; off never builds it."
+    ),
+)
 @click.option(
     "--title",
     "snapshot_title",
@@ -482,6 +616,19 @@ def review_cmd(
     pr_spec: str | None,
     publish_pr: bool,
     dry_run: bool,
+    ai_review: bool,
+    publish_bot: bool,
+    agent: str | None,
+    remember: bool,
+    depth: str,
+    fail_on: str | None,
+    strict: bool,
+    fresh: bool,
+    max_usd_per_pr: float | None,
+    max_runs_per_pr: int | None,
+    review_drafts: bool,
+    on_push: bool,
+    diagram: str,
     snapshot_title: str | None,
     intent_specs: tuple[str, ...],
     description_file: Path | None,
@@ -553,6 +700,22 @@ def review_cmd(
     feedback, rerun after fixes, and return to the same URL to review only what
     changed. ``--current`` reports that same Review/agent binding in the terminal;
     ``--resume-author`` continues its exact author session without copying IDs.
+
+    With --ai (and no --pr) your own model reviews the change instead: nothing is opened or posted, and the
+    exit code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
+    --strict, 3 on a usage error. `lc review hook install` runs it before a push; `lc review init-action` writes
+    the GitHub Action workflow.
+
+    \b
+    A pull request, on your own model (needs the `gh` CLI):
+      --pr N --ai            review it and print what the bot would post:
+                             the summary and each inline comment with its
+                             place. Nothing is written to GitHub, so a
+                             closed or merged pull request works too.
+      --pr N --ai --dry-run  the same; --dry-run just says so.
+      --pr N --publish-bot   post those comments as a bot. Only in GitHub
+                             Actions; from a terminal add --dry-run (or use
+                             --ai) to see them instead.
     """
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root, resolve_rev_range
@@ -578,6 +741,38 @@ def review_cmd(
         raise click.ClickException("--fix and --apply-fix are mutually exclusive")
     if with_conflict_markers and not apply_fix_snapshot:
         raise click.ClickException("--with-conflict-markers requires --apply-fix")
+    if (agent or remember) and not (ai_review or publish_bot):
+        raise click.ClickException("--agent applies to an --ai review")
+    if ai_review or publish_bot:
+        use_agent_cli(agent, remember=remember, store_root=store_root)
+        _check_ai_review_flags(
+            pr_spec=pr_spec,
+            publish_pr=publish_pr,
+            publish_bot=publish_bot,
+            others=[
+                flag
+                for flag, used in (
+                    ("--current/--resume-author/--list-reviews/--show-review/--open-review", bool(management_actions)),
+                    ("--fix/--apply-fix", bool(fix_actions)),
+                    ("--setup/--write-review-config", setup_mode or write_review_config),
+                    ("--check", check_name is not None or check_command is not None),
+                    ("--reproduce", reproduce_target is not None),
+                    ("--html", html_path is not None),
+                    ("--units/--marks/--comments", show_units or show_marks or show_comments),
+                    ("--mark", bool(mark_targets)),
+                    ("--comment", comment_body is not None),
+                    ("--since-my-review", since_my_review),
+                    ("--feedback", send_feedback),
+                    ("--finish/--reopen-review/--discard-review", finish_review or reopen_review or discard_review),
+                    ("--new/--continue", new_review or bool(continue_review)),
+                    (
+                        "--title/--intent/--description-file",
+                        snapshot_title is not None or bool(intent_specs) or description_file is not None,
+                    ),
+                )
+                if used
+            ],
+        )
     if snapshot_title is not None and (
         management_actions or fix_actions or setup_mode or write_review_config or publish_pr
     ):
@@ -764,8 +959,18 @@ def review_cmd(
         )
     if publish_pr and pr_spec is None:
         raise click.ClickException("--publish needs --pr NUMBER|URL")
-    if dry_run and not publish_pr:
-        raise click.ClickException("--dry-run only applies to --publish")
+    local_ai = ai_review and not publish_bot and pr_spec is None
+    if dry_run and not (publish_pr or (pr_spec is not None and (ai_review or publish_bot))):
+        raise (_LocalUsageError if local_ai else click.ClickException)(
+            "--dry-run previews what a pull request review would post: "
+            + (
+                "a local --ai review already posts nothing; add --pr NUMBER|URL to preview a pull request"
+                if local_ai
+                else "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"
+            )
+        )
+    if (strict or fresh) and not local_ai:
+        raise click.ClickException("--strict and --fresh apply to a local --ai review (no --pr)")
     if pr_spec is not None and (rev or base_rev or head_rev or staged or working_tree):
         raise click.ClickException("--pr picks the range itself; drop REV, --base, --head, --staged and --working-tree")
     if pr_spec is not None and (new_review or continue_review):
@@ -775,6 +980,47 @@ def review_cmd(
     if publish_pr:
         assert pr_spec is not None
         _publish_pull_request(client_config, detect_repo_root(repo_root), pr_spec, dry_run=dry_run, as_json=as_json)
+        return
+    if local_ai:
+        _review_local_with_ai(
+            ctx,
+            repo_root,
+            store_root=store_root,
+            rev=rev,
+            base_rev=base_rev,
+            head_rev=head_rev,
+            staged=staged,
+            working_tree=working_tree,
+            depth=depth,
+            fail_on=fail_on or DEFAULT_LOCAL_FAIL_ON,
+            strict=strict,
+            fresh=fresh,
+            max_usd=max_usd_per_pr,
+            max_runs=max_runs_per_pr,
+            with_impact=not no_impact,
+            as_json=as_json,
+            no_color=no_color,
+            show_all=show_all,
+        )
+        return
+    if ai_review or publish_bot:
+        assert pr_spec is not None
+        _review_pull_request_with_ai(
+            ctx,
+            repo_root,
+            pr_spec,
+            depth=depth,
+            fail_on=fail_on or "none",
+            max_usd_per_pr=max_usd_per_pr,
+            max_runs_per_pr=max_runs_per_pr,
+            review_drafts=review_drafts,
+            on_push=on_push,
+            diagram=diagram,
+            publish=publish_bot,
+            dry_run=dry_run,
+            with_impact=not no_impact,
+            as_json=as_json,
+        )
         return
     try:
         resolved_root = detect_repo_root(repo_root)

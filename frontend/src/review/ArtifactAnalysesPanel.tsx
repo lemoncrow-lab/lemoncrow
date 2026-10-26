@@ -16,25 +16,25 @@ import {
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "text-emerald-300",
-  FAIL: "text-rose-300",
+  FAIL: "text-red-300",
   UNKNOWN: "text-amber-300",
   NOT_RUN: "text-amber-300",
 };
 
 const VERDICT_LABEL: Record<string, string> = { PASS: "Passed", FAIL: "Failed", UNKNOWN: "Unknown", NOT_RUN: "Not run" };
 
-const SEVERITY_TONE: Record<string, string> = { high: "text-rose-300", medium: "text-amber-300", low: "text-muted-foreground" };
+const SEVERITY_TONE: Record<string, string> = { high: "text-red-300", medium: "text-amber-300", low: "text-muted-foreground" };
 
 const PAIRING_TONE: Record<string, string> = {
   compatible: "text-emerald-300",
-  incompatible: "text-rose-300",
+  incompatible: "text-red-300",
   unknown: "text-amber-300",
   not_available: "text-amber-300",
   limited_by_budget: "text-amber-300",
 };
 
 const FLAG_TONE: Record<string, string> = {
-  regressed: "text-rose-300",
+  regressed: "text-red-300",
   changed: "text-amber-300",
   limited_by_budget: "text-amber-300",
   not_run: "text-amber-300",
@@ -56,7 +56,7 @@ function SummaryDetails({ summary }: { summary: Record<string, unknown> }) {
     <div className="mt-1 space-y-0.5">
       {compat.pairings.map((row) => (
         <div key={row.pairing} className="flex items-baseline gap-2 text-micro" data-testid="analysis-pairing" title={row.reason}>
-          <span className="min-w-0 flex-1 truncate text-neutral-300">{row.label}</span>
+          <span className="min-w-0 flex-1 truncate text-subtle">{row.label}</span>
           <span className={PAIRING_TONE[row.state] ?? "text-muted-foreground"}>{stateLabel(row.state)}</span>
         </div>
       ))}
@@ -67,7 +67,7 @@ function SummaryDetails({ summary }: { summary: Record<string, unknown> }) {
       ))}
       {flags?.rows.slice(0, MAX_MATRIX_ROWS).map((row) => (
         <div key={row.state} className="flex items-baseline gap-2 text-micro" data-testid="analysis-flag-state" title={row.reason || undefined}>
-          <span className="min-w-0 flex-1 truncate font-mono text-neutral-300">
+          <span className="min-w-0 flex-1 truncate font-mono text-subtle">
             {row.flag} {row.value}
           </span>
           {(row.tests_changed ?? 0) > 0 && <span className="text-muted-foreground">{row.tests_changed} test(s) changed</span>}
@@ -118,7 +118,7 @@ function ResultCard({
   return (
     <div className="border-t border-border/60 py-2 first:border-t-0" data-testid={`analysis-result-${result.entry_id}-${result.spec.id}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-neutral-200" title={`${result.entry_title} · ${result.spec.root}`}>
+        <span className="min-w-0 flex-1 truncate text-label text-foreground" title={`${result.entry_title} · ${result.spec.root}`}>
           {title}
         </span>
         <span className={`text-caption ${VERDICT_TONE[result.status] ?? "text-muted-foreground"}`}>{VERDICT_LABEL[result.status] ?? result.status}</span>
@@ -145,7 +145,7 @@ function ResultCard({
           {result.findings.slice(0, 12).map((finding) => (
             <div key={finding.subject} className="flex items-baseline gap-2 text-micro" data-testid="analysis-finding">
               <span className={`shrink-0 ${SEVERITY_TONE[finding.severity] ?? "text-muted-foreground"}`}>{finding.critical ? "critical" : finding.severity}</span>
-              <span className="min-w-0 flex-1 truncate text-neutral-300" title={finding.summary}>
+              <span className="min-w-0 flex-1 truncate text-subtle" title={finding.summary}>
                 {finding.title}
               </span>
             </div>
@@ -165,13 +165,13 @@ function ResultCard({
       {opened && opened.key.startsWith(`${result.evidence_id}:`) && (
         <div className="mt-1" data-testid="analysis-artifact">
           {opened.error ? (
-            <div className="text-micro text-rose-300/80">{opened.error}</div>
+            <div className="text-micro text-red-300/80">{opened.error}</div>
           ) : !opened.view ? (
             <div className="text-micro text-muted-foreground">Loading…</div>
           ) : opened.view.expired ? (
             <div className="text-micro text-muted-foreground">This raw artifact expired; re-run the analysis to regenerate it.</div>
           ) : (
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-muted/20 p-2 font-mono text-micro leading-4 text-neutral-300">
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border border-border bg-muted/20 p-2 font-mono text-micro leading-4 text-subtle">
               {opened.view.text}
               {opened.view.truncated ? "\n…" : ""}
             </pre>
@@ -269,7 +269,7 @@ export default function ArtifactAnalysesPanel({
           {snapshot.entries.map((entry) => (
             <div key={entry.id} className="py-0.5 text-micro" data-testid={`analysis-entry-${entry.id}`}>
               <div className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate text-neutral-300" title={entry.reason || entry.id}>
+                <span className="min-w-0 flex-1 truncate text-subtle" title={entry.reason || entry.id}>
                   {entry.title}
                 </span>
                 <span className="text-muted-foreground">{entry.specs.map((spec) => spec.id).join(", ")}</span>
@@ -283,7 +283,7 @@ export default function ArtifactAnalysesPanel({
           ))}
         </div>
         {snapshot.errors.map((row) => (
-          <div key={row} className="text-micro text-rose-300/80">
+          <div key={row} className="text-micro text-red-300/80">
             {row}
           </div>
         ))}
@@ -291,7 +291,7 @@ export default function ArtifactAnalysesPanel({
           <ResultCard key={`${result.entry_id}:${result.spec.id}`} result={result} onOpen={open} opened={opened} />
         ))}
         {message && (
-          <div className="text-micro text-neutral-300" role="status">
+          <div className="text-micro text-subtle" role="status">
             {message}
           </div>
         )}

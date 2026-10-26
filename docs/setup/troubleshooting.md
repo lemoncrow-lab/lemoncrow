@@ -68,16 +68,32 @@ If `lc code` reports `This OSS Runtime client does not contain the Hosted owned-
 
 ## A command says it is not part of this client
 
-The installed `lc` client carries Review capture, Runtime Lite and product management. Some documented commands belong to the full LemonCrow CLI, which a source checkout runs as `uv run lc ...` (see [CLI reference](../reference/cli.md)). The installed client says so instead of running them:
+The installed `lc` client carries Review capture, the AI review in the terminal (`lc review --ai`, `hook`, `init-action`, `config`), Runtime Lite and product management. Some documented commands belong to the full LemonCrow CLI, which a source checkout runs as `uv run lc ...` (see [CLI reference](../reference/cli.md)). The installed client says so instead of running them:
 
 | You ran | What it means |
 | --- | --- |
 | `unknown command: host` | Use `lc rt host`. Other Runtime verbs also live under `lc rt` |
-| `unknown command: usage`, `doctor`, `settings` | Full CLI only. Check this install with `lc status` and `lc rt status` |
+| `unknown command: usage`, `doctor` | Full CLI only. Check this install with `lc status` and `lc rt status` |
 | `lc session ... is not part of serverless Runtime Lite` (also `run`, `context`, `rt model`, `rt savings`, `rt work`, `rt map`, `rt dashboard`) | Full CLI only |
 | `lc rt telemetry ...` | The installed client sends no product telemetry (`lc audit` shows `"product_telemetry": false`), so there is nothing to turn off |
-| `unknown review option: --since-my-review` (also `--mark`, `--comment`, `--feedback`, `--pr`, ...) | Full Review CLI only. Use the Review Reader (`lc review --open`) to mark, comment, see changes since your review and copy feedback |
+| `unknown review option: --since-my-review` (also `--mark`, `--comment`, `--feedback`, ...) | Full Review CLI only. Use the Review Reader (`lc review --open`) to mark, comment, see changes since your review and copy feedback |
+| `unknown review option: --agent` (also `--pr`, `--fail-on`, `--strict`) without `--ai` | These belong to the AI review: add `--ai`, for example `lc review --pr 123 --ai`. Nothing calls a model until `--ai` is on the command line |
+| `lc review --ai needs the local Review engine` | This install has no local engine (a Hosted install does not). Run the installer again: `curl -fsSL https://lemoncrow.com/install.sh \| bash` |
 | `LemonCode host lifecycle requires the managed/full CLI` | Full CLI only. Pi works in the installed client: `lc rt host install --engine pi` |
+
+## `lc review --ai` does not review
+
+| It says | Do this |
+| --- | --- |
+| `No AI model is set up. Set a key: export ANTHROPIC_API_KEY=...` | `export ANTHROPIC_API_KEY=sk-ant-...` (or `OPENAI_API_KEY`) and run it again, or `lc review --ai --agent claude` (also `codex`, `opencode`) to use an agent you are signed in to; add `--remember` once to make it the default. [Your first AI review](./ai-review.md) |
+| `Anthropic rejected the API key (HTTP 401): check ANTHROPIC_API_KEY.` | The key is wrong or revoked. Nothing was reviewed and nothing is billed |
+| `Anthropic says your account has no credit left (HTTP 400): add credit at ...` | Add credit at the billing page it names, then run it again |
+| `Anthropic rate limit reached (HTTP 429): wait a minute and run it again.` | Wait; an unchanged tree makes no new model call |
+| `could not reach Anthropic` | A network or proxy problem; `ANTHROPIC_BASE_URL` points a gateway or a local server |
+| `AI review is turned off` | The intelligence policy's kill switch is off: `lc settings set intelligence.enabled true` |
+| `lc settings set` says nothing about where the key went | It says `Stored as plain text in .../plugin_settings.json, readable only by you (mode 600)`; there is no system keychain |
+
+When the review could not run, `lc review --ai` exits `3` (`2` with `--strict`) so a script can tell it did not happen; a git hook exits `0` instead. A pre-push hook never stops a push because LemonCrow broke: it stops only for an open finding at or above `--fail-on`, or, with `--strict`, an incomplete review.
 
 ## Runtime Lite index problems
 

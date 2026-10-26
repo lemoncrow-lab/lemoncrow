@@ -767,7 +767,7 @@ export default function CodeGraph({
   if (renderingUnavailable) {
     return (
       <div className="h-full min-h-[420px] overflow-y-auto bg-surface-sunken p-4">
-        <div className="rounded-lg border border-neutral-800/70 border-l-2 border-l-amber-600/50 bg-neutral-950/60 p-4 text-sm text-neutral-300">
+        <div className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 text-heading text-subtle">
           WebGL is unavailable, so the graph is shown as a navigable list capped
           at 500 items.
         </div>
@@ -778,9 +778,9 @@ export default function CodeGraph({
               type="button"
               onClick={() => onSelect(node.id)}
               onDoubleClick={() => onExpand(node.id)}
-              className="rounded-md border border-neutral-800/70 bg-neutral-950/60 p-3 text-left transition-colors hover:border-neutral-600"
+              className="rounded-md border border-border/70 bg-background/60 p-3 text-left transition-colors hover:border-input"
             >
-              <span className="block truncate text-sm text-neutral-100">
+              <span className="block truncate text-heading text-foreground">
                 {node.label}
               </span>
               <span className="mt-1 block truncate text-caption text-muted-foreground">
@@ -802,12 +802,12 @@ export default function CodeGraph({
         aria-label={`Interactive universe showing ${nodes.length} nodes and ${edges.length} relationships. Drag to pan, scroll to zoom, click a node to inspect, double-click to focus its callers and callees.`}
       />
       {computing && (
-        <div className="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2.5 py-1.5 text-caption text-muted-foreground shadow-sm backdrop-blur">
-          <Loader2 className="animate-spin" size={12} />
+        <div className="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2.5 py-1.5 text-caption text-muted-foreground backdrop-blur">
+          <Loader2 className="animate-spin" size={14} />
           Settling layout…
         </div>
       )}
-      <div className="absolute bottom-4 left-4 z-10 flex overflow-hidden rounded-lg border border-border bg-background/90 p-0.5 shadow-lg backdrop-blur-md">
+      <div className="absolute bottom-4 left-4 z-10 flex overflow-hidden rounded-lg border border-border bg-background/90 p-0.5 shadow-float backdrop-blur-md">
         <UiButton
           type="button"
           size="icon"
@@ -815,7 +815,7 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedZoom({ duration: 180 })}
           aria-label="Zoom in"
         >
-          <Plus size={15} />
+          <Plus size={16} />
         </UiButton>
         <UiButton
           type="button"
@@ -824,7 +824,7 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedUnzoom({ duration: 180 })}
           aria-label="Zoom out"
         >
-          <Minus size={15} />
+          <Minus size={16} />
         </UiButton>
         <UiButton
           type="button"
@@ -833,10 +833,10 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedReset({ duration: 220 })}
           aria-label="Fit graph"
         >
-          <Focus size={15} />
+          <Focus size={16} />
         </UiButton>
       </div>
-      <div className="pointer-events-none absolute bottom-4 right-4 rounded-lg border border-border bg-background/85 px-2.5 py-1.5 text-micro font-medium text-muted-foreground shadow-lg backdrop-blur-md">
+      <div className="pointer-events-none absolute bottom-4 right-4 rounded-lg border border-border bg-background/85 px-2.5 py-1.5 text-micro font-medium text-muted-foreground shadow-float backdrop-blur-md">
         {nodes.length.toLocaleString()} nodes <span className="mx-1 text-muted-foreground/50">·</span> {edges.length.toLocaleString()} relationships
       </div>
     </div>

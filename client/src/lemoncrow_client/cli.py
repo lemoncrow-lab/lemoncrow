@@ -41,20 +41,25 @@ __all__ = ["main", "review_entrypoint"]
 _USAGE: Final[str] = f"""{CLIENT_NAME} {CLIENT_VERSION}
 
 usage:
-  {CLIENT_NAME} review [OPTIONS]    freeze exact Git sides and open a local or hosted Review
-  {CLIENT_NAME} code ...            use LemonCrow's Hosted coding agent
-  {CLIENT_NAME} with HOST [...]     use Runtime Lite with claude, codex, opencode, or pi
-  {CLIENT_NAME} runtime COMMAND     manage Runtime integration and transports
-  {CLIENT_NAME} rt COMMAND          shorthand for runtime (rt host manages LemonCode/Pi host binaries)
-  {CLIENT_NAME} run ...             managed/full Runtime only; not part of Runtime Lite
-  {CLIENT_NAME} session ...         managed/full Runtime only; not part of Runtime Lite
-  {CLIENT_NAME} context ...         managed/full Runtime only; not part of Runtime Lite
-  {CLIENT_NAME} status              show installed products and next actions
-  {CLIENT_NAME} update [--dry-run]  re-run the release installer for installed products
-  {CLIENT_NAME} uninstall PRODUCT   remove review, runtime, or all
-  {CLIENT_NAME} auth [COMMAND]      sign in to Hosted Runtime/Review
-  {CLIENT_NAME} target [URL]        show or set a Hosted Runtime/Review endpoint
-  {CLIENT_NAME} audit               print what this client does and does not do
+  lc review [OPTIONS]     capture your change and open it in the Reader (no AI, no model call)
+  lc review --ai          AI review of your change, printed here (needs a key or --agent claude)
+  lc review hook install  git hook: AI review before each push; stops only on a real finding
+  lc review init-action   write the GitHub Action workflow that reviews pull requests
+  lc review config        show the review rules this repository sets
+  lc settings             save an API key, remember an agent (lc settings set llm.anthropic_api_key)
+  lc code ...             use LemonCrow's Hosted coding agent
+  lc with HOST [...]      use Runtime Lite with claude, codex, opencode, or pi
+  lc runtime COMMAND      manage Runtime integration and transports
+  lc rt COMMAND           shorthand for runtime (rt host manages LemonCode/Pi host binaries)
+  lc run ...              managed/full Runtime only; not part of Runtime Lite
+  lc session ...          managed/full Runtime only; not part of Runtime Lite
+  lc context ...          managed/full Runtime only; not part of Runtime Lite
+  lc status               show installed products and next actions
+  lc update [--dry-run]   re-run the release installer for installed products
+  lc uninstall PRODUCT    list, then remove review, runtime, or all (--dry-run to only list)
+  lc auth [COMMAND]       sign in to Hosted Runtime/Review
+  lc target [URL]         show or set a Hosted Runtime/Review endpoint
+  lc audit                print what this client does and does not do
 
 runtime commands:
   code [OPTIONS]                 LemonCrow Hosted coding agent
@@ -96,7 +101,7 @@ _RUNTIME_VERB_HINTS: Final[dict[str, str]] = {
     "install": "lc rt enable",
     "telemetry": "lc rt telemetry",
 }
-_FULL_ENGINE_VERBS: Final[frozenset[str]] = frozenset({"usage", "doctor", "settings", "completions"})
+_FULL_ENGINE_VERBS: Final[frozenset[str]] = frozenset({"usage", "doctor", "completions"})
 _REMOTE_MCP_COMMANDS: Final[frozenset[str]] = frozenset({"serve", "client", "service", "gateway"})
 
 
@@ -499,6 +504,13 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
                 return 2
             return _delegate_review_after_install(rest, sink)
         return review_main(rest, sink=sink)
+    if verb == "settings":
+        try:
+            from .review_engine import run_settings
+        except ModuleNotFoundError:  # a Runtime-only install has no Review engine to run it
+            sink.write("lc settings is part of LemonCrow Review. Add it: " + _install_hint("review") + "\n")
+            return 2
+        return run_settings(rest, sink)
     if verb == "target":
         return _target(rest, sink)
     if verb == "audit":
@@ -543,7 +555,7 @@ Review never enables or modifies coding-agent hosts.
 """
 
 
-_UNINSTALL_USAGE: Final[str] = "usage: lc uninstall review|runtime|all [--dry-run]\n"
+_UNINSTALL_USAGE: Final[str] = "usage: lc uninstall review|runtime|all [--dry-run] [--yes] [--purge]\n"
 
 
 def _uninstall(rest: Sequence[str], sink: TextIO) -> int:
@@ -562,6 +574,14 @@ def _uninstall(rest: Sequence[str], sink: TextIO) -> int:
     if not product:
         sink.write(_UNINSTALL_USAGE)
         return 2
+
+    if product in {"review", "all"}:
+        try:
+            from .uninstall import main as uninstall_main
+        except ModuleNotFoundError:  # a Runtime-only client has no Review half to list: its script does it all
+            pass
+        else:
+            return uninstall_main([product, *arguments], sink)
 
     state_home = os.environ.get("LEMONCROW_HOME", "").strip()
     state_dir = (

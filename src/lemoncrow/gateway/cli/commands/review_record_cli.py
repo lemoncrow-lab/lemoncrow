@@ -22,6 +22,9 @@ from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
 from lemoncrow.gateway.cli.commands.review_observation_cli import observation_worker_group
+from lemoncrow.pro.capabilities.review.local_cli.config import config_cmd
+from lemoncrow.pro.capabilities.review.local_cli.hook import hook_group
+from lemoncrow.pro.capabilities.review.local_cli.init_action import init_action_cmd
 
 _MAX_KEYS_BYTES = 1024 * 1024
 _MAX_RECORD_BYTES = 64 * 1024 * 1024
@@ -200,17 +203,26 @@ REVIEW_SUBCOMMANDS: dict[str, click.Command] = {
     "verify-record": verify_record_cmd,
     "record-key": record_key_group,
     "data-flow": data_flow_cmd,
+    "config": config_cmd,
+    "hook": hook_group,
+    "init-action": init_action_cmd,
     "hosted": hosted_group,
     "diagnostics": diagnostics_cmd,
     "observation-worker": observation_worker_group,
 }
 
 
+class _LocalReviewUsageError(click.UsageError):
+    """A command line a local `--ai` review cannot use: exit 3 (a hook reads 1 as a finding and 2 as incomplete)."""
+
+    exit_code = 3
+
+
 class ReviewCommand(click.Command):
     """``lc review`` with a few named subcommands ahead of its optional REV argument.
 
     A first argument naming a subcommand (``verify-record``, ``record-key``,
-    ``data-flow``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
+    ``data-flow``, ``config``, ``hook``, ``init-action``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
     to it; anything else is parsed exactly as before.
     """
 
@@ -218,7 +230,15 @@ class ReviewCommand(click.Command):
         if args and args[0] in REVIEW_SUBCOMMANDS:
             ctx.meta["lemoncrow.review_subcommand"] = (args[0], list(args[1:]))
             return []
-        return super().parse_args(ctx, args)
+        given = list(args)  # click consumes `args` as it parses
+        try:
+            return super().parse_args(ctx, args)
+        except click.UsageError as exc:
+            # A local `--ai` review is run by hooks, which read the exit code: 1 means a finding is open and 2 an
+            # incomplete review, so a command line click cannot parse is 3, the usage-error code of that command.
+            if "--ai" in given and not any(arg == "--pr" or arg.startswith("--pr=") for arg in given):
+                raise _LocalReviewUsageError(exc.message, ctx=exc.ctx) from exc
+            raise
 
     def invoke(self, ctx: click.Context) -> Any:
         routed = ctx.meta.pop("lemoncrow.review_subcommand", None)
@@ -237,6 +257,23 @@ class ReviewCommand(click.Command):
                     ("verify-record FILE", "Verify a signed review record offline (exit 0/1/2/3)."),
                     ("record-key init|public", "Opt in to signing local review records with a personal key."),
                     ("data-flow [--base REF] [--json]", "Show where source, code and evidence may travel."),
+                    (
+                        "config --effective [--dry-run --pr N] [--base REF]",
+                        "Show the merged review rules (review.yaml, import.rules_files, AGENTS.md) and what applies.",
+                    ),
+                    (
+                        "config import PATH [--dry-run] [--force]",
+                        "Bring another review tool's config over: map its settings, write .lemoncrow/review.yaml, "
+                        "print what was carried and dropped.",
+                    ),
+                    (
+                        "hook install|run [--pre-push|--pre-commit]",
+                        "Install a git hook that runs `lc review --ai` on what is pushed or committed (--print shows it).",
+                    ),
+                    (
+                        "init-action [--provider P] [--fail-on F] [--chat]",
+                        "Write .github/workflows/lemoncrow-review.yml from the setup guide's sample workflow.",
+                    ),
                     (
                         "hosted attach|status|queue|sync|resolve|detach",
                         "Attach a local Review to a hosted one; queue offline actions and sync them.",

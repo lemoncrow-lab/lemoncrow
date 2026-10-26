@@ -1,0 +1,381 @@
+# Real-PR benchmark corpus (G3): public pull requests whose bug a later commit fixed.
+#
+# Nothing in this file was run against a model. It is the input to
+#   uv run lemoncrow dev eval review benchmark --corpus evals/review/real_prs.yaml --depth quick,auto,deep --max-usd 20
+# See docs/reference/review-benchmark.md.
+#
+# Where the labels come from. Each label is one bug and one fix commit. Its `summary` is that fix commit's subject,
+# copied. Its `regions` are the source lines the fix edited, taken at the fix's parent and mapped back to the reviewed
+# head (`lc dev eval review derive-label` does exactly this from git, and these entries were made with it). `attribution`
+# says why the reviewed change is the one that introduced the bug: `fix_message` (the fix's message names it) or `blame`
+# (git blame attributes the lines the fix removed to it). `symbols` are identifiers on the lines the fix edited,
+# trimmed by hand to the distinctive ones; they let a finding that sits outside the changed lines still catch the label.
+# No label here is anyone's opinion of what a good review would say.
+#
+# What a pull request here is. `base_sha`..`head_sha` is the range a reviewer would have been shown: a squash or
+# ordinary commit and its parent, or for a merged branch the merge's second parent and the first parent it forked from.
+# `pushes` simulates a follow-up push by applying the fix commit's source edits (`apply_paths`, not its tests or
+# changelog) on top of `head_sha`; a push that does not apply is reported and skipped.
+#
+# How to add a case: find a fix commit whose message names a regression (`git log --grep 'regression'`), then
+#   lc dev eval review derive-label --repo <clone> --fix <fix sha> --introduced <introducing sha|merge sha> --id <id> \
+#       --repository OWNER/NAME --pull N --title '...' --license <SPDX from the repo's LICENSE> --symbols a,b
+# and paste the entry. A pull request you cannot label stays here with `labels: []` and `labelled: false`: it still
+# yields cost and finding counts, but no catch or noise rate. Never write a label from a diff you read yourself.
+#
+# Licences are those of each repository's LICENSE file at the reviewed commit. Only permissively licensed repositories
+# are allowed in a public corpus.
+#
+version: 1
+id: real-prs-public
+visibility: public
+description: Public pull requests (and commits) that shipped a bug a later commit fixed. Ground truth comes only
+  from those fix commits; see the header of this file.
+line_tolerance: 3
+match: either
+prs:
+- id: black-3564
+  repository: psf/black
+  pull: 3564
+  title: Enforce a blank line after a nested class in stubs
+  license: MIT
+  provenance:
+    source: public_repository
+    repository: https://github.com/psf/black
+    commit: d7a28dd78631fb962da95fb2d2de0e18ca6754a4
+    note: 'Enforce a blank line after a nested class in stubs; the bug is fixed by dba3c2695c (Fix bug introduced
+      in #3564. (#3615))'
+  base_sha: a3e8247a41089175827a69e5413278ffdc28aff2
+  head_sha: d7a28dd78631fb962da95fb2d2de0e18ca6754a4
+  labelled: true
+  labels:
+  - id: black-3564-bug
+    summary: 'Fix bug introduced in #3564. (#3615)'
+    symbols:
+    - previous_defs
+    regions:
+    - path: src/black/lines.py
+      lines:
+      - 601
+      - 601
+      role: fix_site
+    evidence:
+      fix_commit: dba3c2695c59fdb11825dbdf8f3b0ab6e0b368b2
+      introduced_by: d7a28dd78631fb962da95fb2d2de0e18ca6754a4
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: dba3c2695c59fdb11825dbdf8f3b0ab6e0b368b2
+    apply_paths:
+    - src/black/lines.py
+- id: click-2934
+  repository: pallets/click
+  pull: 2934
+  title: Raise an exception on end of input in CliRunner
+  license: BSD-3-Clause
+  provenance:
+    source: public_repository
+    repository: https://github.com/pallets/click
+    commit: 80efdf6c10c51884416d11b3b575f61157af77fa
+    note: 'Raise an exception on end of input in CliRunner; the bug is fixed by 2a0e3ba907 (testing/CliRunner: Fix
+      regression related to EOF introduced in 262bdf0 (#2940))'
+  base_sha: cfa6f4ad3e0078db43f866246b483544afa33ed3
+  head_sha: 80efdf6c10c51884416d11b3b575f61157af77fa
+  labelled: true
+  labels:
+  - id: click-2934-bug
+    summary: 'testing/CliRunner: Fix regression related to EOF introduced in 262bdf0 (#2940)'
+    symbols:
+    - __next__
+    - EOFError
+    regions:
+    - path: src/click/testing.py
+      lines:
+      - 119
+      - 125
+      role: fix_site
+    - path: src/click/testing.py
+      lines:
+      - 351
+      - 351
+      role: fix_site
+    - path: src/click/testing.py
+      lines:
+      - 360
+      - 360
+      role: fix_site
+    evidence:
+      fix_commit: 2a0e3ba907927ade6951d5732b775f11b54cb766
+      introduced_by: 262bdf02288daf9a37b9e815b44acafd62b5c6fe
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: 2a0e3ba907927ade6951d5732b775f11b54cb766
+    apply_paths:
+    - src/click/testing.py
+- id: attrs-1009
+  repository: python-attrs/attrs
+  pull: 1009
+  title: Change __getstate__ and __setstate__ to use a dict
+  license: MIT
+  provenance:
+    source: public_repository
+    repository: https://github.com/python-attrs/attrs
+    commit: 89a890a3262273514619d1881c6a8b0fe26c66ac
+    note: Change __getstate__ and __setstate__ to use a dict; the bug is fixed by c9150d278c (Fix backward compatibility
+      with pickles before v22.2.0 (#1085))
+  base_sha: 5ecc39749a98c7ec3fc63b8cbaa82de5eb17c173
+  head_sha: 89a890a3262273514619d1881c6a8b0fe26c66ac
+  labelled: true
+  labels:
+  - id: attrs-1009-bug
+    summary: Fix backward compatibility with pickles before v22.2.0 (#1085)
+    symbols:
+    - state_attr_names
+    regions:
+    - path: src/attr/_make.py
+      lines:
+      - 934
+      - 936
+      role: fix_site
+    evidence:
+      fix_commit: c9150d278ced32056d73c239ff64034e5056bcb6
+      introduced_by: 89a890a3262273514619d1881c6a8b0fe26c66ac
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: c9150d278ced32056d73c239ff64034e5056bcb6
+    apply_paths:
+    - src/attr/_make.py
+- id: black-4332
+  repository: psf/black
+  pull: 4332
+  title: Fix incorrect f-string tokenization
+  license: MIT
+  provenance:
+    source: public_repository
+    repository: https://github.com/psf/black
+    commit: e4aaa8a9947d951eb1e69979c3c58e197adbe40f
+    note: Fix incorrect f-string tokenization; the bug is fixed by 455de7703e (Fix another f-string regression (#4339))
+  base_sha: ba88fc372eaed34abb33ea02d6860b185388d928
+  head_sha: e4aaa8a9947d951eb1e69979c3c58e197adbe40f
+  labelled: true
+  labels:
+  - id: black-4332-bug
+    summary: Fix another f-string regression (#4339)
+    symbols:
+    - STATE_IN_BRACES
+    - fstring_state
+    regions:
+    - path: src/blib2to3/pgen2/tokenize.py
+      lines:
+      - 625
+      - 628
+      role: fix_site
+    evidence:
+      fix_commit: 455de7703ea2c4144f8c1bb2c352974ac9b2403f
+      introduced_by: e4aaa8a9947d951eb1e69979c3c58e197adbe40f
+      attribution: blame
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: 455de7703ea2c4144f8c1bb2c352974ac9b2403f
+    apply_paths:
+    - src/blib2to3/pgen2/tokenize.py
+- id: requests-2845
+  repository: psf/requests
+  pull: 2845
+  title: 'Fix issue #2844: bytes query parameters'
+  license: Apache-2.0
+  provenance:
+    source: public_repository
+    repository: https://github.com/psf/requests
+    commit: edc68a0ac899785cd89a726e3da258e880d641dd
+    note: 'Fix issue #2844: bytes query parameters; the bug is fixed by fc8fa1aa26 (Fix regression from #2844 regarding
+      binary bodies.)'
+  base_sha: 13ea7394ccad31ca2bfde77ff3efb1cad9657d98
+  head_sha: edc68a0ac899785cd89a726e3da258e880d641dd
+  labelled: true
+  labels:
+  - id: requests-2845-bug
+    summary: 'Fix regression from #2844 regarding binary bodies.'
+    symbols:
+    - to_native_string
+    - _encode_params
+    regions:
+    - path: requests/models.py
+      lines:
+      - 84
+      - 84
+      role: fix_site
+    - path: requests/models.py
+      lines:
+      - 387
+      - 387
+      role: fix_site
+    evidence:
+      fix_commit: fc8fa1aa265bb14d59c68eb68a179bce17953967
+      introduced_by: 1dff6c9153448213cd5ed957409de5c809447eba
+      attribution: blame
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: fc8fa1aa265bb14d59c68eb68a179bce17953967
+    apply_paths:
+    - requests/models.py
+- id: requests-no-proxy
+  repository: psf/requests
+  pull: 0
+  title: Allow use of 'no_proxy' in the proxies argument
+  license: Apache-2.0
+  provenance:
+    source: public_repository
+    repository: https://github.com/psf/requests
+    commit: 85400d8d6751071ef78f042d1efa72bdcf76cc0e
+    note: Allow use of 'no_proxy' in the proxies argument; the bug is fixed by a9470fe31f (Fix regression in API
+      caused by commit 85400d8d6751071ef78f042d1efa72bdcf76cc0e   - The added optional parameter changes API and
+      should default to None)
+  base_sha: ad65b0cb19124b5ae4dd01bf19d82c16ffb2485d
+  head_sha: 85400d8d6751071ef78f042d1efa72bdcf76cc0e
+  labelled: true
+  labels:
+  - id: requests-no-proxy-bug
+    summary: Fix regression in API caused by commit 85400d8d6751071ef78f042d1efa72bdcf76cc0e   - The added optional
+      parameter changes API and should default to None
+    symbols:
+    - get_environ_proxies
+    - no_proxy
+    regions:
+    - path: requests/utils.py
+      lines:
+      - 637
+      - 637
+      role: fix_site
+    evidence:
+      fix_commit: a9470fe31f0c9590dafeac4b53f91fbf11fd6677
+      introduced_by: 85400d8d6751071ef78f042d1efa72bdcf76cc0e
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: a9470fe31f0c9590dafeac4b53f91fbf11fd6677
+    apply_paths:
+    - requests/utils.py
+- id: httpx-408
+  repository: encode/httpx
+  pull: 408
+  title: Remove data, json and files parameters in delete() function
+  license: BSD-3-Clause
+  provenance:
+    source: public_repository
+    repository: https://github.com/encode/httpx
+    commit: 6752f7d6f6edfc244fb4718b3360b82f2d87fd76
+    note: 'Remove data, json and files parameters in delete() function; the bug is fixed by ea137a96d9 (Fix wrongly
+      deleted params introduced #408 (#410))'
+  base_sha: 640667d81d4bbf0d6f5e319d061353cad083f068
+  head_sha: 6752f7d6f6edfc244fb4718b3360b82f2d87fd76
+  labelled: true
+  labels:
+  - id: httpx-408-bug
+    summary: 'Fix wrongly deleted params introduced #408 (#410)'
+    symbols:
+    - params
+    - headers
+    regions:
+    - path: httpx/api.py
+      lines:
+      - 264
+      - 265
+      role: fix_site
+    evidence:
+      fix_commit: ea137a96d904bdf1ea5a9eff1342b4d3a9ac5b30
+      introduced_by: 6752f7d6f6edfc244fb4718b3360b82f2d87fd76
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: ea137a96d904bdf1ea5a9eff1342b4d3a9ac5b30
+    apply_paths:
+    - httpx/api.py
+- id: fastapi-12129
+  repository: fastapi/fastapi
+  pull: 12129
+  title: Add support for Pydantic models in Form parameters
+  license: MIT
+  provenance:
+    source: public_repository
+    repository: https://github.com/fastapi/fastapi
+    commit: 7bad7c09757f8a06cf62cc0838082a766065883e
+    note: Add support for Pydantic models in Form parameters; the bug is fixed by 88d4f2cb18 (🐛 Fix form field regression
+      (#12194))
+  base_sha: 965fc8301e8fa7a7228bee33873387f4852a30df
+  head_sha: 7bad7c09757f8a06cf62cc0838082a766065883e
+  labelled: true
+  labels:
+  - id: fastapi-12129-bug
+    summary: 🐛 Fix form field regression (#12194)
+    symbols:
+    - alias
+    regions:
+    - path: fastapi/dependencies/utils.py
+      lines:
+      - 791
+      - 791
+      role: fix_site
+    evidence:
+      fix_commit: 88d4f2cb1814392f54011b2bbd3fe55c5f2a3278
+      introduced_by: 7bad7c09757f8a06cf62cc0838082a766065883e
+      attribution: blame
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: 88d4f2cb1814392f54011b2bbd3fe55c5f2a3278
+    apply_paths:
+    - fastapi/dependencies/utils.py
+- id: jinja-scoping
+  repository: pallets/jinja
+  pull: 0
+  title: 'Generalize scoping (fixes #603)'
+  license: BSD-3-Clause
+  provenance:
+    source: public_repository
+    repository: https://github.com/pallets/jinja
+    commit: d67f0fd4cc2a4af08f51f4466150d49da7798729
+    note: 'Generalize scoping (fixes #603); the bug is fixed by 60a7e775d4 (Fix regression in 2.9 involving unsafe
+      Context.get_all() usage)'
+  base_sha: 147bd571ad914579b0f40bae53aac33d35ef972e
+  head_sha: d67f0fd4cc2a4af08f51f4466150d49da7798729
+  labelled: true
+  labels:
+  - id: jinja-scoping-bug
+    summary: Fix regression in 2.9 involving unsafe Context.get_all() usage
+    symbols:
+    - get_all
+    regions:
+    - path: jinja2/debug.py
+      lines:
+      - 201
+      - 201
+      role: fix_site
+    evidence:
+      fix_commit: 60a7e775d487c8de9f1b0f23c91ca9845c161fc2
+      introduced_by: d67f0fd4cc2a4af08f51f4466150d49da7798729
+      attribution: fix_message
+      derivation: lines the fix edited, taken at the fix's parent and mapped back to the reviewed head (git diff
+        head..parent); fix_site regions are where the fix edited
+  pushes:
+  - id: apply-fix
+    apply_commit: 60a7e775d487c8de9f1b0f23c91ca9845c161fc2
+    apply_paths:
+    - jinja2/debug.py

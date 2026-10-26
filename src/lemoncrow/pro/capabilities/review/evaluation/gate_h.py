@@ -77,6 +77,7 @@ from lemoncrow.pro.capabilities.review.evidence_qualification import (
     qualify,
     render_subject_wire,
 )
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 from lemoncrow.pro.capabilities.review.recipes import (
     REPORT_DIR,
     REPORT_ENV,
@@ -543,7 +544,7 @@ def _git(repo: Path, *args: str, stdin: bytes | None = None) -> str:
         input=stdin,
         capture_output=True,
         check=False,
-        env={**os.environ, **_GIT_ENV},
+        env=git_environment(_GIT_ENV),
     )
     if proc.returncode != 0:
         raise GateHHarnessError(f"git {' '.join(args[:3])} failed: {proc.stderr.decode(errors='replace')[:400]}")
@@ -560,7 +561,11 @@ class MaterializedRepository:
 
     def read(self, commit: str, path: str) -> str | None:
         proc = subprocess.run(
-            ["git", "show", f"{self.shas[commit]}:{path}"], cwd=self.root, capture_output=True, check=False
+            ["git", "show", f"{self.shas[commit]}:{path}"],
+            cwd=self.root,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
         )
         return proc.stdout.decode("utf-8", errors="replace") if proc.returncode == 0 else None
 
@@ -568,7 +573,13 @@ class MaterializedRepository:
         """The commit's tree as plain files under *target*."""
 
         target.mkdir(parents=True, exist_ok=True)
-        archive = subprocess.run(["git", "archive", self.shas[commit]], cwd=self.root, capture_output=True, check=False)
+        archive = subprocess.run(
+            ["git", "archive", self.shas[commit]],
+            cwd=self.root,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
+        )
         if archive.returncode != 0:
             raise GateHHarnessError(f"git archive {commit} failed")
         subprocess.run(["tar", "-x", "-C", str(target)], input=archive.stdout, check=True)
@@ -588,7 +599,11 @@ def materialize(repository: CorpusRepository, work: Path, *, source_root: Path) 
         for name, rev in repository.source_revs:
             full = _git(source, "rev-parse", "--verify", f"{rev}^{{commit}}")
             archive = subprocess.run(
-                ["git", "archive", full, "--", *repository.source_paths], cwd=source, capture_output=True, check=False
+                ["git", "archive", full, "--", *repository.source_paths],
+                cwd=source,
+                capture_output=True,
+                check=False,
+                env=git_environment(),
             )
             if archive.returncode != 0:
                 raise GateHHarnessError(f"{repository.id}: git archive of {full} failed: {archive.stderr[:300]!r}")

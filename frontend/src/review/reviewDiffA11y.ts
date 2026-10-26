@@ -38,7 +38,7 @@ const keyboardRoots = new WeakSet<Node>();
 export const DIFF_A11Y_CSS = `
   [data-line][tabindex]:focus-visible,
   [data-expand-button][tabindex]:focus-visible {
-    outline: 1px solid var(--diffs-modified-base, #69b1ff);
+    outline: 1px solid var(--diffs-modified-base, rgb(var(--ring)));
     outline-offset: 0px;
   }
   @media (forced-colors: active), (prefers-contrast: more) {
