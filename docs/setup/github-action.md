@@ -900,9 +900,10 @@ import:
 | A YAML or JSON file `{rules: [{id, rule, scope?, enabled?}]}` | Review rules scoped to the `scope` globs (no `scope`: every path), advisory in the same way |
 | `AGENTS.md`, `CLAUDE.md` | Project conventions: a token-budgeted excerpt in the investigator's prompt, never a rule, never content the access policy denies |
 | `.cursor/rules`, `.claude/rules`, `.cursorrules`, `.github/copilot-instructions.md`, `AGENTS.md` / `CLAUDE.md` in a subdirectory | Found by name and used as conventions in the same way; a file that belongs to a directory is shown only for code under it. `import.agent_docs: false` turns all of them off, `import.agent_docs_globs` adds more files |
+| A setting of another review tool's file in a rules file (a strictness, ignore patterns, comment types, instructions, a severity per rule) | Not applied from there: a warning names the LemonCrow setting it maps to. `lc review config import <folder>` carries them into `.lemoncrow/review.yaml` and prints what it carried, mapped and dropped |
 | Any other key in a rules file | Ignored, with a warning |
 
-`lc review config --effective` prints the merged rules with the file each came from, and `lc review config --dry-run --pr N` shows which would apply to a pull request's files. The formats, the budgets and the limits are in [Importing review rules](importing-review-rules.md).
+`lc review config --effective` prints the merged rules with the file each came from, and `lc review config --dry-run --pr N` shows which would apply to a pull request's files. Moving from another review tool: `lc review config import <folder>` maps its settings and rules and writes `.lemoncrow/review.yaml`. The formats, the budgets, the limits and that command are in [Importing review rules](importing-review-rules.md).
 
 ## Pull requests from forks
 

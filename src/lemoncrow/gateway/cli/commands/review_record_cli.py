@@ -262,6 +262,11 @@ class ReviewCommand(click.Command):
                         "Show the merged review rules (review.yaml, import.rules_files, AGENTS.md) and what applies.",
                     ),
                     (
+                        "config import PATH [--dry-run] [--force]",
+                        "Bring another review tool's config over: map its settings, write .lemoncrow/review.yaml, "
+                        "print what was carried and dropped.",
+                    ),
+                    (
                         "hook install|run [--pre-push|--pre-commit]",
                         "Install a git hook that runs `lc review --ai` on what is pushed or committed (--print shows it).",
                     ),

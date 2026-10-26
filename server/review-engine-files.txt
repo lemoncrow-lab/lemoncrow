@@ -312,6 +312,7 @@ src/lemoncrow/pro/capabilities/review/runtime_validation.py
 src/lemoncrow/pro/capabilities/review/runtimes.py
 src/lemoncrow/pro/capabilities/review/sandbox_limits.py
 src/lemoncrow/pro/capabilities/review/session_comments.py
+src/lemoncrow/pro/capabilities/review/settings_import.py
 src/lemoncrow/pro/capabilities/review/shipped_artifacts.py
 src/lemoncrow/pro/capabilities/review/side_effects.py
 src/lemoncrow/pro/capabilities/review/snapshot.py
@@ -427,6 +428,7 @@ src/lemoncrow/pro/capabilities/review/local_cli/__main__.py
 src/lemoncrow/pro/capabilities/review/local_cli/ai.py
 src/lemoncrow/pro/capabilities/review/local_cli/config.py
 src/lemoncrow/pro/capabilities/review/local_cli/hook.py
+src/lemoncrow/pro/capabilities/review/local_cli/import_config.py
 src/lemoncrow/pro/capabilities/review/local_cli/init_action.py
 src/lemoncrow/pro/capabilities/review/local_cli/main.py
 src/lemoncrow/pro/capabilities/review/local_cli/settings_cli.py

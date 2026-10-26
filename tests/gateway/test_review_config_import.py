@@ -345,15 +345,16 @@ def test_unknown_keys_warn_and_are_ignored_and_never_become_policy() -> None:
         "unknown key 'frobnicate' ignored",
         "unknown key 'version' ignored",
         "rules[0]: unknown key 'color' ignored",
-        "rules[0]: unknown key 'severity' ignored",
         "rules[1] (no-text) has no rule text; skipped",
         "rules[2] has no id; skipped",
         "rules[3] is not an object; ignored",
         "rules[4] is not an object; ignored",
-        "unknown key 'instructions' ignored",
         "rules must be a list; ignored",
     ):
         assert expected in warnings, (expected, warnings)
+    # A setting key of another tool's file, and a rule's severity, are named for what they are (test_review_settings_import).
+    assert any(w.startswith("instructions is a setting, and a rules file holds rules") for w in warnings), warnings
+    assert any(w.startswith("rule 'ok' severity is not applied from a rules file") for w in warnings), warnings
     assert governance.errors == ()  # a warning is not a policy error: nothing else (project knowledge) is switched off
 
 
