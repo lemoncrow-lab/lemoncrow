@@ -61,8 +61,10 @@ class CallerAwareModel(FakeModel):
 
     def __call__(self, **kwargs: Any) -> StructuredExecution:
         prompt = json.loads(kwargs["prompt"])
-        if "hypotheses" in kwargs["output_schema"].get("properties", {}) or "violated" in json.dumps(
-            kwargs["output_schema"]
+        if (
+            "hypotheses" in kwargs["output_schema"].get("properties", {})
+            or "decisions" in kwargs["output_schema"].get("properties", {})
+            or "violated" in json.dumps(kwargs["output_schema"])
         ):
             return super().__call__(**kwargs)
         self.prompts.append(prompt)

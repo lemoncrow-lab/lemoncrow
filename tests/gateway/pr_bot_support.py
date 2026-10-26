@@ -482,6 +482,10 @@ class FakeModel:
         """``BUG`` title -> the category the model files that finding under, instead of the hypothesis's own."""
         self.forget: set[str] = set()
         """``BUG`` titles the model fails to report even though the code still says so (it does not repeat itself)."""
+        self.repeats: list[tuple[str, ...]] = []
+        """Sets of ``BUG`` titles that are one defect found more than once: the duplicate check keeps the first of each."""
+        self.dedupes: list[dict[str, Any]] = []
+        """The prompt of every duplicate check the model was asked for, as it was shown."""
         self.answer_prior = True
         """Whether the model answers the ``prior_findings`` it is shown: ``resolved`` once the ``BUG:`` line is gone."""
         self.prior: dict[str, str] = {}
@@ -570,6 +574,8 @@ class FakeModel:
         if "one_line" in kwargs["output_schema"].get("properties", {}):
             return self._overview(kwargs)
         prompt = json.loads(kwargs["prompt"])
+        if "decisions" in kwargs["output_schema"].get("properties", {}):
+            return self._dedupe(prompt)
         if "violated" in json.dumps(kwargs["output_schema"]):
             return self._rule_check(prompt)
         if "hypotheses" in kwargs["output_schema"].get("properties", {}):
@@ -678,6 +684,21 @@ class FakeModel:
             text = "\n".join(str(source[target].get("text", "")) for target in targets if target in source)
             result["prior_findings"] = self._prior_answers(asked, text) if self.answer_prior else []
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
+    def _dedupe(self, prompt: dict[str, Any]) -> StructuredExecution:
+        """The duplicate check: the findings whose titles a test declared to be repeats of each other are merged."""
+
+        self.dedupes.append(prompt)
+        if self.fail:
+            raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
+        by_title = {row["title"]: row["id"] for row in prompt["findings"]["value"]}
+        decisions = []
+        for titles in self.repeats:
+            ids = [by_title[title] for title in titles if title in by_title]
+            if len(ids) > 1:
+                decisions.append({"finding_ids": ids, "keep_id": ids[0]})
+        usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
+        return StructuredExecution(result={"decisions": decisions}, driver="openai", model=self.model, usage=usage)
 
     def _prior_answers(self, asked: list[dict[str, Any]], text: str) -> list[dict[str, str]]:
         """Per earlier finding: still_present while its ``BUG: <title>`` line is in the code shown, else resolved."""
