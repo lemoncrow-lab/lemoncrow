@@ -135,7 +135,7 @@ def test_a_fix_on_the_cited_lines_with_the_models_word_resolves_the_thread(world
     kept = only(report.findings)
     assert (kept.id, kept.state, kept.resolved_in) == (found.id, "fixed", world.origin.head[:7])
     (reply,) = world.github.replies()
-    assert reply["body"].startswith(f"Fixed in {world.origin.head[:7]}.")
+    assert f"Fixed in {world.origin.head[:7]}." in reply["body"] and reply["body"].startswith('<img alt="Fixed"')
     assert world.github.threads[thread["id"]]["resolved"] is True
     assert "1 finding fixed since last review" in summary(world)
 

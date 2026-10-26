@@ -27,6 +27,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Receipt,
     RunFacts,
     SummaryView,
+    badge,
     check_status,
     inline_comment,
     render_summary,
@@ -282,16 +283,16 @@ def test_every_surface_reads_the_same_severity(
         )
     )
     # The summary's first line, the counts in its hidden state and the commit status say one thing.
-    assert body.split("\n")[1].startswith(f"**{headline}**")
+    assert any(row.startswith(f"**{headline}**") for row in body.split("\n"))
+    # And the score is read off the same verdict.
+    assert f"<h2>Confidence Score: {result.confidence}/5</h2>" in body
     parsed = parse_state(body)
     assert parsed is not None and parsed == posted
     assert verdict_counts(parsed.findings) == {"p0": result.p0, "p1": result.p1, "p2": result.p2}
     # P2 sits in the collapsed held-back block and is never a row in the main list; P0 and P1 are.
     assert ("low-priority finding held back" in body) is held
     # The inline comment, which only P0 and P1 get, wears the same badge.
-    assert inline_comment(item).startswith(
-        {"p0": "**P0 · must fix**", "p1": "**P1 · should fix**"}.get(severity, "**P2 · optional**")
-    )
+    assert inline_comment(item).startswith(f"{badge(severity)} **")
 
 
 def test_a_p0_with_fail_on_off_is_green_and_says_why() -> None:
@@ -334,9 +335,9 @@ def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(worl
         row["kind"] == "repo_context" and "src/handlers.py" in row["ref"] for rows in prompts for row in rows
     ), "the corroborating excerpt is a real file of the Snapshot, found by the pack, not by the model"
     assert world.github.last_status()["state"] == "failure"
-    assert summary_body(world).split("\n")[1] == "**1 must-fix before merge**"
+    assert "**1 must-fix before merge**" in summary_body(world).split("\n")
     (inline,) = world.github.inline()
-    assert inline["body"].startswith("**P0 · must fix** — lets a missing principal through")
+    assert inline["body"].startswith(f"{badge('p0')} **lets a missing principal through**")
     state = parse_state(summary_body(world))
     assert state is not None and verdict_counts(state.findings) == {"p0": 1, "p1": 0, "p2": 0}
     wire = report.to_wire()
@@ -357,7 +358,7 @@ def test_a_model_only_p0_is_demoted_to_p1_and_does_not_fail_the_status(world: Wo
     assert report.status == ("success", "No must-fix findings; 1 should-fix")
     assert world.github.last_status()["state"] == "success"
     (inline,) = world.github.inline()
-    assert inline["body"].startswith("**P1 · should fix** — lets a missing principal through")
+    assert inline["body"].startswith(f"{badge('p1')} **lets a missing principal through**")
 
 
 def test_a_medium_finding_backed_only_by_its_own_source_is_optional_not_should_fix(world: World) -> None:
@@ -392,9 +393,9 @@ def test_an_unverified_high_finding_is_p1_and_the_status_passes(world: World) ->
     (found,) = report.findings
     assert (found.severity, found.impact, found.verified) == ("p1", "high", False)
     assert report.status == ("success", "No must-fix findings; 1 should-fix")
-    assert summary_body(world).split("\n")[1] == "**No must-fix findings** · 1 should-fix"
+    assert "**No must-fix findings** · 1 should-fix" in summary_body(world).split("\n")
     (inline,) = world.github.inline()
-    assert inline["body"].startswith("**P1 · should fix**")
+    assert inline["body"].startswith(badge("p1"))
 
 
 def test_a_low_finding_is_p2_and_held_back_with_no_inline_comment(world: World) -> None:
@@ -407,7 +408,7 @@ def test_a_low_finding_is_p2_and_held_back_with_no_inline_comment(world: World) 
     assert found.severity == "p2"
     assert world.github.inline() == [] and world.github.review_posts == 0
     body = summary_body(world)
-    assert body.split("\n")[1] == "**No must-fix findings** · 1 optional"
+    assert "**No must-fix findings** · 1 optional" in body.split("\n")
     assert "<details><summary>1 low-priority finding held back</summary>" in body
     assert report.status == ("success", "No must-fix findings; 1 optional")
 

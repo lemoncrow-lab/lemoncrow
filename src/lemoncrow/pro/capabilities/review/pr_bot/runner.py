@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -35,7 +36,10 @@ from lemoncrow.pro.capabilities.review.pr_bot import (
     learning,
     model_failure,
     notices,
+    overview,
+    overview_diagram,
     pr_intent,
+    reactions,
     security,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
@@ -43,6 +47,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
     FeedbackThread,
     PullFacts,
+    ReactionTarget,
     Remote,
     is_denied,
     with_backoff,
@@ -62,7 +67,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoiseInputs, NoisePolicy
-from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings, strip_state
+from lemoncrow.pro.capabilities.review.pr_bot.state import MAX_HEAD_TITLE, ReviewState, Usage, cap_findings, strip_state
 from lemoncrow.pro.capabilities.review.pr_bot.suppression import Suppression
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
@@ -209,6 +214,8 @@ class RunReport:
                     "p0": self.verdict.p0,
                     "p1": self.verdict.p1,
                     "p2": self.verdict.p2,
+                    # The score the summary shows, from the same facts as the headline and the status.
+                    "confidence": self.verdict.confidence,
                     # Open findings below the repository's threshold: tracked, counted here, in no other count. Absent
                     # when there are none, so a result without the noise controls reads exactly as it always did.
                     **({"held_back": self.verdict.held} if self.verdict.held else {}),
@@ -217,6 +224,7 @@ class RunReport:
             "status": None if self.status is None else {"state": self.status[0], "description": self.status[1]},
             "findings": [finding.to_wire() for finding in self.findings],
             "impact": _impact_wire(self.state),
+            **({"overview": self.state.overview.to_wire()} if self.state is not None and self.state.overview else {}),
             "usage": None if self.state is None else self.state.usage.to_wire(),
             "usage_total": None if self.state is None else self.state.usage_total.to_wire(),
             "published": self.published,
@@ -362,6 +370,11 @@ def run_pr_review(
         )
 
     link = run_url(environ)
+    # Eyes on the pull request while the review runs, a thumbs up or a confused face when it ends. Best effort: it needs
+    # `issues: write`, which the sample workflow leaves out, and nothing here depends on it (:mod:`reactions`).
+    signal = reactions.Signal(github, ReactionTarget("pull"))
+    if writes:
+        signal.start()
     try:
         if writes:
             _preflight(github, facts.head_sha, link)
@@ -378,8 +391,13 @@ def run_pr_review(
                 report.notes,
                 "set the status",
             )
+        if writes:
+            signal.finish(reactions.ran(report))
+            report.published["reaction"] = signal.published
+            report.notes.extend(signal.notes)
     except Exception as exc:
         if writes:
+            signal.finish(False)
             if isinstance(exc, PrPermissionError):
                 description = f"Token is missing {' and '.join(exc.missing) or 'a permission'}; see the workflow log."
             else:
@@ -584,12 +602,15 @@ def _review(
             inputs=options.noise,
             # The description and the issues it links, read only when a model is about to be asked.
             intent_loader=(lambda stage: pr_intent.gather(github, facts, stage)) if facts is not None else None,
+            # A narrow run (chat's recheck) is not another look at the whole change: the overview stays as it was.
+            overview=None if narrow else _overview_request(pull, facts, previous),
         )
         # G17: read inside the scratch store, which is gone after this block. Never a reason to fail the review.
         drawn = diagram.Diagram()
         if ai.ran:
-            drawn = diagram.resolve(
+            drawn = _diagram(
                 options.diagram,
+                ai,
                 previous=previous,
                 existing_body=existing.body if existing is not None else "",
                 head_sha=head,
@@ -620,6 +641,8 @@ def _review(
     report.security = scan.to_wire()
     if drawn.note:
         report.notes.append(drawn.note)
+    if ai.overview_note:
+        report.notes.append(ai.overview_note)
     report.notes.extend(f"config: {note}" for note in noise.notes)
     if ai.intent is not None:
         report.notes.extend(f"intent: {note}" for note in ai.intent.skipped)
@@ -778,6 +801,11 @@ def _review(
         diagram=drawn.state,
         impact=ai.impact,
         view=noise.view_code(),
+        # A narrow run kept the overview it started from; any other run's overview is the one it has for this change.
+        overview=ai.overview if not narrow or previous is None else previous.overview,
+        overview_for=ai.overview_for if not narrow or previous is None else previous.overview_for,
+        head_title=_commit_title(options.repo_root, head)
+        or (previous.head_title if previous is not None and previous.head_sha == head else ""),
     )
     reason = failure.headline if failure is not None else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -829,6 +857,8 @@ def _review(
         repository=ref.slug,
         head_sha=head,
         commit_url=f"https://{ref.host}/{ref.slug}/commit/{head}",
+        title=facts.title if facts is not None else pull.title,
+        chat=_chat_enabled(options.repo_root),
         incomplete_reason=reason,
         model_label=ai.model,
         depth_label=options.depth.capitalize(),
@@ -848,13 +878,18 @@ def _review(
         ),
     )
     body, posted_state = render_summary(summary_view)
-    # A diagram that appeared, changed or went away, an impact the rule now words differently, or a changed threshold
-    # or inline mode in the repository's settings is a reason to rewrite a comment a re-run would leave alone. The state
+    # A diagram that appeared, changed or went away, an impact the rule now words differently, an overview that is new or
+    # different, or a changed threshold or inline mode in the repository's settings is a reason to rewrite a comment a
+    # re-run would leave alone. The state
     # is compared after rendering: a diagram dropped to fit the comment is one that was not drawn.
     if (
         report.noop
         and previous is not None
-        and ((posted_state.diagram, posted_state.impact) != (previous.diagram, previous.impact) or reshown)
+        and (
+            (posted_state.diagram, posted_state.impact, posted_state.overview)
+            != (previous.diagram, previous.impact, previous.overview)
+            or reshown
+        )
     ):
         report.noop = False
     status = check_status(view, fail_on=options.fail_on)
@@ -905,6 +940,69 @@ def _review(
     elif options.dry_run:
         report.published["dry_run"] = True
     return report
+
+
+def _overview_request(pull: Any, facts: PullFacts | None, previous: ReviewState | None) -> overview.Request:
+    """What the overview step is told about this change: the author's words (unless intent is turned off, which reads none
+    of them), the change's identity, and what the last review decided for its own change."""
+
+    stated = pr_intent.enabled()
+    body = facts.body if facts is not None else ""
+    return overview.Request(
+        title=(facts.title if facts is not None else pull.title) if stated else "",
+        description=pr_intent.clean_text(body) if stated and body else "",
+        identity=f"{pull.head_sha}:{pull.merge_base_sha}",
+        previous=previous.overview if previous is not None else None,
+        previous_identity=previous.overview_for if previous is not None else "",
+    )
+
+
+def _diagram(
+    mode: str,
+    ai: Any,
+    *,
+    previous: ReviewState | None,
+    existing_body: str,
+    head_sha: str,
+    merge_base_sha: str,
+    compute: Callable[[], tuple[Mapping[str, Any] | None, str]],
+) -> diagram.Diagram:
+    """The ``### Diagram`` of this run: the one the model proposed and :mod:`overview` validated, drawn by LemonCrow; when
+    it gave none, the deterministic one from the Architecture Delta (:mod:`diagram`). ``off`` draws neither."""
+
+    if mode == "off":
+        return diagram.Diagram()
+    proposed = ai.overview.diagram if ai.overview is not None else None
+    if proposed is not None:
+        return overview_diagram.draw(proposed)
+    return diagram.resolve(
+        mode,
+        previous=previous,
+        existing_body=existing_body,
+        head_sha=head_sha,
+        merge_base_sha=merge_base_sha,
+        compute=compute,
+    )
+
+
+def _commit_title(repo_root: Path, sha: str) -> str:
+    """The subject line of commit *sha* for the footer's link, from the local clone; ``""`` when git cannot say."""
+
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(repo_root), "log", "-1", "--format=%s", sha],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return " ".join(done.stdout.split())[:MAX_HEAD_TITLE] if done.returncode == 0 else ""
+
+
+def _chat_enabled(repo_root: Path) -> bool | None:
+    return ci_env.chat_wired(os.environ, repo_root)
 
 
 def _provider_of(model: str) -> str:
@@ -998,6 +1096,7 @@ def _over_budget(
             budget=spent,
             diagram=section,
             noise=noise,
+            chat=_chat_enabled(options.repo_root),
         )
     )
     status = check_status(view, fail_on=options.fail_on)

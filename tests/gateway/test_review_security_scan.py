@@ -22,6 +22,7 @@ import yaml
 
 from lemoncrow.pro.capabilities.review import ai_review
 from lemoncrow.pro.capabilities.review.pr_bot import engine, opengrep_install, security
+from lemoncrow.pro.capabilities.review.pr_bot.render import badge
 from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
 from lemoncrow.pro.capabilities.review.static_findings import investigator_static_context, static_security_lines
@@ -691,7 +692,8 @@ def test_a_finding_that_cites_a_matching_static_result_is_verified_and_a_p0(
     # It is one finding, not also a raw one; the warning stays a held-back P2 of its own.
     assert [(f.severity, f.static_check) for f in raw(report)] == [("p2", HASH_RULE)]
     inline = [body for body in report.inline_bodies if "Static check:" in body]
-    assert len(inline) == 1 and f"Static check: {OS_RULE}" in inline[0] and "P0 · must fix" in inline[0]
+    assert len(inline) == 1 and f"Static check: {OS_RULE}" in inline[0] and inline[0].startswith(badge("p0"))
+    assert "Must fix (P0)" in inline[0]
     assert report.verdict is not None and report.verdict.state == "must_fix" and report.status is not None
     assert report.status[0] == "failure"
 
@@ -743,10 +745,10 @@ def test_a_raw_result_nobody_confirmed_is_a_p1_security_finding_that_can_never_f
     assert findings[HASH_RULE].severity == "p2"
     # Shown inline with the flag and the trailer, in the summary with the flag, and the warning held back.
     (comment,) = [body for body in report.inline_bodies]
-    assert comment.startswith("**P1 · should fix · security** — Command injection")
+    assert comment.startswith(f"{badge('p1')} **Command injection")
     assert f"Static check: {OS_RULE}" in comment and "LemonCrow security scan (Opengrep)" in comment
     assert "LemonCrow AI review" not in comment
-    assert re.search(r"^- \*\*P1\*\* .*`app/handlers.py:14` · new · security$", report.summary, re.MULTILINE)
+    assert re.search(r'^\d+\. <img alt="P1" .*`app/handlers.py:14` · new · security$', report.summary, re.MULTILINE)
     assert "1 low-priority finding held back" in report.summary
     # Never a P0 on its own, so it cannot fail the status whatever fail-on says.
     assert report.verdict is not None and report.verdict.state != "must_fix" and report.verdict.p1 == 1
@@ -1268,14 +1270,15 @@ def test_a_scan_result_below_the_threshold_is_held_back_and_the_risks_examined_s
     lines = str(comment["body"]).split("\n")
     body = "\n".join(lines)
     assert report.verdict is not None and (report.verdict.p1, report.verdict.p2, report.verdict.held) == (2, 0, 1)
-    assert "2 should-fix · 1 held back" in lines[1]
+    assert any("2 should-fix · 1 held back" in row for row in lines[:14])
     # The warning is a P2 below strictness 3: listed once, with the flag that says it is the scanner's, never inline.
     held = body.split("held back below strictness 3</summary>", 1)[1].split("</details>", 1)[0]
     assert "Weak hash: MD5 or SHA-1" in held and "`app/hashing.py:5` · new · security" in held
     assert not [text for text in report.inline_bodies if "Weak hash" in text]
     # The scanner's error-level result is a risk signal of the change, found without a model, and sets the impact label.
-    assert lines[3].startswith("**Medium impact** · security-sensitive code")
+    impact_row = next(row for row in lines if row.startswith("**[Medium impact]**"))
+    assert lines[lines.index(impact_row) + 1].startswith("<sub>security-sensitive code")
     assert "<summary>Risks examined: 1 of 1 · 1 found</summary>" in body and "2 open findings" in body
     assert body.index("held back below strictness 3") < body.index("Risks examined")
-    prompt = body.split("Fix with your agent", 1)[1].split("</details>", 1)[0]
+    prompt = body.split("Fix with agent prompt", 1)[1].split("</details>", 1)[0]
     assert "Weak hash" not in prompt, "a held-back result is not in the fix prompt"

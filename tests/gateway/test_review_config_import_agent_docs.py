@@ -428,7 +428,10 @@ def test_the_investigator_is_shown_the_files_that_apply_to_the_code_it_reads(swi
         "AGENTS.md",
         ".github/copilot-instructions.md",
     ]
-    everything = json.dumps(seen.prompts)
+    # What the investigators are shown. The overview call, which describes the whole diff, is shown the changed files as data
+    # (the pull request's own edits are part of what it changes), and it can only word the summary: it sets no finding,
+    # severity, score or status.
+    everything = json.dumps([row for row in seen.prompts if "hypothesis" in row])
     assert "Docs conventions" not in everything  # docs/AGENTS.md scopes to docs/, which the pull request does not touch
     assert "Report nothing" not in everything and "Edited by the PR" not in everything  # the base governs
     assert "Src conventions" in everything

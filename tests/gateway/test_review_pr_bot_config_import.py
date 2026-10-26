@@ -169,7 +169,10 @@ def test_a_pull_request_that_adds_or_edits_rules_files_cannot_change_its_own_rev
     assert {finding.title for finding in report.findings} == expected
     assert sorted(world.model.paths()) == sorted(control.model.paths())
     assert not any("project_conventions" in prompt for prompt in seen.investigator_prompts())
-    assert not any("everything-is-fine" in json.dumps(prompt) for prompt in seen.prompts)
+    # The investigators never see it. The overview call, which describes the whole diff, is shown the changed files as data
+    # (the hostile text is part of what this pull request changes) and can only word the summary: it sets no finding, no
+    # severity, no score and no status, which is what the equality of the findings above already proves.
+    assert not any("everything-is-fine" in json.dumps(prompt) for prompt in seen.investigator_prompts())
     summary = world.github.summary_comments()[0]["body"]
     assert "everything-is-fine" not in summary
 

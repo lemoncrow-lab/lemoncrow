@@ -603,7 +603,10 @@ def test_the_bot_never_writes_to_the_repository_whatever_it_learns(world: World)
     assert all(
         "/contents/" not in path and "/git/" not in path and "/branches" not in path for _m, path in written
     ), written
-    assert {method for method, _ in written} <= {"POST", "PATCH"}
+    # Comments, replies and a status are written with POST and PATCH; the only thing ever deleted is the bot's own
+    # eyes reaction, which comes off when the review is done.
+    assert {method for method, path in written if "/reactions" not in path} <= {"POST", "PATCH"}
+    assert all("/reactions/" in path for method, path in written if method == "DELETE")
 
 
 def test_a_dry_run_reads_the_feedback_and_posts_nothing(world: World) -> None:

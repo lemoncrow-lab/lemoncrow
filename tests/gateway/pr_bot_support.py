@@ -16,6 +16,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import pytest
 
@@ -122,6 +123,15 @@ class FakeGitHub:
         """The repository permission (``admin``, ``write``, ``read``, ``none``) for a login; an unknown login is a 404."""
         self.reactions: dict[int, list[dict[str, str]]] = {}
         """Comment id -> its reactions as GraphQL reports them (``content`` enum, ``login`` of the user)."""
+        self.deny_reactions: set[str] = set()
+        """Reaction endpoint families the token may not use: ``issues`` (the pull request and conversation comments need
+        ``issues: write``) and ``pulls`` (a review-thread comment needs ``pull-requests: write``)."""
+        self.break_reactions = False
+        """Every reaction call fails with a gateway error (not a refusal of the permission)."""
+        self.reaction_log: list[tuple[str, str, int, str]] = []
+        """``(add | remove, family, target id, content)`` for every reaction call of the bot; the pull request's id is
+        its number."""
+        self._bot_reactions: dict[int, tuple[str, int, str, str]] = {}
         self._ids = 1000
 
     # ----- helpers ------------------------------------------------------ #
@@ -133,6 +143,11 @@ class FakeGitHub:
     @property
     def api(self) -> str:
         return f"repos/{SLUG}/pulls/{NUMBER}"
+
+    def bot_reactions(self, family: str, target: int) -> list[str]:
+        """The contents of the reactions the bot has on a target now, oldest first (``family``: issues or pulls)."""
+
+        return [row[2] for row in self._bot_reactions.values() if row[:2] == (family, target)]
 
     def summary_comments(self) -> list[dict[str, Any]]:
         return [row for row in self.issue_comments if "<!-- lemoncrow:summary v1 -->" in row["body"]]
@@ -279,6 +294,17 @@ class FakeGitHub:
             return self.review_comments
         if endpoint.startswith(f"repos/{SLUG}/issues/{NUMBER}/comments"):
             return self.issue_comments
+        listed = re.match(
+            rf"repos/{SLUG}/(issues|pulls)/(?:comments/(\d+)|{NUMBER})/reactions\?content=([^&]+)", endpoint
+        )
+        if listed is not None:
+            wanted = unquote(listed[3])
+            target = int(listed[2] or NUMBER)
+            return [
+                {"id": rid, "content": content, "user": {"login": login}}
+                for rid, (family, where, content, login) in self._bot_reactions.items()
+                if (family, where) == (listed[1], target) and content == wanted
+            ]
         raise AssertionError(f"unexpected list: {endpoint}")
 
     def _write(self, method: str, path: str, body: dict[str, Any]) -> str:
@@ -288,6 +314,9 @@ class FakeGitHub:
             )
         if (self.deny_comments or self.deny_comments_after_probe) and not path.startswith(f"repos/{SLUG}/statuses/"):
             raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
+        reaction = re.fullmatch(rf"repos/{SLUG}/(issues|pulls)/(?:comments/(\d+)|{NUMBER})/reactions(?:/(\d+))?", path)
+        if reaction is not None:
+            return self._react(method, reaction[1], int(reaction[2] or NUMBER), reaction[3], body)
         if method == "POST" and path == f"{self.api}/reviews":
             return self._post_review(body)
         if method == "POST" and path.startswith(f"{self.api}/comments/") and path.endswith("/replies"):
@@ -321,6 +350,26 @@ class FakeGitHub:
             self.statuses.append({"sha": path.rsplit("/", 1)[1], **body})
             return json.dumps(body)
         raise AssertionError(f"unexpected write: {method} {path}")
+
+    def _react(self, method: str, family: str, target: int, reaction_id: str | None, body: dict[str, Any]) -> str:
+        """A reaction of the bot's: created (idempotent, as GitHub's is), or deleted by id."""
+
+        if family in self.deny_reactions:
+            raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
+        if self.break_reactions:
+            raise GitHubCliError("Bad Gateway (HTTP 502)")
+        if method == "POST":
+            for rid, (kind, where, content, login) in self._bot_reactions.items():
+                if (kind, where, content, login) == (family, target, body["content"], BOT["login"]):
+                    return json.dumps({"id": rid, "content": content, "user": BOT})
+            rid = self._next()
+            self._bot_reactions[rid] = (family, target, body["content"], BOT["login"])
+            self.reaction_log.append(("add", family, target, body["content"]))
+            return json.dumps({"id": rid, "content": body["content"], "user": BOT})
+        assert method == "DELETE" and reaction_id is not None, (method, family)
+        removed = self._bot_reactions.pop(int(reaction_id))
+        self.reaction_log.append(("remove", removed[0], removed[1], removed[2]))
+        return ""
 
     def _post_review(self, body: dict[str, Any]) -> str:
         self.review_posts += 1
@@ -449,6 +498,14 @@ class FakeModel:
         self.input_tokens: int | None = 1000
         self.output_tokens: int | None = 200
         self.model = "gpt-4o-mini"
+        self.overviews: list[dict[str, Any]] = []
+        """Every overview call: the system prompt, the prompt as the model was shown it, and the other call arguments."""
+        self.overview: dict[str, Any] | Any | None = None
+        """What the model answers the overview call: a dict, a function of the parsed prompt, or ``None`` for a plain
+        description of the files it was shown (and no diagram)."""
+        self.fail_overview: bool | str = False
+        """Only the overview call raises (a provider that answers the review and not this); a string is the message."""
+        self.overview_input_tokens: int | None = 600
 
     def reset(self) -> None:
         self.calls.clear()
@@ -471,9 +528,38 @@ class FakeModel:
         usage = ModelCallUsage(calls=1, input_tokens=self.chat_input_tokens, output_tokens=120)
         return StructuredExecution(result={"answer": answer}, driver="openai", model=self.model, usage=usage)
 
+    def _overview(self, kwargs: dict[str, Any]) -> StructuredExecution:
+        prompt = json.loads(kwargs["prompt"])
+        self.overviews.append(
+            {
+                "system": kwargs["system"],
+                "prompt": prompt,
+                "args": {k: v for k, v in kwargs.items() if k not in {"system", "prompt"}},
+            }
+        )
+        if self.fail or self.fail_overview:
+            reason = self.fail_overview or self.fail
+            raise RuntimeError(reason if isinstance(reason, str) else "provider unavailable")
+        if callable(self.overview):
+            result = self.overview(prompt)
+        elif self.overview is not None:
+            result = self.overview
+        else:
+            files = [row["path"] for row in prompt["changed_files"]["value"]]
+            result = {
+                "one_line": f"Changes {len(files)} files",
+                "intro": "The change touches these files.",
+                "bullets": [f"Edits {path}" for path in files[:3]],
+                "diagram": None,
+            }
+        usage = ModelCallUsage(calls=1, input_tokens=self.overview_input_tokens, output_tokens=90)
+        return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
     def __call__(self, **kwargs: Any) -> StructuredExecution:
         if "answer" in kwargs["output_schema"].get("properties", {}):
             return self._chat(kwargs)
+        if "one_line" in kwargs["output_schema"].get("properties", {}):
+            return self._overview(kwargs)
         prompt = json.loads(kwargs["prompt"])
         if "violated" in json.dumps(kwargs["output_schema"]):
             return self._rule_check(prompt)

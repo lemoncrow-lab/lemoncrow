@@ -484,29 +484,87 @@ def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_
     assert set(parsed["rules"][0]) == {"stable_key", "instruction", "paths"}
 
 
-def test_the_guide_documents_the_change_diagram_and_how_to_turn_it_off() -> None:
-    """G17: what it shows, why it never guesses, what it costs, and the one switch."""
+def test_the_guide_documents_the_diagram_its_two_sources_and_how_to_turn_it_off() -> None:
+    """The ``### Diagram``: the model's checked proposal, the Architecture Delta as the fallback, and the one switch."""
 
     guide = GUIDE.read_text(encoding="utf-8")
     for phrase in (
-        "## Change diagram",
-        "after the findings and before the receipt",
-        "**Why it never guesses.**",
+        "## Diagram",
+        "an open **`### Diagram`**",
+        "**1. The model's proposal, drawn by LemonCrow.**",
+        "**2. The Architecture Delta, when the model gave none.**",
+        "*structure*: nodes and edges with short labels, never Mermaid",
+        "a changed file, a changed symbol or one of the generic actors",
+        "not checked against the code",
+        "ids are counters (`n1`, `n2`)",
         "Architecture Delta",
-        "No model is called",
-        "not a **sequence diagram**",
-        "not an **entity-relationship diagram**",
-        "not a **class diagram**",
+        "no model is called",
+        "(no sequence diagram)",
+        "(no entity-relationship diagram)",
+        "(no class diagram)",
         "`N more relationships not shown`",
+        "A **trivial** change",
         "the diagram is the first thing dropped",
         "`LEMONCROW_REVIEW_DIAGRAM_MAX_FILES`",
         "Set `diagram: off`",
         "There is no `.lemoncrow/review.yaml` key for it",
     ):
         assert phrase in guide, phrase
-    # The example in the guide is the grammar the code emits, so a reader can recognise what the bot posts.
-    (example,) = re.findall(r"```mermaid\n(.*?)```", guide, re.DOTALL)
-    assert example.startswith("flowchart LR\n") and ":::added" in example and "linkStyle" in example
+    # The examples in the guide are the grammar the code emits, so a reader can recognise what the bot posts.
+    proposed, delta = re.findall(r"```mermaid\n(.*?)```", guide, re.DOTALL)
+    assert (
+        proposed.startswith("%%{init: {'theme': 'neutral'}}%%\nflowchart TD\n") and 'n3(["External API"])' in proposed
+    )
+    assert (
+        delta.startswith("%%{init: {'theme': 'neutral'}}%%\nflowchart LR\n")
+        and ":::added" in delta
+        and "linkStyle" in delta
+    )
+
+
+def test_the_guide_documents_the_reference_layout_the_score_the_overview_the_badges_and_the_reactions() -> None:
+    """The summary comment top to bottom, how the score is computed, what the overview call is and costs, which
+    permission a reaction needs, and where the badges come from."""
+
+    from lemoncrow.pro.capabilities.review.pr_bot.render import BADGE_BASE_URL, BADGE_VERSION
+
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "It reads the same way on every review, top to bottom:",
+        "`Re-review: comment `@lemoncrow review``",
+        "**`Confidence Score: N/5`** as a heading, and a rule under it.",
+        "**`### Findings`**, numbered, P0 first, then P1",
+        "**`### Summary`**: one intro sentence and three or four bullets",
+        "**`### Diagram`**, open",
+        "**`Fix with agent prompt`**, collapsed",
+        "**On a clean review, `### What we checked`**",
+        "`Reviews (N) · Last reviewed commit: the commit subject, as a link · Reviewed by LemonCrow`",
+        "collapsed **`Prompt To Fix With AI`**",
+        "`Path:`, `Line:`",
+        "### The confidence score",
+        "| an open P0 (must fix) | **1** |",
+        "| three or more open P1 | **2** |",
+        "| one or two open P1, and no P0 | **3** |",
+        "| only P2 findings open | **4** |",
+        "| nothing open, and every risk signal examined | **5** |",
+        "a **partial** review (risk signals left unexamined, a large pull request cut to its riskiest files) is at most **4**",
+        "is at most **3**",
+        "it cannot disagree with them",
+        "### The overview",
+        "counted in the review's model-call cap and in its usage and cost",
+        "It answers in structure, never in markup.",
+        "On a trivial change (at most two files and twenty changed lines",
+        "### Reactions",
+        "Reactions are **best effort and never a failure**",
+        "**`pull-requests: write` does not cover the last two**",
+        "| the pull request itself | `POST /issues/{number}/reactions` | `issues: write` |",
+        f'`<img alt="P1" src="{BADGE_BASE_URL}/p1.svg?v={BADGE_VERSION}" align="top">`',
+        "The alt text is the badge's text",
+        "`issues: write` (optional)",
+    ):
+        assert phrase in guide, phrase
+    # The sample asks for no new permission: the reactions on the pull request are an opt-in the guide explains.
+    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
 
 
 def test_the_noise_inputs_reach_the_reviewer_through_the_environment_and_the_guide_explains_them() -> None:
