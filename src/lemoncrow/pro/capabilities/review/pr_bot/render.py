@@ -22,6 +22,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
     SEVERITY_MEANING,
     BotFinding,
+    gated_count,
     sort_key,
     trimmed,
 )
@@ -151,6 +152,11 @@ class Verdict:
         ceiling = {"clean": 5, "partial": 4}.get(self.state, 3)
         return min(ceiling, 4 if self.p2 else 5)
 
+    def gated(self, fail_on: str) -> int:
+        """How many open findings *fail_on* fails on: the P0s, plus the P1s under ``p1``. The same counts as the headline."""
+
+        return gated_count(fail_on, {"p0": self.p0, "p1": self.p1, "p2": self.p2})
+
     @property
     def counts(self) -> str:
         parts = [
@@ -212,9 +218,11 @@ def verdict(
 def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     """``(state, description)`` of the commit status; ``state`` is a GitHub status state.
 
-    No P0 and every risk signal examined: success. A P0 with ``fail_on == "p0"``:
-    failure; without it the status stays green and says so. An incomplete review
-    (a model call failed, the budget ran out) fails closed only when failing on P0:
+    No P0 and every risk signal examined: success. A P0 with ``fail_on`` ``p0`` or ``p1``:
+    failure; without it the status stays green and says so. ``fail_on == "p1"`` also fails on an open P1
+    (``1 should-fix before merge (fail-on: p1)``), whatever else the review found or could not do, as an open P0 does;
+    a P2 never fails it. An incomplete review
+    (a model call failed, the budget ran out) fails closed only when ``fail_on`` is ``p0`` or ``p1``:
     a gate must not pass what it could not check. A *partial* review finished but
     left risk signals unexamined; it is ``success`` either way, because failing it
     would block every pull request with more risk signals than Auto's two
@@ -228,10 +236,14 @@ def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     happened is the one lie this status must not tell. The description names the cause.
     """
 
-    gating = fail_on == "p0"
+    gating = fail_on != "none"
     if view.state == "must_fix":
         suffix = "" if gating else " (advisory: fail-on is off)"
         return ("failure" if gating else "success"), trimmed(view.headline + suffix, 140)
+    if view.gated(fail_on):
+        # No P0 here (that is `must_fix` above), so what the setting counts is the open P1s: they block like a P0 would,
+        # in a review that is partial, over budget or incomplete too, because they are still open.
+        return "failure", trimmed(f"{view.p1} should-fix before merge (fail-on: {fail_on})", 140)
     if view.state == "budget":
         # Neutral: a commit status has no neutral state, so this is a success that says nothing was reviewed. A review
         # that stopped because its owner capped it must not block a merge; an earlier open P0 still does (above).

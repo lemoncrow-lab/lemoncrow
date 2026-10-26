@@ -2,7 +2,10 @@ name: LemonCrow
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-permissions: { contents: read, pull-requests: write, statuses: write }
+permissions:
+  contents: read        # fetch the pull request's commits
+  pull-requests: write  # the summary comment, inline findings, thread replies and resolves
+  statuses: write       # the "LemonCrow Review" commit status
 jobs:
   review:
     runs-on: ubuntu-latest

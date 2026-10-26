@@ -11,14 +11,16 @@ Gating, in the order it is decided:
   token on behalf of code from the pull request, which is the one place a
   reviewer that reads untrusted code must not run.
 * A ``pull_request`` from a fork is skipped (exit 0, a notice): GitHub gives it no
-  secrets and a read-only token, so there is no model key to call with and no
-  permission to comment with.
+  secrets and a read-only token (its ``permissions:`` key can lower that token but typically cannot raise it), so there
+  is no model key to call with and no permission to comment or set a status with. Nothing is posted for it, and no write
+  is attempted.
 * Drafts are skipped unless ``review_drafts``; a push to an open pull request is
   skipped when ``on_push`` is off.
-* With no model credential the run stops. Dependabot runs also have no secrets, so
-  they skip quietly; anything else is a misconfiguration and fails loudly: a red job, an ``::error`` that names the
-  two ways to pass a key, and (on a pull request) an ``error`` ``LemonCrow Review`` status so a required check does
-  not wait forever.
+* With no model credential the run stops. Dependabot runs also have no secrets (only Dependabot secrets), so
+  they skip quietly, with a ``skipped:`` status when the token can write one (GitHub documents their token as
+  read-only by default, raised by the workflow's ``permissions:`` key, which the sample sets); anything else is a
+  misconfiguration and fails loudly: a red job, an ``::error`` that names the two ways to pass a key, and (on a pull
+  request) an ``error`` ``LemonCrow Review`` status so a required check does not wait forever.
 
 The model key reaches the Action as an input (``anthropic-api-key``, ``openai-api-key``), which ``action.yml`` hands
 to the steps that need it as ``INPUT_ANTHROPIC_API_KEY`` / ``INPUT_OPENAI_API_KEY`` and to no other step; a key set
@@ -289,10 +291,11 @@ def decide(
         if str(env.get("GITHUB_ACTOR") or "") == "dependabot[bot]":
             return Gate(
                 False,
-                "Dependabot runs cannot read repository secrets, so there is no model key. Skipping. Adding the key "
-                "under Dependabot secrets may not be enough: runs Dependabot triggers are understood to get a "
-                "read-only GITHUB_TOKEN (not confirmed here; check GitHub's documentation for Dependabot and "
-                "GitHub Actions), and a review that cannot comment or set a status has nowhere to report.",
+                "Dependabot runs cannot read repository secrets (GitHub gives them Dependabot secrets only), so there "
+                "is no model key. Skipping. To review Dependabot's pull requests add the key under Settings > Secrets "
+                "and variables > Dependabot. GitHub documents their GITHUB_TOKEN as read-only by default and raised by "
+                "the workflow's `permissions:` key, so the workflow needs contents: read, pull-requests: write and "
+                "statuses: write, as for any other pull request.",
                 skip="Dependabot run without a model key",
             )
         return Gate(

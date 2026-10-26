@@ -48,9 +48,12 @@ from typing import TYPE_CHECKING, Any, Final
 
 from lemoncrow.pro.capabilities.review.pr_bot import ci_env, impact, overview
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
+    FAIL_ON,
     SEVERITY_BADGE,
     SEVERITY_MEANING,
     BotFinding,
+    gate_words,
+    gated_count,
     sort_key,
     trimmed,
 )
@@ -79,8 +82,9 @@ from lemoncrow.pro.capabilities.review.working_tree_authority import config_line
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.gitdiff import RevRange
 
-#: ``--fail-on`` for a local review: which open findings make the exit code 1.
-LOCAL_FAIL_ON: Final[tuple[str, ...]] = ("none", "p0", "p1")
+#: ``--fail-on`` for a local review: which open findings make the exit code 1. The Action takes the same three values
+#: (``findings.GATES`` is the one table), so a setting means the same thing in a hook and in a workflow.
+LOCAL_FAIL_ON: Final[tuple[str, ...]] = FAIL_ON
 DEFAULT_FAIL_ON: Final[str] = "p0"
 EXIT_CLEAN: Final[int] = 0
 EXIT_FOUND: Final[int] = 1
@@ -268,10 +272,9 @@ def exit_decision(
     *strict*, else 3 when the review could not be set up and *setup* asks to hear it, else 0. A found P0 outranks an
     incomplete review: it is something to act on, and the other is not."""
 
-    found = {"none": 0, "p0": p0, "p1": p0 + p1}[fail_on]
+    found = gated_count(fail_on, {"p0": p0, "p1": p1})
     if found:
-        where = "a P0" if fail_on == "p0" else "a P0 or P1"
-        return EXIT_FOUND, f"{plural(found, 'open finding')} at or above --fail-on {fail_on} ({where})"
+        return EXIT_FOUND, f"{plural(found, 'open finding')} at or above --fail-on {fail_on} ({gate_words(fail_on)})"
     if incomplete and strict:
         return EXIT_INCOMPLETE, f"the review is incomplete and --strict is set: {reason or 'see the coverage above'}"
     if incomplete and setup:

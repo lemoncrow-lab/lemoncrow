@@ -261,9 +261,10 @@ class _ReviewCliProgress:
     type=click.Choice(["none", "p0", "p1"]),
     default=None,
     help=(
-        "With --publish-bot, fail the LemonCrow Review commit status when a P0 finding is open (none or p0; default "
-        "none). With a local --ai review, exit 1 while a finding at or above this severity is open (none, p0 or p1; "
-        "default p0)."
+        "Which open findings fail the review (none, p0 or p1). p1 fails on a P0 or a P1, p0 on a P0 only, none never. "
+        "With --publish-bot, the LemonCrow Review commit status goes to failure and the command exits 1 while one is "
+        "open, and also when the review could not run (default none). With a local --ai review, exit 1 while one is "
+        "open (default p0)."
     ),
 )
 @click.option(
@@ -1004,10 +1005,6 @@ def review_cmd(
         return
     if ai_review or publish_bot:
         assert pr_spec is not None
-        if fail_on == "p1":
-            raise click.ClickException(
-                "--fail-on p1 is for a local --ai review; a pull request's status takes none or p0"
-            )
         _review_pull_request_with_ai(
             ctx,
             repo_root,

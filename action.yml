@@ -28,8 +28,10 @@ inputs:
     description: >-
       Token the bot comments with. Keep the default, the workflow's GITHUB_TOKEN, so comments come from
       github-actions[bot] and never from a person. Needs contents: read, pull-requests: write and statuses: write
-      (issues: read as well for the issues a "Fixes #N" line links). Without them the step fails with the one-line
-      `permissions:` block to add.
+      (optional: issues: read for the issues a "Fixes #N" line links, issues: write for the eyes and thumbs-up
+      reactions on the pull request itself and on a command typed in its conversation). Without the first three the
+      step fails with the one-line `permissions:` block to add; without an optional one the feature is skipped and
+      nothing else changes (docs/setup/github-action.md, "Permissions").
     default: ${{ github.token }}
   model-provider:
     description: >-
@@ -50,9 +52,11 @@ inputs:
     default: auto
   fail-on:
     description: >-
-      "p0" fails the "LemonCrow Review" commit status, and this job, while a P0 finding is open (and when the review
-      could not run); "none" keeps it advisory: the job stays green whatever the check says, and a failed review still
-      sets the check to error with an annotation naming the cause.
+      none, p0 or p1. "p0" fails the "LemonCrow Review" commit status, and this job, while a P0 finding is open (and
+      when the review could not run); "p1" does the same while a P0 or a P1 is open, so it also blocks on every
+      "should fix" (a P1 is a model's judgment: start at none and read what it would have blocked). "none" keeps it
+      advisory: the job stays green whatever the check says, and a failed review still sets the check to error with an
+      annotation naming the cause.
     default: none
   max-usd-per-pr:
     description: >-
@@ -140,12 +144,15 @@ runs:
   using: composite
   steps:
     # Standard library only and runs before anything is installed, so a fork, a draft or a missing key costs
-    # seconds. Forks get no secrets and a read-only token on pull_request, so they exit 0 with a notice.
+    # seconds. Forks get no secrets and a read-only token on pull_request (GitHub: the `permissions:` key cannot raise
+    # it), so they exit 0 with a notice and post nothing.
     # A comment event (issue_comment, pull_request_review_comment) is the chat mode of this same Action: the gate
     # answers it only when the comment mentions the bot, comes from an allowed author_association and is not from a
     # bot (this one included), and a comment skip never sets a commit status.
     # Any other skip also posts a `skipped: <reason>` success status on the head, with the token below, so a
-    # required "LemonCrow Review" check does not wait forever; if the token cannot write statuses it says so.
+    # required "LemonCrow Review" check does not wait forever; if the token cannot write statuses it says so. A run
+    # Dependabot triggers has a read-only token by default and the workflow's `permissions:` key raises it (GitHub's
+    # documentation), so its skip can post; a fork's cannot, and a job GitHub itself skips never starts this action.
     # No model key is an error (red job, an annotation naming the two inputs, an `error` status). The keys are masked
     # here, before anything is printed.
     # pull_request_target is refused: it would run with secrets on behalf of code from the pull request.

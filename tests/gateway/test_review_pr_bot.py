@@ -1069,3 +1069,71 @@ def test_the_gate_script_posts_the_skipped_status_over_http_and_still_exits_zero
         [sys.executable, "-I", str(Path(ci_env.__file__))], env=env, capture_output=True, text=True, check=False
     )
     assert done.returncode == 0 and "was posted" in done.stdout and "wait for it" in done.stdout
+
+
+@pytest.mark.parametrize(
+    ("case", "env", "head", "posts"),
+    [
+        ("draft", {"OPENAI_API_KEY": "k"}, "acme/widgets", "skipped: draft pull request"),
+        # Dependabot has no repository secrets, so no key: its token can be raised by the workflow's `permissions:`
+        # (GitHub's documentation), which the sample sets, so the skip is posted like any other.
+        (
+            "dependabot",
+            {"GITHUB_ACTOR": "dependabot[bot]"},
+            "acme/widgets",
+            "skipped: Dependabot run without a model key",
+        ),
+        # A fork's token is read-only and the permissions key cannot raise it: nothing is attempted, and the notice says so.
+        ("fork", {"OPENAI_API_KEY": "k"}, "mallory/widgets", ""),
+    ],
+)
+def test_a_skipped_run_posts_its_status_with_the_workflow_token_where_that_token_can_write_and_never_on_a_fork(
+    tmp_path: Path, case: str, env: dict[str, str], head: str, posts: str
+) -> None:
+    import http.server
+    import threading
+
+    received: list[tuple[str, dict[str, Any], str]] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            received.append((self.path, json.loads(self.rfile.read(length)), self.headers.get("Authorization", "")))
+            self.send_response(201)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        event = tmp_path / "event.json"
+        event.write_text(json.dumps(posting_event(draft=case == "draft", head=head)), encoding="utf-8")
+        output = tmp_path / "output"
+        run_env = {
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_REPOSITORY": "acme/widgets",
+            "GITHUB_API_URL": f"http://127.0.0.1:{server.server_port}",
+            "GH_TOKEN": "t0ken",
+            "no_proxy": "127.0.0.1",
+            **env,
+        }
+        done = subprocess.run(
+            [sys.executable, "-I", str(Path(ci_env.__file__))], env=run_env, capture_output=True, text=True, check=False
+        )
+    finally:
+        server.shutdown()
+    assert done.returncode == 0, "a skipped run is never a failure"
+    assert output.read_text() == "run=false\nextra=\n"
+    if posts:
+        ((path, body, auth),) = received
+        assert path == f"/repos/acme/widgets/statuses/{HEAD_SHA}" and auth == "Bearer t0ken"
+        assert (body["state"], body["context"], body["description"]) == ("success", "LemonCrow Review", posts)
+    else:
+        assert received == [], "a read-only token is not used to attempt a write"
+        assert "read-only token" in done.stdout and "Required checks and skipped runs" in done.stdout

@@ -108,7 +108,8 @@ def test_chat_adds_the_comment_triggers_and_their_condition(repo: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("chat", "fail_on", "provider"), list(itertools.product([False, True], ["none", "p0"], ["anthropic", "openai"]))
+    ("chat", "fail_on", "provider"),
+    list(itertools.product([False, True], ["none", "p0", "p1"], ["anthropic", "openai"])),
 )
 def test_every_option_combination_finds_the_places_it_edits_and_is_a_valid_workflow(
     chat: bool, fail_on: str, provider: str
@@ -126,11 +127,16 @@ def test_every_option_combination_finds_the_places_it_edits_and_is_a_valid_workf
     assert "env" not in action, "the key is an input, not an environment variable on the step"
 
 
-def test_fail_on_p0_adds_the_one_line_to_the_with_block(repo: Path) -> None:
-    init(repo, "--fail-on", "p0")
+@pytest.mark.parametrize(("fail_on", "words"), [("p0", "a P0 finding"), ("p1", "a P0 or P1 finding")])
+def test_a_gating_fail_on_adds_its_line_and_a_comment_saying_what_it_fails_on(
+    repo: Path, fail_on: str, words: str
+) -> None:
+    result = init(repo, "--fail-on", fail_on)
     text = written(repo)
-    assert "          fail-on: p0\n" in text and "fail-on: none" not in text
-    assert workflow(text)["jobs"]["review"]["steps"][0]["with"]["fail-on"] == "p0"
+    assert f"          fail-on: {fail_on}\n" in text and "fail-on: none" not in text
+    assert f"while {words} is open" in text
+    assert workflow(text)["jobs"]["review"]["steps"][0]["with"]["fail-on"] == fail_on
+    assert f"fail-on {fail_on})." in result.output
 
 
 def test_the_provider_decides_which_secret_is_passed(repo: Path) -> None:
@@ -141,7 +147,7 @@ def test_the_provider_decides_which_secret_is_passed(repo: Path) -> None:
 
 
 def test_a_bad_option_is_refused() -> None:
-    for kwargs in ({"provider": "gemini"}, {"fail_on": "p1"}):
+    for kwargs in ({"provider": "gemini"}, {"fail_on": "p2"}):
         with pytest.raises(ValueError):
             init_action.render_workflow(**kwargs)
     result = CliRunner().invoke(cli, ["review", "init-action", "--provider", "gemini"])

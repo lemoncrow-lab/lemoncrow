@@ -23,10 +23,13 @@ import click
 )
 @click.option(
     "--fail-on",
-    type=click.Choice(["none", "p0"]),
+    type=click.Choice(["none", "p0", "p1"]),
     default="none",
     show_default=True,
-    help="p0 fails the `LemonCrow Review` check while a P0 finding is open; none keeps it advisory.",
+    help=(
+        "p0 fails the `LemonCrow Review` check while a P0 finding is open, p1 while a P0 or P1 is; none keeps it "
+        "advisory."
+    ),
 )
 @click.option(
     "--chat",

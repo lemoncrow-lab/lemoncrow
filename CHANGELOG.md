@@ -8,6 +8,15 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
+- **The GitHub Action takes `fail-on: p1`.** It fails the `LemonCrow Review` status, and the job, while any open P0
+  or P1 exists, and when the review could not run, as `p0` does; a P2 never gates, and the default stays `none`.
+  The status reads `N should-fix before merge (fail-on: p1)`. The gate adds up the same open findings as the badges,
+  the verdict and the `p0` gate (the severity `severity_for` stored on each one, with one table of what each setting
+  counts in `pr_bot/findings.py`), so the status can never fail on a finding the summary does not list as open; it
+  also gates a partial review and one whose budget is spent, where an earlier open P1 still stands. `lc review
+  --pr N --ai --fail-on p1` and `lc review init-action --fail-on p1` take it (the command refused `p1` for a pull
+  request before). The guide's "What `p1` gates on" says what it blocks, and that, unlike a P0, a P1 can still be
+  dismissed by the pull request's author.
 - **GitHub Action: AI pull request review (early access).** `lemoncrow-lab/lemoncrow@<sha>`
   (pin the release commit the release notes print) reviews each pull
   request on your own model key and posts one summary comment, inline P0/P1 findings and a
@@ -160,6 +169,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A spent review budget no longer leaves the job green behind a red check.** With `fail-on: p0` (or `p1`) and an
+  open P0 (or P1) from the last review, a push that was not reviewed because `max-runs-per-pr` or `max-usd-per-pr`
+  was reached set the status to `failure` but exited 0. The job now fails with the status, as it does for a review
+  that ran, which is what the guide has always said.
 - **The review benchmark records the commit it started on, and whether the tree was dirty.** The benchmark read
   `git rev-parse HEAD` after the run, so a commit made during a long run was recorded in place of the one that
   ran. It now reads the head before the run starts and adds `dirty` (uncommitted changes to tracked files, from
@@ -270,6 +283,17 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **The sample workflow's permissions say what uses each one, and the guide says what each feature needs.** The
+  sample (`lc review init-action`, the README and the guide, held equal by a test) now lists `contents: read`,
+  `pull-requests: write` and `statuses: write` on a line each with a comment; the grants are the same three. The
+  guide's permissions table names every REST write the Action makes (a test runs a full session against a fake GitHub
+  and fails when a write is missing from the table), says chat needs nothing beyond the three, that learning from
+  reactions only reads, and that the one optional extra worth knowing is `issues: write` (the 👀 and 👍 on the pull
+  request and on a command typed in the conversation; without it they are skipped and nothing else changes). It
+  also says what a skipped run can post: a `skipped:` success status wherever the token can write one, never for a
+  fork (GitHub gives it a read-only token that `permissions:` cannot raise), and for Dependabot the status is posted
+  because GitHub documents that the workflow's `permissions:` raises its read-only default; the notice and the guide
+  no longer call that unconfirmed.
 - **The pull request review reports more of the defects it looks at, and fewer repeats.** On 30 real pull requests of
   a public benchmark (the `claude` agent CLI, Auto), the share of the key's counted defects found rose from 28% to
   45 to 50%, with precision at 44 to 51% (47% before) and 5.0 to 5.2 model calls a review (5.0 before). Four changes:

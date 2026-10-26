@@ -59,7 +59,6 @@ def invoke(origin: Origin, *args: str) -> Any:
         (["--pr", "7", "--ai", "--list-reviews"], "drop --current/--resume-author/--list-reviews"),
         (["--pr", "7", "--ai", "--base", "main"], "--pr picks the range itself"),
         (["--pr", "7", "--dry-run"], "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"),
-        (["--pr", "7", "--ai", "--fail-on", "p1"], "--fail-on p1 is for a local --ai review"),
         (["--pr", "7", "--ai", "--fail-on", "p2"], "is not one of"),
         (["--pr", "7", "--ai", "--strict"], "--strict and --fresh apply to a local --ai review"),
         (["--pr", "7", "--ai", "--depth", "huge"], "is not one of"),
@@ -258,6 +257,23 @@ def test_publishing_in_actions_writes_the_comment_and_the_status_and_says_so(
     assert again.exit_code == 0 and "Nothing changed since the last review; nothing posted." in again.stdout
 
 
+def test_fail_on_p1_fails_the_status_and_the_command_while_a_p1_is_open(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary finding of this fixture is a P1: ``p0`` passes it, ``p1`` fails the status and the exit code."""
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    advisory = invoke(ci[0], "--pr", "7", "--publish-bot", "--fail-on", "p0")
+    assert advisory.exit_code == 0 and ci[1].statuses[-1]["state"] == "success"
+    result = invoke(ci[0], "--pr", "7", "--publish-bot", "--fail-on", "p1")
+    assert result.exit_code == 1, result.output
+    assert (ci[1].statuses[-1]["state"], ci[1].statuses[-1]["description"]) == (
+        "failure",
+        "1 should-fix before merge (fail-on: p1)",
+    )
+    assert "Status           failure: 1 should-fix before merge (fail-on: p1)" in result.stdout
+
+
 def test_a_fork_pull_request_exits_zero_with_a_workflow_notice(
     ci: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -306,6 +322,13 @@ def test_help_documents_the_bot_flags() -> None:
     result = CliRunner().invoke(cli, ["review", "--help"])
     for flag in ("--ai", "--publish-bot", "--depth", "--fail-on", "--review-drafts", "--on-push"):
         assert flag in result.output
+
+
+def test_the_fail_on_help_says_what_p1_gates_on_for_a_pull_request_and_for_a_local_review() -> None:
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    assert "(none, p0 or p1)" in text and "p1 fails on a P0 or a P1" in text
+    assert "With --publish-bot, the LemonCrow Review commit status goes to failure" in text
+    assert "is for a local --ai review" not in text
 
 
 def test_help_explains_the_three_forms_of_a_pull_request_review() -> None:

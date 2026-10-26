@@ -48,6 +48,12 @@ from lemoncrow.pro.capabilities.review.criticality import severity_for as severi
 from lemoncrow.pro.capabilities.review.pr_bot import attribution
 
 SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2")
+#: ``fail-on``: which open severities fail the ``LemonCrow Review`` status and the job (and a local review's exit code).
+#: The one table every surface reads, so a P1 is a gate in one place: ``p1`` fails on a P0 or a P1, never on a P2. A
+#: finding's severity is not decided here (:func:`severity_for` did that when the finding was stored); this only says
+#: which of those severities a setting counts.
+GATES: Final[Mapping[str, tuple[str, ...]]] = {"none": (), "p0": ("p0",), "p1": ("p0", "p1")}
+FAIL_ON: Final[tuple[str, ...]] = tuple(GATES)
 SEVERITY_BADGE: Final[Mapping[str, str]] = {"p0": "P0", "p1": "P1", "p2": "P2"}
 SEVERITY_MEANING: Final[Mapping[str, str]] = {"p0": "must fix", "p1": "should fix", "p2": "optional"}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"p0": 0, "p1": 1, "p2": 2}
@@ -359,3 +365,21 @@ def sort_key(finding: BotFinding) -> tuple[int, str, int, str]:
     """Severity first (P0 before P1 before P2), then location."""
 
     return (SEVERITY_RANK.get(finding.severity, 1), finding.path, finding.line, finding.id)
+
+
+def gated_count(fail_on: str, counts: Mapping[str, int]) -> int:
+    """How many open findings *fail_on* fails on, from per-severity *counts* (``state.verdict_counts``, or a verdict's).
+
+    ``none`` gates on nothing, ``p0`` on the P0s, ``p1`` on the P0s and the P1s. The counts are whatever the verdict was
+    built from, so a finding held back below the repository's threshold is in none of them, and the status, the exit
+    code and the summary cannot count differently.
+    """
+
+    return sum(counts.get(level, 0) for level in GATES[fail_on])
+
+
+def gate_words(fail_on: str) -> str:
+    """``a P0`` or ``a P0 or P1``: the severities *fail_on* gates on, as a person reads them (``""`` for ``none``)."""
+
+    levels = " or ".join(SEVERITY_BADGE[level] for level in GATES[fail_on])
+    return f"a {levels}" if levels else ""

@@ -34,7 +34,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, parse_state, verdict_counts
-from tests.gateway.pr_bot_support import AUTH_BUGGY, AUTH_FIXED, BASE, SLUG, World, build_world
+from tests.gateway.pr_bot_support import AUTH_BUGGY, AUTH_FIXED, BASE, FIRST_PUSH, SLUG, World, build_world
 
 HEAD = "a" * 40
 TITLE = "lets a missing principal through"
@@ -301,6 +301,114 @@ def test_a_p0_with_fail_on_off_is_green_and_says_why() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# fail-on: p1 gates on a P0 or a P1, counted by the severity every other surface reads
+# --------------------------------------------------------------------------- #
+
+P0_FINDING = tracked_case("high", True)
+P1_FINDING = tracked_case("high", False)
+P2_FINDING = tracked_case("low", True)
+
+
+def test_the_gate_table_is_one_and_every_surface_that_takes_fail_on_reads_it() -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot import init_action, local, runner
+    from lemoncrow.pro.capabilities.review.pr_bot.findings import FAIL_ON, GATES
+
+    assert GATES == {"none": (), "p0": ("p0",), "p1": ("p0", "p1")} and FAIL_ON == ("none", "p0", "p1")
+    assert runner.FAIL_ON == local.LOCAL_FAIL_ON == init_action.FAIL_ON == FAIL_ON
+    # The three findings below are what the one severity rule says they are, so a gate on "p1" counts rule-made P1s.
+    assert [item.severity for item in (P0_FINDING, P1_FINDING, P2_FINDING)] == ["p0", "p1", "p2"]
+    assert severity_for("security", impact="high", verified=True) == "p0"
+    assert severity_for("security", impact="high") == "p1"
+    assert severity_for("security", impact="low", verified=True) == "p2"
+
+
+@pytest.mark.parametrize(
+    ("found", "fail_on", "state", "description"),
+    [
+        ((P1_FINDING,), "p1", "failure", "1 should-fix before merge (fail-on: p1)"),
+        ((P1_FINDING, P1_FINDING, P2_FINDING), "p1", "failure", "2 should-fix before merge (fail-on: p1)"),
+        ((P1_FINDING,), "p0", "success", "No must-fix findings; 1 should-fix"),
+        ((P1_FINDING,), "none", "success", "No must-fix findings; 1 should-fix"),
+        ((P2_FINDING,), "p1", "success", "No must-fix findings; 1 optional"),
+        ((P2_FINDING, P2_FINDING), "p1", "success", "No must-fix findings; 2 optional"),
+        ((), "p1", "success", "No must-fix findings"),
+        ((P0_FINDING,), "p1", "failure", "1 must-fix before merge"),
+        ((P0_FINDING, P1_FINDING), "p1", "failure", "1 must-fix before merge"),
+        ((P0_FINDING,), "p0", "failure", "1 must-fix before merge"),
+        ((P0_FINDING,), "none", "success", "1 must-fix before merge (advisory: fail-on is off)"),
+    ],
+)
+def test_p1_fails_the_status_on_an_open_p0_or_p1_and_passes_with_only_p2(
+    found: tuple[BotFinding, ...], fail_on: str, state: str, description: str
+) -> None:
+    assert check_status(verdict(found, complete=True), fail_on=fail_on) == (state, description)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "p0_state", "none_state"),
+    [
+        ({"complete": False, "reason": "the call budget ran out"}, "error", "success"),
+        ({"complete": False, "reason": "model calls failed", "model_failed": True}, "error", "error"),
+    ],
+    ids=["call budget ran out", "model call failed"],
+)
+def test_p1_fails_closed_on_a_review_that_could_not_run_exactly_as_p0_does(
+    kwargs: dict[str, Any], p0_state: str, none_state: str
+) -> None:
+    gate = {fail_on: check_status(verdict((), **kwargs), fail_on=fail_on) for fail_on in ("none", "p0", "p1")}
+    assert gate["p1"] == gate["p0"] and gate["p1"][0] == p0_state and gate["none"][0] == none_state
+
+
+def test_where_no_p1_is_open_p1_is_p0_in_every_state_the_review_can_end_in() -> None:
+    states = {
+        "clean": verdict((P2_FINDING,), complete=True),
+        "partial": verdict((P2_FINDING,), complete=True, signals=3, uninvestigated=1),
+        "large": verdict((), complete=True, deferred_files=4, total_files=9),
+        "budget": verdict((P2_FINDING,), complete=True, budget="1 review used of 1 allowed"),
+        "incomplete": verdict((P2_FINDING,), complete=False, reason="the call budget ran out"),
+        "model failed": verdict((), complete=False, reason="model calls failed", model_failed=True),
+        "must fix": verdict((P0_FINDING, P2_FINDING), complete=True),
+    }
+    for name, result in states.items():
+        assert result.p1 == 0
+        assert check_status(result, fail_on="p1") == check_status(result, fail_on="p0"), name
+
+
+def test_an_open_p1_fails_p1_whatever_the_review_could_not_do_and_p0_does_not() -> None:
+    """A P1 is still open on a partial review, on one over its budget and on one that could not finish."""
+
+    cases = {
+        "partial": (verdict((P1_FINDING,), complete=True, signals=3, uninvestigated=1), "success"),
+        "budget": (verdict((P1_FINDING,), complete=True, budget="1 review used of 1 allowed"), "success"),
+        "incomplete": (verdict((P1_FINDING,), complete=False, reason="the call budget ran out"), "error"),
+    }
+    for name, (result, under_p0) in cases.items():
+        assert check_status(result, fail_on="p0")[0] == under_p0, name
+        assert check_status(result, fail_on="p1") == ("failure", "1 should-fix before merge (fail-on: p1)"), name
+
+
+@pytest.mark.parametrize("counts", [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 3), (1, 2, 3), (0, 2, 1)])
+@pytest.mark.parametrize("fail_on", ["none", "p0", "p1"])
+def test_the_status_the_job_and_a_local_exit_code_count_the_same_open_findings(
+    counts: tuple[int, int, int], fail_on: str
+) -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot.findings import gated_count
+    from lemoncrow.pro.capabilities.review.pr_bot.local import exit_decision
+    from lemoncrow.pro.capabilities.review.pr_bot.runner import gate_exit
+
+    p0, p1, p2 = counts
+    found = (P0_FINDING,) * p0 + (P1_FINDING,) * p1 + (P2_FINDING,) * p2
+    result = verdict(found, complete=True)
+    gated = gated_count(fail_on, verdict_counts(found))
+    assert result.gated(fail_on) == gated
+    status = check_status(result, fail_on=fail_on)
+    assert (status[0] == "failure") is bool(gated)
+    assert gate_exit(fail_on, status) == int(bool(gated))
+    code, _ = exit_decision(p0=result.p0, p1=result.p1, incomplete=False, reason="", fail_on=fail_on, strict=False)
+    assert code == int(bool(gated))
+
+
+# --------------------------------------------------------------------------- #
 # end to end: a real git origin, a fake GitHub, a fake model
 # --------------------------------------------------------------------------- #
 
@@ -454,3 +562,106 @@ def test_fixing_the_p0_clears_the_verdict_and_the_status(world: World) -> None:
     assert report.verdict is not None and report.verdict.state == "clean"
     assert report.status == ("success", "No must-fix findings")
     assert world.github.last_status()["state"] == "success"
+
+
+# --------------------------------------------------------------------------- #
+# end to end: fail-on: p1
+# --------------------------------------------------------------------------- #
+
+
+def a_model_only_p1(world: World) -> None:
+    """Rated high and citing only the exact source of the code it was shown: a P1, never a P0."""
+
+    world.model.severity[TITLE] = "high"
+    world.model.cite_source.add(TITLE)
+    world.origin.push({"src/auth.py": AUTH_BUGGY})
+
+
+@pytest.mark.parametrize(
+    ("fail_on", "state", "exit_code"), [("none", "success", 0), ("p0", "success", 0), ("p1", "failure", 1)]
+)
+def test_an_open_p1_fails_the_status_and_the_job_only_under_fail_on_p1(
+    world: World, fail_on: str, state: str, exit_code: int
+) -> None:
+    a_model_only_p1(world)
+    report = world.review(fail_on=fail_on)
+
+    (found,) = report.findings
+    # The gate counts the severity the one rule stored on the finding, nothing it worked out for itself.
+    assert found.severity == severity_for(found.category, impact=found.impact, verified=found.verified) == "p1"
+    assert report.status is not None and report.status[0] == state and report.exit_code == exit_code
+    assert world.github.last_status()["state"] == state
+    expected = "1 should-fix before merge (fail-on: p1)" if fail_on == "p1" else "No must-fix findings; 1 should-fix"
+    assert report.status[1] == expected
+    assert report.to_wire()["status"] == {"state": state, "description": expected}
+    # The summary and the inline comment say P1 whatever the gate is: the badge does not change with a setting.
+    (inline,) = world.github.inline()
+    assert inline["body"].startswith(badge("p1"))
+    assert "**No must-fix findings** · 1 should-fix" in summary_body(world).split("\n")
+
+
+@pytest.mark.parametrize("fail_on", ["none", "p0", "p1"])
+def test_only_a_p2_never_fails_the_status_or_the_job_under_any_fail_on(world: World, fail_on: str) -> None:
+    world.model.severity[TITLE] = "low"
+    world.model.cite_source.add(TITLE)
+    world.origin.push({"src/auth.py": AUTH_BUGGY})
+    report = world.review(fail_on=fail_on)
+
+    (found,) = report.findings
+    assert found.severity == "p2"
+    assert report.status == ("success", "No must-fix findings; 1 optional") and report.exit_code == 0
+    assert world.github.last_status()["state"] == "success"
+
+
+@pytest.mark.parametrize(("fail_on", "exit_code"), [("none", 0), ("p0", 1), ("p1", 1)])
+def test_a_review_that_could_not_run_is_an_error_status_and_p1_fails_the_job_as_p0_does(
+    world: World, fail_on: str, exit_code: int
+) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.model.fail = True
+    report = world.review(fail_on=fail_on)
+
+    assert report.status == ("error", "Review incomplete: model calls failed; see the workflow log")
+    assert report.exit_code == exit_code
+    assert world.github.last_status()["state"] == "error"
+
+
+def test_the_p1_that_blocks_a_pull_request_stays_blocking_when_its_budget_is_spent(world: World) -> None:
+    """A spent budget reviews nothing new, but the open findings of the last review still gate, and fail the job."""
+
+    a_model_only_p1(world)
+    first = world.review(fail_on="p1", max_runs_per_pr=1)
+    assert first.status == ("failure", "1 should-fix before merge (fail-on: p1)") and first.exit_code == 1
+
+    world.origin.push({"src/plain.py": "VALUE = 3\n"})
+    calls = len(world.model.calls)
+    over = world.review(fail_on="p1", max_runs_per_pr=1)
+    assert len(world.model.calls) == calls, "nothing was reviewed"
+    assert over.verdict is not None and over.verdict.state == "budget"
+    assert over.status == ("failure", "1 should-fix before merge (fail-on: p1)") and over.exit_code == 1
+    assert world.github.last_status()["sha"] == world.origin.head
+
+    # The same spent budget under p0 is the neutral success it always was, and the job stays green.
+    other = world.review(fail_on="p0", max_runs_per_pr=1)
+    assert other.status is not None and other.status[0] == "success" and other.exit_code == 0
+
+
+def test_fixing_the_p1_clears_the_p1_gate(world: World) -> None:
+    a_model_only_p1(world)
+    assert world.review(fail_on="p1").status == ("failure", "1 should-fix before merge (fail-on: p1)")
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    report = world.review(fail_on="p1")
+    assert report.verdict is not None and report.verdict.state == "clean"
+    assert report.status == ("success", "No must-fix findings") and report.exit_code == 0
+    assert world.github.last_status()["state"] == "success"
+
+
+def test_under_p1_the_author_can_still_dismiss_a_p1_that_blocks_their_own_pull_request(world: World) -> None:
+    """The second-person rule is for a P0 only (``suppression.MUST_FIX``); the guide says so under "What `p1` gates on"."""
+
+    a_model_only_p1(world)
+    assert world.review(fail_on="p1").exit_code == 1
+    (inline,) = world.github.inline()
+    world.github.react(int(inline["id"]), "THUMBS_DOWN", "alice")  # alice opened the pull request
+    report = world.review(fail_on="p1")
+    assert report.status == ("success", "No must-fix findings") and report.exit_code == 0
