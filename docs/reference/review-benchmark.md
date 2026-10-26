@@ -192,7 +192,7 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | `…/evaluation/benchmark_report.py` | the JSON and markdown report, and the checklist |
 | `src/lemoncrow/gateway/cli/commands/review_benchmark.py` | the commands |
 | `tests/gateway/test_review_benchmark*.py` | the tests, with a local git origin and a scripted model |
-| `tests/gateway/test_review_seeded_corpus.py` | the seeded-bug corpora as data: they parse, are pinned and labelled, and obey the licence rule |
+| `tests/gateway/test_review_seeded_corpus.py` | the public seeded-bug corpus as data: it parses, is pinned and labelled, and plans without a model |
 
 ## Limits
 

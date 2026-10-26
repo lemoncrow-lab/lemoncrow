@@ -1,15 +1,15 @@
-"""The seeded public bugs corpora: real pull requests, pinned and labelled by the fix that proves each bug.
+"""The seeded public bugs corpus: real pull requests, pinned and labelled by the fix that proves each bug.
 
-``evals/review/seeded_public_bugs.yaml`` (permissively licensed repositories, public) and
-``evals/review/seeded_public_bugs_nonpermissive.yaml`` (the others, ``visibility: private``, never mirrored; the tests
-that need it skip in a checkout without it, which is the public mirror) are checked as data: they parse without a network, every pull request is pinned to two commits and carries at least one label,
-every label names the fix commit and the derivation that produced it, and the licence rule holds. Nothing here calls a
-model or fetches a repository.
+``evals/review/seeded_public_bugs.yaml`` (permissively licensed repositories) is checked as data: it parses without a
+network, every pull request is pinned to two commits and carries at least one label, and every label names the fix
+commit and the derivation that produced it. Nothing here calls a model or fetches a repository.
+
+The other repositories of the set carry licences a public corpus may not; their corpus is private and is checked by a
+test that is not part of the public mirror. It runs the same assertions again, through the functions below.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import re
 from pathlib import Path
 from typing import Any
@@ -18,24 +18,15 @@ import pytest
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli.developer_tools import developer_tools
-from lemoncrow.pro.capabilities.review.evaluation.corpus import PERMISSIVE_LICENSES
 from lemoncrow.pro.capabilities.review.evaluation.real_prs import RealPrCorpus, load_real_pr_corpus
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC = REPO_ROOT / "evals/review/seeded_public_bugs.yaml"
-PRIVATE = REPO_ROOT / "evals/review/seeded_public_bugs_nonpermissive.yaml"
 SHA = re.compile(r"[0-9a-f]{40}")
 #: The benchmark set has five repositories; a corpus entry is named <repository>-<index of 01..10>.
 ID = re.compile(r"(sentry|calcom|grafana|keycloak|discourse)-(0[1-9]|10)")
 
-_mirror_spec = importlib.util.spec_from_file_location("_mirror_under_test", REPO_ROOT / "scripts" / "mirror.py")
-assert _mirror_spec and _mirror_spec.loader
-mirror = importlib.util.module_from_spec(_mirror_spec)
-_mirror_spec.loader.exec_module(mirror)
-
-
-needs_private = pytest.mark.skipif(not PRIVATE.exists(), reason="the private corpus is not in the public mirror")
-CORPORA = [pytest.param(PUBLIC, id="public"), pytest.param(PRIVATE, id="private", marks=needs_private)]
+CORPORA = [pytest.param(PUBLIC, id="public")]
 
 
 def load(path: Path) -> RealPrCorpus:
@@ -45,14 +36,6 @@ def load(path: Path) -> RealPrCorpus:
 @pytest.fixture(scope="module", params=CORPORA)
 def corpus(request: pytest.FixtureRequest) -> RealPrCorpus:
     return load(request.param)
-
-
-@needs_private
-def test_both_corpora_parse_without_a_network_and_say_what_they_are() -> None:
-    public, private = load(PUBLIC), load(PRIVATE)
-    assert (public.visibility, private.visibility) == ("public", "private")
-    assert public.prs and private.prs
-    assert public.summary()["labels"] >= len(public.prs) and private.summary()["labels"] >= len(private.prs)
 
 
 def test_every_entry_is_pinned_and_has_labels(corpus: RealPrCorpus) -> None:
@@ -83,25 +66,6 @@ def test_every_label_names_the_fix_that_proves_it_and_how_it_was_derived(corpus:
             assert all(region.role == "fix_site" and region.start_line <= region.end_line for region in label.regions)
         fixes = [label.evidence.fix_commit for label in pr.labels]
         assert len(set(fixes)) == len(fixes), f"{pr.id}: two labels for one fix commit"
-
-
-@needs_private
-def test_the_licence_rule_holds_and_the_split_between_the_files_follows_it() -> None:
-    public, private = load(PUBLIC), load(PRIVATE)
-    assert {pr.license for pr in public.prs} <= PERMISSIVE_LICENSES
-    assert not {pr.license for pr in private.prs} & PERMISSIVE_LICENSES
-    assert {pr.repository for pr in public.prs}.isdisjoint({pr.repository for pr in private.prs})
-    ids = [pr.id for pr in (*public.prs, *private.prs)]
-    assert len(ids) == len(set(ids))
-    # A pull request is one commit pair; the same pair must not be in both files.
-    pairs = [(pr.repository, pr.head_sha) for pr in (*public.prs, *private.prs)]
-    assert len(pairs) == len(set(pairs))
-
-
-def test_the_private_corpus_is_left_out_of_the_public_mirror() -> None:
-    prefixes = mirror.load_public_prefixes()
-    assert mirror.is_public("evals/review/seeded_public_bugs.yaml", prefixes) is True
-    assert mirror.is_public("evals/review/seeded_public_bugs_nonpermissive.yaml", prefixes) is False
 
 
 @pytest.mark.parametrize("path", CORPORA)
