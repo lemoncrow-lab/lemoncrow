@@ -231,6 +231,8 @@ class PullFacts:
     author_association: str = ""
     #: The pull request's description, as its author wrote it: untrusted text, read only as the author's stated intent.
     body: str = ""
+    #: A closed pull request that was merged (GitHub reports ``state: closed`` for both).
+    merged: bool = False
 
     @property
     def open(self) -> bool:
@@ -370,6 +372,7 @@ class BotGitHub:
             html_url=str(pull.get("html_url") or self.pr.url),
             author_association=str(pull.get("author_association") or "").upper(),
             body=str(pull.get("body") or ""),
+            merged=pull.get("merged") is True,
         )
 
     def issue(self, number: int) -> dict[str, Any]:

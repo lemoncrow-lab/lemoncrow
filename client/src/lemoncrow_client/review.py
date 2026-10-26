@@ -823,6 +823,7 @@ def _help_text() -> str:
         "  --json              Emit machine-readable output",
         "",
         "AI options (with --ai):",
+        "  --pr N              A GitHub pull request (needs `gh`): prints what the bot would post, posts nothing",
         "  --agent NAME        Use a signed-in agent CLI instead of a key: claude, codex or opencode",
         "  --remember          With --agent: use that agent whenever no API key is set",
         "  --fail-on p0|p1|none  Exit 1 while a finding at least this severe is open (default p0)",

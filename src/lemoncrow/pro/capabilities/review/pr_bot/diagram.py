@@ -584,8 +584,8 @@ def delta_for_capture(captured: Captured, *, limit: int | None = None) -> tuple[
     size = _source_files(captured, detect_language, should_skip_relative_path)
     if size is not None and size > allowed:
         return None, (
-            f"change diagram skipped: the repository has {size} source files, over the {allowed}-file limit "
-            f"({MAX_FILES_ENV} raises it)"
+            f"change diagram skipped: the repository has {size} source files, more than the {allowed} a diagram is "
+            "drawn for (the GitHub Action guide, under Change diagram, says how to change that limit)"
         )
     delta = build_architecture_delta_from_revision(
         store=captured.store,

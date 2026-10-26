@@ -3,7 +3,8 @@
 ``run_pr_review`` is what ``lc review --pr N --ai [--publish-bot]`` runs, in the
 customer's CI with their own model key:
 
-1. gate on the event and the live pull request (forks, drafts, pushes, closed);
+1. gate on the event and the live pull request (forks, drafts, pushes, closed; a dry run reviews a closed or
+   merged pull request anyway, since it posts nothing);
 2. read the previous review's state from the bot's summary comment;
 3. capture the PR into a throwaway store and run the AI review on the targets that
    changed since that review (:mod:`engine`);
@@ -345,7 +346,7 @@ def run_pr_review(
                 report.published["status"] = {"state": "success", "description": description[:140]}
         return report
 
-    if not facts.open:
+    if not facts.open and not options.dry_run:
         state = facts.state or "not open"
         return skipped(f"{name} is {state}; nothing to review.", f"pull request is {state}")
     if facts.draft and not options.review_drafts:
@@ -365,6 +366,11 @@ def run_pr_review(
         if writes:
             _preflight(github, facts.head_sha, link)
         report = _review(options, ref, github, run, structured_executor, say, writes, facts=facts)
+        if not facts.open:
+            # Only a dry run gets here: it posts nothing, so a closed or merged pull request can be reviewed (to try the
+            # reviewer on history). The Action never does; it skips a closed one above.
+            what = "merged" if facts.merged else (facts.state or "not open")
+            report.notes.insert(0, f"{name} is {what}; reviewing it anyway. Nothing will be posted.")
         if report.skipped and writes:
             # The pending status must not be left hanging on a run that decided not to review.
             _best_effort(
@@ -630,7 +636,13 @@ def _review(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
             "reported none and the local price table does not know the model); max-runs-per-pr needs no price"
         )
-    failure = model_failure.classify(ai.errors, provider=_provider_of(ai.model), model=_bare_model(ai.model))
+    failure = model_failure.classify(
+        ai.errors,
+        provider=_provider_of(ai.model),
+        model=_bare_model(ai.model),
+        # In a terminal there is no workflow log: the cause is the `model call errors` note printed with the review.
+        in_actions=os.environ.get("GITHUB_ACTIONS") == "true",
+    )
     if ai.errors:
         secrets = model_failure.key_values(os.environ)
         report.notes.append(

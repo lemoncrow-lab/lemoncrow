@@ -156,7 +156,7 @@ Everything in this section runs from the installed `lc` and from a source checko
 export ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY; or skip the key and use --agent below
 lc review --ai                         # the working tree against HEAD (the last commit when the tree is clean)
 lc review --ai --agent claude          # review with your signed-in Claude Code instead (also codex, opencode)
-lc review --pr 123 --ai                # a GitHub pull request (needs the gh CLI); prints, posts nothing
+lc review --pr 123 --ai                # a GitHub pull request (needs the gh CLI); prints what the bot would post, posts nothing
 lc review --ai --staged                # exactly what is staged
 lc review --ai main...HEAD             # a branch against its merge base with main (or REV, or --base/--head)
 lc review --ai --fail-on p1 --strict   # stricter exit codes, for a hook or a script

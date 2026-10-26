@@ -629,7 +629,7 @@ def test_an_unexpected_error_in_the_review_is_incomplete_and_never_exit_1(
         (["--mark", "src/a.py"], "--ai reviews a change on its own; drop --mark"),
         (["--list-reviews"], "drop --current/--resume-author/--list-reviews"),
         (["--publish"], "a local --ai review posts nothing"),
-        (["--dry-run"], "--dry-run only applies to --publish or --publish-bot"),
+        (["--dry-run"], "a local --ai review already posts nothing; add --pr NUMBER|URL to preview a pull request"),
         (["--base", "no-such-revision"], "no-such-revision"),
         (["no-such-revision..HEAD"], "no-such-revision"),
         (["--max-usd-per-pr", "0"], "0 is not in the range"),

@@ -9,6 +9,7 @@ reviewed. An earlier open P0 still fails the check under ``fail-on: p0``.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli import cli
+from lemoncrow.pro.capabilities.review.intelligence_runtime import StructuredExecution
 from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunOptions, budget_reached, run_pr_review
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, parse_state
 from tests.gateway.pr_bot_support import (
@@ -24,6 +26,7 @@ from tests.gateway.pr_bot_support import (
     FIRST_PUSH,
     NUMBER,
     RULE,
+    FakeModel,
     World,
     build_world,
 )
@@ -148,6 +151,56 @@ def test_a_dollar_cap_cannot_hold_a_cost_nobody_knows_so_it_says_so_and_the_run_
     world.origin.push({"src/plain.py": "VALUE = 4\n"})
     third = world.review(max_runs_per_pr=2, max_usd_per_pr=0.0001)
     assert third.verdict is not None and third.verdict.state == "budget"
+
+
+class ClaudeCliModel(FakeModel):
+    """What the claude CLI route returns: a model name the price table cannot price, and a cost the CLI reported."""
+
+    cli_cost: float | None = 0.04
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.model = "sonnet"
+
+    def __call__(self, **kwargs: Any) -> StructuredExecution:
+        done = super().__call__(**kwargs)
+        currency = None if self.cli_cost is None else "USD"
+        return replace(done, usage=replace(done.usage, provider_cost=self.cli_cost, currency=currency))
+
+
+def test_a_dollar_cap_holds_on_a_route_whose_cli_reports_its_cost(world: World) -> None:
+    """The claude CLI route has no price in the local table ("sonnet" is an alias): its own `total_cost_usd` is the cost."""
+
+    world.monkeypatch.setenv("LEMONCROW_OPENAI_MODEL", "sonnet")  # the route's model: unknown to the price table
+    world.model = ClaudeCliModel()
+    world.origin.push(FIRST_PUSH)
+    first = world.review(max_usd_per_pr=0.10)
+    assert world.model.calls and first.state is not None and first.state.usage_total.cost_usd is not None
+    spent = first.state.usage_total.cost_usd
+    assert spent == pytest.approx(0.04 * len(world.model.calls)) and spent > 0.05
+    assert f"est. ${spent:.3f}" in summary(world), "the summary's usage line shows the cost"
+    assert not any("max-usd-per-pr is not enforced" in note for note in first.notes)
+
+    world.model.reset()
+    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "another push")
+    stopped = world.review(max_usd_per_pr=spent)
+    assert stopped.verdict is not None and stopped.verdict.state == "budget", "the cap now stops the next review"
+    assert world.model.calls == []
+
+
+def test_a_cli_that_reports_no_cost_shows_none_and_the_dollar_cap_says_it_is_not_enforced(world: World) -> None:
+    world.monkeypatch.setenv("LEMONCROW_OPENAI_MODEL", "sonnet")
+    world.model = ClaudeCliModel()
+    world.model.cli_cost = None  # a route whose CLI reports tokens but no cost (Codex, OpenCode)
+    world.origin.push(FIRST_PUSH)
+    first = world.review(max_usd_per_pr=0.10)
+    assert world.model.calls and first.state is not None, "the model was asked"
+    assert first.state.usage_total.cost_usd is None and first.state.usage_total.input_tokens is not None
+    assert " est. $" not in summary(world), "no cost line rather than an invented price"
+    world.origin.push({"src/plain.py": "VALUE = 3\n"})
+    second = world.review(max_usd_per_pr=0.10)
+    assert second.verdict is not None and second.verdict.state != "budget"
+    assert any("max-usd-per-pr is not enforced" in note for note in second.notes)
 
 
 def test_budget_reached_reads_only_the_state() -> None:

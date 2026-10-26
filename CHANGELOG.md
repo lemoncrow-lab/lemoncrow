@@ -150,6 +150,30 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
   and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
   reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
+- **`lc review --pr N --ai --dry-run` works, and the three ways to look at a pull request agree.** It was refused
+  ("--dry-run only applies to --publish or --publish-bot"), and `--pr N --ai` printed only the summary. Now
+  `--pr N --ai`, `--pr N --ai --dry-run` and `--pr N --publish-bot --dry-run` are one preview: the pull request is
+  reviewed, the summary and each inline comment (with its file and lines) are printed exactly as the bot would post
+  them, and nothing is written to GitHub. Only `--publish-bot`, in GitHub Actions, posts. `lc review --help` and the
+  installed client's `lc review --ai --help` say so.
+- **A closed or merged pull request can be reviewed from a terminal.** Nothing refused it but the Action's own
+  rule (a closed pull request is skipped, with a `skipped: pull request is closed` status), so nobody could try
+  the reviewer on history. A preview (`lc review --pr N --ai`, with or without `--dry-run`) now reviews it and
+  says once, in the notes, that it is closed or merged and nothing will be posted. The Action and
+  `--publish-bot` still skip closed pull requests exactly as before.
+- **A terminal run no longer says "see the workflow log", or names an environment variable.** A review run
+  from a terminal that could not reach its model said `model calls failed; see the workflow log`, and the other
+  causes told you to check a secret or re-run a job: there is no workflow, secret or job there. In a terminal the
+  headline now says `see the model call errors line` (the error is printed with the review, and in `--json`) and
+  the other causes name your API key and say to run it again; the Action's wording is unchanged. The change
+  diagram's skipped note, shown on every review of a large repository, no longer names
+  `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES`; the guide still documents it.
+- **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
+  result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
+  billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be
+  enforced on that route. It is now recorded as the call's cost, in the plain and the streaming mode. Codex
+  reports tokens only and OpenCode's usage is not read, so those routes still show no cost; no price is ever
+  invented.
 - **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
   and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
   read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays

@@ -420,13 +420,18 @@ def execute_structured(
     cli_usage: dict[str, Any] = {}
 
     def record_cli_usage(reported: Mapping[str, Any]) -> None:
-        # CLI metering is informational: a subscription process cannot supply
-        # an enforceable provider invoice or an authoritative dollar charge.
+        # CLI metering is informational, not an invoice: a subscription process bills nothing. A dollar figure is
+        # recorded only when the CLI itself reported one (the claude CLI's list-price estimate); none is ever worked
+        # out for a CLI that does not (Codex and OpenCode report tokens at most).
         cli_usage.update(reported)
 
     def optional_nonnegative(name: str) -> int | None:
         value = cli_usage.get(name)
         return value if type(value) is int and value >= 0 else None
+
+    def reported_cost() -> float | None:
+        value = cli_usage.get("cost_usd")
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else None
 
     if resolved.driver in {"claude", "codex", "opencode"}:
         if source_kind == "review" and project_root is None:
@@ -468,6 +473,7 @@ def execute_structured(
                 raise IntelligenceCancelled(str(exc)) from exc
         if _cancelled(cancellation):
             raise IntelligenceCancelled("Review Intelligence run was cancelled")
+        cli_cost = reported_cost()
         return StructuredExecution(
             result=_mapping_result(value),
             driver=resolved.driver,
@@ -478,6 +484,8 @@ def execute_structured(
                 output_tokens=optional_nonnegative("output_tokens"),
                 cache_read_input_tokens=optional_nonnegative("cached_input_tokens"),
                 cache_write_input_tokens=optional_nonnegative("cache_write_input_tokens"),
+                provider_cost=cli_cost,
+                currency="USD" if cli_cost is not None else None,
             ),
             observed_models=tuple(observed),
         )
