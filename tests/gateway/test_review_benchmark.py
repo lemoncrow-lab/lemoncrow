@@ -35,6 +35,7 @@ from lemoncrow.pro.capabilities.review.evaluation.benchmark_report import build_
 from lemoncrow.pro.capabilities.review.evaluation.real_prs import RealPrCorpus, load_real_pr_corpus
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 from tests.gateway.benchmark_support import Origin, corpus_dict, git, make_origin, write_corpus
+from tests.gateway.pr_bot_support import one_call_per_file
 
 DEPTHS = ("quick", "auto", "deep")
 
@@ -148,7 +149,8 @@ def test_quick_is_the_trusted_bases_review_effort_and_calls_the_model_at_most_on
     # (the review says so: "Partially reviewed"), where it used to make no call at all and report itself incomplete.
     multi = pr(shared["report"], "shop-12")["depths"]["quick"]
     assert multi["status"] == "ran" and multi["model_calls"] == 1
-    assert 0 < multi["investigated"] < multi["risk_candidates"], "one call reached some of the risk signals, not all"
+    # Both changed files carry the same kind of signal and are small, so the one call reaches them all.
+    assert multi["investigated"] == multi["risk_candidates"] > 0
 
 
 def test_depth_raises_the_calls_and_the_cost(shared: dict[str, Any]) -> None:
@@ -253,7 +255,10 @@ def test_a_scripted_report_says_so_and_no_number_in_it_is_ready_to_publish(share
     assert "wall_seconds" in markdown and "Reference team (a projection)" in markdown
 
 
-def test_an_incomplete_review_is_not_scored_as_having_missed_a_label(tmp_path: Path) -> None:
+def test_an_incomplete_review_is_not_scored_as_having_missed_a_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    one_call_per_file(monkeypatch)  # the pull request's two small files get a call each, so a ceiling can cut one
     """A review the call ceiling cut short never finished: it has no catch or miss to score."""
 
     world = World(tmp_path)
@@ -316,7 +321,8 @@ def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) ->
 # --------------------------------------------------------------------------- #
 
 
-def test_the_ceiling_stops_the_run_and_leaves_a_partial_report(tmp_path: Path) -> None:
+def test_the_ceiling_stops_the_run_and_leaves_a_partial_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    one_call_per_file(monkeypatch)  # the pull request's two small files get a call each, so a ceiling can cut one
     world = World(tmp_path)
     results, ledger, facts, options = world.run(max_calls=1, depths=("auto", "deep"))
 

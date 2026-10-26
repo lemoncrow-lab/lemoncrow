@@ -531,11 +531,25 @@ class _Examined:
     def __call__(self, **kwargs: Any) -> StructuredExecution:
         execution = self.inner(**kwargs)
         category, ids = self._scope(kwargs.get("prompt"))
+        also = self._also(kwargs.get("prompt"))
         self.targets.update(ids)
         for target_id in ids:
             if category:
-                self.categories.setdefault(target_id, set()).add(category)
+                self.categories.setdefault(target_id, set()).update({category, *also})
         return execution
+
+    @staticmethod
+    def _also(prompt: object) -> set[str]:
+        """The other categories one call covers (small files with different risk signals share a call)."""
+
+        try:
+            blocks = json.loads(str(prompt))
+        except ValueError:
+            return set()
+        hypothesis = blocks.get("hypothesis") if isinstance(blocks, dict) else None
+        value = hypothesis.get("value") if isinstance(hypothesis, dict) else None
+        extra = value.get("also_categories") if isinstance(value, dict) else None
+        return {item for item in extra if isinstance(item, str)} if isinstance(extra, list) else set()
 
     @staticmethod
     def _targets(prompt: object) -> set[str]:

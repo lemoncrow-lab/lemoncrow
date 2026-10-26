@@ -429,8 +429,6 @@ class FakeModel:
         """``BUG`` titles whose finding cites the line its ``BUG:`` marker is really on (a careful model)."""
         self.lines: dict[str, tuple[int, int]] = {}
         """``BUG`` title -> the (start, end) lines the model claims, right or wrong; wins over ``cite_lines``."""
-        self.report_all = False
-        """Whether every ``BUG:`` line the call is shown is reported (the first as the answer, the rest as ``other_findings``)."""
         self.category: dict[str, str] = {}
         """``BUG`` title -> the category the model files that finding under, instead of the hypothesis's own."""
         self.forget: set[str] = set()
@@ -511,13 +509,71 @@ class FakeModel:
         if self.fail:
             raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
-        found = re.search(r"BUG: (.+)", text)
-        if found is not None and found.group(1).strip() in self.forget:
-            found = None
+        # What the model "finds": a ``BUG: <title>`` line in the code of a file it is shown, filed under that file's
+        # targets (a call that batches several files reports each file's bug on that file). The first is the answer,
+        # the rest (at most three) are ``other_findings``.
+        bugs: list[tuple[str, list[str]]] = []
+        for file_path in dict.fromkeys(str(source[target]["path"]) for target in targets if target in source):
+            in_file = [target for target in targets if target in source and str(source[target]["path"]) == file_path]
+            file_text = "\n".join(str(source[target].get("text", "")) for target in in_file)
+            for title in dict.fromkeys(match.strip() for match in re.findall(r"BUG: (.+)", file_text)):
+                if title not in self.forget:
+                    bugs.append((title, in_file))
         asked = (prompt.get("prior_findings") or {}).get("value") or []
         if asked:
             self.prior_seen.append(asked)
-        if found is None:
+        rules = prompt.get("trusted_repository_rules") or []
+        registry = prompt["evidence_registry"]["value"]
+        with_fields = "severity" in kwargs["output_schema"]["properties"]
+
+        covered_categories = [hypothesis["category"], *hypothesis.get("also_categories", [])]
+
+        def category_of(title: str, file_path: str) -> str:
+            """The category a model files a defect under: the one it was told, else its file's own risk signal."""
+
+            if title in self.category:
+                return self.category[title]
+            from lemoncrow.pro.capabilities.review.ai_review import _marker_categories
+
+            own_signals = _marker_categories(file_path)
+            return next((name for name in covered_categories if name in own_signals), hypothesis["category"])
+
+        def finding(title: str, own: list[str], *, answer: bool) -> dict[str, Any]:
+            refs = [f"target:{target}" for target in own]
+            if title in self.cite_source:
+                refs += [
+                    row["ref"] for row in registry if row["kind"] == "source" and set(row["target_ids"]) & set(own)
+                ]
+            if title in self.cite_context:
+                refs += [
+                    row["ref"]
+                    for row in registry
+                    if row["kind"] == "repo_context" and set(row["target_ids"]) & set(own)
+                ]
+            row_path = str(source[own[0]]["path"])
+            row: dict[str, Any] = {
+                "category": category_of(title, row_path),
+                "target_ids": own,
+                "title": title,
+                "explanation": f"The change in {row_path} {title}.",
+                "consequence": "Callers can reach the guarded behavior without the check.",
+                "evidence_refs": refs,
+                "rule_refs": [rule["value"]["ref"] for rule in rules] if answer else [],
+            }
+            if answer:
+                row["status"] = "confirmed"
+            if with_fields:
+                if answer:
+                    if title in self.severity:
+                        row["severity"] = self.severity[title]
+                    row["replacement"] = self.replacements.get(title)
+                    row["lines"] = self._claimed_lines(title, source[own[0]])
+                else:
+                    row["severity"] = self.severity.get(title, "")  # "" is unrated, as for the answer
+                    row["lines"], row["replacement"] = None, None
+            return row
+
+        if not bugs:
             result: dict[str, Any] = {
                 "status": "not_confirmed",
                 "category": hypothesis["category"],
@@ -529,53 +585,11 @@ class FakeModel:
                 "rule_refs": [],
             }
         else:
-            rules = prompt.get("trusted_repository_rules") or []
-            title = found.group(1).strip()
-            refs = [f"target:{target}" for target in targets]
-            registry = prompt["evidence_registry"]["value"]
-            if title in self.cite_source:
-                refs += [
-                    row["ref"] for row in registry if row["kind"] == "source" and set(row["target_ids"]) & set(targets)
-                ]
-            if title in self.cite_context:
-                refs += [
-                    row["ref"]
-                    for row in registry
-                    if row["kind"] == "repo_context" and set(row["target_ids"]) & set(targets)
-                ]
-            result = {
-                "status": "confirmed",
-                "category": self.category.get(title, hypothesis["category"]),
-                "target_ids": targets,
-                "title": title,
-                "explanation": f"The change in {path} {title}.",
-                "consequence": "Callers can reach the guarded behavior without the check.",
-                "evidence_refs": refs,
-                "rule_refs": [rule["value"]["ref"] for rule in rules],
-            }
-            if "severity" in kwargs["output_schema"]["properties"]:
-                if title in self.severity:
-                    result["severity"] = self.severity[title]
-                result["replacement"] = self.replacements.get(title)
-                result["lines"] = self._claimed_lines(title, source[targets[0]])
+            result = finding(bugs[0][0], bugs[0][1], answer=True)
         if "other_findings" in kwargs["output_schema"]["properties"]:
-            extra = re.findall(r"BUG: (.+)", text)[1:] if self.report_all and found is not None else []
-            result["other_findings"] = [
-                {
-                    "category": self.category.get(more.strip(), hypothesis["category"]),
-                    "target_ids": targets,
-                    "title": more.strip(),
-                    "explanation": f"The change in {path} {more.strip()}.",
-                    "consequence": "Callers can reach the guarded behavior without the check.",
-                    "evidence_refs": [f"target:{target}" for target in targets],
-                    "rule_refs": [],
-                    "severity": "medium",
-                    "lines": None,
-                    "replacement": None,
-                }
-                for more in extra
-            ]
+            result["other_findings"] = [finding(title, own, answer=False) for title, own in bugs[1:4]]
         if "prior_findings" in kwargs["output_schema"]["properties"]:
+            text = "\n".join(str(source[target].get("text", "")) for target in targets if target in source)
             result["prior_findings"] = self._prior_answers(asked, text) if self.answer_prior else []
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
 
@@ -671,6 +685,19 @@ CACHE_BUGGY = "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE.setdefault(k
 TOKEN_BUGGY = "def verify(token):\n    return token == 'x'  # BUG: compares secrets without a constant-time check\n"
 FIRST_PUSH = {"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/plain.py": "VALUE = 2\n"}
 RULE = "rules:\n  - stable_key: no-bug-markers\n    instruction: Source must not carry known defects.\n    paths: [src/auth.py]\n"
+
+
+def one_call_per_file(monkeypatch: pytest.MonkeyPatch, tokens: int = 300) -> None:
+    """Shrink what one call may carry so that tiny files do not share a call: each file of a test change gets its own.
+
+    The default (about 6.5k tokens of code and diff on an API route) packs the small files of a test into one or two
+    calls, which is the point of the batching and not what a test about the call cap wants to count. A tiny test file
+    costs about 230 estimated tokens, so 300 holds exactly one.
+    """
+
+    from lemoncrow.pro.capabilities.review import ai_coverage
+
+    monkeypatch.setattr(ai_coverage, "room_tokens", lambda **_: tokens)
 
 
 @dataclass

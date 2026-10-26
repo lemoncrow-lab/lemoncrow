@@ -33,6 +33,7 @@ from tests.gateway.pr_bot_support import (
     TOKEN_BUGGY,
     FakeModel,
     git,
+    one_call_per_file,
 )
 
 ENV_CLEARED = (
@@ -157,7 +158,7 @@ def test_the_working_tree_is_reviewed_with_the_bots_severity_and_nothing_is_post
     assert "P1 · should fix  src/auth.py:2-3  [security]" in out and "lets a missing principal through" in out
     assert "1 optional finding (P2):" in out and "grows without a bound" in out
     assert "lemoncrow:state" not in out and "<!--" not in out
-    assert sorted(lab.model.paths()) == ["src/auth.py", "src/cache.py"]
+    assert lab.model.files_seen() == ["src/auth.py", "src/cache.py"]  # two small files, one batched call
 
 
 def test_a_critical_rule_violation_is_a_p0_and_exits_1(ruled: Lab) -> None:
@@ -400,6 +401,7 @@ def test_fail_on_defaults_to_p0_and_none_never_exits_1_even_for_a_p0(ruled: Lab)
 def test_an_incomplete_review_fails_open_and_exits_2_only_under_strict(
     lab: Lab, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")  # the hard cap: one of two candidates is covered
     lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
     open_ = lab.run()
@@ -415,6 +417,7 @@ def test_an_incomplete_review_fails_open_and_exits_2_only_under_strict(
 
 
 def test_a_found_p0_outranks_an_incomplete_review_under_strict(ruled: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     ruled.write({"src/auth.py": AUTH_BUGGY})
     assert ruled.run("--strict").exit_code == 1  # the P0 is found and carried
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")
@@ -428,6 +431,7 @@ def test_a_found_p0_outranks_an_incomplete_review_under_strict(ruled: Lab, monke
 
 
 def test_risk_signals_left_unexamined_are_incomplete_coverage(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # The call cap allows two investigations; with three risk signals one is left unexamined: "partially reviewed",
     # never clean. (Without the cap Auto examines all three: a change this small is covered whole.)
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")

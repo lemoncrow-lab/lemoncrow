@@ -199,6 +199,9 @@ class ReviewCandidate:
     #: A general look at changed code that carries no specific risk signal (pull request reviews only,
     #: :func:`general_review_targets`). Only present on the wire when true, so every other candidate is exactly as it was.
     general: bool = False
+    #: Other categories of risk signal that share this call (pull request reviews batch small files of different
+    #: signals). ``category`` is the strongest; the call covers all of them. On the wire only when there are some.
+    also: tuple[FindingCategory, ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -209,6 +212,7 @@ class ReviewCandidate:
             "scope": self.scope,
             "rule_refs": list(self.rule_refs),
             **({"general": True} if self.general else {}),
+            **({"also_categories": list(self.also)} if self.also else {}),
         }
 
 
@@ -224,6 +228,8 @@ class ReviewHypothesis:
     rule_refs: tuple[str, ...] = ()
     #: The hypothesis of a general look (:attr:`ReviewCandidate.general`); on the wire only when true.
     general: bool = False
+    #: The other categories of signal the same call covers (:attr:`ReviewCandidate.also`); on the wire only when set.
+    also: tuple[FindingCategory, ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -236,6 +242,7 @@ class ReviewHypothesis:
             "evidence_needed": self.evidence_needed,
             "rule_refs": list(self.rule_refs),
             **({"general": True} if self.general else {}),
+            **({"also_categories": list(self.also)} if self.also else {}),
         }
 
 
@@ -627,8 +634,8 @@ you cannot tell. Never call a finding resolved because the code moved or you wer
 when the input has no prior_findings."""
 #: Said to every pull request investigation (``other_findings`` and a category of the defect's own).
 _PR_OTHER_RULES = f"""
-category is the category of the defect you found, which need not be the hypothesis's: a hypothesis about a cache that
-turns up a wrong result is reported as correctness. Also return other_findings: an empty list, or up to
+category is the category of the defect you found, which need not be the hypothesis's: a hypothesis about an API contract
+that turns up a wrong result is reported as correctness. Also return other_findings: an empty list, or up to
 {MAX_OTHER_FINDINGS} further distinct defects you found in these same targets, each with the same fields as your answer
 except status (list only a defect you could confirm; your answer itself describes the most serious one). The same
 standard applies to each: a concrete failing input or state, exact lines and evidence_refs from the registry. The same
@@ -643,17 +650,27 @@ it no longer satisfies. Line numbers you return are lines of the file after the 
 hunk header), counted as snapshot_source counts them, never the diff's own row numbers. A file whose change_diff row says
 "added" is new: all of it is the change. A snapshot_source entry whose side is "old" is code the change removes: it exists
 only before the change, so judge what its absence does to what is left and to its callers, and return lines: null for it."""
+#: What a careful reviewer looks for in changed code, in any language. Said to every pull request investigation.
+_PR_DEFECT_SOURCES = """Typical sources, in any language: an error that is ignored or swallowed, a null, nil or undefined
+that can reach a use, a boundary or off-by-one, a comparison or operator that changed meaning, a lost or reordered step,
+shared state that is mutated or aliased, a resource that is not released, a call that is not awaited, a loop or retry
+with no bound. When nothing is wrong, return not_confirmed: a clean answer is a successful outcome and an invented defect
+is the worst one."""
 #: Said to a general look (``ReviewHypothesis.general``): changed code that no risk signal pointed at.
 _PR_GENERAL_RULES = """
 This is a general review of changed code that no specific risk signal pointed at. Look for defects in this order:
 whether the change gives a wrong result or breaks an invariant (correctness), then security, data loss or corruption,
 concurrency, error handling and performance, as they apply to what you read. Report a defect only when you can name a
 concrete input or state that goes wrong, at exact lines; style, naming, missing tests and refactoring advice are not
-defects. Typical sources, in any language: an error that is ignored or swallowed, a null, nil or undefined that can
-reach a use, a boundary or off-by-one, a comparison or operator that changed meaning, a lost or reordered step, shared
-state that is mutated or aliased, a resource that is not released, a call that is not awaited, a loop or retry with no
-bound. When nothing is wrong, return not_confirmed: a clean answer is a successful outcome and an invented defect is
-the worst one."""
+defects. """ + _PR_DEFECT_SOURCES
+#: Said to an investigation of a specific risk signal: the signal is where to look first, not where to stop.
+_PR_SPECIFIC_RULES = """
+The hypothesis names the concern that flagged these targets. It is where to look first, not where to stop: also read the
+change as a careful reviewer would, for any defect, whatever the hypothesis says. Look for a wrong result or a broken
+invariant (correctness) first, then data loss, concurrency, error handling, security and performance, as they apply. A
+defect you find outside the hypothesis is reported in its own category: as your answer when the hypothesis itself is not
+confirmed, otherwise in other_findings. Report a defect only when you can name a concrete input or state that goes wrong,
+at exact lines. """ + _PR_DEFECT_SOURCES
 
 #: ``PR_INVESTIGATION_SCHEMA`` for a call that is shown the pull request's stated intent (``pr_intent``): one more field,
 #: so a finding that says the code contradicts that intent is marked by structure and not by its wording. A call that
@@ -1042,7 +1059,14 @@ _GENERAL_EVIDENCE_NEEDED = (
 )
 
 
-def _direct_hypothesis(candidate: ReviewCandidate) -> ReviewHypothesis:
+def _direct_hypothesis(candidate: ReviewCandidate, *, whole_change: bool = False) -> ReviewHypothesis:
+    """The hypothesis a candidate stands for, written without a model call.
+
+    With *whole_change* (pull request reviews) a risk signal is a lens on a general look, not a replacement for it: the
+    question is the general one, and what flagged the scope is said as where to look first. A model asked only about, say,
+    performance answers about performance, and a wrong result it noticed on the way never reaches the page.
+    """
+
     failure_modes: dict[FindingCategory, str] = {
         "security": "The changed trust boundary may permit an unauthorized or insufficiently validated path.",
         "api_compatibility": "The changed public/wire contract may break an existing caller or compatibility assumption.",
@@ -1078,6 +1102,15 @@ def _direct_hypothesis(candidate: ReviewCandidate) -> ReviewHypothesis:
         document["general"] = True
         failure_mode = _GENERAL_FAILURE_MODE
         needed = _GENERAL_EVIDENCE_NEEDED
+    elif whole_change:
+        document["whole_change"] = True
+        concerns = [candidate.category, *candidate.also]
+        document["also"] = list(candidate.also)
+        specific = " ".join(failure_modes[category] for category in concerns)
+        failure_mode = f"{_GENERAL_FAILURE_MODE} The triage also flagged this scope for specific concerns: {specific}"
+        needed = f"{_GENERAL_EVIDENCE_NEEDED} For the specific concerns: " + " ".join(
+            evidence_needed[category] for category in concerns
+        )
     return ReviewHypothesis(
         id=_stable_id("hyp", document),
         category=candidate.category,
@@ -1088,6 +1121,7 @@ def _direct_hypothesis(candidate: ReviewCandidate) -> ReviewHypothesis:
         evidence_needed=needed,
         rule_refs=candidate.rule_refs,
         general=candidate.general,
+        also=candidate.also,
     )
 
 
@@ -2529,6 +2563,13 @@ def _merge_by_file(candidates: Sequence[ReviewCandidate], paths: Mapping[str, st
     return merged
 
 
+def _scope_of(ids: Sequence[str], targets: Mapping[str, ReviewTarget]) -> str:
+    """The places a unit covers, for a prompt and a screen: the first few, then how many more."""
+
+    labels = [_scope_label(targets[i]) for i in ids if i in targets]
+    return ", ".join(labels[:6]) + (f" and {len(labels) - 6} more scopes" if len(labels) > 6 else "")
+
+
 def _general_scope(targets: Sequence[ReviewTarget]) -> str:
     counts: dict[str, int] = {}
     for target in targets:
@@ -2597,6 +2638,9 @@ def coverage_units(
         key = (tier, -unit.score, -size(unit.target_ids), paths.get(unit.target_ids[0], ""), unit.target_ids)
         units.append((key, unit))
 
+    # Small files with a risk signal share a call, whatever the signals (the first is the strongest and names the call; the
+    # others are said in it). A unit that carries a rule is never merged: its question is the rule's.
+    packable: dict[int, list[ReviewCandidate]] = {}
     for unit in ridden:
         ids = unit.target_ids
         every_test = all(_file_category(targets[i], facts) == "test" for i in ids if i in targets)
@@ -2604,15 +2648,41 @@ def coverage_units(
             tier = _TIER_RULE
         else:
             tier = _TIER_TEST_SIGNAL if every_test else _TIER_SIGNAL
-        for piece in ai_coverage.chunks(ids, cost, room):
+        for piece_ids in ai_coverage.chunks(ids, cost, room):
+            piece = (
+                unit
+                if len(piece_ids) == len(ids)
+                else replace(unit, target_ids=tuple(piece_ids), scope=_scope_of(piece_ids, targets))
+            )
+            if unit.rule_refs:
+                add(piece, tier)
+            else:
+                packable.setdefault(tier, []).append(piece)
+    for tier, pieces in packable.items():
+        pieces.sort(key=lambda piece: (-piece.score, -size(piece.target_ids), paths.get(piece.target_ids[0], "")))
+        for shared in ai_coverage.pack(
+            pieces, lambda bin_: cost([i for piece in bin_ for i in piece.target_ids]), room
+        ):
+            first = shared[0]
+            joined = tuple(dict.fromkeys(i for piece in shared for i in piece.target_ids))
             add(
                 (
-                    unit
-                    if len(piece) == len(ids)
+                    first
+                    if len(shared) == 1
                     else replace(
-                        unit,
-                        target_ids=tuple(piece),
-                        scope=", ".join(_scope_label(targets[i]) for i in piece if i in targets),
+                        first,
+                        target_ids=joined,
+                        score=max(piece.score for piece in shared),
+                        rationale=tuple(dict.fromkeys(reason for piece in shared for reason in piece.rationale)),
+                        scope=_scope_of(joined, targets),
+                        also=tuple(
+                            dict.fromkeys(
+                                category
+                                for piece in shared
+                                for category in (piece.category, *piece.also)
+                                if category != first.category
+                            )
+                        ),
                     )
                 ),
                 tier,
@@ -3363,7 +3433,7 @@ def _run_independent_review_stages(
             )
             calls_left = max(effective_budget.max_review_calls - calls_before - asked_rules, 0)
             chosen_units = units[: min(1, calls_left) if effort == "quick" else calls_left]
-            direct = tuple(_direct_hypothesis(unit) for unit in chosen_units)
+            direct = tuple(_direct_hypothesis(unit, whole_change=True) for unit in chosen_units)
             hypothesis_limit = min(profile.max_hypotheses, calls_left - len(chosen_units) - 1)
         # One deterministic candidate already has a complete direct hypothesis;
         # a separate synthesis call cannot add breadth and only burns budget. A
@@ -3504,7 +3574,11 @@ def _run_independent_review_stages(
             # The pull request's own diff of these targets, so what the change removed is as visible as what it added.
             change_diff = diff_view.rows(hypothesis_targets) if diff_view is not None else None
             # The author's stated intent, except to the investigations where it must never excuse anything.
-            shown_intent = pr_intent if pr_intent and hypothesis.category not in INTENT_WITHHELD_CATEGORIES else None
+            shown_intent = (
+                pr_intent
+                if pr_intent and not ({hypothesis.category, *hypothesis.also} & INTENT_WITHHELD_CATEGORIES)
+                else None
+            )
             system, prompt = _investigation_prompt(
                 hypothesis,
                 hypothesis_source,
@@ -3525,8 +3599,7 @@ def _run_independent_review_stages(
                 system += _PR_FIELD_RULES + _PR_OTHER_RULES
                 if change_diff:
                     system += _PR_DIFF_RULES
-                if hypothesis.general:
-                    system += _PR_GENERAL_RULES
+                system += _PR_GENERAL_RULES if hypothesis.general else _PR_SPECIFIC_RULES
                 if shown_intent:
                     system += _PR_INTENT_RULES
             outcome = _execute_runtime(

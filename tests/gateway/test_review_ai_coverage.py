@@ -17,6 +17,7 @@ import pytest
 from lemoncrow.pro.capabilities.review import ai_coverage
 from lemoncrow.pro.capabilities.review.ai_review import (
     ReviewCandidate,
+    _direct_hypothesis,
     _validate_hypotheses,
     coverage_units,
     general_review_targets,
@@ -288,6 +289,42 @@ def test_a_risk_signal_keeps_its_own_question_and_takes_its_files_plain_code_alo
     assert len(general) == 1 and general[0].target_ids == ("c",)
 
 
+def test_small_files_with_a_risk_signal_share_a_call_whatever_the_signal_and_the_call_names_them_all() -> None:
+    candidates = [
+        signal("security", "a", score=100),
+        signal("security", "b", score=100),
+        signal("security", "c", score=100),
+        signal("performance", "d", score=72),
+    ]
+    units = units_for(
+        [
+            ("a", "src/auth.py", 300),
+            ("b", "src/token.py", 300),
+            ("c", "src/crypto.py", 300),
+            ("d", "src/cache.py", 300),
+        ],
+        candidates=candidates,
+    )
+    (unit,) = units
+    assert set(unit.target_ids) == {"a", "b", "c", "d"} and not unit.general
+    assert (unit.category, unit.also, unit.score) == ("security", ("performance",), 100)
+    hypothesis = _direct_hypothesis(unit, whole_change=True)
+    assert hypothesis.also == ("performance",) and hypothesis.to_wire()["also_categories"] == ["performance"]
+    assert "performance" in hypothesis.failure_mode.lower() or "hot/query path" in hypothesis.failure_mode
+    # A rule's question is never merged into it.
+    ruled = units_for(
+        [("a", "src/auth.py", 300), ("b", "src/token.py", 300)],
+        candidates=[signal("critical_rule", "a", rule_refs=("rule:critical:r",)), signal("security", "b")],
+    )
+    assert sorted(unit.target_ids for unit in ruled) == [("a",), ("b",)]
+
+
+def test_signal_files_too_big_to_share_a_call_get_one_each() -> None:
+    candidates = [signal("security", "a"), signal("security", "b")]
+    units = units_for([("a", "src/auth.py", 14000), ("b", "src/token.py", 14000)], candidates=candidates, room=4000)
+    assert [unit.target_ids for unit in units] == [("a",), ("b",)]
+
+
 def test_a_rule_question_is_never_diluted_with_plain_code() -> None:
     rule = signal("critical_rule", "a", rule_refs=("rule:r",))
     units = units_for([("a", "src/auth.py", 300), ("b", "src/auth.py", 300)], candidates=[rule])
@@ -538,7 +575,6 @@ def test_a_finding_the_model_files_under_another_category_than_the_question_is_k
 
 
 def test_a_second_defect_in_the_same_targets_is_reported_as_a_finding_of_its_own(world: World) -> None:
-    world.model.report_all = True
     world.origin.push(
         {"src/bank.py": BANK_NEW + "# BUG: lets a withdrawal overdraw the account\n# BUG: accepts a negative amount\n"}
     )
@@ -603,3 +639,46 @@ def test_a_short_budget_is_spent_on_production_code_before_test_code(
     report = world.review()
     assert world.model.files_seen() == ["src/bank.py"]
     assert report.verdict is not None and report.verdict.headline == "Partially reviewed: 1 of 2 changed areas examined"
+
+
+def test_a_risk_signal_is_a_lens_on_the_general_question_in_a_pull_request_and_the_whole_question_in_the_reader(
+    world: World,
+) -> None:
+    """A model asked only about performance answers about performance, and a wrong result it noticed on the way never
+    reaches the page. In a pull request the specific concern is where to look first; the question stays the general one.
+    """
+
+    world.origin.push({"src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = [value]\n"})
+    world.review()
+    call = next(call for call in world.model.calls if "src/cache.py" in call["paths"])
+    hypothesis = call["prompt"]["hypothesis"]["value"]
+    assert call["category"] == "performance" and not call["general"]
+    assert "may introduce a defect" in hypothesis["failure_mode"], "the general question first"
+    assert "specific concern" in hypothesis["failure_mode"] and "unbounded" in hypothesis["failure_mode"]
+    assert "also read the change as a careful reviewer would" in call["system"].replace("\n", " ")
+    # The Reader's hypothesis for the same candidate is exactly the specific one it always was.
+    candidate = ReviewCandidate("performance", ("t",), 72, ("a reason",), "src/cache.py:1-2")
+    reader = _direct_hypothesis(candidate)
+    assert "may introduce a defect" not in reader.failure_mode and reader.failure_mode.startswith("The identifiable")
+    assert _direct_hypothesis(candidate, whole_change=True).id != reader.id
+
+
+def test_files_with_different_risk_signals_share_a_call_and_each_risk_still_reads_examined_for_its_own_category(
+    world: World,
+) -> None:
+    world.origin.push(
+        {
+            "src/auth.py": "def authorize(user):\n    return bool(user) and user.is_admin\n",
+            "src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = (value,)\n",
+        }
+    )
+    report = world.review()
+    (call,) = world.model.calls
+    assert sorted(call["paths"]) == ["src/auth.py", "src/cache.py"] and call["category"] == "security"
+    assert call["prompt"]["hypothesis"]["value"]["also_categories"] == ["performance"]
+    body = world.github.summary_comments()[0]["body"]
+    assert report.verdict is not None and report.verdict.headline == "No must-fix findings"
+    assert "Risks examined: 2 of 2" in body and "not investigated yet" not in body
+    rows = [row for row in body.split("\n") if row.startswith("- **Examined, nothing found**")]
+    assert any("`src/auth.py" in row and "security" in row for row in rows)
+    assert any("`src/cache.py" in row and "performance" in row for row in rows)

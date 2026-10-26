@@ -35,6 +35,7 @@ from tests.gateway.pr_bot_support import (
     TOKEN_BUGGY,
     World,
     build_world,
+    one_call_per_file,
 )
 
 
@@ -568,6 +569,7 @@ def test_the_hard_call_cap_still_bounds_the_review(world: World, monkeypatch: py
 def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # The repository asks for Quick (depth auto follows review.effort). Quick spends one call: it looks at the
     # highest-ranked work and says the rest is pending. It must never read as a clean review.
     base = {
@@ -594,6 +596,7 @@ def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
 def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_later_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # The hard cap on model calls is 2 here. With three risk candidates the third is not looked at, and the summary
     # must not let that read as reviewed; the next push competes for the cap again, then nothing is owed.
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
@@ -632,6 +635,7 @@ def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_l
 def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_on: str
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # R2: three risk signals, the call cap allows two, nothing is found. That is "I looked at two of three and saw
     # nothing", which must not read as "No must-fix findings" in the headline or on the green check.
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
@@ -668,6 +672,7 @@ def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
 
 
 def test_a_found_p0_still_reads_as_a_p0_on_a_partial_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "3")  # the rule's own check, then two investigations
     base = {**BASE, "src/token.py": "def verify(token):\n    return True\n", ".lemoncrow/review.yaml": RULE}
     world = build_world(tmp_path, monkeypatch, base)

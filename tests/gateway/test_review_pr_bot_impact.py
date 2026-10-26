@@ -21,7 +21,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.impact import Impact, RiskRow, assess, risk_rows, signals_for
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state, with_state
 from tests.gateway.pr_bot_noise_support import CONFIG, clear_noise_env, review_yaml
-from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, FIRST_PUSH, World, build_world
+from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, FIRST_PUSH, World, build_world, one_call_per_file
 
 ADVISORY = "rule:advisory:trusted_base_repository:style@sha256:" + "a" * 64
 CRITICAL = "rule:trusted_base_repository:no-bug-markers@sha256:" + "b" * 64
@@ -501,6 +501,7 @@ def test_no_word_a_model_wrote_reaches_the_label_or_the_list_and_its_rating_chan
 def test_the_risks_list_agrees_with_what_was_found_cleared_and_left_pending(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # Three risk signals; the call cap allows two investigations (the two security ones), so the performance one waits.
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     world.origin.push({"src/auth.py": AUTH_BUGGY, "src/token.py": TOKEN_CLEAN, "src/cache.py": CACHE_CLEAN})
@@ -545,6 +546,7 @@ def test_a_clean_review_keeps_its_receipt_and_adds_the_named_list(world: World) 
 def test_more_than_seven_risks_are_cut_with_a_count_of_the_rest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     # The hard cap on model calls leaves two of the nine signals investigated (Auto otherwise looks at all of them).
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     many = build_world(tmp_path, monkeypatch, {**BASE, **{f"src/auth/m{i}.py": "VALUE = 1\n" for i in range(9)}})

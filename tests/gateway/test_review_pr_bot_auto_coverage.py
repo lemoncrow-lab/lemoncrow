@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.gateway.pr_bot_support import BASE, World, build_world
+from tests.gateway.pr_bot_support import BASE, World, build_world, one_call_per_file
 
 SIGNAL_OLD = "def check(token):\n    return True\n"
 SIGNAL_NEW = "def check(token):\n    return token is not None\n"
@@ -24,11 +24,13 @@ def signal_files(count: int, text: str) -> dict[str, str]:
 
 
 def world_with(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signals: int) -> World:
+    one_call_per_file(monkeypatch)  # these tests count calls against the cap; the batching has tests of its own
     return build_world(tmp_path, monkeypatch, {**BASE, **signal_files(signals, SIGNAL_OLD)})
 
 
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    one_call_per_file(monkeypatch)
     return build_world(tmp_path, monkeypatch, {**BASE, "src/token.py": "def verify(token):\n    return True\n"})
 
 
@@ -132,3 +134,18 @@ def test_an_explicit_depth_goes_beyond_auto_and_never_below_it(tmp_path: Path, m
     assert paths[0] == "(synthesis)"
     assert {"src/token/m0.py", "src/token/m1.py", "src/token/m2.py"} <= set(world.model.files_seen())
     assert len(paths) > 3 + 1, "the proposed hypotheses are investigated on top of the coverage"
+
+
+def test_small_files_with_a_risk_signal_of_one_category_share_a_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Twelve tiny files that all carry a security signal are one question, not twelve; the order is the same."""
+
+    world = build_world(tmp_path, monkeypatch, {**BASE, **signal_files(12, SIGNAL_OLD)})
+    world.origin.push(signal_files(12, SIGNAL_NEW))
+    report = world.review()
+    assert len(world.model.calls) <= 2, "twelve small files, one category"
+    assert len(world.model.files_seen()) == 12 and {call["category"] for call in world.model.calls} == {"security"}
+    assert report.verdict is not None and report.verdict.headline == "No must-fix findings"
+    body = world.github.summary_comments()[0]["body"]
+    assert "Risks examined: 12 of 12" in body and "not investigated yet" not in body

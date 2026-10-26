@@ -677,17 +677,20 @@ def test_only_the_pull_request_review_scales_auto_to_the_risk_signals_of_a_small
     """Three risk signals: the pull request review (``pr_fields``) investigates each; every other caller is unchanged."""
 
     seen: dict[bool, list[str]] = {}
+    covered: list[str] = []
     for pr_fields in (False, True):
         case = tmp_path / f"pr-fields-{pr_fields}"
         case.mkdir()
         store, revision = _store(case)
         schemas: list[str] = []
 
-        def execute(_schemas: list[str] = schemas, **kwargs: Any) -> StructuredExecution:
+        def execute(_schemas: list[str] = schemas, _pr: bool = pr_fields, **kwargs: Any) -> StructuredExecution:
             if kwargs["output_schema"] == HYPOTHESIS_SCHEMA:
                 _schemas.append("synthesis")
                 return _execution({"hypotheses": [_hypothesis(t) for t in ("target-a", "target-b")]})
             _schemas.append("investigation")
+            if _pr:
+                covered.extend(json.loads(kwargs["prompt"])["hypothesis"]["value"]["target_ids"])
             return _execution(
                 {
                     "status": "not_confirmed",
@@ -715,7 +718,9 @@ def test_only_the_pull_request_review_scales_auto_to_the_risk_signals_of_a_small
         seen[pr_fields] = schemas
         assert result.candidates == 3
     assert sorted(seen[False]) == ["investigation", "investigation", "synthesis"], "the Reader's Auto: group, then two"
-    assert seen[True] == ["investigation"] * 3, "the pull request review: one each, no grouping call"
+    # The pull request review looks at all three signals, with no grouping call: the three small files share one call.
+    assert seen[True] == ["investigation"], "the pull request review: all three in one batched call, no grouping call"
+    assert covered == ["target-a", "target-b", "target-c"]
 
 
 def _hypothesis(target: str) -> dict[str, Any]:
