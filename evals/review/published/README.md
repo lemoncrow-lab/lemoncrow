@@ -72,9 +72,45 @@ from).
 
 A finished run is merged with `--from-run`. The file must be JSON with a top-level `benchmark_summary` object holding
 exactly the published block's fields above, less `status`, `measured_by`, `scored_by` and `run_report`, which the importer
-adds. The rest of the file is the raw report; it is copied unchanged to
+adds. `lc dev eval review golden-score` writes that object into its report (below). The rest of the file is the raw report; it is copied unchanged to
 `runs/lemoncrow-<date>.json` (or `runs/rescored-<tool id>-<date>.json`), linked from the table and fingerprinted. A file
 already there is never overwritten. The importer validates the merged result first and writes nothing if it fails.
+
+### Where the summary comes from
+
+`lc dev eval review golden-score` writes the `benchmark_summary` into its JSON report; nobody types one. It is written
+when, and only when, the scoring is publishable, and every value in it is read from the report:
+
+| Field | Taken from |
+| --- | --- |
+| `precision`, `recall`, `f_score` | the strict counts (true positives, false positives, false negatives), as percentages with two decimals; a comment that matched only a Low golden comment is neutral and in no count |
+| `counts` | `tool_comments_scored` is true plus false positives, `tool_comments_matched` the true positives, `golden_scored` the counted golden comments, `golden_matched` those minus the missed ones |
+| `date`, `prs_reviewed`, `answer_key_commit` | the date of the score report (UTC), the pull requests scored, the answer key's pinned commit |
+| `judge` | the judge's model, and the full SHA-256 of its fixed prompt (the report's `prompt_digest` is the first 16 hex of it) |
+| `review` | the benchmark report's model and driver (`route`), and the depth that was scored |
+| `engine` | `commit` is the git head the benchmark ran on (as the benchmark recorded it); `version` is the LemonCrow version that scored the report |
+| `cost` | the report's `cost` block: median and total dollars and model calls over the pull requests |
+
+A report of another tool's comments is a `competitor_rescored` row. The command cannot know which tool the comments are or
+where they came from, so you say so, with `--tool-id` (a `third_party[].id`), `--tool-name` (that row's `tool`, spelled the
+same), `--comments-description`, `--comments-url` (https) and `--comments-collected-on` (YYYY-MM-DD). Without all five the
+summary is left out and the report names the missing options. They are refused with `--report`.
+
+**It is left out** (the JSON has no `benchmark_summary`, carries `benchmark_summary_omitted` with the reason, and the
+Markdown report says it in one sentence under "Ready to publish") when any of these holds:
+
+- a pull request of the corpus was not scored, the run was limited with `--pr`, or a review was partial (for another tool's
+  comments, a truncated page that hid some of them is a partial review);
+- the judge was not the fixed one, or the report does not carry the full digest of its prompt;
+- for LemonCrow's reviews: the benchmark was not a live provider run, the findings were counted at a finding threshold
+  other than the product's default, a review's cost is unknown (a missing cost is not zero), or the report does not name
+  the review's model and route or the git commit it ran on;
+- precision or recall is undefined (no comment scored, or no golden comment counted), or the report's counts do not add up;
+- for another tool's comments: any of the five options is missing or malformed.
+
+The importer then checks the rest against this file: the pull-request count, the pinned answer key and the rounding. A
+report made before the command wrote these fields has no summary; score it again (`--cached-only` answers from the judge
+cache, so it makes no model call).
 
 A raw report holds real model output. Whether one is published is a decision for the person who commits it; this
 directory is mirrored to the public repository.

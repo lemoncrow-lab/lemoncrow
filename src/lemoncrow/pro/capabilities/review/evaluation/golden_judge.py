@@ -105,10 +105,16 @@ def schema_digest() -> str:
     return hashlib.sha256(json.dumps(JUDGE_SCHEMA, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def prompt_digest() -> str:
-    """A digest of the fixed prompt text and schema: reported, so a changed prompt cannot hide behind the same version."""
+def full_prompt_digest() -> str:
+    """The full SHA-256 (64 hex) of the fixed prompt text and schema: what a published result names as its judge prompt."""
 
-    return hashlib.sha256((JUDGE_SYSTEM + schema_digest()).encode()).hexdigest()[:16]
+    return hashlib.sha256((JUDGE_SYSTEM + schema_digest()).encode()).hexdigest()
+
+
+def prompt_digest() -> str:
+    """The first 16 hex of :func:`full_prompt_digest`: reported, so a changed prompt cannot hide behind the same version."""
+
+    return full_prompt_digest()[:16]
 
 
 def request_digest(request: JudgeRequest, *, driver: str = JUDGE_DRIVER, model: str = JUDGE_MODEL) -> str:
@@ -234,6 +240,7 @@ class CachedJudge:
             "model": self._model,
             "prompt_version": JUDGE_PROMPT_VERSION,
             "prompt_digest": prompt_digest(),
+            "prompt_sha256": full_prompt_digest(),
         }
 
     def has(self, request: JudgeRequest) -> bool:
@@ -386,6 +393,7 @@ __all__ = [
     "RawAnswer",
     "check_pairs",
     "default_judge",
+    "full_prompt_digest",
     "prompt_digest",
     "request_digest",
 ]

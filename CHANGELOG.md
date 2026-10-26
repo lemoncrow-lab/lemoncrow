@@ -86,6 +86,15 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   commit and never invents one. Live runs need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, stop
   at `--max-usd` and refuse CI. Nothing is measured yet. See
   [Review benchmark on real pull requests](docs/reference/review-benchmark.md).
+- **`golden-score` writes the run summary the published benchmark table imports.** When every pull request
+  of the corpus was scored, no review was partial, the reviews were a live provider run and every cost is
+  known, the JSON report of `lc dev eval review golden-score` carries a `benchmark_summary` (precision, recall
+  and F from the strict counts, the counts behind them, the judge's full prompt digest, the review's model,
+  route and depth, the engine and the cost), so `make benchmark-publish RUN=<report>` takes the report as it
+  is. Otherwise the summary is left out and the report says why. Another reviewer's comments become the
+  table's rescored row only with `--tool-id`, `--tool-name`, `--comments-description`, `--comments-url` and
+  `--comments-collected-on`; comments a truncated page hid now make that review partial. See
+  [Published code-review benchmark results](evals/review/published/README.md).
 - **AI review of a change that has no pull request, and a git hook for it.** `lc review --ai` with
   no `--pr` reviews the working tree, `--staged`, a revision or `--base`/`--head` on your own model key
   (or a local agent CLI) and posts nothing: the same engine path, findings and severity as the

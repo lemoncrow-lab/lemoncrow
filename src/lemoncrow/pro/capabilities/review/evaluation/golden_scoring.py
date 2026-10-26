@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from lemoncrow.pro.capabilities.review.evaluation.benchmark_summary import publishing_line
 from lemoncrow.pro.capabilities.review.evaluation.golden_comments import (
     GOLDEN_SEVERITIES,
     GoldenComment,
@@ -215,7 +216,8 @@ def load_reviewer_comments(directory: Path, pr_ids: Sequence[str]) -> dict[str, 
         stated = extraction.get("stated_comments")
         if extraction.get("page_truncated") and isinstance(stated, int) and stated > len(comments):
             note = f"the page was truncated: {len(comments)} of {stated} comments could be read"
-        out[pr_id] = Submission(comments=tuple(comments), note=note)
+        # Some of the reviewer's comments were never read, so its score here is a lower bound: a partial review.
+        out[pr_id] = Submission(comments=tuple(comments), complete=not note, note=note)
     return out
 
 
@@ -615,6 +617,10 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"{judge['answered_from_cache']} answered from the cache, {judge['asked_now']} asked now "
         f"({judge['cost_now']['calls']} calls, {_usd(judge['cost_now']['usd'])}). {judge['ignored_pairs']} judge pairs named an unknown id and were ignored.",
         f"* Rule: {report['rule']}",
+    ]
+    if publishing := publishing_line(report, run=f"<out-dir>/{report['name']}.json"):
+        lines.append(f"* {publishing}")
+    lines += [
         "",
         "Precision, recall and F are percentages. `lenient` counts a comment that repeats an issue another comment already "
         "caught as a true positive instead of a false positive.",
