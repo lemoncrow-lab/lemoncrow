@@ -6,12 +6,13 @@ Nothing here is real: the titles and comments are invented, the commits are fake
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 
 IDENTITY = {
     "GIT_AUTHOR_NAME": "T",
@@ -44,7 +45,7 @@ KEY: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env={**os.environ, **IDENTITY}
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=git_environment(IDENTITY)
     ).stdout.strip()
 
 

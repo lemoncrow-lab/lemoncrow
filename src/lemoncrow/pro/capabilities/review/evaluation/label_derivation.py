@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 from lemoncrow.pro.capabilities.review.repo_context import is_test_path
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -73,7 +74,12 @@ class DerivationError(RuntimeError):
 
 def _git(repo: Path, *args: str) -> str:
     completed = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False, timeout=600
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=600,
+        env=git_environment(),
     )
     if completed.returncode != 0:
         raise DerivationError(f"git {' '.join(args[:3])} failed: {completed.stderr.strip()[:300]}")

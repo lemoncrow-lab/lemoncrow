@@ -66,6 +66,7 @@ from lemoncrow.pro.capabilities.review.evaluation.scoring import (
     compare_reviewers,
     match_labels,
 )
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 
 SCHEMA: Final[int] = 1
@@ -561,7 +562,7 @@ def git(
         cwd=repo,
         input=input_bytes,
         capture_output=True,
-        env={**os.environ, **_GIT_IDENTITY, **(env or {})},
+        env=git_environment({**_GIT_IDENTITY, **(env or {})}),
         timeout=900,
         check=False,
     )
@@ -595,7 +596,11 @@ class Workspace:
 
     def has(self, sha: str) -> bool:
         completed = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=self.repo, capture_output=True, check=False
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            cwd=self.repo,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
         )
         return completed.returncode == 0
 

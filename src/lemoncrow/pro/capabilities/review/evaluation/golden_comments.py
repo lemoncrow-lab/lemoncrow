@@ -31,6 +31,7 @@ import yaml
 
 from lemoncrow.pro.capabilities.review.evaluation.corpus import CorpusError
 from lemoncrow.pro.capabilities.review.evaluation.real_prs import RealPrCorpus, load_real_pr_corpus
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 
 GOLDEN_SEVERITIES: Final[tuple[str, ...]] = ("Critical", "High", "Medium", "Low")
 #: Severities that count as neither a true positive, a false negative nor a false positive.
@@ -179,7 +180,12 @@ def load_golden_corpus(path: Path, *, pr_ids: Sequence[str] = (), repository_roo
 def _git(root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True, text=True, check=False, timeout=300
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=300,
+            env=git_environment(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise GoldenError(f"git {' '.join(args[:2])} failed in {root}: {exc}") from exc
@@ -255,6 +261,7 @@ def open_golden_key(source: GoldenSource, directory: Path | None, *, cache_root:
                     text=True,
                     check=True,
                     timeout=600,
+                    env=git_environment(),
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 detail = getattr(exc, "stderr", "") or str(exc)

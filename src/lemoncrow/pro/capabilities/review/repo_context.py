@@ -1270,12 +1270,15 @@ def old_source_reader(store: Any, revision: Any, repo_root: Path) -> Callable[[s
             return None
         import subprocess
 
+        from lemoncrow.pro.capabilities.review.git_env import git_environment
+
         try:
             completed = subprocess.run(
                 ["git", "-C", str(repo_root), "show", f"{base}:{path}"],
                 capture_output=True,
                 check=False,
                 timeout=20,
+                env=git_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             return None
