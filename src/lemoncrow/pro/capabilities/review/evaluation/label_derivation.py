@@ -10,6 +10,10 @@ request with several commits), it does three mechanical things:
 3. keeps only source files (not tests, docs or changelogs), and lists the identifiers on the lines F touched as
    *candidate* symbols for a person to trim to the distinctive ones.
 
+A fix that edits far more than the reviewed change added would otherwise label code the pull request never touched.
+``within_change`` keeps only the fix sites that overlap lines the reviewed change itself added or changed (still
+mechanical: it is the diff between the base and the reviewed head), and says so in the label's derivation text.
+
 Whether B really introduced the bug is the part git cannot decide. The evidence is one of: F's message names B (or B's
 pull request), or ``git blame`` attributes F's removed lines to B's commits. The label records which
 (``attribution``); a case where neither holds is not a case.
@@ -144,6 +148,7 @@ class Derivation:
     symbols: tuple[str, ...]
     attribution: str
     notes: tuple[str, ...] = field(default_factory=tuple)
+    within_change: bool = False
 
     def label(self, label_id: str, symbols: Sequence[str] | None = None) -> dict[str, Any]:
         """The ``labels:`` entry for a corpus file, with *symbols* (default: the candidates) as chosen by a person."""
@@ -160,15 +165,23 @@ class Derivation:
                 "derivation": (
                     "lines the fix edited, taken at the fix's parent and mapped back to the reviewed head "
                     "(git diff head..parent); fix_site regions are where the fix edited"
+                    + (
+                        ", kept only where the reviewed change itself added or changed the line"
+                        if self.within_change
+                        else ""
+                    )
                 ),
             },
         }
 
 
-def derive_label(repo: Path, fix: str, introduced: str, *, head: str | None = None, pull: int = 0) -> Derivation:
+def derive_label(
+    repo: Path, fix: str, introduced: str, *, head: str | None = None, pull: int = 0, within_change: bool = False
+) -> Derivation:
     """Derive the label for *fix* fixing a bug that *introduced* shipped. *repo* needs the history between them.
 
     *pull* is the introducing pull request's number: a fix message that says "introduced in #N" names it.
+    *within_change* keeps only fix sites that overlap lines the reviewed change (base..head) added or changed.
     """
 
     fix_sha = _git(repo, "rev-parse", f"{fix}^{{commit}}").strip()
@@ -197,6 +210,13 @@ def derive_label(repo: Path, fix: str, introduced: str, *, head: str | None = No
         if not is_source_path(old_path):
             continue
         drift = next(iter(_hunks(repo, reviewed, parent, old_path).values()), [])
+        added: list[tuple[int, int]] = []
+        if within_change:
+            added = [
+                (new_start, new_start + new_count - 1)
+                for _o, _oc, new_start, new_count in next(iter(_hunks(repo, base, reviewed, old_path).values()), [])
+                if new_count > 0
+            ]
         for old_start, old_count, _new_start, _new_count in hunks:
             kind = "insertion" if old_count == 0 else "changed"
             first, last = (
@@ -209,6 +229,9 @@ def derive_label(repo: Path, fix: str, introduced: str, *, head: str | None = No
                     f"{old_path}:{first}-{last}: changed between the reviewed head and the fix's parent; skipped"
                 )
                 continue
+            if within_change and not any(low <= max(kept) and min(kept) <= high for low, high in added):
+                notes.append(f"{old_path}:{min(kept)}-{max(kept)}: not on a line the reviewed change added; skipped")
+                continue
             in_change = 0
             if kind == "changed":
                 blame = _git(repo, "blame", "--porcelain", "-L", f"{first},{last}", parent, "--", old_path)
@@ -218,7 +241,11 @@ def derive_label(repo: Path, fix: str, introduced: str, *, head: str | None = No
                 blamed_to_change += in_change
             regions.append(DerivedRegion(old_path, min(kept), max(kept), kind, in_change))
     if not regions:
-        raise DerivationError("the fix edits no source line that is still as it was in the reviewed head")
+        raise DerivationError(
+            "the fix edits no source line that the reviewed change added and that is still as it was in the reviewed head"
+            if within_change
+            else "the fix edits no source line that is still as it was in the reviewed head"
+        )
     names = {introduced_sha[:7], introduced_sha[:10], introduced_sha}
     named = any(name in message for name in names) or bool(pull and re.search(rf"(?<![\w#]){'#'}{pull}(?!\d)", message))
     if not named and blamed_to_change == 0:
@@ -239,6 +266,7 @@ def derive_label(repo: Path, fix: str, introduced: str, *, head: str | None = No
         symbols=candidate_symbols(repo, parent, fix_sha),
         attribution=attribution,
         notes=tuple(notes),
+        within_change=within_change,
     )
 
 

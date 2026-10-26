@@ -17,7 +17,7 @@ Format::
 
     version: 1
     id: real-prs-public
-    visibility: public            # public | organization (a customer's PRs: outside the checkout, opt-in)
+    visibility: public            # public | private (not mirrored; any licence) | organization (a customer's PRs: opt-in)
     line_tolerance: 3
     match: either                 # location | symbol | either
     prs:
@@ -431,7 +431,9 @@ def parse_pr(raw: object, *, where: str, visibility: CorpusVisibility) -> tuple[
     base = _sha(raw, "base_sha", where, problems)
     head = _sha(raw, "head_sha", where, problems)
     if provenance is not None:
-        allowed = {"public": {"synthetic", "public_repository"}}.get(visibility)
+        allowed = {"public": {"synthetic", "public_repository"}, "private": {"synthetic", "public_repository"}}.get(
+            visibility
+        )
         if allowed is not None and provenance.source not in allowed:
             problems.append(f"{where}: provenance {provenance.source} is not allowed in a {visibility} corpus")
         if (
@@ -525,8 +527,8 @@ def load_real_pr_corpus(
     if manifest.get("version") != CORPUS_VERSION:
         problems.append(f"{resolved.name}: version must be {CORPUS_VERSION}")
     visibility = manifest.get("visibility")
-    if visibility not in ("public", "organization"):
-        raise CorpusError(f"{resolved}: visibility must be public or organization")
+    if visibility not in ("public", "private", "organization"):
+        raise CorpusError(f"{resolved}: visibility must be public, private or organization")
     organization = ""
     opt_in: OrganizationOptIn | None = None
     if visibility == "organization":

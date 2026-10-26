@@ -50,6 +50,9 @@ benchmarks/
 # Built-in Review evaluation corpus (synthetic, Apache-2.0), fixtures and Gate I
 # baseline. Organization corpora are never committed (tests enforce it).
 evals/review/
+# The seeded-bug corpus of repositories a public corpus may not carry (copyleft or source-available licences): commit
+# ids and fix subjects only, `visibility: private`; its reports go outside the checkout.
+!evals/review/seeded_public_bugs_nonpermissive.yaml
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
