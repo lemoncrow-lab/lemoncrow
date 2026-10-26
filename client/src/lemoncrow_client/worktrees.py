@@ -68,11 +68,11 @@ class WorktreeCatalog:
         self._at = float("-inf")
         self._lock = threading.Lock()
 
-    def entries(self) -> tuple[LinkedWorktree, ...]:
-        """Every checkout git worktree list reports, this session's included."""
+    def entries(self, *, refresh: bool = False) -> tuple[LinkedWorktree, ...]:
+        """List registered checkouts, refreshing early when a new worktree is detected."""
         with self._lock:
             now = time.monotonic()
-            if now - self._at >= _CATALOG_TTL_S:
+            if refresh or now - self._at >= _CATALOG_TTL_S:
                 self._entries = _git_worktrees(self._repo_root)
                 self._at = now
             return self._entries
@@ -140,11 +140,17 @@ class WorktreeCatalog:
     def _checkout_of(self, path: Path) -> tuple[bool, LinkedWorktree | None]:
         """Return (is registered checkout path, linked worktree-or-main)."""
         resolved = _resolve(path)
-        best: LinkedWorktree | None = None
-        for entry in self.entries():
-            if resolved == entry.root or entry.root in resolved.parents:
-                if best is None or len(entry.root.parts) > len(best.root.parts):
-                    best = entry
+        best = _matching_checkout(resolved, self.entries())
+        # A new worktree may have appeared since the last `git worktree list`.
+        # In particular, an in-repo worktree would otherwise match the MAIN
+        # checkout and an external worktree would match nothing. Its `.git`
+        # *file* is a cheap, local signal to refresh the catalog immediately.
+        # Git's worktree list, not that file, remains the authority: unrelated
+        # repos and forged markers never become writable destinations.
+        if _has_unlisted_worktree_marker(resolved, best) or (
+            best is not None and best.root != self._repo_root and not (best.root / ".git").is_file()
+        ):
+            best = _matching_checkout(resolved, self.entries(refresh=True))
         if best is None:
             return False, None
         return True, None if best.root == self._repo_root else best
@@ -193,6 +199,26 @@ class WorktreeCatalog:
             return raw
         relative = PurePosixPath(*resolved.relative_to(worktree.root).parts) if resolved != worktree.root else "."
         return f"{relative}{suffix}"
+
+
+def _matching_checkout(path: Path, entries: tuple[LinkedWorktree, ...]) -> LinkedWorktree | None:
+    """Prefer the deepest registered checkout (linked checkouts may be nested)."""
+    best: LinkedWorktree | None = None
+    for entry in entries:
+        if path == entry.root or entry.root in path.parents:
+            if best is None or len(entry.root.parts) > len(best.root.parts):
+                best = entry
+    return best
+
+
+def _has_unlisted_worktree_marker(path: Path, best: LinkedWorktree | None) -> bool:
+    """Detect a nested/new linked checkout without trusting unregistered paths."""
+    for directory in (path, *path.parents):
+        if best is not None and directory == best.root:
+            break
+        if (directory / ".git").is_file():
+            return True
+    return False
 
 
 def _spans(targets: Mapping[Path, LinkedWorktree | None]) -> ClientError:
