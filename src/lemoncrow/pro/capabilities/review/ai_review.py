@@ -8,6 +8,7 @@ Review annotations with source="ai_review".
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import logging
@@ -16,6 +17,7 @@ import re
 import tempfile
 import threading
 from collections.abc import Callable, Collection, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -333,9 +335,6 @@ class EffortProfile:
     max_investigations: int
     synthesize_hypotheses: bool
     semantic_dedupe: bool
-    #: A pull request review past its first wave of batches stops at the first round that comes back clean
-    #: (:func:`ai_coverage.run_rounds`). ``deep`` is the depth a person asks for to cover everything the cap allows.
-    stop_on_clean_tail: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,7 +460,7 @@ _EFFORT_PROFILES: dict[ReviewEffort, EffortProfile] = {
     # synthesis call before at most two investigations.
     "auto": EffortProfile(2, 2, True, False),
     "thorough": EffortProfile(4, 4, True, True),
-    "deep": EffortProfile(8, 8, True, True, stop_on_clean_tail=False),
+    "deep": EffortProfile(8, 8, True, True),
 }
 
 #: Candidate score of a general look at changed code that carries no risk signal: under every deterministic signal
@@ -731,21 +730,12 @@ DEDUPE_SCHEMA: dict[str, Any] = {
 
 
 DUPLICATES_ENV = "LEMONCROW_REVIEW_DUPLICATE_CHECK"
-TAIL_STOP_ENV = "LEMONCROW_REVIEW_TAIL_STOP"
 
 
 def duplicate_check_enabled(env: Mapping[str, str] | None = None) -> bool:
     """On unless ``LEMONCROW_REVIEW_DUPLICATE_CHECK`` is ``0``, ``false``, ``off`` or ``no``: a pull request review's repeat check."""
 
     raw = (os.environ if env is None else env).get(DUPLICATES_ENV, "").strip().lower()
-    return raw not in {"0", "false", "off", "no"}
-
-
-def tail_stop_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """On unless ``LEMONCROW_REVIEW_TAIL_STOP`` is ``0``, ``false``, ``off`` or ``no``: a pull request review stops at the
-    first round of batches past its first wave that comes back clean, instead of covering the whole tail."""
-
-    raw = (os.environ if env is None else env).get(TAIL_STOP_ENV, "").strip().lower()
     return raw not in {"0", "false", "off", "no"}
 
 
@@ -3772,26 +3762,17 @@ def _run_independent_review_stages(
                     checked.append(item)
             return status, tuple(checked), outcome
 
-        # The batches of the change (the units) run best ranked first: the first wave together, then, past it, in rounds
-        # that stop at the first one to come back clean. What the model proposed after the synthesis always runs.
-        unit_ids = {hypothesis.id for hypothesis in direct}
-        by_unit = [hypothesis for hypothesis in hypotheses if hypothesis.id in unit_ids]
-        proposed = [hypothesis for hypothesis in hypotheses if hypothesis.id not in unit_ids]
-        workers = max(min(len(hypotheses), profile.max_investigations, ai_coverage.MAX_PARALLEL_CALLS), 1)
-        investigated = ai_coverage.run_rounds(
-            by_unit,
-            investigate,
-            empty=lambda item: item[0] == "not_confirmed" and not item[1],
-            stop_on_clean=pr_fields and profile.stop_on_clean_tail and tail_stop_enabled(),
-            protected=next((index for index, row in enumerate(by_unit) if not row.rule_refs), len(by_unit)),
-            workers=workers,
-        )
-        # A unit the tail stopped short of was not asked about: it stays pending, and the next run competes for it.
-        by_unit = by_unit[: len(investigated)]
-        investigated += ai_coverage.run_rounds(
-            proposed, investigate, empty=lambda _item: False, stop_on_clean=False, workers=workers
-        )
-        hypotheses = (*by_unit, *proposed)
+        investigated: list[tuple[str, tuple[ConfirmedFinding, ...], IntelligenceRunOutcome]] = []
+        if len(hypotheses) <= 1:
+            investigated = [investigate(hypothesis) for hypothesis in hypotheses]
+        else:
+            # Each investigation runs in a copy of this context (a bound intelligence policy holds).
+            contexts = [contextvars.copy_context() for _ in hypotheses]
+            workers = min(len(hypotheses), profile.max_investigations, ai_coverage.MAX_PARALLEL_CALLS)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                investigated = list(
+                    pool.map(lambda pair: pair[0].run(investigate, pair[1]), zip(contexts, hypotheses, strict=True))
+                )
 
         outcomes.extend(item[2] for item in investigated)
         if repo_ctx is not None:

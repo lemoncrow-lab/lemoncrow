@@ -55,7 +55,7 @@ def test_a_small_change_has_every_risk_signal_examined_and_reads_clean(world: Wo
     assert "not investigated yet" not in world.github.summary_comments()[0]["body"]
 
 
-@pytest.mark.parametrize("signals", [3, 6])
+@pytest.mark.parametrize("signals", [3, 6, 12])
 def test_every_signal_gets_an_investigation_while_the_calls_fit_the_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signals: int
 ) -> None:
@@ -70,7 +70,6 @@ def test_a_change_whose_calls_do_not_fit_the_hard_cap_keeps_the_highest_ranked_a
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     signals = 25  # the hard cap on model calls is 20
-    monkeypatch.setenv("LEMONCROW_REVIEW_TAIL_STOP", "off")  # this test is about the cap, not about a clean tail
     world = world_with(tmp_path, monkeypatch, signals)
     world.origin.push(signal_files(signals, SIGNAL_NEW))
     report = world.review()
@@ -79,84 +78,6 @@ def test_a_change_whose_calls_do_not_fit_the_hard_cap_keeps_the_highest_ranked_a
     assert report.verdict is not None and (report.verdict.state, report.verdict.headline) == ("partial", headline)
     assert report.status == ("success", headline), "partial stays a pass that says what it covered"
     assert f"{signals - 20} risk signals not investigated yet" in world.github.summary_comments()[0]["body"]
-
-
-# The batches are ranked by how likely they are to hold a defect. The first six run together; past them the change is
-# covered in rounds of three, and the first round to come back clean ends the run: what is ranked below it is pending.
-# The path sort puts the twelve files in the order m0 m1 m10 m11 m2 m3 | m4 m5 m6 | m7 m8 m9.
-
-
-def test_a_clean_tail_ends_the_review_after_the_first_wave_and_one_clean_round_and_says_what_is_left(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    signals = 12
-    world = world_with(tmp_path, monkeypatch, signals)
-    world.origin.push(signal_files(signals, SIGNAL_NEW))
-    report = world.review()
-    assert len(world.model.paths()) == 9 and "(synthesis)" not in world.model.paths()
-    headline = f"Partially reviewed: 9 of {signals} risk signals examined"
-    assert report.verdict is not None and (report.verdict.state, report.verdict.headline) == ("partial", headline)
-    assert report.status == ("success", headline), "a partial review is a pass that says what it covered"
-    assert f"{signals - 9} risk signals not investigated yet" in world.github.summary_comments()[0]["body"]
-    # The three left compete for the next run, which is small enough to cover them all.
-    reviewed = set(world.model.files_seen())
-    world.model.reset()
-    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
-    done = world.review()
-    left = {path for path in world.model.files_seen() if path != "src/plain.py"}
-    assert len(left) == 3 and not left & reviewed
-    assert done.verdict is not None and done.verdict.state == "clean"
-
-
-def test_a_round_that_finds_something_keeps_the_review_going_to_the_end_of_the_change(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    signals = 12
-    world = world_with(tmp_path, monkeypatch, signals)
-    files = signal_files(signals, SIGNAL_NEW)
-    files["src/token/m5.py"] = SIGNAL_NEW + "# BUG: accepts an empty token\n"  # in the second round
-    world.origin.push(files)
-    report = world.review()
-    assert len(world.model.paths()) == signals, "the second round was not clean, so the third ran"
-    assert [finding.title for finding in report.findings] == ["accepts an empty token"]
-
-
-def test_a_finding_in_the_first_wave_does_not_keep_a_clean_tail_going(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The first wave is run whole whatever it finds, and says nothing of the tail: only the round just run decides."""
-
-    world = world_with(tmp_path, monkeypatch, 12)
-    files = signal_files(12, SIGNAL_NEW)
-    files["src/token/m0.py"] = SIGNAL_NEW + "# BUG: accepts an empty token\n"
-    world.origin.push(files)
-    world.review()
-    assert len(world.model.paths()) == 9
-
-
-@pytest.mark.parametrize("how", ["switch", "deep"])
-def test_the_tail_is_covered_in_full_when_the_switch_is_off_and_at_deep(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
-) -> None:
-    if how == "switch":
-        monkeypatch.setenv("LEMONCROW_REVIEW_TAIL_STOP", "off")
-    world = world_with(tmp_path, monkeypatch, 12)
-    world.origin.push(signal_files(12, SIGNAL_NEW))
-    world.review(depth="deep" if how == "deep" else "auto")
-    assert set(world.model.files_seen()) - {"(synthesis)"} == {f"src/token/m{index}.py" for index in range(12)}
-
-
-def test_thorough_stops_a_clean_tail_too_and_still_runs_what_the_model_proposed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    world = world_with(tmp_path, monkeypatch, 12)
-    world.origin.push(signal_files(12, SIGNAL_NEW))
-    world.review(depth="thorough")
-    paths = world.model.paths()
-    assert paths[0] == "(synthesis)"
-    assert (
-        len(paths) - 1 == 9 + 4
-    ), "nine batches the clean tail allowed, and the four hypotheses the synthesis proposed"
 
 
 def test_the_hard_cap_on_model_calls_limits_how_far_a_small_change_is_covered(
