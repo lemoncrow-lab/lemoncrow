@@ -218,6 +218,8 @@ scripts/mirror.py
 scripts/public-paths.txt
 scripts/reconcile.sh
 scripts/refresh_model_prices.py
+# Renders the published code-review benchmark table (README and landing copy) from evals/review/published/; its test is public.
+scripts/render_code_review_benchmark.py
 scripts/release_changelog.py
 scripts/release_notes.py
 scripts/release_preflight.py
