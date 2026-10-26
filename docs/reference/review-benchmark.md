@@ -172,6 +172,18 @@ When the cost block says "ready", build the sentence from its figures table and 
 
 Then, and only then, change the landing page's numeric rule (the test in the landing repository, `src/lib/positioning.test.ts`) and the claim rules in `docs/planning/2026-10-20-ai-pr-review-plan.md` section 2. This benchmark changes none of them by itself.
 
+## Publishing the public code-review table
+
+The README and the landing site carry one table, the public 50-pull-request code-review benchmark with LemonCrow beside the figures other tools were reported to score on it. It is rendered from `evals/review/published/code_review_benchmark.json` (schema and rules in `evals/review/published/README.md`) by `make benchmark-publish`, and it shows **nothing while LemonCrow's block says `pending`**: no competitor table without a LemonCrow row, and no LemonCrow figure that a run did not produce.
+
+```bash
+make benchmark-publish                                    # render the README (and ../landing if it is there)
+make benchmark-publish RUN=report.json                    # merge a finished run's benchmark_summary, then render
+make benchmark-publish RUN=rescored.json RESCORED=<id>    # optional: the other tool's own comments, scored by our judge
+```
+
+The importer takes a run report that carries a `benchmark_summary` object (the published block's fields: figures, the counts they follow from, judge model and prompt digest, review model and route, engine version and commit, cost and calls), refuses a partial run, figures its counts do not give, a cost left out, and any source that was only read through a search tool and not at its source. It copies the raw report to `evals/review/published/runs/`, links it from the table and records its digest. Nothing is estimated or defaulted. Other tools' rows are always attributed to who published them, with the source and date, and the table says they were not re-run.
+
 ## Recording and replay
 
 `--record-dir DIR` saves every model call (the exact prompt identity, the response, the tokens, the cost and the latency) one file per pull request. `--driver replay --fixtures-dir DIR` re-runs the whole benchmark from them with no model and no key, and gives the same findings and the same cost. A replay answers only an exact match: if the code, the depth, the prompt or the context changed, the call is reported as a miss ("no recorded call has this exact prompt", or "the pull request's pinned inputs changed since recording") and the review is incomplete; a stale answer is never served. Replays are for checking a change to the reviewer against an earlier live run without paying for it again. `--driver fake` runs a scripted stand-in that "finds" a bug where the changed code carries a `BUG:` comment; it checks the harness, and the tests use it.
@@ -183,6 +195,9 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | `evals/review/real_prs.yaml` | the public seed corpus |
 | `evals/review/seeded_public_bugs*.yaml` | the seeded-bug corpora: public (permissive licence) and private |
 | `evals/review/reports/` | where reports go; ignored by git except its README |
+| `evals/review/published/` | the published results file, its schema README and, once a run is published, its raw run report |
+| `scripts/render_code_review_benchmark.py` | validates that file and renders the README section and the landing copy (`make benchmark-publish`) |
+| `tests/gateway/test_code_review_benchmark.py` | the file, the renderer and the README staying in step |
 | `src/lemoncrow/pro/capabilities/review/evaluation/real_prs.py` | corpus format and loader |
 | `…/evaluation/label_derivation.py` | `derive-label` |
 | `…/evaluation/benchmark.py` | the run: workspace, drivers, ceiling, reviews, pushes |

@@ -240,6 +240,9 @@ status to require and the fork-pull-request behavior are in
 `lc review --pr 123 --ai` prints the summary and each inline comment the bot
 would post, and posts nothing.
 
+<!-- lemoncrow:benchmark:start -->
+<!-- lemoncrow:benchmark:end -->
+
 ---
 
 <a id="results" name="results"></a>

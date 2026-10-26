@@ -1,0 +1,293 @@
+{
+  "schema": 1,
+  "updated": "2026-10-26",
+  "dataset": {
+    "name": "Public 50-PR code-review benchmark",
+    "pr_count": 50,
+    "languages": [
+      "Python",
+      "TypeScript",
+      "Go",
+      "Java",
+      "Ruby"
+    ],
+    "repositories": [
+      {
+        "name": "Sentry",
+        "language": "Python",
+        "prs": 10
+      },
+      {
+        "name": "Cal.com",
+        "language": "TypeScript",
+        "prs": 10
+      },
+      {
+        "name": "Grafana",
+        "language": "Go",
+        "prs": 10
+      },
+      {
+        "name": "Keycloak",
+        "language": "Java",
+        "prs": 10
+      },
+      {
+        "name": "Discourse",
+        "language": "Ruby",
+        "prs": 10
+      }
+    ],
+    "origin": {
+      "title": "AI Code Review Benchmarks 2025",
+      "publisher": "Greptile",
+      "url": "https://www.greptile.com/benchmarks",
+      "date": "2025-07",
+      "date_kind": "evaluation run",
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "Described from web-search retrievals of the page and from the answer key's README, which names it as the dataset's origin. The page itself could not be read from the build session (egress policy refused www.greptile.com with a 403 on CONNECT), so the wording is not confirmed against the live page."
+      }
+    },
+    "answer_key": {
+      "name": "golden_comments",
+      "publisher": "Augment Code",
+      "repository_url": "https://github.com/ai-code-review-evaluations/golden_comments",
+      "commit": "3f2c8ab794b4ed71c099cbf0a7670555e90906dc",
+      "commit_date": "2025-11-21",
+      "golden_comments": 137,
+      "low_severity": 40,
+      "scored_comments": 97,
+      "readme_states_golden_comments": 145,
+      "note": "Counted from the five JSON files at the pinned commit (Sentry 32, Cal.com 31, Grafana 22, Keycloak 24, Discourse 28 = 137 golden comments, 40 of them Low severity, so 97 are scored). The repository's README table states 145 (35, 32, 24, 25, 29); the files hold 8 fewer. LemonCrow's figures use the files.",
+      "verification": {
+        "status": "primary_read",
+        "checked_on": "2026-10-26",
+        "note": "Cloned with git and counted; the pinned commit is the head of main, and a fetch found nothing newer."
+      }
+    }
+  },
+  "method": {
+    "judge_rule": "An LLM judge decides whether a tool's comment and an answer-key comment refer to the same underlying issue (not by file or line number).",
+    "low_severity": "Low-severity answer-key comments count as neither a true positive, a false negative nor a false positive.",
+    "metrics": "Precision is true positives over true positives plus false positives; recall is true positives over true positives plus false negatives; F-score is their harmonic mean.",
+    "source": {
+      "title": "golden_comments README (Computing Scores)",
+      "publisher": "Augment Code",
+      "url": "https://github.com/ai-code-review-evaluations/golden_comments/blob/3f2c8ab794b4ed71c099cbf0a7670555e90906dc/README.md",
+      "date": "2025-11-21",
+      "verification": {
+        "status": "primary_read",
+        "checked_on": "2026-10-26",
+        "note": "Read from the clone at the pinned commit."
+      }
+    }
+  },
+  "third_party": [
+    {
+      "id": "augment",
+      "tool": "Augment Code Review",
+      "precision": 65,
+      "recall": 55,
+      "f_score": 59,
+      "reported_by": "Augment Code",
+      "self_reported": true,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose and its table disagree in places and other Augment pages give other figures; see third_party_discrepancies."
+      }
+    },
+    {
+      "id": "cursor-bugbot",
+      "tool": "Cursor Bugbot",
+      "precision": 60,
+      "recall": 41,
+      "f_score": 49,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). One other Augment page gives a different F-score for this tool (54); see third_party_discrepancies."
+      }
+    },
+    {
+      "id": "greptile",
+      "tool": "Greptile",
+      "precision": 45,
+      "recall": 45,
+      "f_score": 45,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT)."
+      }
+    },
+    {
+      "id": "codex",
+      "tool": "Codex Code Review",
+      "precision": 68,
+      "recall": 29,
+      "f_score": 41,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose gives 70 and 30 for precision and recall; see third_party_discrepancies."
+      }
+    },
+    {
+      "id": "coderabbit",
+      "tool": "CodeRabbit",
+      "precision": 36,
+      "recall": 43,
+      "f_score": 39,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose lists this row's figures slightly differently; see third_party_discrepancies."
+      }
+    },
+    {
+      "id": "claude-code",
+      "tool": "Claude Code",
+      "precision": 23,
+      "recall": 51,
+      "f_score": 31,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). Augment split this tool's single long comment into separate comments with an LLM before scoring (golden_comments README, Adjustments for Claude Code)."
+      }
+    },
+    {
+      "id": "github-copilot",
+      "tool": "GitHub Copilot",
+      "precision": 20,
+      "recall": 34,
+      "f_score": 25,
+      "reported_by": "Augment Code",
+      "self_reported": false,
+      "scored_by": "Augment's judge",
+      "run_date": "2025-11-14",
+      "settings": "default",
+      "source": {
+        "title": "We benchmarked 7 AI code review tools on large open-source projects. Here are the results.",
+        "publisher": "Augment Code",
+        "author": "Akshay Utture",
+        "url": "https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results",
+        "date": "2025-12-11"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT)."
+      }
+    }
+  ],
+  "third_party_discrepancies": [
+    "Augment's post: its prose gives its own recall as 57 where the table gives 55, and gives Codex Code Review 70 precision and 30 recall where the table gives 68 and 29. The rows above use the table.",
+    "Another Augment page (its product page) gives a different F-score for Cursor Bugbot (54 against 49).",
+    "The golden_comments README names seven tools including Graphite (and treats Claude Code separately, under Adjustments); the post's table, as retrieved, has rows for Claude Code and GitHub Copilot and none for Graphite, which is why only these seven rows are used. The README's golden-comment counts (145) do not match the files at the pinned commit (137).",
+    "Augment has since published a different benchmark (an offline run reporting F1 53.8 for its own tool and 44.9 for Cursor Bugbot, with other tools' precision and recall). It is another set and method; none of it is used here.",
+    "Every row here was read by web-search retrieval of the post, not from the page itself. Before this table is published, someone who can open the post must compare it row by row and set each verification status to primary_read."
+  ],
+  "vendor_claims": [
+    {
+      "id": "greptile-own-catch-rate",
+      "tool": "Greptile",
+      "claim": "an 82% catch rate (41 of 50 pull requests)",
+      "value": 82,
+      "measures": "it counts whether the tool commented on the one hidden bug in each of the 50 pull requests, and does not count false positives, style suggestions or unrelated comments against it",
+      "comparable": false,
+      "comparable_note": "A recall-type figure on one bug per pull request with false alarms ignored; it cannot be compared with precision-aware F-scores.",
+      "reported_by": "Greptile",
+      "self_reported": true,
+      "source": {
+        "title": "AI Code Review Benchmarks 2025",
+        "publisher": "Greptile",
+        "url": "https://www.greptile.com/benchmarks",
+        "date": "2025-07",
+        "date_kind": "evaluation run"
+      },
+      "verification": {
+        "status": "search_retrieval",
+        "checked_on": "2026-10-26",
+        "note": "From web-search retrievals of the page, which agreed on 82% (41 of 50), 58% (29), 54% (27), 44% (22) and 6% (3) for the five tools. www.greptile.com is unreachable from the build session (egress policy refused it with a 403 on CONNECT), so the page was not read."
+      }
+    }
+  ],
+  "lemoncrow": {
+    "status": "pending"
+  },
+  "competitor_rescored": null
+}
