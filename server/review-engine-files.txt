@@ -214,6 +214,7 @@ src/lemoncrow/core/capabilities/session_comment_capture.py
 src/lemoncrow/infra/code_intel/__init__.py
 src/lemoncrow/pro/capabilities/review/action_approval.py
 src/lemoncrow/pro/capabilities/review/action_approval_api.py
+src/lemoncrow/pro/capabilities/review/ai_coverage.py
 src/lemoncrow/pro/capabilities/review/ai_review.py
 src/lemoncrow/pro/capabilities/review/artifact_analyses.py
 src/lemoncrow/pro/capabilities/review/artifact_analysis_api.py
@@ -250,6 +251,7 @@ src/lemoncrow/pro/capabilities/review/finding_replacement.py
 src/lemoncrow/pro/capabilities/review/fix_agent.py
 src/lemoncrow/pro/capabilities/review/flag_matrix.py
 src/lemoncrow/pro/capabilities/review/fresh_rerun.py
+src/lemoncrow/pro/capabilities/review/git_env.py
 src/lemoncrow/pro/capabilities/review/hermetic.py
 src/lemoncrow/pro/capabilities/review/host_tools.py
 src/lemoncrow/pro/capabilities/review/incremental.py
@@ -463,6 +465,9 @@ src/lemoncrow/pro/capabilities/review/pr_bot/suppression.py
 src/lemoncrow/pro/capabilities/review/pr_bot/attribution.py
 src/lemoncrow/pro/capabilities/review/pr_bot/large_pr.py
 src/lemoncrow/pro/capabilities/review/pr_bot/model_failure.py
+src/lemoncrow/pro/capabilities/review/pr_bot/overview.py
+src/lemoncrow/pro/capabilities/review/pr_bot/overview_diagram.py
+src/lemoncrow/pro/capabilities/review/pr_bot/reactions.py
 src/lemoncrow/pro/capabilities/review/security_rules/go.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/java.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/javascript.yaml
