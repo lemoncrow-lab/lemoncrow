@@ -28,6 +28,15 @@ CLI connection probe or fabricated usage is not qualified task evidence.
 
 ## Obtaining evidence
 
+`make runtime-credit-evidence OUT=<new directory outside the checkout>` does
+all of the steps below on the prepared release commit: it runs
+`scripts/runtime_credit_harness.py` (five pinned bug-fix tasks, each a fresh
+`claude -p` session on `claude-haiku-5-5` whose only MCP server is that
+build's `runtime lite-mcp`, checked by fixed assertions) against the last
+release tag (`BASE=` overrides it) and `HEAD`, runs the gate on the two
+manifests, and prints the two variables to export. It spends real model
+usage, about $0.10.
+
 1. Pin a repository fixture, task instructions, acceptance tests, tool policy,
    and model. Use independent verification with recorded output/artifacts.
 2. Run the baseline Runtime Lite commit and the candidate build against the

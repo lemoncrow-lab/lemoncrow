@@ -209,6 +209,13 @@ release-prepare: release-preflight ## Version and commit the release, not pushed
 	git commit -m "chore(release): $$TAG"; \
 	echo "✓ Prepared $$TAG at $$(git rev-parse --short HEAD) (not pushed); next: make release-qualify tag=$$TAG"
 
+# Real model usage (about $0.10): five verified tasks on the last release's Runtime Lite and on HEAD.
+runtime-credit-evidence: ## Record runtime-credit evidence for the release gate: OUT=<new dir outside the checkout> [BASE=<last tag>]
+	@test -n "$(OUT)" || { echo "OUT=<new directory outside the checkout> is required" >&2; exit 2; }
+	uv run python scripts/runtime_credit_harness.py --baseline "$(or $(BASE),$$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-rc*' HEAD^))" --current HEAD --out "$(OUT)"
+	uv run python -m scripts.runtime_credit_gate --baseline "$(OUT)/baseline.json" --current "$(OUT)/current.json" --out "$(OUT)/verdict.json"
+	@echo "export LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE=$(abspath $(OUT))/baseline.json LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT=$(abspath $(OUT))/current.json"
+
 release-qualify: release-prepared release-version-check ## Impact-selected release qualification since last published tag (RELEASE_FULL=1 for exhaustive); stamp only on passing evidence
 	@# Catch missing prerequisites before spending hours on the release gate.
 	@# Default: run only impacted tests/checks since the latest published release.
