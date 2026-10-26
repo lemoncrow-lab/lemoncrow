@@ -24,7 +24,7 @@ uv run lemoncrow dev eval review benchmark --corpus evals/review/real_prs.yaml \
 
 | You set | The route is |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | LiteLLM on `anthropic/claude-sonnet-4-6` (`LEMONCROW_REVIEW_MODEL` changes the model). The cost is LiteLLM's, worked out from its bundled price map, which lists `claude-sonnet-4-6`; for a model that map does not list, or without LiteLLM installed, no cost is reported and the dollars come from the local price table (which holds `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5` and `claude-fable-5-1`) or from `--input-usd-per-mtok` and `--output-usd-per-mtok`. |
+| `ANTHROPIC_API_KEY` | LiteLLM on `anthropic/claude-sonnet-5-5` (`LEMONCROW_REVIEW_MODEL` changes the model). The cost is LiteLLM's, worked out from its bundled price map, which lists `claude-sonnet-5-5`; for a model that map does not list, or without LiteLLM installed, no cost is reported and the dollars come from the local price table (which holds `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5` and `claude-fable-5-1`) or from `--input-usd-per-mtok` and `--output-usd-per-mtok`. |
 | `OPENAI_API_KEY` | the OpenAI route on `gpt-4o-mini` (`LEMONCROW_REVIEW_MODEL` changes it). OpenAI reports no cost, so dollars come from the local price table or from `--input-usd-per-mtok` and `--output-usd-per-mtok`. |
 | both | Anthropic, unless `--provider openai`. |
 | `LEMONCROW_LLM_BACKEND=…` | what you named; the benchmark never replaces it. |

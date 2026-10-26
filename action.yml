@@ -41,7 +41,7 @@ inputs:
     default: auto
   model:
     description: >-
-      Model id. Default: the provider's own (OpenAI gpt-4o-mini; Anthropic claude-sonnet-4-6).
+      Model id. Default: the provider's own (OpenAI gpt-4o-mini; Anthropic claude-sonnet-5-5).
     default: ""
   depth:
     description: >-

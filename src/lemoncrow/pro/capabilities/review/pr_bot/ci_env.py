@@ -58,7 +58,7 @@ PROVIDER_ENV = "LEMONCROW_REVIEW_PROVIDER"
 #: Used only for an Anthropic key with no model chosen; a provisional default until
 #: review quality and cost per catch are measured. The OpenAI default stays the
 #: driver's own (``gpt-4o-mini``).
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
 PROVIDERS = ("auto", "anthropic", "openai", "litellm")
 #: The Action's key inputs, as ``action.yml`` passes them to a step, and the standard variable each one stands for.
 KEY_INPUTS = {"INPUT_ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY", "INPUT_OPENAI_API_KEY": "OPENAI_API_KEY"}
