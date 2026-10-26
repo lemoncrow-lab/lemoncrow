@@ -663,7 +663,8 @@ Before you report a defect, and before you dismiss one, check it against the cod
 up the callers, the definitions and the tests of what the change alters and rule out that something else already
 handles it. Do not leave a defect out because its effect is small, it is rarely reached, or the code around it is also
 untidy: report it and rate it low. Leave it out when the code shows it cannot happen, or when it is only style, naming,
-a missing test or taste.
+a missing test or taste. In test code, report a test that cannot fail, that asserts the opposite of what the code does,
+or that does not do what it says it does; leave out worries about timing or flakiness, coverage gaps and style.
 When nothing is wrong, return not_confirmed with no further findings: a clean answer is a successful outcome. A wrong
 report costs the author time, so name the failing case before you report; a real defect left unreported costs more."""
 #: Said to a general look (``ReviewHypothesis.general``): changed code that no risk signal pointed at.

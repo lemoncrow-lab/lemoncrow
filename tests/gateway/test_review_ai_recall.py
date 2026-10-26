@@ -152,6 +152,7 @@ def test_the_instructions_ask_for_every_defect_and_do_not_discourage_a_small_one
     assert ai_review.MAX_OTHER_FINDINGS >= 5
     assert "moves or copies" in rules  # code the change relocates is the change's own
     assert "rate it low" in sources and "Do not leave a defect out because its effect is small" in sources
+    assert "In test code, report a test that cannot fail" in sources and "flakiness" in sources
     assert "invented defect is the worst" not in sources
     assert "When unsure, rate lower" not in ai_review._PR_FIELD_RULES
 
