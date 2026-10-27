@@ -1118,6 +1118,10 @@ class RepoIdentityService(Protocol):
 
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str: ...
 
+    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
+        """Read existing tenant-scoped identity only; never mint a new repository."""
+        ...
+
 
 def _ready_noop() -> None:
     return None

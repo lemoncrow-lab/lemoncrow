@@ -1038,6 +1038,10 @@ class InMemoryRepoIdentityService:
         self._ids: dict[tuple[str, str], str] = {}
         self._lock = threading.Lock()
 
+    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
+        with self._lock:
+            return self._ids.get((org_id, claim.key()))
+
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str:
         key = (org_id, claim.key())
         with self._lock:

@@ -36,6 +36,28 @@ CAP = 1024**2
 
 
 @pytest.mark.parametrize("kind", ("memory", "sqlite"))
+def test_repository_lookup_does_not_create_unknown_tenant_binding(tmp_path: Path, kind: str) -> None:
+    if kind == "memory":
+        backend = build_memory_backend(content_size_cap=CAP)
+        close = backend.close_backend
+    else:
+        index = SqliteIndex(tmp_path / "identity.sqlite3", content_size_cap=CAP)
+        backend = index.backend
+        close = index.close
+    claim = RepoIdentityClaim(scm_provider="github", scm_repo_id="12345", fingerprint="")
+    try:
+        assert backend.repos.lookup_repo_id("org-a", claim) is None
+        assert backend.repos.lookup_repo_id("org-b", claim) is None
+        issued = backend.repos.canonical_repo_id("org-a", claim)
+        assert backend.repos.lookup_repo_id("org-a", claim) == issued
+        assert backend.repos.lookup_repo_id("org-b", claim) is None
+        assert backend.repos.lookup_repo_id("org-a", RepoIdentityClaim("github", "other", "")) is None
+        assert backend.repos.canonical_repo_id("org-a", claim) == issued
+    finally:
+        close()
+
+
+@pytest.mark.parametrize("kind", ("memory", "sqlite"))
 def test_content_provenance_scope_is_an_exact_opaque_key(tmp_path: Path, kind: str) -> None:
     if kind == "memory":
         backend = build_memory_backend(content_size_cap=CAP)
