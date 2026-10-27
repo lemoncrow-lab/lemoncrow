@@ -311,6 +311,24 @@ def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_p
     assert {row["subject"].split("::")[-1] for row in linked} == {"test_mul"}
     assert linked[0]["differential_evidence_id"] == unit["evidence_id"]
     assert linked[0]["independent_execution"] is False
+    # The review-scoped evidence URL backs the UI's Inspect proof action;
+    # no link is derived from a raw artifact path or exposed anonymously.
+    proof = review.client.get(
+        f"/api/reviews/{review.review_id}/evidence",
+        headers=HEADERS,
+        params={"revision_id": review.revision_id},
+    )
+    assert proof.status_code == 200, proof.text
+    attached = next(row for row in proof.json()["evidence"] if row["id"] == linked[0]["differential_evidence_id"])
+    assert attached["review_id"] == review.review_id
+    assert attached["revision_id"] == review.revision_id
+    assert attached["status"] == "current"
+    assert attached["content_url"].endswith(f"/evidence/{attached['id']}/content")
+    protected_content = review.client.get(attached["content_url"], headers=HEADERS)
+    assert protected_content.status_code == 200, protected_content.text[:500]
+    assert protected_content.content
+    assert review.client.get(attached["content_url"]).status_code in {401, 403}
+    assert review.client.get(f"/api/reviews/{review.review_id}/evidence").status_code in {401, 403}
     assert unit["head_verdict"] == "FAIL" and unit["base_verdict"] == "FAIL"
     assert _classes(unit) == {
         "test_add": "unchanged",

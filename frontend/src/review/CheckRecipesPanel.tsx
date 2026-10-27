@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button as UiButton } from "../components/ui/button";
-import { PanelCard } from "./ContextSections";
+import { ArtifactCard, PanelCard } from "./ContextSections";
 import ReviewFixSheet from "./ReviewFixSheet";
+import { fetchReviewEvidence } from "./reviewApi";
+import type { ReviewEvidence } from "./types";
 import { fetchReviewActions, type ReviewActionListing, type ReviewActionRequest } from "./reviewActionsApi";
 import {
   fetchCheckRecipes,
@@ -300,6 +302,10 @@ export default function CheckRecipesPanel({
   );
   const [message, setMessage] = useState("");
   const [actionListing, setActionListing] = useState<ReviewActionListing | null>(null);
+  const proofSequence = useRef(0);
+  const [openedProof, setOpenedProof] = useState<{
+    id: string; pending: boolean; artifact: ReviewEvidence | null; error: string;
+  } | null>(null);
 
   const load = useCallback(
     () =>
@@ -324,6 +330,36 @@ export default function CheckRecipesPanel({
     };
   }, [reviewId, revisionId]);
 
+  useEffect(() => {
+    proofSequence.current += 1;
+    setOpenedProof(null);
+  }, [reviewId, revisionId, data?.revision_id]);
+
+  const inspectProof = async (id: string, currentRevisionId: string) => {
+    if (openedProof?.id === id && !openedProof.pending) {
+      setOpenedProof(null);
+      return;
+    }
+    const sequence = ++proofSequence.current;
+    setOpenedProof({ id, pending: true, artifact: null, error: "" });
+    try {
+      const response = await fetchReviewEvidence(reviewId, currentRevisionId);
+      if (sequence !== proofSequence.current) return;
+      const artifact = response.revision_id === currentRevisionId
+        ? response.evidence.find((item) => item.id === id
+          && item.review_id === reviewId && item.revision_id === currentRevisionId && item.status === "current")
+        : undefined;
+      setOpenedProof({
+        id, pending: false, artifact: artifact ?? null,
+        error: artifact ? "" : "The exact Snapshot evidence is unavailable; no proof has been opened.",
+      });
+    } catch {
+      if (sequence === proofSequence.current) {
+        setOpenedProof({ id, pending: false, artifact: null, error: "Authenticated evidence could not be loaded." });
+      }
+    }
+  };
+
   // This is a read-only join with the existing correction action ledger. The
   // action GET reconciles attributed Snapshots, but never runs checks or agents.
   // A failure leaves ordinary check suggestions available without claiming a
@@ -332,8 +368,10 @@ export default function CheckRecipesPanel({
     let active = true;
     setActionListing(null);
     if (!reviewId || !revisionId || readOnly) return () => { active = false; };
-    void fetchReviewActions(reviewId)
-      .then((value) => { if (active) setActionListing(value); })
+    // Promise boundary also catches a synchronous failure from an unavailable
+    // action adapter; evidence and check inspection must remain usable.
+    void Promise.resolve().then(() => fetchReviewActions(reviewId))
+      .then((value) => { if (active) setActionListing(value && Array.isArray(value.actions) ? value : null); })
       .catch(() => { if (active) setActionListing(null); });
     return () => { active = false; };
   }, [reviewId, revisionId, readOnly]);
@@ -485,6 +523,18 @@ export default function CheckRecipesPanel({
               <div key={`${row.recipe_id}:${row.subject}`} className="flex min-w-0 flex-wrap gap-x-2 text-micro">
                 <span className="min-w-0 break-all font-mono text-foreground">{row.subject}</span>
                 <span className="text-muted-foreground">{row.recipe_id} · {row.independent_execution ? "worker observed" : "author machine observed"}</span>
+                <UiButton size="xs" variant="outline" type="button"
+                  aria-label={`Inspect evidence for ${row.subject}`}
+                  onClick={() => void inspectProof(row.differential_evidence_id, snapshot.revision_id)}>
+                  {openedProof?.id === row.differential_evidence_id ? "Hide proof" : "Inspect proof"}
+                </UiButton>
+                {openedProof?.id === row.differential_evidence_id && (
+                  <div className="basis-full" data-testid="regression-evidence-detail">
+                    {openedProof.pending ? <p className="text-muted-foreground">Loading protected evidence…</p>
+                      : openedProof.artifact ? <ArtifactCard artifact={openedProof.artifact} />
+                      : <p role="status" className="text-amber-300">{openedProof.error}</p>}
+                  </div>
+                )}
               </div>
             ))}
             {snapshot.observed_regressions!.omitted > 0 && <p className="text-micro text-muted-foreground">{snapshot.observed_regressions!.omitted} additional observed failures omitted</p>}

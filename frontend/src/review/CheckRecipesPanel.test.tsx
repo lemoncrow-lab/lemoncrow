@@ -12,6 +12,11 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("./checkRecipesApi", () => api);
+const evidenceApi = vi.hoisted(() => ({ fetchReviewEvidence: vi.fn() }));
+vi.mock("./reviewApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./reviewApi")>(),
+  fetchReviewEvidence: evidenceApi.fetchReviewEvidence,
+}));
 const actionApi = vi.hoisted(() => ({ fetchReviewActions: vi.fn() }));
 vi.mock("./reviewActionsApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("./reviewActionsApi")>(),
@@ -129,6 +134,7 @@ const RECIPES = [{ id: "unit" }, { id: "fmt" }] as CheckRecipesProjection["recip
 
 describe("CheckRecipesPanel", () => {
   beforeEach(() => {
+    evidenceApi.fetchReviewEvidence.mockReset();
     actionApi.fetchReviewActions.mockReset();
     actionApi.fetchReviewActions.mockResolvedValue({ revision_id: "revision-2", actions: [], catalog: [], fix_all_limit: 20 });
     api.fetchCheckRecipes.mockReset();
@@ -152,6 +158,51 @@ describe("CheckRecipesPanel", () => {
     expect(failures).toHaveTextContent("tests.test_calc::test_mul");
     expect(failures).toHaveTextContent("not automatically a confirmed code defect");
     expect(failures).toHaveTextContent("author machine observed");
+  });
+
+  it("opens only authenticated evidence from the exact Review and Snapshot", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      observed_regressions: { schema_version: 1, rows: [{
+        recipe_id: "unit", subject: "tests.test_calc::test_mul", test_path: "tests/test_calc.py",
+        differential_evidence_id: "evidence-1", executor_class: "author_machine", independent_execution: false,
+        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
+        limitation: "An observed test regression, not a confirmed code defect.",
+      }], omitted: 0 },
+    }));
+    evidenceApi.fetchReviewEvidence.mockResolvedValue({ revision_id: "revision-2", evidence: [{
+      id: "evidence-1", review_id: "review-1", revision_id: "revision-2", revision_number: 2,
+      status: "current", title: "Stored differential", kind: "test_report", source: "lemoncrow",
+      path: "tests/test_calc.py", url: "", content_url: "/api/evidence/evidence-1/content", created_at: "2026-10-27T00:00:00Z",
+      content_hash: "abc", mime_type: "application/json", bytes: 100, source_ref: "check", verification_status: "FAIL", detail: ""
+    }] });
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const button = await screen.findByRole("button", { name: "Inspect evidence for tests.test_calc::test_mul" });
+    expect(evidenceApi.fetchReviewEvidence).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    const detail = await screen.findByTestId("regression-evidence-detail");
+    expect(detail).toHaveTextContent("Stored differential");
+    expect(detail).toHaveTextContent("Snapshot 2");
+    expect(evidenceApi.fetchReviewEvidence).toHaveBeenCalledWith("review-1", "revision-2");
+    await userEvent.click(screen.getByRole("button", { name: "Inspect evidence for tests.test_calc::test_mul" }));
+    expect(screen.queryByTestId("regression-evidence-detail")).toBeNull();
+  });
+
+  it("does not show wrong-Snapshot or wrong-Review evidence as current proof", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      observed_regressions: { schema_version: 1, rows: [{
+        recipe_id: "unit", subject: "test:checkout", test_path: "test_checkout.py", differential_evidence_id: "evidence-1",
+        executor_class: "author_machine", independent_execution: false,
+        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
+        limitation: "Observed, not confirmed",
+      }], omitted: 0 },
+    }));
+    evidenceApi.fetchReviewEvidence.mockResolvedValue({ revision_id: "revision-2", evidence: [{
+      id: "evidence-1", review_id: "review-1", revision_id: "revision-1", status: "stale", title: "Old proof"
+    }] });
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Inspect evidence for test:checkout" }));
+    expect(await screen.findByText(/exact Snapshot evidence is unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText("Old proof")).toBeNull();
   });
 
   it("raises only the deltas and counts pre-existing and quarantined results", async () => {
