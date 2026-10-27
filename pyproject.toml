@@ -17,7 +17,7 @@ babel = { path = "vendor/babel-99.0.0-py3-none-any.whl" }
 
 [project]
 name = "lemoncrow"
-version = "0.8.0"
+version = "0.8.1"
 description = "Add local code intelligence to Claude Code, Codex, OpenCode, and Cursor; use Pi through LemonCrow's managed coding runtime; review what changed since you last looked."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "lemoncrow-client==0.8.0",
+    "lemoncrow-client==0.8.1",
     "pydantic>=2.6",
     "click>=8.1",
     "cryptography>=42",

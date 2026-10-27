@@ -9,7 +9,7 @@ dependencies = [
   "aiohttp>=3.14.4",
   "regex>=2026.5.9",
   "lemoncrow>=0.8.0",
-  "lemoncrow-client==0.8.0",
+  "lemoncrow-client==0.8.1",
 ]
 
 [tool.uv.sources]

@@ -6,6 +6,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-27
+
 ### Added
 
 - **The GitHub Action takes `fail-on: p1`.** It fails the `LemonCrow Review` status, and the job, while any open P0

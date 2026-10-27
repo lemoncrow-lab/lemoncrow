@@ -1786,7 +1786,7 @@ wheels = [
 
 [[package]]
 name = "lemoncrow"
-version = "0.8.0"
+version = "0.8.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -2030,7 +2030,7 @@ provides-extras = ["dev", "harbor"]
 
 [[package]]
 name = "lemoncrow-client"
-version = "0.8.0"
+version = "0.8.1"
 source = { editable = "client" }
 
 [package.optional-dependencies]
