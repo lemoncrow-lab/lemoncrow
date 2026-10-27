@@ -431,3 +431,93 @@ def test_behavior_regressions_count_until_a_rerun_no_longer_observes_them(tmp_pa
         "stale": 0,
     }
     assert fixed["evidence_state"] != "stale"
+
+
+def test_real_snapshot_sensitive_paths_lead_reading_list_without_finding_or_extra_model_depth(tmp_path: Path) -> None:
+    """Capture two actual commits, serve the Reader API, then inspect its canonical queue.
+
+    The auth/payment edit warrants human attention, not a synthetic bug, policy
+    blocker, extra provider spend or fabricated verification.
+    """
+    review = _review(
+        tmp_path,
+        base_files={
+            "src/payments/charge.py": "def charge(amount):\n    return amount\n",
+            "src/catalog/search.py": "def search():\n    return ['a']\n",
+        },
+        head_files={
+            "src/payments/charge.py": "def charge(amount):\n    return max(0, amount)\n",
+            "src/catalog/search.py": "def search():\n    return ['a', 'b']\n",
+        },
+    )
+    rows = _get(review, "targets")["targets"]
+    by_path = {}
+    for row in rows:
+        by_path.setdefault(row["path"], []).append(row)
+    for path in ("src/auth.py", "src/payments/charge.py"):
+        assert path in by_path, f"Missing actually changed source: {path}"
+        assert any(
+            row["priority"]["attention"] == "review_first"
+            and any(
+                reason["code"] == "sensitive_path_attention" and "not a verified finding" in reason["detail"]
+                for reason in row["priority"]["reasons"]
+            )
+            for row in by_path[path]
+        )
+    assert all(row["priority"]["attention"] != "review_first" for row in by_path["src/catalog/search.py"])
+    assert _get(review, "projection")["counts"]["review_first"] > 0
+    assert _investigators(review)["depth"] != "thorough"
+    overview_response = review.client.get(f"/api/reviews/{review.review_id}", headers=HEADERS)
+    assert overview_response.status_code == 200, overview_response.text
+    overview = overview_response.json()
+    assert not any(row["status"] == "PASS" for row in overview["evidence"])
+
+
+def test_actual_command_outcomes_are_snapshot_pinned_in_reader_overview(tmp_path: Path) -> None:
+    """Execute real commands, persist their observed results, then advance the code Snapshot."""
+    import subprocess
+    import sys
+
+    review = _review(tmp_path)
+    revision = review.store.latest_revision(review.review_id)
+    assert revision is not None
+    commands = [
+        ("python verify-valid", [sys.executable, "-c", "print('works')"]),
+        ("python verify-failing", [sys.executable, "-c", "raise SystemExit(7)"]),
+    ]
+    observed = []
+    for name, command in commands:
+        run = subprocess.run(command, text=True, capture_output=True, check=False)
+        observed.append((name, run.returncode))
+        review.store.add_evidence(
+            ReviewEvidence(
+                id="",
+                review_id=review.review_id,
+                revision_id=revision.id,
+                kind="verification",
+                title=name,
+                source="test",
+                source_ref="manual-integration:" + name,
+                verification_status="PASS" if run.returncode == 0 else "FAIL",
+                detail=f"command={' '.join(command)}; exit={run.returncode}; output={run.stdout.strip() or run.stderr.strip()}",
+            ),
+        )
+    assert observed == [("python verify-valid", 0), ("python verify-failing", 7)]
+    before_response = review.client.get(f"/api/reviews/{review.review_id}", headers=HEADERS)
+    assert before_response.status_code == 200
+    before = before_response.json()
+    evidence = {row["name"]: row for row in before["evidence"]}
+    assert evidence["python verify-valid"]["status"] == "PASS"
+    assert "exit=0" in evidence["python verify-valid"]["detail"]
+    assert evidence["python verify-failing"]["status"] == "FAIL"
+    assert "exit=7" in evidence["python verify-failing"]["detail"]
+    assert before["brief"]["verification"]["pass"] >= 1
+    assert before["brief"]["verification"]["fail"] >= 1
+
+    _next_snapshot(review)
+    after_response = review.client.get(f"/api/reviews/{review.review_id}", headers=HEADERS)
+    assert after_response.status_code == 200
+    after = after_response.json()
+    assert not {"python verify-valid", "python verify-failing"}.intersection(
+        {row["name"] for row in after["evidence"]}
+    ), "A command run for the earlier Snapshot must not prove the new one"

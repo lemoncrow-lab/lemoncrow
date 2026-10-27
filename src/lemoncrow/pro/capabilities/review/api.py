@@ -3301,6 +3301,13 @@ def register_review_api(
 
         policy = _triage_policy(session, revision)
         reasons = target_policy_reasons(targets, policy)
+        # A deterministic, labeled reading hint for sensitive paths: no model
+        # guess, no fabricated finding, and no change to execution depth.
+        from lemoncrow.pro.capabilities.review.criticality import sensitivity_attention_reasons
+
+        for target_id, rows in sensitivity_attention_reasons(targets, policy).items():
+            bucket = reasons.setdefault(target_id, [])
+            bucket.extend(row for row in rows if row not in bucket)
         findings, _stale = current_findings(
             store, revision_id=revision.id, annotations=store.list_annotations(session.id)
         )

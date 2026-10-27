@@ -14,6 +14,7 @@ import { LARGE_REVIEW_TARGET_THRESHOLD } from "./reviewSurfaceModel";
 import { DependencyReviewSummary, dependencyReviewRelevant } from "./ReviewFileSemantics";
 import ReviewTriageLine from "./ReviewTriageLine";
 import type {
+  EvidenceRow,
   ReviewAiIndependence,
   ReviewAiReviewRunResult,
   ReviewArchitectureDelta,
@@ -32,10 +33,15 @@ import type {
 } from "./types";
 
 /**
- * The Brief (spec §4.1): a concise handoff rendered in the server's canonical
- * order. Sections are filters over one queue; nothing here ranks. Decision
- * cards offer only the actions the server lists for the decision's derived
- * state (spec §5); without that state they stay read-only.
+ * The Brief (spec §4.1): a concise handoff, decision first. After the change
+ * summary it answers, in order: what needs your decision (required checks,
+ * agent approvals, human decisions), what deserves attention (behavior
+ * changes, Review first), what is proven (one proof card), and where to read
+ * next (Understand, Routine, Reviewed). Architecture, history and the AI,
+ * policy and inventory details follow. Sections are filters over the
+ * server's one queue; nothing here ranks. Decision cards offer only the
+ * actions the server lists for the decision's derived state (spec §5);
+ * without that state they stay read-only.
  */
 
 const SECTION_LIMIT = 5;
@@ -86,7 +92,13 @@ export interface ReviewBriefProps {
   agentApprovals?: ReactNode;
   /** P15-OBS: production problems and Revert / Fix forward links after the merge (renders nothing otherwise). */
   productionOutcomes?: ReactNode;
+  /** Recorded checks on this exact Snapshot, as Review Status lists them; absent on a historical Snapshot. */
+  checks?: readonly EvidenceRow[];
+  /** Snapshot-wide check counts; without them the proof card counts the checks linked to claims. */
+  checkCounts?: CheckCounts | null;
 }
+
+type CheckCounts = { pass: number; fail: number; not_run: number; unknown: number };
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
@@ -654,62 +666,247 @@ function AiReviewLine({
   );
 }
 
-function WhatWasChecked({
+/** Problems first: a contradicted or failing claim, then an unproven one, then partial support. */
+const CLAIM_ORDER: Record<ReviewProjectionClaim["summary"], number> = {
+  contradictory: 0,
+  inferred_failing: 1,
+  none: 2,
+  partial: 3,
+  inferred: 4,
+  author_cited: 5,
+  observed: 6,
+};
+
+/** Failures first, then what ran and passed, then what ran without a recorded result. */
+const CHECK_ORDER: Record<string, number> = { FAIL: 0, PASS: 1, UNKNOWN: 2, NOT_RUN: 3 };
+
+const CHECK_TEXT: Record<string, { label: string; tone: string }> = {
+  PASS: { label: "passed", tone: "text-emerald-300/90" },
+  FAIL: { label: "failed", tone: "text-red-300" },
+  NOT_RUN: { label: "did not run", tone: "text-amber-300/90" },
+  UNKNOWN: { label: "no result recorded", tone: "text-amber-300/90" },
+};
+
+/** Who recorded a check, in words; empty for the server's "none" and bare "evidence" placeholders. */
+function checkSource(source: string): string {
+  if (source.startsWith("session:")) return "the agent session";
+  const known: Record<string, string> = {
+    none: "",
+    evidence: "",
+    agent: "the agent",
+    human: "a person",
+    external: "an external check",
+    run_ledger: "the run ledger",
+  };
+  return known[source] ?? source;
+}
+
+/** The one-sentence answer to "is this proven?"; never reads a check that did not run as a pass. */
+function proofVerdict(counts: CheckCounts): { text: string; tone: string } {
+  const total = counts.pass + counts.fail + counts.not_run + counts.unknown;
+  const unsettled = counts.not_run + counts.unknown;
+  if (total === 0) return { text: "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.", tone: "text-amber-300/90" };
+  if (counts.fail > 0) {
+    return {
+      text: `${plural(counts.fail, "check")} failed on this Snapshot` + (counts.pass > 0 ? ` · ${counts.pass} passed` : "") + (unsettled > 0 ? ` · ${unsettled} without a result` : "") + ".",
+      tone: "text-red-300",
+    };
+  }
+  if (counts.pass === 0) return { text: "No check passed on this Snapshot. Nothing here is proven by a recorded run.", tone: "text-amber-300/90" };
+  if (unsettled === 0) return { text: counts.pass === 1 ? "The one recorded check passed." : `All ${counts.pass} recorded checks passed.`, tone: "text-emerald-300/90" };
+  return {
+    text: `${counts.pass} of ${plural(total, "check")} passed. ${unsettled} did not run or ${unsettled === 1 ? "has" : "have"} no result, which is not a pass.`,
+    tone: "text-amber-300/90",
+  };
+}
+
+function countStatuses(statuses: Iterable<string>): CheckCounts {
+  const counts: CheckCounts = { pass: 0, fail: 0, not_run: 0, unknown: 0 };
+  for (const status of statuses) {
+    if (status === "PASS") counts.pass += 1;
+    else if (status === "FAIL") counts.fail += 1;
+    else if (status === "NOT_RUN") counts.not_run += 1;
+    else counts.unknown += 1;
+  }
+  return counts;
+}
+
+/** One result per check linked to a claim on this Snapshot; the worst result wins when two claims cite it. */
+function linkedStatuses(claims: readonly ReviewProjectionClaim[]): string[] {
+  const worst = new Map<string, string>();
+  for (const claim of claims) {
+    for (const link of claim.evidence) {
+      if (link.state !== "current") continue;
+      const seen = worst.get(link.key);
+      if (seen === undefined || (CHECK_ORDER[link.status] ?? 2) < (CHECK_ORDER[seen] ?? 2)) worst.set(link.key, link.status);
+    }
+  }
+  return [...worst.values()];
+}
+
+/**
+ * The proof card: what ran on this Snapshot and what it showed, each claim
+ * beside its evidence, and what nothing verified. A check that did not run
+ * or has no known result is never shown as a pass, and an AI review with no
+ * findings is never shown as a test result.
+ */
+function ProofCard({
   projection,
   targets,
+  checks,
+  checkCounts,
+  onInspectEvidence,
 }: {
   projection: ReviewProjection;
   targets: readonly ReviewTarget[];
+  checks?: readonly EvidenceRow[];
+  checkCounts?: CheckCounts | null;
+  onInspectEvidence: (targetId: string | null) => void;
 }) {
-  const ai = projection.ai_review;
+  const counts = checkCounts
+    ?? countStatuses(checks && checks.length > 0 ? checks.map((row) => row.status) : linkedStatuses(projection.claims));
+  const verdict = proofVerdict(counts);
+  // A check with nothing to show beyond "did not run" reads as one gap line, not a row of its own.
+  const bare = (row: EvidenceRow) => (row.status === "NOT_RUN" || row.status === "UNKNOWN") && !row.detail.trim();
+  const rows = [...(checks ?? [])]
+    .filter((row) => !bare(row))
+    .sort((left, right) => (CHECK_ORDER[left.status] ?? 2) - (CHECK_ORDER[right.status] ?? 2));
+  const notRun = (checks ?? []).filter((row) => bare(row) && row.status === "NOT_RUN").map((row) => row.name);
+  const noResult = (checks ?? []).filter((row) => bare(row) && row.status === "UNKNOWN").map((row) => row.name);
+  const sources = [...new Set(rows.map((row) => checkSource(row.source)).filter(Boolean))];
+  const claims = [...projection.claims].sort((left, right) => CLAIM_ORDER[left.summary] - CLAIM_ORDER[right.summary]);
+  const notVerified = [...new Set(
+    (checks ?? []).flatMap((row) => row.execution?.not_verified ?? []).map((item) => `${item.name}: ${item.reason}`),
+  )];
   const execution = projection.behavior?.coverage ?? null;
-  const aiShown = Boolean(ai && ai.findings === 0);
-  if (!aiShown && !execution) return null;
-  const evidence = projection.claims.flatMap((claim) => claim.evidence);
-  const byStatus = evidence.reduce<Record<string, number>>((counts, row) => {
-    const key = row.status || "UNKNOWN";
-    counts[key] = (counts[key] ?? 0) + 1;
-    return counts;
-  }, {});
-  const exclusions = (aiShown && ai?.coverage?.excluded_by_policy) || [];
-  const reviewed = targets.filter((target) => target.state === "reviewed").length;
-  const aiStatus = ai?.status === "ready"
-    ? "Complete"
+  const ai = projection.ai_review;
+  const aiShown = Boolean(ai && ai.available !== false && ai.findings === 0);
+  const aiCompleted = ai?.status === "ready";
+  const aiStatus = aiCompleted
+    ? "complete, no confirmed findings"
     : ai?.status === "skipped_unnecessary"
-      ? "Not needed"
+      ? "not needed"
       : ai?.status === "pending"
-        ? "Running"
-        : ai?.status === "failed" || ai?.status === "cancelled"
-          ? "Unavailable"
-          : "Not run";
+        ? "running"
+        : "did not run";
   const eligible = ai?.coverage?.ai_context_eligible_targets ?? 0;
   const human = ai?.coverage?.human_deterministic_targets ?? targets.length;
-  const targetLabel = targets.length === 1 ? "target" : "targets";
-  const exclusionLabel = exclusions.length === 1 ? "target" : "targets";
-  const checkSummary = Object.entries(byStatus)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([status, count]) => status + " " + count)
-    .join(" · ");
+  const exclusions = (aiShown && ai?.coverage?.excluded_by_policy) || [];
+  const reviewed = targets.filter((target) => target.state === "reviewed").length;
 
   return (
-    <details data-testid="what-was-checked" className="rounded border border-border/70 px-2.5 py-2">
-      <summary className="cursor-pointer select-none font-medium text-subtle">What was checked</summary>
-      <div className="mt-2 space-y-1 text-caption text-muted-foreground">
-        <div>Deterministic Review: <span className="text-subtle">{targets.length + " exact Snapshot " + targetLabel}</span></div>
-        {aiShown && <div>AI Review: <span className="text-subtle">{aiStatus}</span>{human > 0 ? " · " + eligible + "/" + human + " eligible targets" : ""}</div>}
-        <div>Reviewer inspection: <span className="text-subtle">{reviewed + "/" + targets.length + " targets reviewed"}</span></div>
-        <div>Recorded checks: {checkSummary || "none attached to the current claims."}</div>
-        <ExecutionCoverageLine coverage={execution} />
+    <div className="flex flex-col gap-2.5 text-caption" data-testid="brief-proof">
+      <p className={`text-ui ${verdict.tone}`} data-testid="brief-proof-counts">{verdict.text}</p>
+
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-testid="brief-proof-checks">
+          <Limited
+            rows={rows}
+            render={(row) => (
+              <div key={`${row.name}:${row.source}:${row.status}:${row.scope ?? ""}`} className="flex min-w-0 flex-col">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="break-all font-mono text-subtle">{row.name}</span>
+                  <span className={CHECK_TEXT[row.status]?.tone ?? "text-amber-300/90"}>{CHECK_TEXT[row.status]?.label ?? row.status}</span>
+                  {sources.length > 1 && checkSource(row.source) && <span className="text-muted-foreground">{`· ${checkSource(row.source)}`}</span>}
+                </div>
+                {row.detail && <span className="break-all text-muted-foreground">{row.detail}</span>}
+              </div>
+            )}
+          />
+          {sources.length === 1 && <div className="text-micro text-muted-foreground">{`Recorded by ${sources[0]}`}</div>}
+        </div>
+      )}
+
+      {claims.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-testid="brief-proof-claims">
+          <div className="text-micro uppercase tracking-wide text-muted-foreground">{`Claims · ${claims.length}`}</div>
+          <Limited
+            rows={claims}
+            render={(claim) => (
+              <div key={claim.id} data-testid={`brief-proof-claim-${claim.id}`} className="flex flex-col gap-0.5">
+                <UiButton
+                  unstyled
+                  type="button"
+                  className="text-left text-label text-foreground hover:underline"
+                  onClick={() => onInspectEvidence(claim.target_ids[0] ?? null)}
+                >
+                  {claim.statement || claim.id}
+                </UiButton>
+                <EvidenceSummary claim={claim} />
+                {claim.limitations.map((text) => <div key={text} className="text-amber-300/80">{text}</div>)}
+              </div>
+            )}
+          />
+        </div>
+      )}
+
+      {(execution || notVerified.length > 0 || notRun.length > 0 || noResult.length > 0) && (
+        <div className="flex flex-col gap-0.5 text-muted-foreground" data-testid="brief-proof-gaps">
+          {notRun.length > 0 && <div className="text-amber-300/90">{`Did not run · ${notRun.join(", ")}`}</div>}
+          {noResult.length > 0 && <div className="text-amber-300/90">{`No result recorded · ${noResult.join(", ")}`}</div>}
+          {notVerified.map((line) => <div key={line} className="text-amber-300/90">{`Not verified · ${line}`}</div>)}
+          <ExecutionCoverageLine coverage={execution} />
+        </div>
+      )}
+
+      <div className="flex flex-col gap-0.5 text-muted-foreground" data-testid="brief-proof-coverage">
+        <div>{`Human review: ${reviewed} of ${plural(targets.length, "changed target")} marked reviewed`}</div>
+        {aiShown && (
+          // Only a finished review with no findings can be misread as a pass; the rest just say where it stands.
+          <div>{`AI review: ${aiStatus}` + (aiCompleted ? (human > 0 && eligible > 0 ? ` · ${eligible} of ${human} targets eligible` : "") + " · not a test result" : "")}</div>
+        )}
         {exclusions.length > 0 && (
           <div className="text-amber-300/90">
-            {"AI exclusions: " + exclusions.length + " " + exclusionLabel + " " + (exclusions.length === 1 ? "was" : "were") + " not sent to the model by policy."}
+            {`${plural(exclusions.length, "target")} ${exclusions.length === 1 ? "was" : "were"} not sent to the AI reviewer by policy.`}
           </div>
         )}
-        {byStatus.NOT_RUN && <div>NOT_RUN means the verification did not run; it is not a pass.</div>}
-        {byStatus.UNKNOWN && <div>UNKNOWN means the verification result is unavailable; it is not a pass.</div>}
       </div>
-    </details>
+    </div>
   );
+}
+
+/** Changed lines per reading tier, each target counted once in the first tier that lists it. */
+function tierLineCounts(
+  tiers: readonly (readonly ReviewProjectionItem[])[],
+  byId: ReadonlyMap<string, ReviewTarget>,
+): number[] {
+  const counted = new Set<string>();
+  return tiers.map((items) => {
+    let lines = 0;
+    for (const item of items) {
+      for (const id of item.primary_target_ids) {
+        if (counted.has(id)) continue;
+        counted.add(id);
+        const target = byId.get(id);
+        if (target) lines += target.additions + target.deletions;
+      }
+    }
+    return lines;
+  });
+}
+
+/** How much there is to read, and how much of it comes first; empty when nothing is classified. */
+function readingPlanText(first: number, understand: number, routine: number, changed: number): string {
+  const total = Math.max(changed, first + understand + routine);
+  if (total <= 0 || first + understand === 0) return "";
+  const share = Math.min(100, Math.max(1, Math.round((first / total) * 100)));
+  if (first === 0) {
+    return [
+      "Nothing flagged to review first",
+      `Understand: ${understand} of ${plural(total, "changed line")}`,
+      routine > 0 ? `Routine: ${plural(routine, "line")}, collapsed` : "",
+    ].filter(Boolean).join(" · ");
+  }
+  return [
+    `Review first: ${first} of ${plural(total, "changed line")} (${share}%)`,
+    understand > 0 ? `Understand: ${plural(understand, "line")}` : "",
+    routine > 0 ? `Routine: ${plural(routine, "line")}, collapsed` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function LinesTag({ lines }: { lines: number }) {
+  if (lines <= 0) return null;
+  return <span className="shrink-0 text-muted-foreground">{plural(lines, "line")}</span>;
 }
 
 function PolicyLine({ projection }: { projection: ReviewProjection }) {
@@ -1117,6 +1314,8 @@ export default function ReviewBrief({
   interactivePreview,
   agentApprovals,
   productionOutcomes,
+  checks,
+  checkCounts,
 }: ReviewBriefProps) {
   const [expandedId, setExpandedId] = useState("");
   const [detailLevel, setDetailLevelState] = useState<ReviewDetail>(() => {
@@ -1194,6 +1393,16 @@ export default function ReviewBrief({
     : targets;
   const reviewedCode = codeTargets.filter((target) => target.state === "reviewed").length;
   const collapsedSupport = projection.material?.files.filter((file) => file.collapsed_default) ?? [];
+  const [reviewFirstLines, understandLines, routineLines] = tierLineCounts([reviewFirst, understand, routine], byId);
+  const readingPlan = readingPlanText(
+    reviewFirstLines,
+    understandLines,
+    routineLines,
+    codeTargets.reduce((sum, target) => sum + target.additions + target.deletions, 0),
+  );
+  const readingPlanLine = readingPlan && (
+    <p className="text-meta text-muted-foreground" data-testid="brief-reading-plan">{readingPlan}</p>
+  );
   const decisionCard = (decision: ReviewProjectionDecision) => (
     <DecisionCard key={decision.key} decision={decision} byId={byId} onOpenTarget={onOpenTarget} onAsk={onAsk} onDecision={onDecision} />
   );
@@ -1221,6 +1430,7 @@ export default function ReviewBrief({
       data-review-view-root="brief"
       tabIndex={-1}
     >
+      {/* 1. What changed. */}
       <div className="hunk">
         <div className="hunk-head">
           <span className="hunk-label">{projection.snapshot_number !== null ? `Snapshot ${projection.snapshot_number}` : "Change"}</span>
@@ -1237,6 +1447,7 @@ export default function ReviewBrief({
           </div>
         ))}
         {!projection.summary && openDecisions.length === 0 && <p className="text-caption text-muted-foreground">No open decisions</p>}
+        {!projection.summary && readingPlanLine}
         {progress && progress.total > 0 && (
           <p className="flex gap-3 text-caption text-muted-foreground">
             <span>{`Decisions: ${progress.settled} of ${progress.total} settled`}</span>
@@ -1268,14 +1479,17 @@ export default function ReviewBrief({
           </p>
           <p className="text-ui text-subtle">{projection.summary.verification}</p>
           {projection.summary.attention && <p className="text-ui text-p1">{projection.summary.attention}</p>}
-          <p className="text-meta text-muted-foreground">{projection.summary.scope}</p>
-          {projection.material && projection.material.total_changed_lines > 0 && (
-            <p className="text-meta text-muted-foreground" data-testid="review-change-size">
-              {projection.material.implementation_changed_lines === projection.material.total_changed_lines
-                ? `${projection.material.total_changed_lines} changed implementation lines`
-                : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`}
-            </p>
-          )}
+          <p className="text-meta text-muted-foreground" data-testid="review-change-size">
+            {[
+              projection.summary.scope,
+              projection.material && projection.material.total_changed_lines > 0
+                ? projection.material.implementation_changed_lines === projection.material.total_changed_lines
+                  ? `${projection.material.total_changed_lines} changed implementation lines`
+                  : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`
+                : "",
+            ].filter(Boolean).join(" · ")}
+          </p>
+          {readingPlanLine}
           </div>
           <div className="flex flex-wrap gap-2">
             {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="outline" size="sm" onClick={onOpenTour}>Start guided review</UiButton>}
@@ -1286,20 +1500,9 @@ export default function ReviewBrief({
         </div>
       </div>
 
-      {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
-      {loadArchitectureDelta && onOpenArchitecture && (
-        <BriefArchitectureDelta
-          load={loadArchitectureDelta}
-          onOpen={onOpenArchitecture}
-          eager={targets.length <= LARGE_REVIEW_TARGET_THRESHOLD}
-        />
-      )}
-
-      {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
-      {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
-
       {!projection.historical && productionOutcomes && <div className="empty:hidden">{productionOutcomes}</div>}
 
+      {/* 2. What needs your decision. */}
       {requiredChecks.length > 0 && (
         <Section title={`Required checks · ${requiredChecks.length}`}>
           {requiredChecks.map((action) => (
@@ -1316,6 +1519,19 @@ export default function ReviewBrief({
 
       {!projection.historical && agentApprovals && <div className="empty:hidden">{agentApprovals}</div>}
 
+      {activeDecisions.length > 0 && (
+        <Section title={`Human decisions · ${activeDecisions.length}`}>
+          <Limited rows={activeDecisions} render={decisionCard} />
+        </Section>
+      )}
+
+      {deferredDecisions.length > 0 && (
+        <Section title={`Deferred decisions · ${deferredDecisions.length}`}>
+          <Limited rows={deferredDecisions} render={decisionCard} />
+        </Section>
+      )}
+
+      {/* 3. What deserves attention: the behavior that changed, then the code to read first. */}
       {behavior && (
         <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
           <BehaviorChanges
@@ -1329,27 +1545,33 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {activeDecisions.length > 0 && (
-        <Section title={`Human decisions · ${activeDecisions.length}`}>
-          <Limited rows={activeDecisions} render={decisionCard} />
-        </Section>
-      )}
-
-      {deferredDecisions.length > 0 && (
-        <Section title={`Deferred decisions · ${deferredDecisions.length}`}>
-          <Limited rows={deferredDecisions} render={decisionCard} />
-        </Section>
-      )}
-
       {reviewFirst.length + orphanQuestions.length > 0 && (
-        <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`}>
+        <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`} action={<LinesTag lines={reviewFirstLines} />}>
           {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} />)}
           <Limited rows={reviewFirst} render={card} />
         </Section>
       )}
 
+      {/* 4. What is proven. */}
+      <Section
+        title="What is proven"
+        action={(
+          // Spec §8: the full inventory stays one explicit step away, never the default.
+          <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
+        )}
+      >
+        <ProofCard
+          projection={projection}
+          targets={targets}
+          checks={checks}
+          checkCounts={checkCounts}
+          onInspectEvidence={onInspectEvidence}
+        />
+      </Section>
+
+      {/* 5. Where to read next; everything else stays one step away. */}
       {understand.length > 0 && (
-        <Section title={`Understand · ${understand.length}`}>
+        <Section title={`Understand · ${understand.length}`} action={<LinesTag lines={understandLines} />}>
           <Limited rows={understand} render={card} />
         </Section>
       )}
@@ -1411,6 +1633,19 @@ export default function ReviewBrief({
         </Section>
       )}
 
+      {/* 6. Context and details: architecture, history, AI, policy and the full inventory. */}
+      {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
+      {loadArchitectureDelta && onOpenArchitecture && (
+        <BriefArchitectureDelta
+          load={loadArchitectureDelta}
+          onOpen={onOpenArchitecture}
+          eager={targets.length <= LARGE_REVIEW_TARGET_THRESHOLD}
+        />
+      )}
+
+      {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
+      {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
+
       {withdrawnDecisions.length > 0 && (
         <Section title={`Withdrawn by the author · ${withdrawnDecisions.length}`}>
           <Limited rows={withdrawnDecisions} render={decisionCard} />
@@ -1419,7 +1654,7 @@ export default function ReviewBrief({
 
       <footer className="hunk text-meta text-muted-foreground">
         <div className="hunk-head">
-          <span className="hunk-label">Coverage and checks</span>
+          <span className="hunk-label">Details</span>
         </div>
         <div className="flex flex-col gap-2 p-3">
         <details data-testid="review-detail-options" className="rounded-md border border-border px-2 py-1">
@@ -1509,7 +1744,6 @@ export default function ReviewBrief({
             }
           } : undefined}
         />
-        <WhatWasChecked projection={projection} targets={targets} />
         <PolicyLine projection={projection} />
         <ReviewTriageLine triage={projection.triage} />
         <SynthesisLine
@@ -1531,8 +1765,6 @@ export default function ReviewBrief({
         <div className="flex items-center gap-2">
           <span>All code: {plural(coverage.file_count, "file")}, {plural(coverage.target_count, "target")}</span>
           <UiButton variant="outline" size="compact" type="button" onClick={onOpenFiles}>Open files</UiButton>
-          {/* Spec §8: the full inventory stays one explicit step away, never the default. */}
-          <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
         </div>
         </div>
       </footer>

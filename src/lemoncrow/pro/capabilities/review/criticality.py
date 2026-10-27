@@ -814,6 +814,125 @@ def path_queue_reasons(policy: PathPolicy) -> list[QueueReason]:
     return reasons
 
 
+# Built-in *reading attention* only. These paths are not findings and do not
+# change criticality, the AI depth floor, or merge/readiness policy. A reviewer
+# should not have to create a repository policy just to notice an auth or
+# payment change in a large agent-generated PR.
+_SENSITIVE_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset(
+    {
+        ".py",
+        ".go",
+        ".rs",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".java",
+        ".kt",
+        ".cs",
+        ".cc",
+        ".cpp",
+        ".c",
+        ".h",
+        ".hpp",
+        ".rb",
+        ".php",
+        ".sql",
+    }
+)
+_SENSITIVE_SEGMENTS: Final[Mapping[str, str]] = {
+    "auth": "authentication",
+    "authentication": "authentication",
+    "authorization": "authorization",
+    "security": "security",
+    "permissions": "permissions",
+    "payment": "payments",
+    "payments": "payments",
+    "billing": "billing",
+    "migrations": "database migration",
+}
+_SENSITIVE_FILE_STEMS: Final[Mapping[str, str]] = {
+    "auth": "authentication",
+    "authorization": "authorization",
+    "security": "security",
+    "permissions": "permissions",
+    "payment": "payments",
+    "payments": "payments",
+    "billing": "billing",
+    "migration": "database migration",
+}
+
+
+def sensitive_path_attention(path: str) -> str:
+    """Explainable, path-only review hint; never a bug assertion or proof.
+
+    Case-normalized repository paths are safe to inspect, but only known source
+    shapes are eligible. Docs, tests, fixtures and generated paths are never
+    silently promoted. A path outside these narrow patterns is still queued in
+    Understand rather than being called safe.
+    """
+    from pathlib import PurePosixPath
+
+    lowered = path.replace("\\", "/").lower().removeprefix("./")
+    parts = tuple(segment for segment in lowered.split("/") if segment)
+    if not parts or any(
+        segment in {"test", "tests", "__tests__", "fixtures", "vendor", "generated", "docs"} for segment in parts[:-1]
+    ):
+        return ""
+    name = parts[-1]
+    if name.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", "_test.go", "_test.py", "_spec.rb")):
+        return ""
+    if (
+        len(parts) >= 3
+        and parts[:2] == (".github", "workflows")
+        and name.endswith((".yml", ".yaml"))
+        and any(token in name for token in ("deploy", "release", "publish", "prod"))
+    ):
+        return "release automation"
+    if name.endswith((".tf", ".tfvars")) and any(
+        part in {"infra", "infrastructure", "terraform"} for part in parts[:-1]
+    ):
+        return "infrastructure configuration"
+    if PurePosixPath(name).suffix not in _SENSITIVE_SOURCE_SUFFIXES:
+        return ""
+    for segment in parts[:-1]:
+        if segment in _SENSITIVE_SEGMENTS:
+            return _SENSITIVE_SEGMENTS[segment]
+    return _SENSITIVE_FILE_STEMS.get(PurePosixPath(name).stem, "")
+
+
+def sensitivity_attention_reasons(
+    targets: Iterable[Any], policy: EffectiveTriagePolicy
+) -> dict[str, list[QueueReason]]:
+    """Additional transparent reading hints; no severity, finding or policy claim.
+
+    An explicit repository `priority: last` is respected for advisory hints,
+    while critical/high paths continue to get their stronger policy reasons.
+    """
+    by_path: dict[str, list[QueueReason]] = {}
+    result: dict[str, list[QueueReason]] = {}
+    for target in targets:
+        path = str(getattr(target, "path", "") or "")
+        if path not in by_path:
+            focus = policy.classify(path)
+            label = sensitive_path_attention(path)
+            by_path[path] = (
+                [
+                    QueueReason(
+                        "sensitive_path_attention", f"Review first: {label} path changed (not a verified finding)"
+                    )
+                ]
+                if label
+                and focus.review_first != "last"
+                and focus.criticality not in {"high", "critical"}
+                and focus.review_first != "first"
+                else []
+            )
+        if by_path[path]:
+            result[str(target.target_id)] = list(by_path[path])
+    return result
+
+
 def target_policy_reasons(targets: Iterable[Any], policy: EffectiveTriagePolicy) -> dict[str, list[QueueReason]]:
     """Policy queue reasons per target id (targets need ``target_id`` and ``path``).
 

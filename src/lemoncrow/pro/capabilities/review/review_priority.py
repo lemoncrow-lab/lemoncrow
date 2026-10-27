@@ -62,6 +62,7 @@ _REASON_TIER: dict[str, int] = {
     # policy and unresolved current P0/P1 findings promote outstanding work to
     # Review first; they never reopen a judgment.
     "review_first_policy": TIER_REVIEW_FIRST,
+    "sensitive_path_attention": TIER_REVIEW_FIRST,
     "criticality_policy": TIER_REVIEW_FIRST,
     "finding_unresolved": TIER_REVIEW_FIRST,
     # ``priority: last`` never sets a tier (it is placed at TIER_DONE so it can
@@ -79,6 +80,7 @@ _RE_REVIEW_ORDER: dict[str, int] = {"decision_scope_changed": 0, "decision_imple
 # linked verification, reopened human decisions, then every other reason.
 _REVIEW_FIRST_CLASS: dict[str, int] = {
     "review_first_policy": 0,
+    "sensitive_path_attention": 5,
     "criticality_policy": 1,
     "finding_unresolved": 2,
     "check_failed_linked": 3,

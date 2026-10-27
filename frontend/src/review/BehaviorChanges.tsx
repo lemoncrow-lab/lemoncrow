@@ -42,7 +42,7 @@ export function registerDeltaText(inventory: ReviewStaticInventory | undefined):
  * Behavior deltas as review targets (Phase 9R items 11, 12, 18, 38, 43).
  *
  * Rendered inside existing homes only: the Brief's "Behavior changes"
- * section, its "What was checked" footer, and the Review Status sheet's
+ * section, its "What is proven" card, and the Review Status sheet's
  * Verification subsection. A judgment is possible only after the evidence
  * block for this Snapshot has been fetched and rendered; the request echoes
  * the digest of that block. Nothing about viewing is reported.

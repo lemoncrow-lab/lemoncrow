@@ -7313,9 +7313,11 @@ describe("ReviewReader 8F in-Review backtrail and residual presentation", () => 
     expect(within(card).getByText("2 components · 1 relationship changed (1 added)")).toBeTruthy();
     expect(within(card).getByText("auth now depends on routes")).toBeTruthy();
     expect(within(card).getByTestId("brief-architecture-exactness")).toHaveTextContent("Snapshot-exact · base ↔ Snapshot");
-    // §5.1 item 2: directly after "What changed".
+    // Decision first: the card stays visible on material movement, below what needs a decision and what is proven,
+    // so its late load never moves them.
     const sections = [...brief.querySelectorAll("section[aria-label]")].map((section) => section.getAttribute("aria-label"));
-    expect(sections.slice(0, 2)).toEqual(["Change summary", "Architecture delta"]);
+    expect(sections[0]).toBe("Change summary");
+    expect(sections.indexOf("Architecture delta")).toBeGreaterThan(sections.indexOf("What is proven"));
     // The Brief body adds no second filled CTA: the view's one primary action lives in the header.
     expect([...brief.querySelectorAll("button.bg-primary, button.bg-brand")].map((button) => button.textContent)).toEqual([]);
     expect(within(card).getByRole("button", { name: "Open architecture view" }).className).not.toContain("bg-primary");

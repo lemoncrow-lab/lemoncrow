@@ -375,10 +375,10 @@ describe("ReviewBrief", () => {
     expect(screen.getByText("AI summary · intent inferred")).toBeInTheDocument();
   });
 
-  it("orders sections as the spec's handoff and omits nothing that has content", () => {
+  it("orders sections decision first: decisions, attention, proof, then where to read next", () => {
     renderBrief(projection());
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
+    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "What is proven", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
     expect(screen.getByText("Reviews now remain with their branch.")).toBeInTheDocument();
     expect(screen.getByText(/2 changed targets have no author explanation/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open files" })).toBeInTheDocument();
@@ -514,7 +514,52 @@ describe("ReviewBrief", () => {
     expect(within(card).queryByText(/no author explanation/i)).toBeNull();
   });
 
-  it("keeps a tiny change small: no empty ceremony", () => {
+  it("says how much to read first, counting each changed line once", () => {
+    renderBrief(projection());
+    // Each fixture target changes one line: one to read first, one to understand, one routine, of four.
+    expect(screen.getByTestId("brief-reading-plan")).toHaveTextContent(
+      "Review first: 1 of 4 changed lines (25%) · Understand: 1 line · Routine: 1 line, collapsed",
+    );
+    expect(within(screen.getByRole("region", { name: "Review first · 1" })).getByText("1 line")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Understand · 1" })).getByText("1 line")).toBeInTheDocument();
+  });
+
+  it("puts human decisions above behavior changes and keeps architecture below the reading list", async () => {
+    renderBrief(
+      projection({
+        behavior: {
+          contract_version: 1,
+          revision_id: "rev-1",
+          total: 0,
+          progress: { total: 0, reviewed: 0, unreviewed: 0, changed_since_review: 0, needs_changes: 0, unknown: 0, critical: 0, outstanding: 0 },
+          targets: [],
+          unchanged: 0,
+          execution_ran: false,
+          coverage: null,
+          checklist: null,
+          narrative: { mode: "deterministic", statements: [], deterministic: [], synthesis: { status: "none" } },
+          degraded: [],
+          producers: [],
+          agent_actions: [{ category: "network", summary: "Called api.example.com", host: "claude", session_id: "s1", at: "2026-10-27T10:00:00Z" }],
+        },
+      }),
+      {
+        targets: Array.from({ length: 500 }, (_, index) => ({ ...TARGETS[0], target_id: `large-${index}`, unit_key: `large-${index}` })),
+        loadArchitectureDelta: vi.fn().mockResolvedValue(null),
+        onOpenArchitecture: vi.fn(),
+      },
+    );
+    const order = [...screen.getByTestId("review-brief").querySelectorAll("section[aria-label]")]
+      .map((node) => node.getAttribute("aria-label") ?? "");
+    const at = (label: string) => order.findIndex((name) => name.startsWith(label));
+    expect(at("Human decisions")).toBeLessThan(at("Behavior changes"));
+    expect(at("Behavior changes")).toBeLessThan(at("Review first"));
+    expect(at("Review first")).toBeLessThan(at("What is proven"));
+    expect(at("What is proven")).toBeLessThan(at("Understand"));
+    expect(at("Reviewed")).toBeLessThan(at("Architecture delta"));
+  });
+
+  it("keeps a tiny change small and says plainly that nothing was verified", () => {
     renderBrief(projection({
       plan: { schema_version: 1, input_digest: "x", intents: [], limitations: [] },
       questions: [],
@@ -526,8 +571,11 @@ describe("ReviewBrief", () => {
       queue: ["t-prune"],
     }));
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["Understand · 1"]);
+    expect(headings).toEqual(["What is proven", "Understand · 1"]);
     expect(screen.getByText("No open decisions")).toBeInTheDocument();
+    expect(screen.getByTestId("brief-proof-counts")).toHaveTextContent(
+      "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.",
+    );
     expect(screen.getByText(/All code: 1 file, 1 target/)).toBeInTheDocument();
   });
 
@@ -1608,16 +1656,63 @@ describe("ReviewBrief AI review", () => {
       />,
     );
 
-    await userEvent.click(screen.getByText("What was checked"));
-    const checked = screen.getByTestId("what-was-checked");
-    expect(checked).toHaveTextContent("Deterministic Review: 4 exact Snapshot targets");
-    expect(checked).toHaveTextContent("AI Review: Complete · 3/4 eligible targets");
-    expect(checked).toHaveTextContent("Reviewer inspection: 2/4 targets reviewed");
-    expect(checked).toHaveTextContent("NOT_RUN 1");
-    expect(checked).toHaveTextContent("UNKNOWN 1");
-    expect(checked).toHaveTextContent("NOT_RUN means the verification did not run; it is not a pass.");
-    expect(checked).toHaveTextContent("UNKNOWN means the verification result is unavailable; it is not a pass.");
-    expect(checked).toHaveTextContent("1 target was not sent to the model by policy.");
+    const proof = screen.getByTestId("brief-proof");
+    expect(within(proof).getByTestId("brief-proof-counts")).toHaveTextContent("1 of 3 checks passed.");
+    expect(proof).toHaveTextContent("2 did not run or have no result, which is not a pass.");
+    expect(proof).toHaveTextContent("Human review: 2 of 4 changed targets marked reviewed");
+    expect(proof).toHaveTextContent("AI review: complete, no confirmed findings · 3 of 4 targets eligible · not a test result");
+    expect(proof).toHaveTextContent("1 target was not sent to the AI reviewer by policy.");
+  });
+
+  it("lists the Snapshot's recorded checks failures first, and what nothing verified", async () => {
+    const handlers = renderBrief(projection(), {
+      checkCounts: { pass: 1, fail: 1, not_run: 1, unknown: 0 },
+      checks: [
+        { name: "uv run pytest tests/review -q", status: "PASS", detail: "", source: "agent" },
+        { name: "browser:checkout", status: "NOT_RUN", detail: "No browser was available.", source: "ci" },
+        {
+          name: "make typecheck",
+          status: "FAIL",
+          detail: "3 errors in src/review/session.py",
+          source: "ci",
+          execution: {
+            executor_class: "customer_worker",
+            location: "worker-1",
+            image_digest: "",
+            network: "none",
+            statement: "",
+            not_verified: [{ name: "Stripe webhook", reason: "no sandbox credentials" }],
+          },
+        },
+      ],
+    });
+    const proof = screen.getByTestId("brief-proof");
+    expect(within(proof).getByTestId("brief-proof-counts")).toHaveTextContent("1 check failed on this Snapshot · 1 passed · 1 without a result.");
+    const names = [...within(proof).getByTestId("brief-proof-checks").querySelectorAll(".font-mono")].map((node) => node.textContent);
+    expect(names).toEqual(["make typecheck", "uv run pytest tests/review -q", "browser:checkout"]);
+    expect(within(proof).getByText("3 errors in src/review/session.py")).toBeInTheDocument();
+    expect(within(proof).getByText("Not verified · Stripe webhook: no sandbox credentials")).toBeInTheDocument();
+    // A claim sits beside its evidence; opening it goes to that evidence.
+    const claim = within(proof).getByTestId("brief-proof-claim-claim:branch-identity");
+    expect(within(claim).getByText("Partial evidence")).toBeInTheDocument();
+    expect(within(claim).getByText(/Not covered: legacy migration/)).toBeInTheDocument();
+    await userEvent.click(within(claim).getByRole("button", { name: "Each branch resolves its own review." }));
+    expect(handlers.onInspectEvidence).toHaveBeenCalledWith("t-resolve");
+  });
+
+  it("lists a contradicted or unproven claim before a supported one", () => {
+    const [base] = projection().claims;
+    renderBrief(projection({
+      claims: [
+        { ...base, id: "claim:ok", statement: "Supported claim", summary: "author_cited", summary_text: "Author cites these recorded checks", limitations: [] },
+        { ...base, id: "claim:none", statement: "Unproven claim", evidence: [], summary: "none", summary_text: "No linked evidence", result_line: "", limitations: [] },
+        { ...base, id: "claim:bad", statement: "Contradicted claim", summary: "contradictory", summary_text: "Contradictory evidence", limitations: [] },
+      ],
+    }));
+    const order = [...within(screen.getByTestId("brief-proof-claims")).getAllByTestId(/^brief-proof-claim-/)]
+      .map((node) => node.getAttribute("data-testid"));
+    expect(order).toEqual(["brief-proof-claim-claim:bad", "brief-proof-claim-claim:none", "brief-proof-claim-claim:ok"]);
+    expect(within(screen.getByTestId("brief-proof-claim-claim:none")).getByText("No linked evidence")).toBeInTheDocument();
   });
 
   it("only exposes explicit stop for a live durable AI job and never as approval", async () => {
