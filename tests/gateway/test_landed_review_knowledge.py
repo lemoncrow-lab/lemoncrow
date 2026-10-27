@@ -270,3 +270,114 @@ def test_unverified_claimed_check_pass_is_not_landed_execution_evidence(tmp_path
     assert facts == ()
     with pytest.raises(ValueError, match="no eligible"):
         _landed(review.store, review.review_id, review.revision_id)
+
+
+def test_real_canonical_git_advance_publishes_landed_review_and_source_in_one_generation(tmp_path: Path) -> None:
+    """Real Git objects, existing PK baseline and one durable merged-change event."""
+    import pygit2
+
+    from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
+
+    repo_root = _git_repo(tmp_path)
+    store, session, revision = _capture(tmp_path / "db", repo_root)
+    source = CanonicalGitKnowledge(repo_root, REPO, "refs/heads/main")
+    knowledge = ProjectKnowledgeStore(store)
+    baseline = source.sync(knowledge)
+    assert baseline["kind"] == "baseline"
+    previous = str(source.git.head.peel(pygit2.Commit).id)
+    store.append_decision_event(
+        _event(session, revision, "accept", "accepted", key="pruning"),
+        expected_prior_event_id="",
+    )
+    git = pygit2.Repository(pygit2.discover_repository(str(repo_root)))
+    git.index.add_all()
+    git.index.write()
+    tree = git.index.write_tree()
+    identity = pygit2.Signature("Fixture Tester", "fixture@example.invalid", 1700000100, 0)
+    new_sha = str(git.create_commit("HEAD", identity, identity, "canonical land", tree, [git.head.target]))
+    assert previous != new_sha
+    # The worktree may change after the canonical commit. Only committed
+    # objects can become source-backed Project Knowledge.
+    (repo_root / "src/store.py").write_text("WORKSPACE SECRET: never publish this", encoding="utf-8")
+    merge = MergeObservation(
+        source="provider_landing",
+        provider="github",
+        merged_head=revision.head_sha,
+        reviewed_head=revision.head_sha,
+        revision_id=revision.id,
+        observed_at="2026-10-27T15:00:00Z",
+        ref="landing:confirmed",
+        provider_confirmed_reviewed_head=True,
+    )
+    projection = source.sync_landed_review(
+        knowledge,
+        store,
+        session.id,
+        revision.id,
+        merge=merge,
+        previous_revision=previous,
+        counted_evidence=lambda _rev: (),
+    )
+    assert projection["applied"] is True
+    assert projection["kind"] == "merged_change"
+    assert projection["coverage"] == "canonical_source_and_verified_review_history"
+    assert projection["entries"] >= 2
+    rows = knowledge.query(REPO).entries
+    assert any(row.knowledge_kind == "landed_review_decision" for row in rows)
+    assert any(row.subject.kind == "path" and row.subject.key == "src/store.py" for row in rows)
+    assert all("WORKSPACE SECRET" not in row.body for row in rows)
+    assert knowledge.evolution_events(REPO, (source._generation(git[git.head.target]).id,))
+    replay = source.sync_landed_review(
+        knowledge,
+        store,
+        session.id,
+        revision.id,
+        merge=merge,
+        previous_revision=previous,
+        counted_evidence=lambda _rev: (),
+    )
+    assert replay["applied"] is False
+    assert replay["kind"] == "unchanged"
+    assert knowledge.current_generation(REPO) == source._generation(git[git.head.target]).id
+
+
+def test_canonical_source_advance_cannot_be_relabelled_as_review_merge(tmp_path: Path) -> None:
+    """If a plain canonical sync won the generation, historical review data cannot be grafted onto it."""
+    import pygit2
+
+    from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
+
+    repo_root = _git_repo(tmp_path)
+    store, session, revision = _capture(tmp_path / "db", repo_root)
+    store.append_decision_event(_event(session, revision, "accept", "accepted"), expected_prior_event_id="")
+    source = CanonicalGitKnowledge(repo_root, REPO, "refs/heads/main")
+    knowledge = ProjectKnowledgeStore(store)
+    source.sync(knowledge)
+    previous = str(source.git.head.peel(pygit2.Commit).id)
+    git = pygit2.Repository(pygit2.discover_repository(str(repo_root)))
+    git.index.add_all()
+    git.index.write()
+    tree = git.index.write_tree()
+    identity = pygit2.Signature("Fixture Tester", "fixture@example.invalid", 1700000100, 0)
+    git.create_commit("HEAD", identity, identity, "canonical advance", tree, [git.head.target])
+    assert source.sync(knowledge, previous_revision=previous)["kind"] == "source_advance"
+    merge = MergeObservation(
+        source="provider_landing",
+        provider="github",
+        merged_head=revision.head_sha,
+        reviewed_head=revision.head_sha,
+        revision_id=revision.id,
+        observed_at="2026-10-27T15:00:00Z",
+        ref="landing:confirmed",
+        provider_confirmed_reviewed_head=True,
+    )
+    with pytest.raises(ValueError, match="already advanced without this Review history"):
+        source.sync_landed_review(
+            knowledge,
+            store,
+            session.id,
+            revision.id,
+            merge=merge,
+            previous_revision=previous,
+            counted_evidence=lambda _rev: (),
+        )

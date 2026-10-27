@@ -163,6 +163,86 @@ class CanonicalGitKnowledge:
             raise ValueError("canonical content policy is invalid or unavailable")
         return governance.content_access
 
+    def sync_landed_review(
+        self,
+        knowledge: ProjectKnowledgeStore,
+        review_store: Any,
+        review_id: str,
+        revision_id: str,
+        *,
+        merge: Any,
+        previous_revision: str,
+        counted_evidence: Any,
+    ) -> dict[str, Any]:
+        """Persist one provider-observed Review and immutable canonical delta together.
+
+        This entry point is for a trusted provider observer, not a public CLI
+        argument or generic webhook payload. The caller must have obtained
+        `merge` via `post_merge_actions.observed_merge`. The Git adapter checks
+        actual canonical ancestry; the landed Review adapter checks the exact
+        provider-subject/landing and persisted Snapshot provenance.
+        """
+        from lemoncrow.pro.capabilities.review.landed_review_knowledge import build_landed_review_knowledge
+
+        if not previous_revision:
+            raise ValueError("landed review requires an explicit previous immutable canonical revision")
+        original = self._immutable_commit(previous_revision)
+        commit = self._canonical()
+        before = self._generation(original)
+        current = self._generation(commit)
+        stored = knowledge.current_generation(self.repository)
+        if stored == current.id:
+            event = knowledge.evolution_events(self.repository, (current.id,)).get(current.id, {})
+            identity = f"merge:{merge.provider}:{merge.ref}"
+            if event.get("kind") == "merged_change" and identity in event.get("source_refs", ()):
+                return {"applied": False, "kind": "unchanged", "generation": current.to_wire()}
+            raise ValueError("canonical generation already advanced without this Review history")
+        if stored != before.id:
+            raise ValueError("previous revision does not match stored canonical generation")
+        if commit.id == original.id or not self.git.descendant_of(commit.id, original.id):
+            raise ValueError("canonical ref did not advance to a descendant Git commit")
+        # A provider-identified immutable reviewed head must be included in the
+        # landed canonical history, not merely present in some unrelated branch.
+        reviewed_head = str(merge.reviewed_head or "")
+        if reviewed_head:
+            reviewed_commit = self._immutable_commit(reviewed_head)
+            if commit.id != reviewed_commit.id and not self.git.descendant_of(commit.id, reviewed_commit.id):
+                raise ValueError("canonical merge does not contain the provider-reviewed Git head")
+        changed: set[str] = set()
+        for delta in self.git.diff(original.tree, commit.tree).deltas:
+            changed.update((delta.old_file.path, delta.new_file.path))
+            if len(changed) > self.max_paths:
+                raise ValueError("Project Knowledge affected path bound exceeded")
+        source_facts, degraded = self._facts(commit, sorted(changed))
+        retire = tuple(
+            KnowledgeKey(KnowledgeSubject("path", path), kind)
+            for path in sorted(changed)
+            for kind in ("inventory", "documentation")
+        )
+        projection = build_landed_review_knowledge(
+            review_store,
+            review_id,
+            revision_id,
+            before,
+            current,
+            proof=CanonicalAdvanceProof("provider_observed", self.ref.name, descendant=True),
+            merge=merge,
+            counted_evidence=counted_evidence,
+            source_facts=source_facts,
+            retire=retire,
+        )
+        if self._canonical().id != commit.id:
+            raise ValueError("canonical ref changed while preparing landed history; retry")
+        applied = knowledge.apply(projection)
+        return {
+            "applied": applied,
+            "kind": projection.event.kind,
+            "generation": current.to_wire(),
+            "entries": len(projection.entries),
+            "degraded_reasons": list(degraded),
+            "coverage": "canonical_source_and_verified_review_history",
+        }
+
     def sync(
         self, store: ProjectKnowledgeStore, *, previous_revision: str = "", rebuild: bool = False
     ) -> dict[str, Any]:
