@@ -8660,6 +8660,16 @@ def register_review_api(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid {name} selection")
             return tuple(dict.fromkeys(values))
 
+        history_kind = str(params.get("history") or "").strip()
+        if history_kind and history_kind not in {"decisions", "checks"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="history must be decisions or checks")
+        if history_kind and (
+            purpose != "brief"
+            or any(params.getlist(key) for key in ("term", "path", "symbol", "component", "contract", "edge"))
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="history browsing cannot mix with selection filters"
+            )
         paths = keys("path")
         for candidate in paths:
             try:
@@ -8674,6 +8684,7 @@ def register_review_api(
             contracts=keys("contract"),
             edges=keys("edge"),
             terms=keys("term"),
+            history_kind=history_kind,  # type: ignore[arg-type]
         )
         context = await asyncio.to_thread(_project_context, session, revision, context_request)
         return {

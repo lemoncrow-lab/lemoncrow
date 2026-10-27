@@ -170,6 +170,53 @@ class CanonicalGitKnowledge:
             raise ValueError("canonical content policy is invalid or unavailable")
         return governance.content_access
 
+    def bootstrap_metadata_baseline(self, knowledge: ProjectKnowledgeStore) -> dict[str, Any]:
+        """Record a canonical generation without walking entire monorepo trees.
+
+        An operator calls this *before* accepting new merges. It creates no
+        source assertions and no synthetic Review facts; future provider
+        observations add changed-path facts against this exact commit. Never
+        rebuilds or overwrites already-ingested historical generations.
+        """
+        commit = self._canonical()
+        generation = self._generation(commit)
+        stored = knowledge.current_generation(self.repository)
+        if stored:
+            if stored != generation.id:
+                raise ValueError("canonical Project Knowledge already started at a different commit")
+            return {"applied": False, "kind": "unchanged", "generation": generation.to_wire()}
+        observed_at = datetime.fromtimestamp(commit.commit_time, UTC).isoformat()
+        projection = build_baseline_projection(generation, facts=(), observed_at=observed_at)
+        if self._canonical().id != commit.id:
+            raise ValueError("canonical branch moved while bootstrapping the baseline")
+        return {
+            "applied": knowledge.apply(projection),
+            "kind": "baseline",
+            "coverage": "canonical_metadata_only",
+            "generation": generation.to_wire(),
+        }
+
+    def previous_stored_commit(self, knowledge: ProjectKnowledgeStore, *, max_commits: int = 4096) -> str:
+        """Find the exact persisted canonical generation in a bounded commit graph.
+
+        The existing store holds a generation digest, not a caller-authored SHA.
+        A provider mirror may have advanced since its last observation. Search
+        immutable reachable objects and require the *same* generation identity;
+        do not guess HEAD^, fall back to the Review base, or silently rebuild.
+        """
+        stored = knowledge.current_generation(self.repository)
+        if not stored:
+            raise ValueError("canonical Project Knowledge baseline is not initialized")
+        head = self._canonical()
+        # pygit2 exports a runtime int constant; some installed stubs declare
+        # a separate SortMode enum. The runtime constant is the correct mode.
+        for count, commit in enumerate(self.git.walk(head.id, pygit2.GIT_SORT_TOPOLOGICAL)):  # type: ignore[arg-type]
+            if count >= max_commits:
+                raise ValueError("stored canonical generation is beyond bounded history; reconcile explicitly")
+            if self._generation(commit).id == stored:
+                return str(commit.id)
+        raise ValueError("stored canonical generation is not reachable from the configured branch")
+
     def sync_landed_review(
         self,
         knowledge: ProjectKnowledgeStore,
@@ -221,8 +268,18 @@ class CanonicalGitKnowledge:
         reviewed_head = str(merge.reviewed_head or "")
         if reviewed_head:
             reviewed_commit = self._immutable_commit(reviewed_head)
-            if commit.id != reviewed_commit.id and not self.git.descendant_of(commit.id, reviewed_commit.id):
-                raise ValueError("canonical merge does not contain the provider-reviewed Git head")
+            if commit.id != reviewed_commit.id:
+                # Normal GitHub merge commit: first parent must be the exact
+                # previous canonical generation, second the reviewed PR head.
+                # A descendant many merges later is NOT an attributed delta:
+                # no provider fact here says which commits belong to this PR.
+                # Squash/rebase needs independently verified patch equivalence
+                # before being promoted to Project Knowledge.
+                parents = tuple(str(parent.id) for parent in commit.parents)
+                if parents != (str(original.id), str(reviewed_commit.id)):
+                    raise ValueError(
+                        "canonical merge window is ambiguous; cannot attribute later commits to this Review"
+                    )
         changed: set[str] = set()
         for delta in self.git.diff(original.tree, commit.tree).deltas:
             changed.update((delta.old_file.path, delta.new_file.path))

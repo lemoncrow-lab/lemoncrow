@@ -86,7 +86,7 @@ export interface ReviewBriefProps {
   /** Opens the Map's Architecture Δ at a node, keeping the Brief on the backtrail. */
   onOpenArchitecture?: (nodeId: string) => void;
   /** PK2: reads landed project history for this Change (a plain GET); absent without Project Knowledge. */
-  loadProjectContext?: () => Promise<ReviewProjectContext | null>;
+  loadProjectContext?: (term?: string, history?: "" | "decisions" | "checks", force?: boolean) => Promise<ReviewProjectContext | null>;
   /** Interactive side-by-side preview entry, shown inside Behavior changes (renders nothing without a previewable app). */
   interactivePreview?: ReactNode;
   /** Live approval requests for risky agent actions (P12-AGENT); renders nothing until an agent asks. */

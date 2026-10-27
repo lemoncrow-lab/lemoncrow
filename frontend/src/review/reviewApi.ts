@@ -681,6 +681,7 @@ export function fetchReviewProjectContext(
   selection: ReviewProjectContextSelection = {},
 ): Promise<ReviewProjectContextResponse> {
   const params = new URLSearchParams({ purpose, revision_number: String(revisionNumber) });
+  if (selection.history) params.append("history", selection.history);
   for (const path of selection.paths ?? []) params.append("path", path);
   for (const component of selection.components ?? []) params.append("component", component);
   for (const edge of selection.edges ?? []) params.append("edge", edge);

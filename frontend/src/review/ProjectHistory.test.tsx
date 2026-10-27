@@ -79,6 +79,17 @@ describe("BriefProjectContext", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("shows an actionable, force-refreshed sync state instead of silently hiding history", async () => {
+    const load = vi.fn(async (_term = "", _mode = "", force = false) => force
+      ? context() : context({ available: false, reason: "no_canonical_generation", entries: [] }));
+    render(<BriefProjectContext load={load} />);
+    const pending = await screen.findByTestId("brief-history-not-synced");
+    expect(pending).toHaveTextContent("not been synchronized");
+    await userEvent.click(screen.getByRole("button", { name: "Retry history" }));
+    expect(await screen.findByText("Relevant history")).toBeInTheDocument();
+    expect(load).toHaveBeenLastCalledWith("", "", true);
+  });
+
   it("labels history as advisory and stale, and links each entry to its source history", async () => {
     render(<BriefProjectContext load={async () => context({ omitted: 2 })} />);
     expect(await screen.findByText("Relevant history")).toBeInTheDocument();
@@ -108,6 +119,31 @@ describe("BriefProjectContext", () => {
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(await screen.findByText(/No matching landed history/)).toHaveTextContent("does not prove the change is safe");
     expect(load).toHaveBeenLastCalledWith("nonesuch");
+  });
+
+  it("browses reviewer decisions and verified checks without mutating or claiming a current result", async () => {
+    const load = vi.fn(async (_term = "", mode: "" | "decisions" | "checks" = "") => (
+      mode === "decisions"
+        ? context({ entries: [entry({ entry_id: "decision-1", knowledge_kind: "landed_review_decision",
+          summary: "Human reviewer accepted a recorded decision.", state: "historical", freshness_label: "Historical on main" })] })
+        : mode === "checks"
+          ? context({ entries: [entry({ entry_id: "check-1", knowledge_kind: "landed_review_observation",
+            summary: "Formatter PASS in previously landed Review (not production proof).", state: "historical", freshness_label: "Historical on main" })] })
+          : context()
+    ));
+    render(<BriefProjectContext load={load} />);
+    expect(await screen.findByText("Relevant history")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Past decisions" }));
+    expect(await screen.findByText("Human reviewer accepted a recorded decision.")).toBeInTheDocument();
+    expect(load).toHaveBeenLastCalledWith("", "decisions");
+    expect(screen.getByRole("button", { name: "Past decisions" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Past checks" }));
+    expect(await screen.findByText(/Formatter PASS in previously landed Review/)).toBeInTheDocument();
+    expect(screen.getByText("Landed history · advisory, not evidence for this Snapshot")).toBeInTheDocument();
+    expect(load).toHaveBeenLastCalledWith("", "checks");
+    await userEvent.click(screen.getByRole("button", { name: "Related" }));
+    expect(await screen.findByText("Session refresh rejects expired and revoked tokens.")).toBeInTheDocument();
+    expect(load).toHaveBeenLastCalledWith("", "");
   });
 
   it("mounting and remounting reads with GET only and never starts work", async () => {
@@ -231,6 +267,16 @@ describe("fetchReviewProjectContext", () => {
     await fetchReviewProjectContext("review A", 4, "brief", { terms: ["why retries failed"] });
     const [url, init] = (spy.mock.calls as unknown as [string, RequestInit | undefined][])[0];
     expect(url).toBe("/api/reviews/review%20A/project-context?purpose=brief&revision_number=4&term=why+retries+failed");
+    expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+    expect(init?.body ?? null).toBeNull();
+  });
+
+  it("browses a precise historical type with GET and no model execution", async () => {
+    const spy = vi.fn(async () => new Response(JSON.stringify({ project_context: context() }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", spy);
+    await fetchReviewProjectContext("review A", 4, "brief", { history: "decisions" });
+    const [url, init] = (spy.mock.calls as unknown as [string, RequestInit | undefined][])[0];
+    expect(url).toBe("/api/reviews/review%20A/project-context?purpose=brief&revision_number=4&history=decisions");
     expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
     expect(init?.body ?? null).toBeNull();
   });

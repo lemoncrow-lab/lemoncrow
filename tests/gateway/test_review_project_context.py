@@ -545,6 +545,61 @@ def test_brief_and_map_project_context_are_labeled_linked_and_bounded(
     assert client.client.get(f"{review}/project-context").status_code in {401, 403}
 
 
+def test_project_context_browses_landed_decisions_and_checks_without_current_source_claims(
+    base: tuple[Workspace, ProjectKnowledgeStore, str],
+) -> None:
+    workspace, knowledge, landed = base
+    decided = KnowledgeFact(
+        subject=KnowledgeSubject("concept", "review-decision:historical:fingerprint"),
+        knowledge_kind="landed_review_decision",
+        body="Human reviewer accepted a recorded decision in a landed Review. Historical disposition only.",
+        source_refs=(f"review:{landed}", "outcome:decision-event:recorded"),
+        state="historical",
+        content_access_class="metadata_only",
+    )
+    checked = KnowledgeFact(
+        subject=KnowledgeSubject("concept", "review-check:historical:receipt"),
+        knowledge_kind="landed_review_observation",
+        body="Historical sandbox formatter PASS; not proof of production safety.",
+        source_refs=(f"review:{landed}", "check:review-evidence:receipt"),
+        state="historical",
+        content_access_class="metadata_only",
+    )
+    assert knowledge.apply(
+        build_merged_change_projection(
+            _gen("2"),
+            _gen("3"),
+            proof=_PROOF,
+            merge_ref="merge:local:acme/widgets#8",
+            review_ref=f"review:{landed}",
+            revision_ref="revision:rv-not-held",
+            facts=(decided, checked),
+            observed_at="2026-10-03T10:00:00Z",
+        )
+    )
+    client = _client(workspace, binding=_binding(knowledge))
+    url = f"/api/reviews/{workspace.review_id}/project-context"
+    decision = client.get(url, params={"history": "decisions"})
+    assert decision.status_code == 200, decision.text
+    decisions = decision.json()["project_context"]
+    assert decisions["authority"] == "advisory"
+    assert [row["knowledge_kind"] for row in decisions["entries"]] == ["landed_review_decision"]
+    assert "Historical disposition only" in decisions["entries"][0]["summary"]
+    assert any(ref.get("review_id") == landed for ref in decisions["entries"][0]["citations"])
+    checks = client.get(url, params={"history": "checks"}).json()["project_context"]
+    assert [row["knowledge_kind"] for row in checks["entries"]] == ["landed_review_observation"]
+    assert checks["entries"][0]["state"] == "historical"
+    assert checks["entries"][0]["stale_for_snapshot"] is False or isinstance(
+        checks["entries"][0]["freshness_label"], str
+    )
+    assert client.get(url, params={"history": "whatever"}).status_code == 400
+    assert client.get(url, params={"history": "decisions", "term": "vault"}).status_code == 400
+    assert client.get(url, params={"history": "checks", "purpose": "map"}).status_code == 400
+    assert client.client.get(url, params={"history": "decisions"}).status_code in {401, 403}
+    with pytest.raises(ValueError, match="human Review purpose"):
+        ProjectContextRequest(purpose="ai_review", history_kind="decisions")
+
+
 def test_history_links_only_resolve_to_reviews_this_surface_can_open(
     base: tuple[Workspace, ProjectKnowledgeStore, str],
 ) -> None:

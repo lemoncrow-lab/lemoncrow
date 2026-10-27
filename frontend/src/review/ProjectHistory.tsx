@@ -85,10 +85,10 @@ export function ProjectHistoryList({ context, testId }: { context: ReviewProject
  * Brief: a compact "Relevant history" section, rendered only when landed
  * history exists for this Change. Loading is a plain read; it never starts AI.
  */
-export default function BriefProjectContext({ load }: { load: (term?: string) => Promise<ReviewProjectContext | null> }) {
+export default function BriefProjectContext({ load }: { load: (term?: string, history?: "" | "decisions" | "checks", force?: boolean) => Promise<ReviewProjectContext | null> }) {
   const [context, setContext] = useState<ReviewProjectContext | null>(null);
   const [term, setTerm] = useState("");
-  const [searched, setSearched] = useState(false);
+  const [browse, setBrowse] = useState<"related" | "decisions" | "checks" | "search">("related");
   const [busy, setBusy] = useState(false);
   const [searchError, setSearchError] = useState("");
   const generationRef = useRef(0);
@@ -96,7 +96,7 @@ export default function BriefProjectContext({ load }: { load: (term?: string) =>
     const generation = ++generationRef.current;
     setContext(null);
     setTerm("");
-    setSearched(false);
+    setBrowse("related");
     setSearchError("");
     Promise.resolve()
       .then(() => load())
@@ -115,18 +115,61 @@ export default function BriefProjectContext({ load }: { load: (term?: string) =>
       .then((next) => {
         if (generationRef.current !== generation) return;
         setContext(next);
-        setSearched(Boolean(bounded));
+        setBrowse(bounded ? "search" : "related");
       })
       .catch(() => { if (generationRef.current === generation) setSearchError("Historical search is unavailable."); })
       .finally(() => { if (generationRef.current === generation) setBusy(false); });
   };
-  if (!context || !context.available) return null;
+  const switchBrowse = (next: "related" | "decisions" | "checks") => {
+    if (next === browse || busy) return;
+    const generation = ++generationRef.current;
+    setBusy(true);
+    setSearchError("");
+    setTerm("");
+    Promise.resolve()
+      .then(() => load("", next === "related" ? "" : next))
+      .then((nextContext) => {
+        if (generationRef.current !== generation) return;
+        setContext(nextContext);
+        setBrowse(next);
+      })
+      .catch(() => { if (generationRef.current === generation) setSearchError("Landed history is unavailable."); })
+      .finally(() => { if (generationRef.current === generation) setBusy(false); });
+  };
+  if (!context) return null;
+  if (!context.available && context.reason === "no_canonical_generation") {
+    return (
+      <section aria-label="Project history sync" data-testid="brief-history-not-synced"
+        className="border-t border-border/70 py-2 text-micro text-muted-foreground">
+        <span>Past project history has not been synchronized for this repository.</span>
+        <UiButton variant="link" size="compact" type="button" disabled={busy}
+          onClick={() => {
+            const generation = ++generationRef.current;
+            setBusy(true);
+            void Promise.resolve().then(() => load("", "", true))
+              .then((next) => { if (generationRef.current === generation) setContext(next); })
+              .catch(() => { if (generationRef.current === generation) setSearchError("History still unavailable."); })
+              .finally(() => { if (generationRef.current === generation) setBusy(false); });
+          }}>Retry history</UiButton>
+        {searchError && <span role="status">{searchError}</span>}
+      </section>
+    );
+  }
+  if (!context.available) return null;
   return (
     <section aria-label="Relevant history" className="flex flex-col gap-1.5 border-t border-border/70 py-3" data-testid="brief-project-context">
       <div className="flex items-center gap-2 text-label font-medium text-foreground">
         <History size={14} aria-hidden="true" className="text-muted-foreground" />
         <span>Relevant history</span>
         <span className="text-micro font-normal text-muted-foreground">Landed history · advisory, not evidence for this Snapshot</span>
+      </div>
+      <div className="flex flex-wrap gap-1" aria-label="Browse landed history" data-testid="project-history-browse">
+        {(["related", "decisions", "checks"] as const).map((view) => (
+          <UiButton key={view} variant={browse === view ? "outline" : "ghost"} size="compact" type="button"
+            aria-pressed={browse === view} disabled={busy} onClick={() => switchBrowse(view)}>
+            {view === "related" ? "Related" : view === "decisions" ? "Past decisions" : "Past checks"}
+          </UiButton>
+        ))}
       </div>
       <form onSubmit={search} className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="project-history-search">
         <UiInput uiSize="xs" aria-label="Search landed project history" placeholder="Search landed history" value={term}
@@ -136,7 +179,10 @@ export default function BriefProjectContext({ load }: { load: (term?: string) =>
       {searchError && <p role="status" className="text-micro text-amber-300">{searchError}</p>}
       {context.entries.length + context.narration.length === 0
         ? <p className="text-caption text-muted-foreground">
-            {searched ? "No matching landed history. This does not prove the change is safe." : "No history matched these changes. Search earlier project decisions or documentation."}
+            {browse === "search" ? "No matching landed history. This does not prove the change is safe."
+              : browse === "decisions" ? "No recorded landed reviewer decisions yet."
+              : browse === "checks" ? "No verified landed check history yet."
+              : "No history matched these changes. Browse earlier decisions or checks."}
           </p>
         : <ProjectHistoryList context={context} testId="brief-project-context-list" />}
     </section>

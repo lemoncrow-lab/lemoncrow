@@ -2836,6 +2836,7 @@ export interface ReviewProjectContextResponse {
 }
 
 export interface ReviewProjectContextSelection {
+  history?: "decisions" | "checks";
   terms?: string[];
   paths?: string[];
   components?: string[];

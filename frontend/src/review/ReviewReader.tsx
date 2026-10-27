@@ -4878,17 +4878,19 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // Knowledge configured for this repository, so without it the Map is unchanged.
   const projectContextCacheRef = useRef(new Map<string, Promise<ReviewProjectContext | null>>());
   const [projectKnowledgeReview, setProjectKnowledgeReview] = useState("");
-  const loadProjectContext = useCallback((term = ""): Promise<ReviewProjectContext | null> => {
+  const loadProjectContext = useCallback((term = "", history: "" | "decisions" | "checks" = "", force = false): Promise<ReviewProjectContext | null> => {
     if (!reviewId || architectureRevisionNumber < 0) return Promise.resolve(null);
     const bounded = term.trim().slice(0, 256);
     const cache = projectContextCacheRef.current;
-    const key = `${reviewId}:${architectureRevisionNumber}:${bounded}`;
-    const cached = cache.get(key);
+    const key = `${reviewId}:${architectureRevisionNumber}:${history}:${bounded}`;
+    const cached = !force && cache.get(key);
     if (cached) return cached;
     const loadedFor = reviewId;
-    const request = (bounded
-      ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { terms: [bounded] })
-      : fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief")
+    const request = (history
+      ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { history })
+      : bounded
+        ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { terms: [bounded] })
+        : fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief")
     ).then((payload) => {
       const context = payload.project_context;
       if (context.available) setProjectKnowledgeReview(loadedFor);
