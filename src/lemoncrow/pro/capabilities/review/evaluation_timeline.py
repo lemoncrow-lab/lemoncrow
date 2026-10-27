@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from itertools import pairwise
 from typing import Any
 
+from lemoncrow.pro.capabilities.review.execution import ExecutionResult, canonical_digest
 from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
 
 _TYPED = frozenset({"provider_ci", "lemoncrow_verification", "signed_attestation", "trusted_security_feed"})
@@ -40,13 +41,100 @@ def _verified_artifact(store: Any, evidence: Any) -> dict[str, Any] | None:
         return None
     if request.get("review_id") != evidence.review_id:
         return None
-    if value.get("identity") != request.get("identity"):
+    # Do not merely compare two caller-controlled copies of identity. Rebuild
+    # the canonical digest of the actual persisted request, then require both
+    # the record and embedded request to agree with it.
+    request_document = dict(request)
+    embedded_identity = request_document.pop("identity", None)
+    if not isinstance(embedded_identity, str):
+        return None
+    actual_identity = hashlib.sha256(
+        json.dumps(request_document, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    if value.get("identity") != actual_identity or embedded_identity != actual_identity:
         return None
     # A stored verdict row and its immutable artifact must agree. Unknown or
     # malformed records cannot resurrect an old PASS from row metadata.
     if evidence.verification_status and value.get("status") != evidence.verification_status:
         return None
     return value
+
+
+def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[str, Any]:
+    """Validate the runner's existing protected execution wire, expose metadata only.
+
+    The evidence artifact is authenticated by the Review store hash. The inner
+    result additionally has its own digest, executor class and exact subject
+    binding. No argv, environment values, output, artifact keys, or network
+    destinations are returned through the timeline API.
+    """
+    none: dict[str, Any] = {
+        "execution_provenance": "not_recorded",
+        "execution_identity": "",
+        "environment_fingerprint": "",
+        "recipe_digest": "",
+        "stage_outcomes": [],
+        "artifact_roles": [],
+        "unverified_integrations": 0,
+    }
+    data = record.get("data")
+    if not isinstance(data, dict):
+        return none
+    wire = data.get("execution")
+    if wire is None:
+        return {**none, "execution_provenance": "rejected" if data.get("execution_error") else "not_recorded"}
+    if not isinstance(wire, dict):
+        return {**none, "execution_provenance": "rejected"}
+    try:
+        # A forged result_digest must never be treated as the validated runner
+        # record, even when the outer evidence artifact has a valid hash.
+        result_digest = wire.get("result_digest")
+        if not isinstance(result_digest, str) or result_digest != canonical_digest(
+            {key: value for key, value in wire.items() if key != "result_digest"}
+        ):
+            raise ValueError("execution digest mismatch")
+        # ExecutionResult.from_wire supports historical records by normalizing
+        # a mismatched embedded verification executor to the outer executor.
+        # A receipt intended as proof must be stricter than compatibility load.
+        raw_verification = wire.get("verification")
+        if not isinstance(raw_verification, dict) or raw_verification.get("executor_class") != evidence.executor_class:
+            raise ValueError("untrusted execution verification class")
+        execution = ExecutionResult.from_wire(wire)
+        request = record["request"]
+        if execution.executor_class.value != evidence.executor_class:
+            raise ValueError("executor class mismatch")
+        subject = execution.subject
+        if subject.review_id != evidence.review_id or subject.revision_id != evidence.revision_id:
+            raise ValueError("execution belongs to another Snapshot")
+        # ExecutionSubject identifies its materialized source/overlay, while
+        # ValidationRequest identifies the semantic scenario Snapshot. Both
+        # must bind to the same Review/revision; their two digests are not
+        # interchangeable and must not be compared directly.
+        if subject.side != request.get("side"):
+            raise ValueError("execution side differs from request")
+        if str(wire.get("environment_fingerprint") or "") != execution.environment_fingerprint:
+            raise ValueError("environment fingerprint mismatch")
+        if execution.verification.executor_class is not execution.executor_class:
+            raise ValueError("verification's executor class disagrees")
+    except (TypeError, ValueError, KeyError):
+        return {**none, "execution_provenance": "rejected"}
+    # The role allowlist avoids leaking user-controlled file paths, opaque
+    # artifact keys and external URLs through the public Review summary.
+    roles = {"screenshot", "image", "video", "trace", "playwright_trace", "log", "stdout", "stderr", "report"}
+    stages = [
+        {"stage": stage.stage, "status": stage.status, "exit_code": stage.exit_code} for stage in execution.stages[:3]
+    ]
+    return {
+        "execution_provenance": "validated",
+        "execution_identity": execution.identity,
+        "environment_fingerprint": execution.environment_fingerprint,
+        "recipe_digest": execution.recipe.digest,
+        "stage_outcomes": stages,
+        "artifact_roles": sorted({ref.role for ref in execution.artifacts if ref.role in roles}),
+        "unverified_integrations": len(execution.verification.not_verified),
+    }
 
 
 def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
@@ -64,9 +152,7 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
     checks = raw if isinstance(raw, list) else []
     codes = [row.get("actual") for row in checks if isinstance(row, dict) and row.get("name") == "process exit code"]
     exit_code = codes[0] if codes and isinstance(codes[0], int) and not isinstance(codes[0], bool) else None
-    embedded = record.get("data")
-    execution = embedded.get("execution") if isinstance(embedded, dict) else None
-    environment = str(execution.get("environment_fingerprint") or "") if isinstance(execution, dict) else ""
+    provenance = _typed_execution_provenance(record, evidence)
     request = record["request"]
     recipe = str(request.get("scenario_id") or "")[:180]
     config_values = [
@@ -82,11 +168,16 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
         )
         else ""
     )
-    trusted = evidence.attestation_class in _TYPED and evidence.executor_class in {
-        "author_machine",
-        "customer_worker",
-        "managed_sandbox",
-    }
+    trusted = (
+        provenance["execution_provenance"] != "rejected"
+        and evidence.attestation_class in _TYPED
+        and evidence.executor_class
+        in {
+            "author_machine",
+            "customer_worker",
+            "managed_sandbox",
+        }
+    )
     return {
         "id": evidence.id,
         "revision_id": evidence.revision_id,
@@ -94,12 +185,25 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
         "title": evidence.title[:180],
         "scenario": recipe,
         "evaluator_config_digest": config_digest,
-        "status": str(record.get("status") or "UNKNOWN") if trusted else "REPORTED",
+        "status": (
+            str(record.get("status") or "UNKNOWN")
+            if trusted
+            else "UNVERIFIED" if provenance["execution_provenance"] == "rejected" else "REPORTED"
+        ),
         "raw_attempt": not bool(evidence.verification_status),
         "exit_code": exit_code,
         "duration_ms": record.get("duration_ms") if isinstance(record.get("duration_ms"), int) else None,
         "executor_class": evidence.executor_class if trusted else "unverified",
-        "environment_fingerprint": environment[:120],
+        "independent_execution": trusted
+        and evidence.executor_class != "author_machine"
+        and provenance["execution_provenance"] == "validated",
+        "environment_fingerprint": provenance["environment_fingerprint"],
+        "execution_provenance": provenance["execution_provenance"],
+        "execution_identity": provenance["execution_identity"],
+        "recipe_digest": provenance["recipe_digest"],
+        "stage_outcomes": provenance["stage_outcomes"],
+        "artifact_roles": provenance["artifact_roles"],
+        "unverified_integrations": provenance["unverified_integrations"],
         "artifact_digest": evidence.content_hash,
         "evidence_id": evidence.id,
         "scope": str(request.get("side") or "")[:16],

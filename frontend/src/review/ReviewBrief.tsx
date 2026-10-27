@@ -895,12 +895,23 @@ function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }
               </span>
             ))}
             <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
-            {snapshot.receipts.some((receipt) => receipt.exit_code !== null) && (
+            {snapshot.receipts.some((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected") && (
               <details className="basis-full text-meta text-muted-foreground">
                 <summary className="cursor-pointer">Execution receipts</summary>
-                {snapshot.receipts.filter((receipt) => receipt.exit_code !== null).slice(0, 5).map((receipt) => (
+                {snapshot.receipts.filter((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected").slice(0, 5).map((receipt) => (
                   <div key={receipt.id} className="mt-1 break-words">
-                    {receipt.title} · exit {receipt.exit_code} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}
+                    <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
+                    {receipt.executor_class === "author_machine" && <div className="text-micro text-muted-foreground">Author machine (self-attested); not independent verification.</div>}
+                    <div className="text-micro text-muted-foreground" data-testid={`receipt-provenance-${receipt.id}`}>
+                      {receipt.execution_provenance === "validated"
+                        ? `Execution record validated${receipt.environment_fingerprint ? ` · environment ${receipt.environment_fingerprint.slice(0, 17)}…` : ""}`
+                        : receipt.execution_provenance === "rejected"
+                          ? "Execution record rejected; not verified"
+                          : "No structured execution record available"}
+                      {(receipt.stage_outcomes?.length ?? 0) > 0 && ` · ${receipt.stage_outcomes!.map((stage) => `${stage.stage}: ${stage.status}`).join(", ")}`}
+                      {(receipt.artifact_roles?.length ?? 0) > 0 && ` · artifacts: ${receipt.artifact_roles!.join(", ")}`}
+                      {(receipt.unverified_integrations ?? 0) > 0 && ` · ${receipt.unverified_integrations} integration scope(s) not verified`}
+                    </div>
                   </div>
                 ))}
               </details>

@@ -777,6 +777,59 @@ def test_a_sandboxed_verdict_satisfies_its_entry_only_on_the_exact_head_and_reci
     receipts = timeline["current"]["receipts"]
     assert any(row["exit_code"] is not None and row["trust"] == "typed_observation" for row in receipts)
     assert any(row["raw_attempt"] for row in receipts)
+    assert any(row.get("execution_provenance") == "validated" for row in receipts), [
+        (row.get("execution_provenance"), row.get("raw_attempt")) for row in receipts
+    ]
+    assert any(row.get("execution_identity") and row.get("recipe_digest") for row in receipts)
+    assert any(row.get("stage_outcomes") for row in receipts if row.get("execution_provenance") == "validated")
+    assert all(
+        not row.get("independent_execution") for row in receipts if row.get("executor_class") == "author_machine"
+    )
+    assert not any("command" in row or "env" in row or "output" in row for row in receipts)
+    # The restricted artifact is immutable: changing the inner execution digest
+    # while updating the outer hash must still revoke execution provenance.
+    import hashlib
+    from dataclasses import replace as replace_evidence
+
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
+
+    real = next(
+        item
+        for item in review.store.list_evidence(review.review_id)
+        if item.mime_type == "application/vnd.lemoncrow.runtime-validation+json;version=1"
+        and "execution" in _record(review, item.id).get("data", {})
+    )
+    source = _record(review, real.id)
+    changed = json.loads(json.dumps(source))
+    changed["data"]["execution"]["result_digest"] = "0" * 64
+    forged = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode()
+    tampered = replace_evidence(real, content_hash=hashlib.sha256(forged).hexdigest())
+    untrusted = execution_receipt(SimpleNamespace(read_evidence_artifact=lambda _evidence: forged), tampered)
+    assert untrusted is not None
+    assert untrusted["execution_provenance"] == "rejected"
+    assert untrusted["trust"] == "reported_only"
+    assert untrusted["status"] == "UNVERIFIED"
+
+    # A self-consistent hash does not authorize a forged executor class in
+    # verification metadata: the dispatcher-owned evidence record must agree.
+    from lemoncrow.pro.capabilities.review.execution import canonical_digest
+
+    changed = json.loads(json.dumps(source))
+    changed["data"]["execution"]["verification"]["executor_class"] = "managed_sandbox"
+    nested = changed["data"]["execution"]
+    nested["result_digest"] = canonical_digest({key: value for key, value in nested.items() if key != "result_digest"})
+    forged = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode()
+    tampered = replace_evidence(real, content_hash=hashlib.sha256(forged).hexdigest())
+    untrusted = execution_receipt(SimpleNamespace(read_evidence_artifact=lambda _evidence: forged), tampered)
+    assert untrusted is not None and untrusted["execution_provenance"] == "rejected"
+    assert untrusted["status"] == "UNVERIFIED"
+
+    # Two copied identities are not sufficient: request identity is recomputed.
+    changed = json.loads(json.dumps(source))
+    changed["request"]["scenario_id"] = "a different scenario"
+    forged = json.dumps(changed, sort_keys=True, separators=(",", ":")).encode()
+    tampered = replace_evidence(real, content_hash=hashlib.sha256(forged).hexdigest())
+    assert execution_receipt(SimpleNamespace(read_evidence_artifact=lambda _evidence: forged), tampered) is None
     # This fixture deliberately introduces a failing implementation: the
     # evaluator must reflect the actual sandbox verdict, not assume success.
     assert timeline["current"]["counts"][first.json()["verdicts"]["checks.recipe:unit"].lower()] >= 1

@@ -601,6 +601,8 @@ def test_review_evaluation_timeline_is_snapshot_scoped_and_reports_untrusted_res
             detail="self-reported",
         )
     )
+    unauthenticated = review.client.get(f"/api/reviews/{review.review_id}/evaluations")
+    assert unauthenticated.status_code in {401, 403}, unauthenticated.text
     before = _get(review, "evaluations")
     assert before["selected_revision_id"] == original
     assert before["current"]["counts"] == {"pass": 1, "fail": 0, "not_run": 0, "unknown": 0}
@@ -793,3 +795,54 @@ def test_missing_or_corrupt_execution_artifact_cannot_count_as_pass(tmp_path: Pa
     assert timeline["current"]["state"] == "unverified"
     assert timeline["current"]["receipts"][0]["status"] == "UNVERIFIED"
     assert timeline["current"]["receipts"][0]["trust"] == "reported_only"
+
+
+def test_rejected_nested_execution_cannot_be_counted_as_verified(tmp_path: Path) -> None:
+    """Even typed metadata cannot rescue a malformed or forged execution record."""
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    request = ValidationRequest(
+        review_id=review.review_id,
+        revision_id=review.revision_id,
+        snapshot_identity="1" * 64,
+        scenario_kind="recipe",
+        scenario_id="critical-check",
+        side="new",
+        viewport_key="",
+        runtime_id="python",
+        runtime_config_digest="2" * 64,
+        trusted_policy_digest="3" * 64,
+        scope_digest="4" * 64,
+    )
+    scenario = ValidationScenario(
+        id="critical-check", title="Critical check", provider="command", surface_id="test", runtime_id="python"
+    )
+    revision = review.store.latest_revision(review.review_id)
+    assert revision is not None
+    persist_validation_record(
+        review.store,
+        revision,
+        request,
+        scenario,
+        {
+            "identity": request.identity,
+            "request": request.to_wire(),
+            "snapshot_id": review.revision_id,
+            "status": "PASS",
+            "data": {"execution": {"executor_class": "managed_sandbox", "fake": "hello"}},
+        },
+        executor_class="author_machine",
+        expected_current_revision_id=review.revision_id,
+    )
+    timeline = _get(review, "evaluations")
+    assert timeline["current"]["counts"]["pass"] == 0
+    (receipt,) = timeline["current"]["receipts"]
+    assert receipt["execution_provenance"] == "rejected"
+    assert receipt["trust"] == "reported_only"
+    assert receipt["status"] == "UNVERIFIED"
+    assert not receipt["environment_fingerprint"]

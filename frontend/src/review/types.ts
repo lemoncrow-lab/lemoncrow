@@ -3604,7 +3604,17 @@ export interface ReviewEvaluationSnapshot {
     raw_attempt: boolean;
     exit_code: number | null;
     executor_class: string;
+    /** An independently dispatched worker/sandbox, not an author-machine attestation. */
+    independent_execution?: boolean;
+    /** Validated, missing, or rejected signed execution metadata. */
+    execution_provenance?: "validated" | "not_recorded" | "rejected";
+    /** Stable execution identity, not the unique attempt ID (which is evidence_id). */
+    execution_identity?: string;
     environment_fingerprint: string;
+    recipe_digest?: string;
+    stage_outcomes?: { stage: "fetch" | "build" | "run"; status: string; exit_code: number | null }[];
+    artifact_roles?: string[];
+    unverified_integrations?: number;
     artifact_digest: string;
     evidence_id: string;
   }[];

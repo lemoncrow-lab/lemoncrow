@@ -402,6 +402,35 @@ describe("ReviewBrief", () => {
     expect(within(glance).getByTestId("brief-findings-glance")).toHaveTextContent("not automatically a verified defect");
   });
 
+  it("exposes a rejected execution record even when no exit code was recorded", async () => {
+    const base = projection();
+    const row = {
+      id: "rejected", title: "Critical check", status: "UNVERIFIED", trust: "reported_only" as const,
+      raw_attempt: true, exit_code: null, executor_class: "unverified", environment_fingerprint: "",
+      artifact_digest: "", evidence_id: "rejected", execution_provenance: "rejected" as const,
+    };
+    renderBrief({
+      ...base,
+      evaluation_timeline: {
+        schema_version: 1, selected_revision_id: "rev1", limitations: [],
+        current: {
+          revision_id: "rev1", snapshot_number: 1, head_sha: "", state: "unverified",
+          configuration_comparable: false, reason: "No valid execution evidence",
+          counts: { pass: 0, fail: 0, not_run: 0, unknown: 0 }, receipts: [row], receipts_omitted: 0,
+        },
+        snapshots: [{ revision_id: "rev1", snapshot_number: 1, head_sha: "", state: "unverified",
+          configuration_comparable: false, reason: "No valid execution evidence",
+          counts: { pass: 0, fail: 0, not_run: 0, unknown: 0 }, receipts: [row], receipts_omitted: 0 }],
+      },
+    });
+    const history = screen.getByTestId("brief-evaluation-history");
+    await userEvent.click(within(history).getByText("Evaluation history · 1 Snapshot"));
+    await userEvent.click(within(history).getByText("Execution receipts"));
+    expect(within(history).getByText(/Critical check · exit not recorded/)).toBeInTheDocument();
+    expect(within(history).getByText("Execution record rejected; not verified")).toBeInTheDocument();
+    expect(within(history).getByText("No verified results")).toBeInTheDocument();
+  });
+
   it("shows real Snapshot evaluation regression, raw receipt and an explicit no-score limit", async () => {
     const base = projection();
     renderBrief({
@@ -423,7 +452,9 @@ describe("ReviewBrief", () => {
             revision_id: "rev-2", snapshot_number: 2, head_sha: "", state: "failed", configuration_comparable: true,
             reason: "Matching evaluator", counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
             receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
-              exit_code: 7, executor_class: "author_machine", environment_fingerprint: "env2", artifact_digest: "sha2", evidence_id: "r2" }],
+              exit_code: 7, executor_class: "author_machine", environment_fingerprint: "envfp:sha256:0123456789", artifact_digest: "sha2", evidence_id: "r2",
+              execution_provenance: "validated", execution_identity: "session-identity", recipe_digest: "recipe-digest",
+              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unverified_integrations: 2 }],
             receipts_omitted: 0,
             comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
           },
@@ -442,6 +473,13 @@ describe("ReviewBrief", () => {
     expect(within(history).getByText(/no confidence score is calculated/i)).toBeInTheDocument();
     await userEvent.click(within(history).getByText("Execution receipts"));
     expect(within(history).getByText(/Critical tests · exit 7 · author_machine/i)).toBeInTheDocument();
+    const receipt = within(history).getByTestId("receipt-provenance-r2");
+    expect(within(history).getByText(/author machine \(self-attested\); not independent verification/i)).toBeInTheDocument();
+    expect(receipt).toHaveTextContent("Execution record validated");
+    expect(receipt).toHaveTextContent("run: failed");
+    expect(receipt).toHaveTextContent("artifacts: trace");
+    expect(receipt).toHaveTextContent("2 integration scope(s) not verified");
+    expect(receipt).not.toHaveTextContent("session-identity");
   });
 
   it("puts the question, Snapshot-proof verdict and next-reading action ahead of detailed behavior", () => {
