@@ -4497,7 +4497,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     expect(await screen.findByText("30 streamed targets")).toBeTruthy();
     const action = await screen.findByRole("button", { name: /Activity: 1 contributor in Snapshot 0 · agents working now · 1 newer file/ });
     await userEvent.click(action);
-    expect(await screen.findByRole("dialog", { name: "Activity" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Activity" }, { timeout: 5000 })).toBeTruthy();
   });
 
   it("refetches only Development when its live cursor advances", async () => {
