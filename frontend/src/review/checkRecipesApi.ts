@@ -187,10 +187,30 @@ export interface CheckProposal {
   annotation_id: string;
 }
 
+export interface CheckRecommendation {
+  entry_id: string;
+  recipe_id: string;
+  title: string;
+  reason: string;
+  run_plan_status: string;
+  previous_verdict: string;
+  prior_snapshot_verdict: string;
+  required: boolean;
+  can_run_now: boolean;
+  manual_authorization_required: boolean;
+  selection_mode: "impact" | "all" | "none";
+  selected_tests_sample: string[];
+  selected_test_count: number;
+  coverage: "known" | "unknown";
+  executor: string;
+  recipe_digest: string;
+}
+
 export interface CheckRecipesProjection {
   revision_id: string;
   historical: boolean;
   run_plan_digest: string;
+  recommended_checks?: { schema_version: number; recommendations: CheckRecommendation[]; omitted: number; policy: string };
   recipes: CheckRecipe[];
   policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean };
   errors: string[];

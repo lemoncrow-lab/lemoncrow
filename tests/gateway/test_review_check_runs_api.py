@@ -993,3 +993,38 @@ def test_a_dependency_changing_change_runs_hermetically_and_is_not_comparable(
     assert unit["comparable"] is False and "lockfile_digest" in unit["environment"]["differences"]
     assert _classes(unit) == {"test_left_pad_is_the_audited_version": "not_comparable", "test_ok": "unchanged"}
     assert unit["head_verdict"] == "FAIL"
+
+
+def test_suggested_verification_is_plan_bounded_and_requires_explicit_execution(tmp_path: Path) -> None:
+    """Real Snapshot API suggests only an existing trusted recipe, never runs it."""
+    review = _review(tmp_path)
+    before = _compute_runs(review)
+    response = _get(review)
+    rec = response["recommended_checks"]
+    assert rec["schema_version"] == 1
+    assert "cannot bypass" in rec["policy"]
+    assert rec["recommendations"]
+    for row in rec["recommendations"]:
+        assert row["entry_id"] in {entry["id"] for entry in response["entries"]}
+        assert row["manual_authorization_required"] is True
+        assert "command" not in row and "argv" not in row
+    assert _compute_runs(review) == before
+    assert review.client.get(f"/api/reviews/{review.review_id}/check-recipes").status_code in {401, 403}
+
+
+def test_failed_check_on_previous_snapshot_is_suggested_without_carrying_result(tmp_path: Path) -> None:
+    """Real two-commit Review history suggests re-verification, not a stale failing verdict."""
+    review, _runner = _scripted_review(tmp_path, lambda *_: ({"test_add": "failed"}, 100))
+    first = _run(review, "checks.test")
+    assert first.status_code == 200, first.text
+    assert first.json()["verdicts"]["checks.test"] in {"FAIL", "UNKNOWN"}
+    newer = _new_snapshot(review, {"calc.py": CALC_HEAD + "# correction pending\n"})
+    now = _get(review, newer)
+    assert now["results"] == []
+    recommendations = now["recommended_checks"]["recommendations"]
+    unit = next(row for row in recommendations if row["recipe_id"] == "unit")
+    assert unit["previous_verdict"] == ""
+    assert unit["prior_snapshot_verdict"] in {"FAIL", "UNKNOWN"}
+    assert "Previous Snapshot had" in unit["reason"]
+    assert unit["manual_authorization_required"] is True
+    assert unit["can_run_now"] in {True, False}

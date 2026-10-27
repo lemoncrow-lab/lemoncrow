@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { History } from "lucide-react";
 
 import { Button as UiButton } from "../components/ui/button";
+import { Input as UiInput } from "../components/ui/input";
 import { reviewHref } from "./reviewApi";
 import type { ReviewProjectContext, ReviewProjectContextEntry, ReviewProjectEvolutionEvent } from "./types";
 
@@ -84,19 +85,42 @@ export function ProjectHistoryList({ context, testId }: { context: ReviewProject
  * Brief: a compact "Relevant history" section, rendered only when landed
  * history exists for this Change. Loading is a plain read; it never starts AI.
  */
-export default function BriefProjectContext({ load }: { load: () => Promise<ReviewProjectContext | null> }) {
+export default function BriefProjectContext({ load }: { load: (term?: string) => Promise<ReviewProjectContext | null> }) {
   const [context, setContext] = useState<ReviewProjectContext | null>(null);
+  const [term, setTerm] = useState("");
+  const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const generationRef = useRef(0);
   useEffect(() => {
     const generation = ++generationRef.current;
     setContext(null);
+    setTerm("");
+    setSearched(false);
+    setSearchError("");
     Promise.resolve()
-      .then(load)
+      .then(() => load())
       .then((next) => { if (generationRef.current === generation) setContext(next); })
       .catch(() => { if (generationRef.current === generation) setContext(null); });
     return () => { generationRef.current += 1; };
   }, [load]);
-  if (!context || !context.available || context.entries.length + context.narration.length === 0) return null;
+  const search = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const generation = ++generationRef.current;
+    const bounded = term.trim().slice(0, 256);
+    setBusy(true);
+    setSearchError("");
+    Promise.resolve()
+      .then(() => load(bounded))
+      .then((next) => {
+        if (generationRef.current !== generation) return;
+        setContext(next);
+        setSearched(Boolean(bounded));
+      })
+      .catch(() => { if (generationRef.current === generation) setSearchError("Historical search is unavailable."); })
+      .finally(() => { if (generationRef.current === generation) setBusy(false); });
+  };
+  if (!context || !context.available) return null;
   return (
     <section aria-label="Relevant history" className="flex flex-col gap-1.5 border-t border-border/70 py-3" data-testid="brief-project-context">
       <div className="flex items-center gap-2 text-label font-medium text-foreground">
@@ -104,7 +128,17 @@ export default function BriefProjectContext({ load }: { load: () => Promise<Revi
         <span>Relevant history</span>
         <span className="text-micro font-normal text-muted-foreground">Landed history · advisory, not evidence for this Snapshot</span>
       </div>
-      <ProjectHistoryList context={context} testId="brief-project-context-list" />
+      <form onSubmit={search} className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="project-history-search">
+        <UiInput uiSize="xs" aria-label="Search landed project history" placeholder="Search landed history" value={term}
+          onChange={(event) => setTerm(event.target.value)} maxLength={256} className="min-w-[160px] flex-1" />
+        <UiButton variant="outline" size="compact" type="submit" disabled={busy}>{busy ? "Searching…" : "Search"}</UiButton>
+      </form>
+      {searchError && <p role="status" className="text-micro text-amber-300">{searchError}</p>}
+      {context.entries.length + context.narration.length === 0
+        ? <p className="text-caption text-muted-foreground">
+            {searched ? "No matching landed history. This does not prove the change is safe." : "No history matched these changes. Search earlier project decisions or documentation."}
+          </p>
+        : <ProjectHistoryList context={context} testId="brief-project-context-list" />}
     </section>
   );
 }

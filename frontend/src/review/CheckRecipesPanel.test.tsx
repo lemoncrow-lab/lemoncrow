@@ -345,3 +345,56 @@ describe("CheckRecipesPanel", () => {
     expect(await screen.findByText("Check recipes unavailable: boom")).toBeInTheDocument();
   });
 });
+
+describe("trusted check recommendations", () => {
+  const proposed = {
+    entry_id: "checks.test", recipe_id: "unit", title: "Checkout unit tests",
+    reason: "Planner selected impacted tests (1 recorded)", run_plan_status: "run",
+    previous_verdict: "", prior_snapshot_verdict: "", required: false, can_run_now: true, manual_authorization_required: true,
+    selection_mode: "impact" as const, selected_tests_sample: ["tests/test_checkout.py"],
+    selected_test_count: 1, coverage: "known" as const, executor: "local", recipe_digest: "sha256:123",
+  };
+
+  beforeEach(() => {
+    api.fetchCheckRecipes.mockReset();
+    api.postCheckRecipesRun.mockReset();
+  });
+
+  it("offers one explicit user action for a trusted planned check", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recipes: RECIPES,
+      recommended_checks: { schema_version: 1, recommendations: [proposed], omitted: 0, policy: "Manual only" },
+    }));
+    api.postCheckRecipesRun.mockResolvedValue({
+      entry_id: "checks.test", revision_id: "revision-2", verdicts: { "checks.test": "PASS" },
+      executions: 1, reused: 0, notes: [], executor_class: "author_machine", run_on: "local",
+    });
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const suggestions = await screen.findByTestId("check-recommendations");
+    expect(suggestions).toHaveTextContent("Suggested verification");
+    expect(suggestions).toHaveTextContent("tests/test_checkout.py");
+    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
+    await userEvent.click(within(suggestions).getByRole("button", { name: "Run check" }));
+    expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.test", false);
+  });
+
+  it("does not execute a recommendation blocked by the effective plan or in a historical Review", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recipes: RECIPES,
+      recommended_checks: {
+        schema_version: 1,
+        recommendations: [{ ...proposed, can_run_now: false, run_plan_status: "not_available", previous_verdict: "FAIL", reason: "Previous execution FAIL; inspect before retrying" }],
+        omitted: 0, policy: "Manual only",
+      },
+    }));
+    const mounted = render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const suggestions = await screen.findByTestId("check-recommendations");
+    expect(suggestions).toHaveTextContent("Previous execution FAIL");
+    expect(within(suggestions).queryByRole("button", { name: "Run check" })).toBeNull();
+    mounted.unmount();
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" readOnly />);
+    const readOnlySuggestions = await screen.findByTestId("check-recommendations");
+    expect(within(readOnlySuggestions).queryByRole("button", { name: "Run check" })).toBeNull();
+    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
+  });
+});

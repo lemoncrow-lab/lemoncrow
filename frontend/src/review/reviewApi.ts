@@ -685,6 +685,7 @@ export function fetchReviewProjectContext(
   for (const component of selection.components ?? []) params.append("component", component);
   for (const edge of selection.edges ?? []) params.append("edge", edge);
   for (const symbol of selection.symbols ?? []) params.append("symbol", symbol);
+  for (const term of selection.terms ?? []) params.append("term", term);
   return request<ReviewProjectContextResponse>(
     `/api/reviews/${encodeURIComponent(id)}/project-context?${params.toString()}`,
   );

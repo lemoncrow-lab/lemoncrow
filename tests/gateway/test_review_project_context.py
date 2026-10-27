@@ -531,6 +531,17 @@ def test_brief_and_map_project_context_are_labeled_linked_and_bounded(
     assert client.get(f"{review}/project-context", params={"purpose": "ask"}).status_code == 400
     many = [("path", f"src/{index}.py") for index in range(17)]
     assert client.get(f"{review}/project-context", params=[("purpose", "map"), *many]).status_code == 400
+    # Search is bounded, read-only and deliberately searches landed knowledge
+    # rather than implicitly merging unrelated changed-path hits.
+    searched = client.get(f"{review}/project-context", params={"purpose": "brief", "term": "revoked"}).json()
+    history = searched["project_context"]
+    assert history["authority"] == "advisory"
+    assert history["content_access_applied"] is False
+    assert history["entries"]
+    assert all(
+        "revoked" in row["summary"].lower() or "revoked" in row["knowledge_kind"].lower() for row in history["entries"]
+    )
+    assert client.get(f"{review}/project-context", params={"term": "z" * 1025}).status_code == 400
     assert client.client.get(f"{review}/project-context").status_code in {401, 403}
 
 

@@ -62,13 +62,17 @@ afterEach(() => {
 
 describe("BriefProjectContext", () => {
   it("renders nothing without Project Knowledge, so the Brief is unchanged", async () => {
-    for (const value of [null, context({ available: false, reason: "not_configured", entries: [] }), context({ entries: [] })]) {
+    for (const value of [null, context({ available: false, reason: "not_configured", entries: [] })]) {
       const load = vi.fn(async () => value);
       const { container, unmount } = render(<BriefProjectContext load={load} />);
       await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
       expect(container).toBeEmptyDOMElement();
       unmount();
     }
+    const configured = render(<BriefProjectContext load={async () => context({ entries: [] })} />);
+    expect(await screen.findByText(/No history matched these changes/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search landed project history" })).toBeInTheDocument();
+    configured.unmount();
     const failing = vi.fn(async () => { throw new Error("503"); });
     const { container } = render(<BriefProjectContext load={failing} />);
     await waitFor(() => expect(failing).toHaveBeenCalled());
@@ -86,6 +90,24 @@ describe("BriefProjectContext", () => {
     expect(citations).toHaveTextContent("Introduced: Landed Change · 2026-10-02");
     expect(screen.getByRole("link", { name: "Review landed-7" })).toHaveAttribute("href", "/r/landed-7");
     expect(citations).toHaveTextContent("Revision not held in this workspace");
+  });
+
+  it("searches landed history without treating a missing match as evidence", async () => {
+    const load = vi.fn(async (term = "") => term === "retries"
+      ? context({ entries: [entry({ entry_id: "knowledge:2", summary: "Retry policy was revised on main." })] })
+      : term ? context({ entries: [] }) : context());
+    render(<BriefProjectContext load={load} />);
+    const input = await screen.findByRole("textbox", { name: "Search landed project history" });
+    await userEvent.type(input, "retries");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByText("Retry policy was revised on main.")).toBeInTheDocument();
+    expect(screen.getByText(/advisory, not evidence for this Snapshot/)).toBeInTheDocument();
+    expect(load).toHaveBeenLastCalledWith("retries");
+    await userEvent.clear(input);
+    await userEvent.type(input, "nonesuch");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByText(/No matching landed history/)).toHaveTextContent("does not prove the change is safe");
+    expect(load).toHaveBeenLastCalledWith("nonesuch");
   });
 
   it("mounting and remounting reads with GET only and never starts work", async () => {
@@ -201,6 +223,18 @@ describe("MapProjectHistory", () => {
 });
 
 describe("fetchReviewProjectContext", () => {
+  it("encodes a bounded Review history query as a read-only term", async () => {
+    const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ project_context: context() }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", spy);
+    await fetchReviewProjectContext("review A", 4, "brief", { terms: ["why retries failed"] });
+    const [url, init] = (spy.mock.calls as unknown as [string, RequestInit | undefined][])[0];
+    expect(url).toBe("/api/reviews/review%20A/project-context?purpose=brief&revision_number=4&term=why+retries+failed");
+    expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
+    expect(init?.body ?? null).toBeNull();
+  });
+
   it("encodes a Map selection as repeated, bounded query keys on a GET", async () => {
     const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
       new Response(JSON.stringify({ project_context: context() }), { status: 200, headers: { "Content-Type": "application/json" } }),

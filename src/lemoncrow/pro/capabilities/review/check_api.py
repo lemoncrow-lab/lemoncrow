@@ -315,9 +315,21 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 for item in store.list_change_proposals(session.id)
                 if item.base_revision_id == revision.id and item.intent.startswith("autofix:")
             ]
+            from lemoncrow.pro.capabilities.review.check_recommendations import recommend_checks
+
+            revisions = list(store.list_revisions(session.id))
+            position = next((index for index, item in enumerate(revisions) if item.id == revision.id), -1)
+            prior_rows: list[dict[str, Any]] = []
+            if position > 0:
+                prior_differentials, _ = latest_results(store, revisions[position - 1])
+                prior_rows = [prior_differentials[key] for key in sorted(prior_differentials)]
+            recommended = recommend_checks(
+                plan, catalog, [differentials[key] for key in sorted(differentials)], previous_results=prior_rows
+            )
             return {
                 "revision_id": revision.id,
                 "historical": revision.id != latest.id,
+                "recommended_checks": recommended,
                 "run_plan_digest": plan.digest,
                 **catalog.to_wire(),
                 "entries": _entries(plan, catalog),

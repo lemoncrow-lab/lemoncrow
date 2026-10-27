@@ -2456,7 +2456,7 @@ def register_review_api(
                 request,
                 changed_paths=changed,
                 # Brief and Ask default to the Change's own paths; a Map selection names its own keys.
-                paths=request.paths or (changed if request.purpose in {"brief", "ask"} else ()),
+                paths=request.paths or (changed if request.purpose in {"brief", "ask"} and not request.terms else ()),
                 own_refs=(f"review:{session.id}", f"revision:{revision.id}"),
                 base_revision=session.review_base_sha or revision.merge_base_sha or revision.base_sha,
             ),
@@ -8672,6 +8672,7 @@ def register_review_api(
             components=keys("component"),
             contracts=keys("contract"),
             edges=keys("edge"),
+            terms=keys("term"),
         )
         context = await asyncio.to_thread(_project_context, session, revision, context_request)
         return {

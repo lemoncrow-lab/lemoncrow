@@ -393,6 +393,29 @@ export default function CheckRecipesPanel({
             ))}
           </div>
         )}
+        {(snapshot.recommended_checks?.recommendations.length ?? 0) > 0 && (
+          <section aria-label="Suggested checks" data-testid="check-recommendations" className="space-y-1.5 border-t border-border/80 pt-2">
+            <p className="text-caption font-semibold text-foreground">Suggested verification</p>
+            <p className="text-micro text-muted-foreground">Only trusted-base checks in the current run plan. Suggestions do not execute code automatically.</p>
+            {snapshot.recommended_checks!.recommendations.map((suggestion) => (
+              <div key={suggestion.recipe_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-border/50 py-1.5 text-micro" data-testid={`suggested-check-${suggestion.recipe_id}`}>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="font-medium text-foreground">{suggestion.title}</p>
+                  <p className="text-muted-foreground">{suggestion.reason}</p>
+                  {suggestion.selected_test_count > 0 && (
+                    <p className="text-muted-foreground">{`${suggestion.selected_test_count} impacted tests${suggestion.selected_tests_sample.length > 0 ? ` · ${suggestion.selected_tests_sample.join(", ")}` : ""}`}</p>
+                  )}
+                  {suggestion.coverage === "unknown" && <p className="text-amber-300/80">Test impact coverage unknown; don't assume this validates the whole change.</p>}
+                </div>
+                {editable && suggestion.can_run_now && (
+                  <UiButton size="compact" variant="outline" disabled={busy} onClick={() => run(suggestion.entry_id, false)}>
+                    Run check
+                  </UiButton>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
         {snapshot.future_policy.changed && (
           <div className="text-micro leading-relaxed text-amber-300/80" data-testid="check-future-policy">
             This Change edits check recipes. Its edits are proposed policy for {snapshot.future_policy.applies_to}; they never run here.
