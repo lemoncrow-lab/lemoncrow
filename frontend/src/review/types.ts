@@ -3579,7 +3579,42 @@ export interface ReviewTourProjection {
   synthesis?: ReviewSynthesisStatus;
 }
 
+/** Existing, immutable evidence over exact captured Snapshots; not a calibrated score. */
+export interface ReviewEvaluationTimeline {
+  schema_version: number;
+  selected_revision_id: string;
+  limitations: string[];
+  current: ReviewEvaluationSnapshot | null;
+  snapshots: ReviewEvaluationSnapshot[];
+}
+
+export interface ReviewEvaluationSnapshot {
+  revision_id: string;
+  snapshot_number: number;
+  head_sha: string;
+  state: "observed" | "failed" | "unverified";
+  configuration_comparable: boolean;
+  reason: string;
+  counts: { pass: number; fail: number; not_run: number; unknown: number };
+  receipts: {
+    id: string;
+    title: string;
+    status: string;
+    trust: "typed_observation" | "reported_only";
+    raw_attempt: boolean;
+    exit_code: number | null;
+    executor_class: string;
+    environment_fingerprint: string;
+    artifact_digest: string;
+    evidence_id: string;
+  }[];
+  receipts_omitted: number;
+  comparable_results?: { scenario: string; from: "PASS" | "FAIL"; to: "PASS" | "FAIL"; change: "regression" | "recovered" | "unchanged"; evidence_ids: string[] }[];
+}
+
 export interface ReviewProjection {
+  /** Snapshot-bound evidence history. Scores withheld if evaluator configuration is unknown. */
+  evaluation_timeline?: ReviewEvaluationTimeline;
   /** Short Snapshot summary; supporting items remain available in review details. */
   summary?: {
     paragraphs: string[];

@@ -566,3 +566,230 @@ def test_real_review_brief_surfaces_sourced_decision_questions_and_links_to_code
     # Migration/release changes can independently require deep evaluation under existing policy.
     overview = review.client.get(f"/api/reviews/{review.review_id}", headers=HEADERS).json()
     assert not any(row["status"] == "PASS" for row in overview["evidence"])
+
+
+def test_review_evaluation_timeline_is_snapshot_scoped_and_reports_untrusted_results(tmp_path: Path) -> None:
+    """Read real Review history: trusted check, untrusted claim, next Snapshot, no phantom passes."""
+    review = _review(tmp_path)
+    original = review.revision_id
+    review.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=review.review_id,
+            revision_id=original,
+            kind="verification",
+            title="Unit tests",
+            source="test",
+            source_ref="eval-trusted-1",
+            verification_status="PASS",
+            attestation_class="lemoncrow_verification",
+            stable_key="pytest tests/unit",
+            detail="Observed on first Snapshot",
+        )
+    )
+    review.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=review.review_id,
+            revision_id=original,
+            kind="verification",
+            title="Agent says tests passed",
+            source="human",
+            source_ref="eval-untrusted-1",
+            verification_status="PASS",
+            stable_key="untrusted-check",
+            detail="self-reported",
+        )
+    )
+    before = _get(review, "evaluations")
+    assert before["selected_revision_id"] == original
+    assert before["current"]["counts"] == {"pass": 1, "fail": 0, "not_run": 0, "unknown": 0}
+    assert before["current"]["state"] == "observed"
+    assert any(row["status"] == "REPORTED" for row in before["current"]["receipts"])
+    assert before["current"]["configuration_comparable"] is False
+    assert not any("score" in row for row in before["snapshots"])
+
+    second = _next_snapshot(review)
+    after = _get(review, "evaluations")
+    assert after["selected_revision_id"] == second
+    assert [row["revision_id"] for row in after["snapshots"]] == [second, original]
+    assert after["current"]["state"] == "unverified"
+    assert after["current"]["counts"]["pass"] == 0
+    assert after["snapshots"][1]["counts"]["pass"] == 1
+    response = review.client.get(f"/api/reviews/{review.review_id}/evaluations?revision_id={original}", headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json()["selected_revision_id"] == original
+    assert len(response.json()["snapshots"]) == 1
+    projected = _get(review, "projection")
+    assert projected["evaluation_timeline"]["current"]["revision_id"] == second
+
+
+def test_executed_commands_have_snapshot_receipts_and_comparable_regression(tmp_path: Path) -> None:
+    """Real subprocess exit codes -> existing evidence artifact -> 2-Snapshot API regression."""
+    import subprocess
+    import sys
+
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    scenario = ValidationScenario(
+        id="critical-path-test", title="Critical path tests", provider="command", surface_id="test", runtime_id="python"
+    )
+
+    def execute(revision_id: str, exit_code: int) -> None:
+        # The observed command is real, never browser fixture injection.
+        process = subprocess.run(
+            [sys.executable, "-c", f"raise SystemExit({exit_code})"], capture_output=True, check=False
+        )
+        assert process.returncode == exit_code
+        request = ValidationRequest(
+            review_id=review.review_id,
+            revision_id=revision_id,
+            snapshot_identity="d" * 64,
+            scenario_kind="recipe",
+            scenario_id=scenario.id,
+            side="new",
+            viewport_key="",
+            runtime_id="python",
+            runtime_config_digest="a" * 64,
+            trusted_policy_digest="b" * 64,
+            scope_digest="c" * 64,
+        )
+        record = {
+            "identity": request.identity,
+            "request": request.to_wire(),
+            "snapshot_id": revision_id,
+            "scenario": scenario.to_wire(),
+            "status": "PASS" if exit_code == 0 else "FAIL",
+            "deterministic_checks": [{"name": "process exit code", "expected": 0, "actual": exit_code}],
+            "duration_ms": 10,
+        }
+        revision = next(item for item in review.store.list_revisions(review.review_id) if item.id == revision_id)
+        persist_validation_record(
+            review.store,
+            revision,
+            request,
+            scenario,
+            record,
+            executor_class="author_machine",
+            expected_current_revision_id=revision_id,
+        )
+
+    first = review.revision_id
+    execute(first, 0)
+    second = _next_snapshot(review)
+    execute(second, 7)
+    timeline = _get(review, "evaluations")
+    assert timeline["current"]["counts"]["fail"] == 1
+    assert timeline["snapshots"][1]["counts"]["pass"] == 1
+    assert timeline["current"]["configuration_comparable"] is True
+    assert timeline["current"]["comparable_results"] == [
+        {
+            "scenario": scenario.id,
+            "from": "PASS",
+            "to": "FAIL",
+            "change": "regression",
+            "evidence_ids": [timeline["snapshots"][1]["receipts"][0]["id"], timeline["current"]["receipts"][0]["id"]],
+        }
+    ]
+    receipt = timeline["current"]["receipts"][0]
+    assert receipt["exit_code"] == 7
+    assert receipt["executor_class"] == "author_machine"
+    assert receipt["raw_attempt"] is False
+    assert receipt["trust"] == "typed_observation"
+    assert receipt["artifact_digest"] and len(receipt["artifact_digest"]) == 64
+    assert "output" not in receipt and "env" not in receipt and "argv" not in receipt
+    # An untrusted historical read cannot promote a prior passing result.
+    assert all(row["revision_id"] == second for row in timeline["current"]["receipts"])
+
+
+def test_evaluation_configuration_change_prevents_false_comparison(tmp_path: Path) -> None:
+    """Two actual Snapshots with differently configured evaluations never form a comparable trend."""
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    scenario = ValidationScenario(
+        id="checkout", title="Checkout check", provider="command", surface_id="test", runtime_id="python"
+    )
+
+    def publish(revision_id: str, status: str, policy_digest: str) -> None:
+        request = ValidationRequest(
+            review_id=review.review_id,
+            revision_id=revision_id,
+            snapshot_identity="f" * 64,
+            scenario_kind="recipe",
+            scenario_id=scenario.id,
+            side="new",
+            viewport_key="",
+            runtime_id="python",
+            runtime_config_digest="a" * 64,
+            trusted_policy_digest=policy_digest,
+            scope_digest="c" * 64,
+        )
+        revision = next(row for row in review.store.list_revisions(review.review_id) if row.id == revision_id)
+        persist_validation_record(
+            review.store,
+            revision,
+            request,
+            scenario,
+            {
+                "identity": request.identity,
+                "request": request.to_wire(),
+                "snapshot_id": revision.id,
+                "status": status,
+                "deterministic_checks": [{"name": "process exit code", "actual": 0 if status == "PASS" else 5}],
+            },
+            executor_class="author_machine",
+            expected_current_revision_id=revision.id,
+        )
+
+    publish(review.revision_id, "PASS", "b" * 64)
+    newer = _next_snapshot(review)
+    publish(newer, "FAIL", "e" * 64)
+    history = _get(review, "evaluations")
+    assert history["current"]["counts"]["fail"] == 1
+    assert history["snapshots"][1]["counts"]["pass"] == 1
+    assert history["current"]["configuration_comparable"] is False
+    assert history["current"]["comparable_results"] == []
+    assert (
+        "no confidence score" in history["limitations"][0].lower()
+        or "not a new execution" in history["limitations"][0].lower()
+    )
+
+
+def test_missing_or_corrupt_execution_artifact_cannot_count_as_pass(tmp_path: Path) -> None:
+    """A trusted row's PASS metadata alone never proves an unreadable execution receipt."""
+    from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
+
+    review = _review(tmp_path)
+    review.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=review.review_id,
+            revision_id=review.revision_id,
+            kind="verification",
+            title="Build verification",
+            source="test",
+            source_ref="unreadable-exec",
+            verification_status="PASS",
+            attestation_class="lemoncrow_verification",
+            stable_key="build",
+            mime_type=RUNTIME_VALIDATION_MEDIA_TYPE,
+            content_hash="a" * 64,
+            artifact_path="",
+            executor_class="author_machine",
+        )
+    )
+    timeline = _get(review, "evaluations")
+    assert timeline["current"]["counts"]["pass"] == 0
+    assert timeline["current"]["state"] == "unverified"
+    assert timeline["current"]["receipts"][0]["status"] == "UNVERIFIED"
+    assert timeline["current"]["receipts"][0]["trust"] == "reported_only"

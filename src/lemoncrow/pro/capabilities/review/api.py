@@ -10106,6 +10106,20 @@ def register_review_api(
                 )
         return {"revisions": rows, **state}
 
+    @router.get("/reviews/{review_id}/evaluations")
+    def _evaluation_history(review_id: str, revision_id: str = "") -> dict[str, Any]:
+        """Authenticated, read-only evidence history: no fabricated score/approval."""
+        from lemoncrow.pro.capabilities.review.evaluation_timeline import evaluation_timeline
+
+        session = _session(review_id)
+        revision = _requested_revision(session, revision_id)
+        return evaluation_timeline(
+            store,
+            session.id,
+            selected_revision_id=revision.id,
+            counted_evidence=lambda item: _counted_evidence(session, item),
+        )
+
     @router.get("/reviews/{review_id}/compare")
     def _compare_revisions(
         review_id: str,
@@ -11423,6 +11437,14 @@ def register_review_api(
             revision_numbers={item.id: item.revision_number for item in store.list_revisions(session.id)},
             synthesis=synthesis,
             delta=delta,
+        )
+        from lemoncrow.pro.capabilities.review.evaluation_timeline import evaluation_timeline
+
+        payload["evaluation_timeline"] = evaluation_timeline(
+            store,
+            session.id,
+            selected_revision_id=revision.id,
+            counted_evidence=lambda item: _counted_evidence(session, item),
         )
         payload["summary"] = build_brief_summary(payload, plan_checks)
         progress(4, "Grouping review material")

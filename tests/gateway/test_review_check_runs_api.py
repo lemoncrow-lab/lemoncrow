@@ -768,6 +768,22 @@ def test_a_sandboxed_verdict_satisfies_its_entry_only_on_the_exact_head_and_reci
     verdict_id = first.json()["verdict_evidence"]["checks.recipe:unit"]
     executed = _compute_runs(review)
     assert executed and first.json()["executions"] >= 1
+    # The real sandboxed check must appear in the reviewer-facing history;
+    # a raw attempt is evidence of execution, not a second successful check.
+    timeline_response = review.client.get(f"/api/reviews/{review.review_id}/evaluations", headers=HEADERS)
+    assert timeline_response.status_code == 200, timeline_response.text
+    timeline = timeline_response.json()
+    assert timeline["current"]["revision_id"] == review.revision_id
+    receipts = timeline["current"]["receipts"]
+    assert any(row["exit_code"] is not None and row["trust"] == "typed_observation" for row in receipts)
+    assert any(row["raw_attempt"] for row in receipts)
+    # This fixture deliberately introduces a failing implementation: the
+    # evaluator must reflect the actual sandbox verdict, not assume success.
+    assert timeline["current"]["counts"][first.json()["verdicts"]["checks.recipe:unit"].lower()] >= 1
+    assert any(
+        row["status"] == first.json()["verdicts"]["checks.recipe:unit"] and not row["raw_attempt"] for row in receipts
+    )
+    assert all(row["raw_attempt"] or row["status"] in {"PASS", "FAIL", "UNKNOWN", "NOT_RUN"} for row in receipts)
     head_sha = str(review.repo.head.target)
     digest = _get(review)["entry_digests"]["checks.recipe:unit"]
 

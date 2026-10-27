@@ -28,6 +28,7 @@ import type {
   ReviewProjectionDecision,
   ReviewProjectionItem,
   ReviewProjectionQuestion,
+  ReviewEvaluationTimeline,
   ReviewProjectContext,
   ReviewTarget,
 } from "./types";
@@ -870,6 +871,47 @@ function ProofCard({
   );
 }
 
+/** Entire-style revision context, derived from existing evidence; never a fake score. */
+function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }) {
+  if (!timeline || timeline.snapshots.length === 0) return null;
+  const current = timeline.current;
+  return (
+    <details data-testid="brief-evaluation-history" className="rounded-md border border-border/80 px-3 py-2 text-caption">
+      <summary className="cursor-pointer font-medium text-foreground">
+        {`Evaluation history · ${timeline.snapshots.length} ${timeline.snapshots.length === 1 ? "Snapshot" : "Snapshots"}`}
+        {current && <span className="ml-2 text-muted-foreground">{current.state === "unverified" ? "not verified" : current.state === "failed" ? "checks failed" : "recorded results"}</span>}
+      </summary>
+      <p className="mt-2 text-muted-foreground">Recorded results only. Different evaluator configurations are not comparable; no confidence score is calculated.</p>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {timeline.snapshots.map((snapshot) => (
+          <div key={snapshot.revision_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1.5" data-testid={`brief-evaluation-snapshot-${snapshot.snapshot_number}`}>
+            <span className="font-medium text-foreground">{`Snapshot ${snapshot.snapshot_number}`}</span>
+            <span className={snapshot.counts.fail > 0 ? "text-red-300" : snapshot.counts.pass > 0 ? "text-subtle" : "text-amber-300/90"}>
+              {snapshot.counts.fail > 0 ? `${snapshot.counts.fail} failed` : snapshot.counts.pass > 0 ? `${snapshot.counts.pass} recorded passes` : "No verified results"}
+            </span>
+            {(snapshot.comparable_results ?? []).filter((result) => result.change !== "unchanged").map((result) => (
+              <span key={`${result.scenario}:${result.from}:${result.to}`} className={`basis-full text-caption ${result.change === "regression" ? "text-red-300" : "text-subtle"}`}>
+                {`${result.change === "regression" ? "Regression" : "Recovered"} · ${result.scenario} · ${result.from} → ${result.to}`}
+              </span>
+            ))}
+            <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
+            {snapshot.receipts.some((receipt) => receipt.exit_code !== null) && (
+              <details className="basis-full text-meta text-muted-foreground">
+                <summary className="cursor-pointer">Execution receipts</summary>
+                {snapshot.receipts.filter((receipt) => receipt.exit_code !== null).slice(0, 5).map((receipt) => (
+                  <div key={receipt.id} className="mt-1 break-words">
+                    {receipt.title} · exit {receipt.exit_code} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}
+                  </div>
+                ))}
+              </details>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 /** Changed lines per reading tier, each target counted once in the first tier that lists it. */
 function tierLineCounts(
   tiers: readonly (readonly ReviewProjectionItem[])[],
@@ -1624,6 +1666,8 @@ export default function ReviewBrief({
           {!projection.historical && interactivePreview}
         </Section>
       )}
+
+      <EvaluationHistory timeline={projection.evaluation_timeline} />
 
       {/* 5. Where to read next; everything else stays one step away. */}
       {understand.length > 0 && (

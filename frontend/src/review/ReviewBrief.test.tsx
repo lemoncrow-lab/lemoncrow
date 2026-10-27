@@ -385,6 +385,48 @@ describe("ReviewBrief", () => {
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
   });
 
+  it("shows real Snapshot evaluation regression, raw receipt and an explicit no-score limit", async () => {
+    const base = projection();
+    renderBrief({
+      ...base,
+      evaluation_timeline: {
+        schema_version: 1, selected_revision_id: "rev-2",
+        limitations: ["No calibrated score"],
+        current: {
+          revision_id: "rev-2", snapshot_number: 2, head_sha: "", state: "failed", configuration_comparable: true,
+          reason: "1 evaluator(s) have matching recorded configurations",
+          counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
+          receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
+            exit_code: 7, executor_class: "author_machine", environment_fingerprint: "env2", artifact_digest: "sha2", evidence_id: "r2" }],
+          receipts_omitted: 0,
+          comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
+        },
+        snapshots: [
+          {
+            revision_id: "rev-2", snapshot_number: 2, head_sha: "", state: "failed", configuration_comparable: true,
+            reason: "Matching evaluator", counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
+            receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
+              exit_code: 7, executor_class: "author_machine", environment_fingerprint: "env2", artifact_digest: "sha2", evidence_id: "r2" }],
+            receipts_omitted: 0,
+            comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
+          },
+          {
+            revision_id: "rev-1", snapshot_number: 1, head_sha: "", state: "observed", configuration_comparable: false,
+            reason: "No history comparison", counts: { pass: 1, fail: 0, not_run: 0, unknown: 0 },
+            receipts: [], receipts_omitted: 0,
+          },
+        ],
+      },
+    });
+    const history = screen.getByTestId("brief-evaluation-history");
+    expect(history).not.toHaveAttribute("open");
+    await userEvent.click(within(history).getByText("Evaluation history · 2 Snapshots"));
+    expect(within(history).getByText("Regression · critical-tests · PASS → FAIL")).toBeInTheDocument();
+    expect(within(history).getByText(/no confidence score is calculated/i)).toBeInTheDocument();
+    await userEvent.click(within(history).getByText("Execution receipts"));
+    expect(within(history).getByText(/Critical tests · exit 7 · author_machine/i)).toBeInTheDocument();
+  });
+
   it("puts the question, Snapshot-proof verdict and next-reading action ahead of detailed behavior", () => {
     const value = projection({
       summary: {
