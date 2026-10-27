@@ -34,10 +34,10 @@ import type {
 
 /**
  * The Brief (spec §4.1): a concise handoff, decision first. After the change
- * summary it answers, in order: what needs your decision (required checks,
- * agent approvals, human decisions), what deserves attention (behavior
- * changes, Review first), what is proven (one proof card), and where to read
- * next (Understand, Routine, Reviewed). Architecture, history and the AI,
+ * summary it answers, in order: what needs attention, what is verified and
+ * where to read first. Full decisions, source details, behavior evidence and
+ * check receipts remain below, along with Understand, Routine and Reviewed.
+ * Architecture, history and the AI,
  * policy and inventory details follow. Sections are filters over the
  * server's one queue; nothing here ranks. Decision cards offer only the
  * actions the server lists for the decision's derived state (spec §5);
@@ -1408,6 +1408,18 @@ export default function ReviewBrief({
   const readingPlanLine = readingPlan && (
     <p className="text-meta text-muted-foreground" data-testid="brief-reading-plan">{readingPlan}</p>
   );
+  // The first viewport uses the SAME snapshot-bound check statuses as ProofCard;
+  // this is an orientation sentence, never an independent evidence assertion.
+  const snapshotCounts = checkCounts
+    ?? countStatuses(checks && checks.length > 0 ? checks.map((row) => row.status) : linkedStatuses(projection.claims));
+  const snapshotProof = proofVerdict(snapshotCounts);
+  const glanceQuestions = projection.questions
+    .filter((question) => question.target_ids.some((id) => byId.has(id)))
+    .sort((a, b) => a.tier - b.tier)
+    .slice(0, 3);
+  const firstReadTarget = reviewFirst.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id))
+    ?? understand.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id));
+  const headlineCount = reviewFirst.length + orphanQuestions.length;
   const decisionCard = (decision: ReviewProjectionDecision) => (
     <DecisionCard key={decision.key} decision={decision} byId={byId} onOpenTarget={onOpenTarget} onAsk={onAsk} onDecision={onDecision} />
   );
@@ -1430,78 +1442,117 @@ export default function ReviewBrief({
 
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 outline-none"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 outline-none"
       data-testid="review-brief"
       data-review-view-root="brief"
       tabIndex={-1}
     >
-      {/* 1. What changed. */}
-      <div className="hunk">
+      {/* One useful first screen: the actual attention queue, Snapshot proof, and next reading action. */}
+      <div className="hunk" data-testid="brief-glance">
         <div className="hunk-head">
           <span className="hunk-label">{projection.snapshot_number !== null ? `Snapshot ${projection.snapshot_number}` : "Change"}</span>
           {projection.historical && <Badge>Historical</Badge>}
         </div>
-        <div className="flex flex-col gap-3 p-4">
-      <header className="flex flex-col gap-1 empty:hidden">
-        {!projection.summary && projection.plan.intents.map((intent) => (
-          <div key={intent.producer}>
-            <p className="text-body text-foreground">{intent.intent}</p>
-            {intent.origin === "captured" && (
-              <p className="text-micro text-muted-foreground">{`Captured plan · ${intent.producer}`}</p>
-            )}
-          </div>
-        ))}
-        {!projection.summary && openDecisions.length === 0 && <p className="text-caption text-muted-foreground">No open decisions</p>}
-        {!projection.summary && readingPlanLine}
-        {progress && progress.total > 0 && (
-          <p className="flex gap-3 text-caption text-muted-foreground">
-            <span>{`Decisions: ${progress.settled} of ${progress.total} settled`}</span>
-            <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
-          </p>
-        )}
-        {deltaLine(projection) && <p className="text-meta text-p1">{deltaLine(projection)}</p>}
-      </header>
-
-      {projection.summary && (
-        <section aria-label="Change summary" className="flex flex-col gap-3">
-          {projection.summary.statements?.length
-            ? projection.summary.statements.map((statement, index) => (
-                <div key={statement.text}>
-                  <p className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{statement.text}</p>
-                  {statement.origin === "inferred" && statement.target_ids.length > 0 && (
-                    <div className="mt-0.5 text-micro text-muted-foreground">
-                      {"AI statement · " + statement.target_ids.length + " exact target" + (statement.target_ids.length === 1 ? "" : "s")}
-                    </div>
-                  )}
+        <div className="flex flex-col gap-3 p-3 sm:p-4">
+          <section aria-label="Change summary" className="flex flex-col gap-1.5">
+            {projection.summary ? (
+              <>
+                <p className="text-title font-semibold leading-snug text-foreground">
+                  {projection.summary.statements?.[0]?.text || projection.summary.paragraphs[0] || "Change summary unavailable"}
+                </p>
+                <div className="flex flex-wrap gap-x-2 text-caption text-muted-foreground">
+                  <span>{projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}</span>
+                  {projection.summary.scope && <span>{projection.summary.scope}</span>}
                 </div>
-              ))
-            : projection.summary.paragraphs.map((paragraph, index) => (
-                <p key={paragraph} className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{paragraph}</p>
-              ))}
-          <div className="flex flex-col gap-1">
-          <p className="text-meta text-muted-foreground">
-            {projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}
-          </p>
-          <p className="text-ui text-subtle">{projection.summary.verification}</p>
-          {projection.summary.attention && <p className="text-ui text-p1">{projection.summary.attention}</p>}
-          <p className="text-meta text-muted-foreground" data-testid="review-change-size">
-            {[
-              projection.summary.scope,
-              projection.material && projection.material.total_changed_lines > 0
-                ? projection.material.implementation_changed_lines === projection.material.total_changed_lines
-                  ? `${projection.material.total_changed_lines} changed implementation lines`
-                  : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`
-                : "",
-            ].filter(Boolean).join(" · ")}
-          </p>
-          {readingPlanLine}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="outline" size="sm" onClick={onOpenTour}>Start guided review</UiButton>}
-            <UiButton variant="outline" size="sm" onClick={onOpenFiles}>Open code</UiButton>
-          </div>
-        </section>
-      )}
+                {((projection.summary.statements?.length ?? 0) > 1 || (!projection.summary.statements?.length && projection.summary.paragraphs.length > 1)) && (
+                  <details className="text-caption text-muted-foreground" data-testid="brief-more-summary">
+                    <summary className="cursor-pointer">More change context</summary>
+                    <div className="mt-1 space-y-1 pl-2">
+                      {projection.summary.statements?.length
+                        ? projection.summary.statements.slice(1).map((statement, i) => <p key={`${i}:${statement.text}`}>{statement.text}</p>)
+                        : projection.summary.paragraphs.slice(1).map((paragraph, i) => <p key={`${i}:${paragraph}`}>{paragraph}</p>)}
+                    </div>
+                  </details>
+                )}
+              </>
+            ) : (
+              <>
+                {projection.plan.intents.map((intent) => (
+                  <div key={intent.producer}>
+                    <p className="text-ui text-foreground">{intent.intent}</p>
+                    {intent.origin === "captured" && <p className="text-micro text-muted-foreground">{`Captured plan · ${intent.producer}`}</p>}
+                  </div>
+                ))}
+                {projection.plan.intents.length === 0 && <p className="text-title font-semibold text-foreground">Review this change</p>}
+                {openDecisions.length === 0 && <p className="text-caption text-muted-foreground">No open decisions</p>}
+              </>
+            )}
+            {deltaLine(projection) && <p className="text-meta text-p1">{deltaLine(projection)}</p>}
+            {progress && progress.total > 0 && (
+              <div className="flex flex-wrap gap-x-3 text-caption text-muted-foreground">
+                <span>{`Decisions: ${progress.settled} of ${progress.total} settled`}</span>
+                <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
+              </div>
+            )}
+            <p className="text-meta text-muted-foreground" data-testid="review-change-size">
+              {projection.material?.total_changed_lines
+                ? `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`
+                : `${coverage.file_count} files · ${codeTargets.length} changed targets`}
+            </p>
+          </section>
+
+          {(glanceQuestions.length > 0 || firstReadTarget || openDecisions.length > 0 || requiredChecks.length > 0) && (
+            <section aria-label="Needs your attention" className="border-t border-border/70 pt-2.5" data-testid="brief-attention-glance">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-label font-semibold text-foreground">Needs your attention</h2>
+                {headlineCount > 0 && <span className="text-meta text-muted-foreground">{headlineCount} review-first items</span>}
+              </div>
+              {requiredChecks.length > 0 && <p className="mt-1 text-caption text-red-300">{plural(requiredChecks.length, "required check")} needs attention below</p>}
+              {openDecisions.length > 0 && <p className="mt-1 text-caption text-amber-300/90">{plural(openDecisions.length, "human decision")} to resolve below</p>}
+              <div className="mt-1.5 divide-y divide-border/60">
+                {glanceQuestions.map((question) => {
+                  const id = question.target_ids.find((targetId) => byId.has(targetId));
+                  const target = id ? byId.get(id) : undefined;
+                  if (!id) return null;
+                  return (
+                    <UiButton unstyled key={question.id} type="button"
+                      className="flex w-full min-w-0 items-center justify-between gap-3 py-2 text-left hover:text-foreground"
+                      onClick={() => onOpenTarget(id)} aria-label={`Open ${question.title} code`}>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-label font-medium text-foreground">{question.title}</span>
+                        <span className="truncate font-mono text-meta text-muted-foreground">{question.origin === "ai" ? "AI question · " : ""}{target?.path || "Review target"}</span>
+                      </span>
+                      <span aria-hidden="true" className="shrink-0 text-muted-foreground">›</span>
+                    </UiButton>
+                  );
+                })}
+                {glanceQuestions.length === 0 && firstReadTarget && (
+                  <UiButton unstyled type="button" className="flex w-full items-center justify-between gap-3 py-2 text-left"
+                    onClick={() => onOpenTarget(firstReadTarget)} aria-label="Open next review target">
+                    <span className="truncate text-label text-foreground">{targetLabel(byId.get(firstReadTarget), firstReadTarget)}</span>
+                    <span aria-hidden="true">›</span>
+                  </UiButton>
+                )}
+              </div>
+            </section>
+          )}
+
+          <section aria-label="Verification at a glance" className="border-t border-border/70 pt-2.5" data-testid="brief-proof-glance">
+            <h2 className="text-label font-semibold text-foreground">What is proven?</h2>
+            <p className={`mt-1 text-caption ${snapshotProof.tone}`}>{snapshotProof.text}</p>
+            <UiButton unstyled type="button" className="mt-1 text-caption text-muted-foreground underline-offset-2 hover:underline" onClick={() => onInspectEvidence(null)}>View evidence</UiButton>
+          </section>
+
+          <section aria-label="Read next" className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-2.5" data-testid="brief-read-next">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-label font-semibold text-foreground">Read next</h2>
+              {readingPlanLine || <p className="text-caption text-muted-foreground">Open the complete changed code to review.</p>}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="outline" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
+              <UiButton variant="outline" size="compact" onClick={onOpenFiles}>Open code</UiButton>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -1536,20 +1587,6 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {/* 3. What deserves attention: the behavior that changed, then the code to read first. */}
-      {behavior && (
-        <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
-          <BehaviorChanges
-            behavior={behavior}
-            revisionId={projection.revision_id}
-            onLoadTarget={projection.historical ? undefined : onLoadBehaviorTarget}
-            onJudge={projection.historical ? undefined : onJudgeBehavior}
-            onNarrate={projection.historical ? undefined : onNarrateBehavior}
-          />
-          {!projection.historical && interactivePreview}
-        </Section>
-      )}
-
       {reviewFirst.length + orphanQuestions.length > 0 && (
         <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`} action={<LinesTag lines={reviewFirstLines} />}>
           {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} onOpenTarget={onOpenTarget} />)}
@@ -1573,6 +1610,20 @@ export default function ReviewBrief({
           onInspectEvidence={onInspectEvidence}
         />
       </Section>
+
+      {/* 3. What deserves attention: the behavior that changed, then the code to read first. */}
+      {behavior && (
+        <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
+          <BehaviorChanges
+            behavior={behavior}
+            revisionId={projection.revision_id}
+            onLoadTarget={projection.historical ? undefined : onLoadBehaviorTarget}
+            onJudge={projection.historical ? undefined : onJudgeBehavior}
+            onNarrate={projection.historical ? undefined : onNarrateBehavior}
+          />
+          {!projection.historical && interactivePreview}
+        </Section>
+      )}
 
       {/* 5. Where to read next; everything else stays one step away. */}
       {understand.length > 0 && (

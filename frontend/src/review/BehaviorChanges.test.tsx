@@ -221,8 +221,8 @@ describe("Behavior changes in the Brief", () => {
     bare.unmount();
 
     const shown = renderBrief(projection({ behavior: behavior(), actions: [BEHAVIOR_QUEUE_ENTRY] }));
-    // The behavior that changed leads; the proof card follows it.
-    expect(sectionLabels(shown.container)).toEqual(["Behavior changes · 1", ...bareSections]);
+    // Compact Snapshot orientation and proof lead. Detailed behavior stays below them.
+    expect(sectionLabels(shown.container)).toEqual([...bareSections, "Behavior changes · 1"]);
     expect(shown.container.querySelectorAll("header button").length).toBe(bareButtons);
     // A behavior queue entry is not a "Required check".
     expect(screen.queryByText(/Required checks/)).toBeNull();

@@ -3933,7 +3933,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     expect(within(brief).getByText("First behavior")).toBeTruthy();
     expect(within(brief).getByText("Sessions report invalid tokens.")).toBeTruthy();
 
-    await userEvent.click(within(brief).getByRole("button", { name: "Open code" }));
+    await userEvent.click(within(brief).getByRole("button", { name: "Open next review target" }));
     await waitFor(() => expect(screen.queryByTestId("review-brief")).toBeNull());
     await waitFor(() => expect(stream.scrollToTarget.mock.calls.at(-1)?.[0].target_id).toBe("target-3"));
   });

@@ -385,6 +385,40 @@ describe("ReviewBrief", () => {
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
   });
 
+  it("puts the question, Snapshot-proof verdict and next-reading action ahead of detailed behavior", () => {
+    const value = projection({
+      summary: {
+        paragraphs: ["Checkout and API contract changed.", "A second description that belongs below the fold."],
+        origin: "author",
+        scope: "4 files · 4 changed targets",
+        verification: "No current verification results recorded.",
+        attention: "1 open decision",
+        additional_explanations: 0,
+      },
+      questions: [{
+        id: "q:structural:contract", reason: "structural_decision_question",
+        title: "Confirm API compatibility", detail: "Check consumers before shipping.",
+        item_ids: [], target_ids: ["t-resolve"], actions: ["open_implementation"], tier: 3,
+        origin: "lemoncrow",
+      }],
+    });
+    renderBrief(value, { checkCounts: { pass: 0, fail: 0, not_run: 0, unknown: 0 } });
+    const brief = screen.getByTestId("review-brief");
+    const glance = within(brief).getByTestId("brief-glance");
+    expect(within(glance).getByRole("button", { name: "Open Confirm API compatibility code" })).toBeVisible();
+    expect(within(glance).getByRole("region", { name: "Verification at a glance" })).toHaveTextContent(
+      "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.",
+    );
+    expect(within(glance).getByRole("region", { name: "Read next" })).toHaveTextContent("Review first");
+    const regions = [...brief.querySelectorAll('section[aria-label]')].map((node) => node.getAttribute("aria-label"));
+    expect(regions.indexOf("Needs your attention")).toBeLessThan(regions.findIndex((label) => label?.startsWith("Human decisions")));
+    expect(regions.indexOf("Verification at a glance")).toBeLessThan(regions.indexOf("What is proven"));
+    expect(regions.indexOf("Read next")).toBeLessThan(regions.indexOf("What is proven"));
+    expect(within(glance).getByText("A second description that belongs below the fold.")).not.toBeVisible();
+    expect(within(glance).getByText("More change context")).toBeInTheDocument();
+    expect(within(glance).queryByText(/confidence score/i)).toBeNull();
+  });
+
   it("opens the relevant Snapshot code directly from a generated change question", async () => {
     const base = projection();
     const question = {
@@ -399,10 +433,9 @@ describe("ReviewBrief", () => {
       origin: "lemoncrow" as const,
     };
     const handlers = renderBrief({ ...base, questions: [question] });
-    const row = screen.getByText("Confirm migration rollout").closest("div.rounded");
-    expect(row).toBeTruthy();
-    expect(within(row as HTMLElement).getByText(/not a verified defect/)).toBeInTheDocument();
-    await userEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open relevant code" }));
+    const glance = screen.getByRole("region", { name: "Needs your attention" });
+    expect(within(glance).getByText("Confirm migration rollout")).toBeInTheDocument();
+    await userEvent.click(within(glance).getByRole("button", { name: "Open Confirm migration rollout code" }));
     expect(handlers.onOpenTarget).toHaveBeenCalledWith("t-resolve");
     expect(screen.getAllByRole("heading", { level: 3 }).map((element) => element.textContent)).toContain("Review first · 2");
   });
@@ -575,9 +608,9 @@ describe("ReviewBrief", () => {
       .map((node) => node.getAttribute("aria-label") ?? "");
     const at = (label: string) => order.findIndex((name) => name.startsWith(label));
     expect(at("Human decisions")).toBeLessThan(at("Behavior changes"));
-    expect(at("Behavior changes")).toBeLessThan(at("Review first"));
     expect(at("Review first")).toBeLessThan(at("What is proven"));
-    expect(at("What is proven")).toBeLessThan(at("Understand"));
+    expect(at("What is proven")).toBeLessThan(at("Behavior changes"));
+    expect(at("Behavior changes")).toBeLessThan(at("Understand"));
     expect(at("Reviewed")).toBeLessThan(at("Architecture delta"));
   });
 
