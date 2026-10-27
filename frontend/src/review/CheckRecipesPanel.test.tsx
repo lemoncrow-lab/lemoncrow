@@ -322,8 +322,8 @@ describe("CheckRecipesPanel", () => {
     );
     render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
     const autofix = await screen.findByTestId("check-autofix");
-    expect(autofix).toHaveTextContent("Approved · sent to agent");
-    expect(within(autofix).queryByRole("button", { name: "Approve & send" })).toBeNull();
+    expect(autofix).toHaveTextContent("Approved · ready for agent");
+    expect(within(autofix).queryByRole("button", { name: "Approve fix" })).toBeNull();
     expect(api.postCheckRequest).not.toHaveBeenCalled();
   });
 
@@ -339,7 +339,7 @@ describe("CheckRecipesPanel", () => {
 
     const autofix = await screen.findByTestId("check-autofix");
     expect(autofix).toHaveTextContent("1 file reformatted");
-    await userEvent.click(within(autofix).getByRole("button", { name: "Approve & send" }));
+    await userEvent.click(within(autofix).getByRole("button", { name: "Approve fix" }));
     expect(api.postCheckRequest).toHaveBeenCalledWith("review-1", "revision-2", { kind: "autofix", proposal_id: "proposal-1", approved: true });
 
     await userEvent.click(within(screen.getByTestId("check-adequacy")).getByRole("button", { name: "Request proof" }));

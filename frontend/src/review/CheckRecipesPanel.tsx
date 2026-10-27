@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button as UiButton } from "../components/ui/button";
 import { PanelCard } from "./ContextSections";
+import ReviewFixSheet from "./ReviewFixSheet";
+import type { ReviewActionRequest } from "./reviewActionsApi";
 import {
   fetchCheckRecipes,
   postCheckRecipesRun,
@@ -147,12 +149,14 @@ function DifferentialCard({
   onProof,
   onSendAutofix,
   approvedAutofixIds,
+  onFixWithAgent,
 }: {
   result: CheckDifferential;
   editable: boolean;
   approvedAutofixIds: ReadonlySet<string>;
   onProof: (result: CheckDifferential, subject: string, file: string) => void;
   onSendAutofix: (proposalId: string) => void;
+  onFixWithAgent: (proposalId: string) => void;
 }) {
   const title = result.recipe.title || result.recipe.id;
   const quiet = QUIET_CLASSES.map((klass) => [klass, result.counts[klass] ?? 0] as const).filter(([, count]) => count > 0);
@@ -229,10 +233,13 @@ function DifferentialCard({
           Autofix: {result.autofix.reason ?? result.autofix.status}
           {(result.autofix.proposal_ids ?? []).map((id) => (
             approvedAutofixIds.has(id)
-              ? <span key={id} className="ml-2 text-foreground">Approved · sent to agent</span>
+              ? <span key={id} className="ml-2 text-foreground">Approved · ready for agent
+                  {editable && <UiButton type="button" size="xs" variant="outline" className="ml-2"
+                    onClick={() => onFixWithAgent(id)}>Fix with agent</UiButton>}
+                </span>
               : editable ? (
                 <UiButton key={id} type="button" size="xs" variant="outline" className="ml-2" onClick={() => onSendAutofix(id)}>
-                  Approve & send
+                  Approve fix
                 </UiButton>
               ) : null
           ))}
@@ -286,6 +293,11 @@ export default function CheckRecipesPanel({
   const [data, setData] = useState<CheckRecipesProjection | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fixAutofixId, setFixAutofixId] = useState("");
+  const autofixRequest = useMemo<ReviewActionRequest | null>(
+    () => fixAutofixId ? { kind: "fix", subject_ids: [fixAutofixId] } : null,
+    [fixAutofixId],
+  );
   const [message, setMessage] = useState("");
 
   const load = useCallback(
@@ -369,7 +381,7 @@ export default function CheckRecipesPanel({
   function sendAutofix(proposalId: string) {
     void act(async () => {
       await postCheckRequest(reviewId, snapshot.revision_id, { kind: "autofix", proposal_id: proposalId, approved: true });
-      return "Autofix proposal sent as feedback for the agent";
+      return "Autofix approved and recorded in reviewer feedback";
     });
   }
 
@@ -450,8 +462,17 @@ export default function CheckRecipesPanel({
         ))}
         {snapshot.results.map((result) => (
           <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof}
-            onSendAutofix={sendAutofix} approvedAutofixIds={new Set(snapshot.approved_autofix_ids ?? [])} />
+            onSendAutofix={sendAutofix} approvedAutofixIds={new Set(snapshot.approved_autofix_ids ?? [])}
+            onFixWithAgent={setFixAutofixId} />
         ))}
+        {autofixRequest && <ReviewFixSheet reviewId={reviewId} revisionId={snapshot.revision_id}
+          request={autofixRequest}
+          onClose={() => setFixAutofixId("")}
+          onStarted={(action) => {
+            setFixAutofixId("");
+            setMessage(`Agent correction ${action.status === "awaiting_snapshot" ? "dispatched" : action.status}; waiting for a new Snapshot`);
+            void load();
+          }} />}
         {message && <div className="text-micro text-subtle" role="status">{message}</div>}
       </div>
     </PanelCard>

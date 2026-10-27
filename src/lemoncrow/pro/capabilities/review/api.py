@@ -12690,22 +12690,33 @@ def register_review_api(
 
         with store.atomic_review_transition():
             store.require_current_revision(session.id, revision.id)
+            from lemoncrow.pro.capabilities.review.autofix_approval import (
+                autofix_approval_id,
+                is_autofix_approval,
+            )
+
             if autofix_proposal_id:
                 approvals = [
                     row
                     for row in store.list_annotations(session.id)
-                    if row.source == "human" and row.title.startswith("Autofix proposed · ")
+                    if any(
+                        is_autofix_approval(
+                            row,
+                            review_id=session.id,
+                            proposal_id=proposal.id,
+                            recipe_id=proposal.intent.removeprefix("autofix:"),
+                            revision_id=proposal.base_revision_id,
+                            reviewer_id=session.reviewer_id,
+                        )
+                        for proposal in store.list_change_proposals(session.id)
+                        if proposal.intent.startswith("autofix:")
+                    )
                 ]
                 if len(approvals) >= 3:
                     raise ValueError("the Review reached its three autofix handoff limit; escalate to manual review")
                 if any(f"proposal:{autofix_proposal_id}" in row.evidence for row in approvals):
-                    raise ValueError("this autofix has already been approved and sent")
-            fixed_id = (
-                "ann-"
-                + hashlib.sha256(f"approved-autofix:{session.id}:{autofix_proposal_id}".encode()).hexdigest()[:32]
-                if autofix_proposal_id
-                else ""
-            )
+                    raise ValueError("this autofix was already approved; use the existing correction action")
+            fixed_id = autofix_approval_id(session.id, autofix_proposal_id) if autofix_proposal_id else ""
             return annotate(
                 store,
                 session,

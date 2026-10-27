@@ -318,12 +318,23 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             ]
             # Read the existing human feedback ledger rather than introducing a
             # competing approval store or keeping a transient frontend flag.
+            from lemoncrow.pro.capabilities.review.autofix_approval import is_autofix_approval
+
             approvals = {
-                ref.removeprefix("proposal:")
-                for annotation in store.list_annotations(session.id)
-                if annotation.source == "human" and annotation.title.startswith("Autofix proposed · ")
-                for ref in annotation.evidence
-                if ref.startswith("proposal:")
+                proposal.id
+                for proposal in store.list_change_proposals(session.id)
+                if proposal.intent.startswith("autofix:")
+                and any(
+                    is_autofix_approval(
+                        annotation,
+                        review_id=session.id,
+                        proposal_id=proposal.id,
+                        recipe_id=proposal.intent.removeprefix("autofix:"),
+                        revision_id=proposal.base_revision_id,
+                        reviewer_id=session.reviewer_id,
+                    )
+                    for annotation in store.list_annotations(session.id)
+                )
             }
             from lemoncrow.pro.capabilities.review.check_recommendations import recommend_checks
 
@@ -627,15 +638,28 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                     status_code=status.HTTP_409_CONFLICT,
                     detail="the autofix is not backed by the current trusted failing check",
                 )
+            from lemoncrow.pro.capabilities.review.autofix_approval import is_autofix_approval
+
             prior = [
                 annotation
                 for annotation in store.list_annotations(session.id)
-                if annotation.source == "human" and annotation.title.startswith("Autofix proposed · ")
+                if any(
+                    is_autofix_approval(
+                        annotation,
+                        review_id=session.id,
+                        proposal_id=old.id,
+                        recipe_id=old.intent.removeprefix("autofix:"),
+                        revision_id=old.base_revision_id,
+                        reviewer_id=session.reviewer_id,
+                    )
+                    for old in store.list_change_proposals(session.id)
+                    if old.intent.startswith("autofix:")
+                )
             ]
             if any(f"proposal:{proposal.id}" in annotation.evidence for annotation in prior):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="this autofix has already been approved and sent; review the existing handoff",
+                    detail="this autofix was already approved; use the existing correction action; review the existing handoff",
                 )
             # A bounded assisted correction loop, not unbounded agent retries:
             # further changes require a reviewer to open a new Review.
@@ -705,7 +729,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             # request won the race. Do not create a second feedback handoff.
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="this autofix has already been approved and sent",
+                detail="this autofix was already approved; use the existing correction action",
             ) from exc
         except ValueError as exc:
             message = str(exc)

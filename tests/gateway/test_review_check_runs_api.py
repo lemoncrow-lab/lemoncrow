@@ -1216,19 +1216,27 @@ def test_autofix_handoff_refuses_forged_source_and_bounded_retries(tmp_path: Pat
     denied = approve(forged.id)
     assert denied.status_code == 404
     assert review.store.list_annotations(review.review_id) == ()
+    from lemoncrow.pro.capabilities.review.autofix_approval import autofix_approval_id
+
+    reviewer = review.store.get_session(review.review_id)
     for number in range(3):
+        old = review.store.add_change_proposal(
+            replace(actual, id="", created_at="", updated_at=""),
+            expected_current_revision_id=review.revision_id,
+        )
         review.store.add_annotation(
             Annotation(
-                id="",
+                id=autofix_approval_id(review.review_id, old.id),
                 review_id=review.review_id,
                 revision_id=review.revision_id,
                 anchor=AnnotationAnchor(path="calc.py", side="additions", start_line=1, end_line=1),
-                title=f"Autofix proposed · previously-reviewed-{number}",
-                body="Previous explicitly approved assistance attempt",
-                evidence=(f"proposal:old-{number}",),
+                title="Autofix proposed · fmt",
+                body=f"Previously authorized assistance attempt {number}",
+                evidence=(f"proposal:{old.id}",),
                 kind="comment",
                 source="human",
                 created_by_actor="human",
+                created_by=reviewer.reviewer_id or "local",
             )
         )
     before = len(review.store.list_annotations(review.review_id))
@@ -1275,3 +1283,214 @@ def test_concurrent_autofix_requests_create_one_review_approval(tmp_path: Path) 
     ]
     assert len(human) == 1
     assert human[0].evidence and f"proposal:{proposal_id}" in human[0].evidence
+
+
+@needs_bwrap
+def test_approved_formatter_proposal_dispatches_once_to_author_agent_and_tracks_correction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Actual formatter FAIL → human approval → ledger-controlled agent → corrected Snapshot."""
+    from lemoncrow.pro.capabilities.review import delivery as delivery_module
+    from lemoncrow.pro.capabilities.review.delivery import AgentDeliveryResult
+    from lemoncrow.pro.capabilities.review.session_models import Annotation, AnnotationAnchor, ReviewAttribution
+
+    review = _review(tmp_path)
+    review.store.add_revision_attributions(
+        review.revision_id,
+        (
+            ReviewAttribution(
+                revision_id=review.revision_id,
+                scope="file",
+                scope_key="calc.py",
+                host="claude",
+                session_id="review-fixer",
+                certainty="exact",
+                method="recorded_edit",
+            ),
+        ),
+    )
+    assert _run(review, "checks.format").status_code == 200
+    check = _result(_get(review), "fmt")
+    proposal_id = check["autofix"]["proposal_ids"][0]
+    actions_url = f"/api/reviews/{review.review_id}/actions"
+    action_body = {"kind": "fix", "subject_ids": [proposal_id], "expected_revision_id": review.revision_id}
+    # A forged *ordinary* human comment can quote the proposal, but must not
+    # impersonate the server-created approval identity or block legitimate approval.
+    review.store.add_annotation(
+        Annotation(
+            id="",
+            review_id=review.review_id,
+            revision_id=review.revision_id,
+            anchor=AnnotationAnchor(path="calc.py", side="new", start_line=0, end_line=0),
+            body="please fix this",
+            title="Autofix proposed · fmt",
+            evidence=(f"proposal:{proposal_id}",),
+            source="human",
+            created_by_actor="human",
+            created_by="local",
+            kind="comment",
+        )
+    )
+    assert _get(review)["approved_autofix_ids"] == []
+    before = review.client.post(actions_url + "/preview", headers=HEADERS, json=action_body)
+    assert before.status_code == 200, before.text
+    assert before.json()["included"] == []
+    assert any(row["code"] == "not_unresolved" for row in before.json()["excluded"])
+
+    approved = review.client.post(
+        f"/api/reviews/{review.review_id}/check-recipes/requests",
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "proposal_id": proposal_id,
+            "approved": True,
+            "expected_revision_id": review.revision_id,
+        },
+    )
+    assert approved.status_code == 201, approved.text
+    assert _get(review)["approved_autofix_ids"] == [proposal_id]
+    preview_response = review.client.post(actions_url + "/preview", headers=HEADERS, json=action_body)
+    assert preview_response.status_code == 200, preview_response.text
+    preview = preview_response.json()
+    assert preview["ready"] is True
+    assert preview["included"][0]["kind"] == "approved_autofix"
+    assert preview["route"]["tier"] == "exact_session"
+    assert preview["route"]["target_ref"] == "claude:review-fixer"
+    assert "proposal:" + proposal_id in preview["handoff"]
+    assert "Keep all existing tests intact" in preview["handoff"]
+    assert "calc.py" in preview["handoff"]
+    calls: list[tuple[str, str, str]] = []
+
+    def deliver(host: str, session_id: str, _repo: Path, prompt: str) -> AgentDeliveryResult:
+        calls.append((host, session_id, prompt))
+        return AgentDeliveryResult("working", f"{host}:{session_id}", remote_ref="pid:live", message="working")
+
+    monkeypatch.setattr(delivery_module, "deliver_prompt_to_agent_session", deliver)
+    start_body = {
+        **action_body,
+        "operation_id": preview["operation_id"],
+        "expected_handoff_digest": preview["handoff_digest"],
+    }
+    started = review.client.post(actions_url, headers=HEADERS, json=start_body)
+    assert started.status_code == 200, started.text
+    action = started.json()["action"]
+    assert action["status"] == "awaiting_snapshot"
+    assert len(calls) == 1 and calls[0][:2] == ("claude", "review-fixer")
+    repeat = review.client.post(actions_url, headers=HEADERS, json=start_body)
+    assert repeat.status_code == 200 and repeat.json()["replayed"] is True
+    assert len(calls) == 1
+    source = (review.repo_root / "calc.py").read_text()
+    assert "def div(a, b):   " in source  # no implicit mutation from agent dispatch
+
+    proposal = review.store.get_change_proposal(proposal_id)
+    assert proposal is not None
+    subsequent = _new_snapshot(review, {"calc.py": proposal.replacement_text})
+    review.store.add_revision_attributions(
+        subsequent,
+        (
+            ReviewAttribution(
+                revision_id=subsequent,
+                scope="file",
+                scope_key="calc.py",
+                host="claude",
+                session_id="review-fixer",
+                certainty="exact",
+                method="recorded_edit",
+            ),
+        ),
+    )
+    history = review.client.get(actions_url, headers=HEADERS)
+    assert history.status_code == 200, history.text
+    tracked = next(row for row in history.json()["actions"] if row["id"] == action["id"])
+    assert tracked["status"] == "snapshot_recorded"
+    assert tracked["resulting_revision_id"] == subsequent
+    fresh = review.client.post(
+        f"/api/reviews/{review.review_id}/check-recipes/run",
+        headers=HEADERS,
+        json={"revision_id": subsequent, "entry": "checks.format", "reverify_from_revision_id": review.revision_id},
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["verdicts"]["checks.format"] == "PASS"
+    assert fresh.json()["carried"] == fresh.json()["reused"] == 0
+
+
+@needs_bwrap
+def test_approved_autofix_agent_dispatch_has_two_attempt_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cancellation does not permit an unlimited loop of actual agent dispatches."""
+    from lemoncrow.pro.capabilities.review import delivery as delivery_module
+    from lemoncrow.pro.capabilities.review.delivery import AgentDeliveryResult
+    from lemoncrow.pro.capabilities.review.session_models import ReviewAttribution
+
+    review = _review(tmp_path)
+    review.store.add_revision_attributions(
+        review.revision_id,
+        (
+            ReviewAttribution(
+                revision_id=review.revision_id,
+                scope="file",
+                scope_key="calc.py",
+                host="claude",
+                session_id="fixer",
+                certainty="exact",
+                method="recorded_edit",
+            ),
+        ),
+    )
+    assert _run(review, "checks.format").status_code == 200
+    proposal_id = _result(_get(review), "fmt")["autofix"]["proposal_ids"][0]
+    url = f"/api/reviews/{review.review_id}/check-recipes/requests"
+    approval = review.client.post(
+        url,
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "proposal_id": proposal_id,
+            "approved": True,
+            "expected_revision_id": review.revision_id,
+        },
+    )
+    assert approval.status_code == 201
+    calls: list[str] = []
+
+    def deliver(host: str, session_id: str, _repo: Path, prompt: str) -> AgentDeliveryResult:
+        calls.append(prompt)
+        return AgentDeliveryResult("working", f"{host}:{session_id}", message="working")
+
+    monkeypatch.setattr(delivery_module, "deliver_prompt_to_agent_session", deliver)
+    actions_url = f"/api/reviews/{review.review_id}/actions"
+    body = {"kind": "fix", "subject_ids": [proposal_id], "expected_revision_id": review.revision_id}
+    for _ in range(2):
+        preview = review.client.post(actions_url + "/preview", headers=HEADERS, json=body).json()
+        assert preview["ready"] is True
+        started = review.client.post(
+            actions_url,
+            headers=HEADERS,
+            json={
+                **body,
+                "operation_id": preview["operation_id"],
+                "expected_handoff_digest": preview["handoff_digest"],
+            },
+        )
+        assert started.status_code == 200
+        action_id = started.json()["action"]["id"]
+        assert started.json()["action"]["status"] == "awaiting_snapshot"
+        cancelled = review.client.post(
+            actions_url + f"/{action_id}/cancel", headers=HEADERS, json={"reason": "no corrected Snapshot"}
+        )
+        assert cancelled.status_code == 200
+    assert len(calls) == 2
+    blocked = review.client.post(actions_url + "/preview", headers=HEADERS, json=body)
+    assert blocked.status_code == 200
+    assert blocked.json()["ready"] is False
+    assert blocked.json()["excluded"][0]["code"] == "over_limit"
+    no_dispatch = review.client.post(
+        actions_url,
+        headers=HEADERS,
+        json={
+            **body,
+            "operation_id": blocked.json()["operation_id"],
+            "expected_handoff_digest": blocked.json()["handoff_digest"],
+        },
+    )
+    assert no_dispatch.status_code == 409
+    assert len(calls) == 2
