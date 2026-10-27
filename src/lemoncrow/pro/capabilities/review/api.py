@@ -5925,6 +5925,7 @@ def register_review_api(
             narrative_positions,
             question_reasons,
             review_questions,
+            structural_decision_questions,
         )
         from lemoncrow.pro.capabilities.review.review_priority import reprioritize
 
@@ -5933,7 +5934,10 @@ def register_review_api(
         checks = _check_rows(session, revision, discover=False)
         states = _decision_states_for(session, revision, base, units, view, checks, packet, historical=historical)
         questions = question_reasons(
-            review_questions(base, view, checks, handled_decisions={state.key for state in states})
+            (
+                *review_questions(base, view, checks, handled_decisions={state.key for state in states}),
+                *structural_decision_questions(base, packet),
+            )
         )
         for target_id, reasons in decision_reasons(states).items():
             bucket = questions.setdefault(target_id, [])
@@ -10969,7 +10973,11 @@ def register_review_api(
         """``(plan, ordered targets, guidance view, decision states, plan checks)`` for one Snapshot."""
 
         from lemoncrow.pro.capabilities.review.chapters import build_chapter_lenses
-        from lemoncrow.pro.capabilities.review.review_plan import apply_agent_context, build_review_plan
+        from lemoncrow.pro.capabilities.review.review_plan import (
+            apply_agent_context,
+            build_review_plan,
+            structural_decision_questions,
+        )
         from lemoncrow.pro.capabilities.review.session_comments import brief_agent_context
         from lemoncrow.pro.capabilities.review.targets import derive_review_targets, order_review_targets
 
@@ -11005,6 +11013,7 @@ def register_review_api(
             routine_proofs=proofs,
             snapshot_number=max(0, revision.revision_number - 1),
             handled_decisions={state.key for state in states},
+            structural_questions=structural_decision_questions(ordered, packet),
         )
         plan = apply_agent_context(
             plan,

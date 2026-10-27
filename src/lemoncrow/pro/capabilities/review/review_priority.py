@@ -63,6 +63,7 @@ _REASON_TIER: dict[str, int] = {
     # Review first; they never reopen a judgment.
     "review_first_policy": TIER_REVIEW_FIRST,
     "sensitive_path_attention": TIER_REVIEW_FIRST,
+    "structural_decision_question": TIER_REVIEW_FIRST,
     "criticality_policy": TIER_REVIEW_FIRST,
     "finding_unresolved": TIER_REVIEW_FIRST,
     # ``priority: last`` never sets a tier (it is placed at TIER_DONE so it can

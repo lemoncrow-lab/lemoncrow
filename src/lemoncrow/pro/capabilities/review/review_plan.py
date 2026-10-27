@@ -244,6 +244,126 @@ def _item_id(key: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Narrow, explainable questions about changed *files*, not model-generated claims.
+# These are prompts for a reviewer, never formal decisions or blocking findings.
+_DECISION_MANIFESTS = frozenset(
+    {"package.json", "pyproject.toml", "go.mod", "cargo.toml", "gemfile", "composer.json", "pom.xml"}
+)
+_DECISION_SOURCE_SUFFIXES = frozenset(
+    {".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".rb", ".cc", ".cpp", ".sql"}
+)
+
+
+def structural_decision_questions(
+    targets: Sequence[ReviewTarget], packet: Mapping[str, Any] | None
+) -> tuple[ReviewQuestion, ...]:
+    """Suggest concrete review questions from the exact captured diff metadata.
+
+    A path or deleted-file status is evidence of *what changed*, not evidence
+    that a migration is reversible, a dependency changed versions, or an API is
+    incompatible. Those concerns are expressed as questions, never findings.
+    File classes are bounded, source-only and deduplicated across targets;
+    snippets from an agent's prose or untrusted current checkout are unused.
+    """
+    if not isinstance(packet, Mapping):
+        return ()
+    changed = packet.get("files")
+    if not isinstance(changed, (list, tuple)):
+        return ()
+    by_path: dict[str, list[str]] = {}
+    for target in targets:
+        # A confirmed human judgment has already handled the question for this
+        # exact target identity; do not keep nagging after the review is done.
+        if target.state != "reviewed" or target.changed_since_mark:
+            by_path.setdefault(target.path, []).append(target.target_id)
+    cases: dict[str, tuple[str, str, list[str]]] = {}
+    for row in changed:
+        if not isinstance(row, Mapping):
+            continue
+        path = str(row.get("path") or "").replace("\\", "/")
+        if path not in by_path:
+            continue
+        parts = path.lower().split("/")
+        name = parts[-1]
+        status = str(row.get("status") or "")
+        category = str(row.get("category") or "")
+        # Only exact structural evidence. A generated/test file isn't an
+        # independent business decision just because its name sounds scary.
+        if category in {"test", "docs", "vendor", "generated"}:
+            continue
+        kind = ""
+        if name.endswith(".sql") and "migrations" in parts[:-1]:
+            kind = "migration"
+        elif name in _DECISION_MANIFESTS or (name.startswith("requirements") and name.endswith(".txt")):
+            kind = "dependencies"
+        elif (
+            len(parts) >= 3
+            and parts[:2] == [".github", "workflows"]
+            and name.endswith((".yaml", ".yml"))
+            and any(word in name for word in ("release", "deploy", "prod", "publish"))
+        ):
+            kind = "release"
+        elif name.endswith((".proto", ".graphql", ".avsc")) or (
+            name.startswith("openapi.") and name.endswith((".json", ".yaml", ".yml"))
+        ):
+            kind = "contract"
+        elif (
+            status == "deleted"
+            and category == "production"
+            and any(name.endswith(suffix) for suffix in _DECISION_SOURCE_SUFFIXES)
+        ):
+            kind = "removal"
+        if not kind:
+            continue
+        titles = {
+            "migration": (
+                "Confirm migration rollout",
+                "A database migration file changed. What is the deployment and rollback strategy?",
+            ),
+            "dependencies": (
+                "Confirm dependency impact",
+                "A dependency manifest changed. Were version, license and compatibility effects checked?",
+            ),
+            "release": (
+                "Confirm release behavior",
+                "A release workflow changed. Does the deployment or publishing behavior need approval?",
+            ),
+            "contract": (
+                "Confirm API compatibility",
+                "A public contract file changed. Have consumers and compatibility been considered?",
+            ),
+            "removal": (
+                "Confirm source removal",
+                "A source file was deleted. Are callers, compatibility and removal intent accounted for?",
+            ),
+        }
+        title, detail = titles[kind]
+        bucket = cases.setdefault(kind, (title, detail, []))[2]
+        if path not in bucket:
+            bucket.append(path)
+    questions: list[ReviewQuestion] = []
+    for kind in ("migration", "contract", "release", "dependencies", "removal"):
+        case = cases.get(kind)
+        if not case:
+            continue
+        title, detail, paths = case
+        targets_for_case = _unique([target_id for path in paths for target_id in by_path[path]])
+        sample = ", ".join(paths[:3])
+        remaining = f" (+{len(paths) - 3} more)" if len(paths) > 3 else ""
+        questions.append(
+            ReviewQuestion(
+                id=f"q:structural:{kind}",
+                reason="structural_decision_question",
+                title=title,
+                detail=f"{detail} Changed: {sample}{remaining}. This is a review question, not a verified defect.",
+                item_ids=(),
+                target_ids=targets_for_case,
+                actions=("open_implementation",),
+            )
+        )
+    return tuple(questions)
+
+
 def review_questions(
     targets: Sequence[ReviewTarget],
     guidance: GuidanceView,
@@ -572,12 +692,52 @@ def _group(
     )
 
 
+# A large authorless chapter can contain both a sensitive target and hundreds
+# of ordinary ones. Keep semantic group labels, but never make one flagged
+# target drag the whole chapter into Review first. We split only automatically
+# generated area groups; author's explicit item ownership stays untouched.
+_GROUP_ATTENTION_ORDER = ("review_first", "understand", "routine", "done")
+_GROUP_ATTENTION_LABEL = {
+    "review_first": "Review first",
+    "understand": "Other changes",
+    "routine": "Routine",
+    "done": "Reviewed",
+}
+
+
+def _attention_groups(
+    item_id: str,
+    title: str,
+    target_ids: Sequence[str],
+    known: Mapping[str, ReviewTarget],
+) -> tuple[ChangeItem, ...]:
+    buckets: dict[str, list[str]] = {}
+    for target_id in target_ids:
+        attention = known[target_id].priority.attention
+        buckets.setdefault(attention, []).append(target_id)
+    if len(buckets) <= 1:
+        return (_group(item_id, "area", title, "", target_ids, _LEMONCROW_LABEL),)
+    return tuple(
+        _group(
+            f"{item_id}:{attention}",
+            "area",
+            f"{title} · {_GROUP_ATTENTION_LABEL[attention]}",
+            "Grouped by recorded Review priority, not by a finding or a verified pass.",
+            buckets[attention],
+            _LEMONCROW_LABEL,
+        )
+        for attention in _GROUP_ATTENTION_ORDER
+        if attention in buckets
+    )
+
+
 def _digest(
     targets: Sequence[ReviewTarget],
     guidance: GuidanceView,
     checks: Sequence[Mapping[str, Any]],
     chapters: Sequence[Mapping[str, Any]],
     routine_proofs: Mapping[str, RoutineProof],
+    structural_questions: Sequence[ReviewQuestion] = (),
 ) -> str:
     payload = {
         "v": PLAN_SCHEMA_VERSION,
@@ -589,6 +749,10 @@ def _digest(
         ),
         "proofs": sorted([target_id, proof.rule] for target_id, proof in routine_proofs.items()),
         "chapters": [str(chapter.get("key") or "") for chapter in chapters],
+        "priorities": sorted([target.target_id, target.priority.tier] for target in targets),
+        "structural_questions": sorted(
+            [question.id, question.detail, *question.target_ids] for question in structural_questions
+        ),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -603,6 +767,7 @@ def build_review_plan(
     routine_proofs: Mapping[str, RoutineProof],
     snapshot_number: int | None,
     handled_decisions: Collection[str] = (),
+    structural_questions: Sequence[ReviewQuestion] = (),
 ) -> PlanArtifact:
     """Build the deterministic plan; every target gets exactly one primary item."""
 
@@ -675,16 +840,16 @@ def build_review_plan(
         if not primary_ids:
             continue
         item_id = f"area:{chapter.get('key') or chapter.get('label') or len(items)}"
-        for target_id in primary_ids:
-            owner[target_id] = item_id
         fallback += len(primary_ids)
-        items.append(
-            _group(item_id, "area", str(chapter.get("label") or "Implementation"), "", primary_ids, _LEMONCROW_LABEL)
-        )
+        for group_item in _attention_groups(item_id, str(chapter.get("label") or "Implementation"), primary_ids, known):
+            items.append(group_item)
+            for target_id in group_item.primary_target_ids:
+                owner[target_id] = group_item.id
 
     other = [target.target_id for target in targets if target.target_id not in owner]
     if other:
-        items.append(_group("group:other", "other", "Other implementation changes", "", other, _LEMONCROW_LABEL))
+        other_groups = _attention_groups("group:other", "Other implementation changes", other, known)
+        items.extend(replace(item, kind="other") for item in other_groups)
 
     decisions = tuple(
         ProposedDecision(
@@ -704,12 +869,15 @@ def build_review_plan(
 
     return PlanArtifact(
         schema_version=PLAN_SCHEMA_VERSION,
-        input_digest=_digest(targets, guidance, checks, chapters, routine_proofs),
+        input_digest=_digest(targets, guidance, checks, chapters, routine_proofs, structural_questions),
         intents=tuple(intents.items()),
         items=tuple(items),
         claims=tuple(claims),
         decisions=decisions,
-        questions=review_questions(targets, guidance, checks, handled_decisions=handled_decisions),
+        questions=(
+            *review_questions(targets, guidance, checks, handled_decisions=handled_decisions),
+            *structural_questions,
+        ),
         coverage=PlanCoverage(
             target_count=len(targets),
             author_explained=author_explained,

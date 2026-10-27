@@ -179,7 +179,7 @@ function EvidenceSummary({ claim }: { claim: ReviewProjectionClaim }) {
   );
 }
 
-function QuestionRow({ question }: { question: ReviewProjectionQuestion }) {
+function QuestionRow({ question, onOpenTarget }: { question: ReviewProjectionQuestion; onOpenTarget: (targetId: string) => void }) {
   return (
     <div className="rounded border border-amber-900/50 bg-amber-950/15 px-2 py-1.5 text-caption">
       <div className="flex items-start gap-2">
@@ -189,6 +189,11 @@ function QuestionRow({ question }: { question: ReviewProjectionQuestion }) {
         )}
       </div>
       <div className="text-subtle">{question.detail}</div>
+      {question.target_ids.length > 0 && (
+        <UiButton variant="ghost" size="compact" type="button" className="mt-1" onClick={() => onOpenTarget(question.target_ids[0])}>
+          Open relevant code
+        </UiButton>
+      )}
     </div>
   );
 }
@@ -1007,7 +1012,7 @@ function ItemCard({
         </div>
       ) : null}
       {claims.map((claim) => <EvidenceSummary key={claim.id} claim={claim} />)}
-      {questions.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{questions.map((question) => <QuestionRow key={question.id} question={question} />)}</div>}
+      {questions.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{questions.map((question) => <QuestionRow key={question.id} question={question} onOpenTarget={onOpenTarget} />)}</div>}
       {(expanded || detailLevel === "detailed") && (
         <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2 text-caption">
           {item.rationale && item.kind === "behavior" && first && (
@@ -1547,7 +1552,7 @@ export default function ReviewBrief({
 
       {reviewFirst.length + orphanQuestions.length > 0 && (
         <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`} action={<LinesTag lines={reviewFirstLines} />}>
-          {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} />)}
+          {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} onOpenTarget={onOpenTarget} />)}
           <Limited rows={reviewFirst} render={card} />
         </Section>
       )}

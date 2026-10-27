@@ -521,3 +521,48 @@ def test_actual_command_outcomes_are_snapshot_pinned_in_reader_overview(tmp_path
     assert not {"python verify-valid", "python verify-failing"}.intersection(
         {row["name"] for row in after["evidence"]}
     ), "A command run for the earlier Snapshot must not prove the new one"
+
+
+def test_real_review_brief_surfaces_sourced_decision_questions_and_links_to_code(tmp_path: Path) -> None:
+    """A real Git Snapshot produces the same prompts in the Brief and canonical queue.
+
+    This must not manufacture human decisions, findings, tests, or required checks.
+    """
+    review = _review(
+        tmp_path,
+        base_files={
+            "db/migrations/004_billing.sql": "ALTER TABLE invoices ADD COLUMN memo TEXT;\n",
+            "package.json": '{"dependencies":{"example":"1"}}\n',
+            "schema/service.proto": "message Customer { string name = 1; }\n",
+            ".github/workflows/deploy.yml": "name: deploy\non: [push]\n",
+            "src/catalog/items.py": "def catalog():\n    return [1]\n",
+        },
+        head_files={
+            "db/migrations/004_billing.sql": "ALTER TABLE invoices ADD COLUMN memo VARCHAR(100);\n",
+            "package.json": '{"dependencies":{"example":"2"}}\n',
+            "schema/service.proto": "message Customer { string name = 1; int32 age = 2; }\n",
+            ".github/workflows/deploy.yml": "name: deploy\non: [workflow_dispatch]\n",
+            "src/catalog/items.py": "def catalog():\n    return [1, 2]\n",
+        },
+    )
+    projection = _get(review, "projection")
+    questions = {row["id"]: row for row in projection["questions"] if row["id"].startswith("q:structural:")}
+    assert set(questions) == {
+        "q:structural:migration",
+        "q:structural:dependencies",
+        "q:structural:contract",
+        "q:structural:release",
+    }, questions
+    assert all(row["origin"] == "lemoncrow" and row["target_ids"] for row in questions.values())
+    assert all("not a verified defect" in row["detail"] for row in questions.values())
+    targets = _get(review, "targets")["targets"]
+    owners = {row["target_id"]: row for row in targets}
+    for question in questions.values():
+        assert all(owners[target_id]["priority"]["attention"] == "review_first" for target_id in question["target_ids"])
+    assert all(
+        row["priority"]["attention"] != "review_first" for row in targets if row["path"] == "src/catalog/items.py"
+    )
+    assert projection["decisions"] == [], "Only a human/author may propose an actual decision"
+    # Migration/release changes can independently require deep evaluation under existing policy.
+    overview = review.client.get(f"/api/reviews/{review.review_id}", headers=HEADERS).json()
+    assert not any(row["status"] == "PASS" for row in overview["evidence"])

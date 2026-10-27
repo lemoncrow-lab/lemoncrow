@@ -385,6 +385,28 @@ describe("ReviewBrief", () => {
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
   });
 
+  it("opens the relevant Snapshot code directly from a generated change question", async () => {
+    const base = projection();
+    const question = {
+      id: "q:structural:migration",
+      reason: "structural_decision_question",
+      title: "Confirm migration rollout",
+      detail: "A database migration file changed. This is a review question, not a verified defect.",
+      item_ids: [],
+      target_ids: ["t-resolve"],
+      actions: ["open_implementation"],
+      tier: 3,
+      origin: "lemoncrow" as const,
+    };
+    const handlers = renderBrief({ ...base, questions: [question] });
+    const row = screen.getByText("Confirm migration rollout").closest("div.rounded");
+    expect(row).toBeTruthy();
+    expect(within(row as HTMLElement).getByText(/not a verified defect/)).toBeInTheDocument();
+    await userEvent.click(within(row as HTMLElement).getByRole("button", { name: "Open relevant code" }));
+    expect(handlers.onOpenTarget).toHaveBeenCalledWith("t-resolve");
+    expect(screen.getAllByRole("heading", { level: 3 }).map((element) => element.textContent)).toContain("Review first · 2");
+  });
+
   it("renders captured author output through normal Brief intent and Understand items", async () => {
     const base = projection();
     renderBrief({

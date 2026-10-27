@@ -494,3 +494,62 @@ def _projection(plan: Any, **kwargs: Any) -> dict[str, Any]:
         historical=False,
         **kwargs,
     )
+
+
+def test_mixed_attention_auto_chapter_does_not_promote_every_target() -> None:
+    """One risky unit cannot turn 80 unrelated targets in its chapter into mandatory reading."""
+    from lemoncrow.pro.capabilities.review.review_priority import QueueReason, assign_review_priority
+
+    targets = (
+        _target("security", "src/auth/session.py", "authenticate"),
+        *(_target(f"routine-{index}", f"src/catalog/mod-{index}.py", "query") for index in range(80)),
+    )
+    queue = assign_review_priority(
+        targets, policy_reasons={"security": [QueueReason("sensitive_path_attention", "Authentication path changed")]}
+    )
+    plan = build_review_plan(
+        targets=queue,
+        guidance=_view(),
+        checks=(),
+        chapters=(
+            {
+                "key": "intent:everything",
+                "label": "Everything",
+                "targets": [{"target_id": t.target_id} for t in targets],
+            },
+        ),
+        routine_proofs={},
+        snapshot_number=0,
+    )
+    groups = {item.id: item for item in plan.items}
+    assert set(groups) == {"area:intent:everything:review_first", "area:intent:everything:understand"}
+    assert groups["area:intent:everything:review_first"].primary_target_ids == ("security",)
+    assert len(groups["area:intent:everything:understand"].primary_target_ids) == 80
+    assert len({id for item in plan.items for id in item.primary_target_ids}) == 81
+    displayed = projection_payload(plan, queue, review_id="r", revision_id="rev", snapshot_number=0, historical=False)
+    assert displayed["counts"]["review_first"] == 1
+    assert displayed["counts"]["understand"] == 1
+    assert displayed["items"][0]["primary_target_ids"] == ["security"]
+
+
+def test_structural_questions_use_exact_snapshot_paths_and_disappear_after_judgment() -> None:
+    from dataclasses import replace
+
+    from lemoncrow.pro.capabilities.review.review_plan import structural_decision_questions
+
+    pending = _target("to-remove", "src/client/legacy.py", "legacy")
+    reviewed = replace(pending, state="reviewed")
+    packet = {
+        "files": [
+            {"path": "src/client/legacy.py", "status": "deleted", "category": "production"},
+            {"path": "docs/deploy.md", "status": "modified", "category": "docs"},
+            {"path": "src/catalog/items.py", "status": "modified", "category": "production"},
+        ]
+    }
+    (question,) = structural_decision_questions((pending,), packet)
+    assert question.id == "q:structural:removal"
+    assert question.target_ids == ("to-remove",)
+    assert "not a verified defect" in question.detail
+    assert structural_decision_questions((reviewed,), packet) == ()
+    assert structural_decision_questions((replace(reviewed, changed_since_mark=True),), packet) == (question,)
+    assert structural_decision_questions((pending,), {"files": []}) == ()
