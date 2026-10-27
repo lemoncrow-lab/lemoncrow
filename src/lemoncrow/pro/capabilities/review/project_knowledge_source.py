@@ -193,8 +193,16 @@ class CanonicalGitKnowledge:
         stored = knowledge.current_generation(self.repository)
         if stored == current.id:
             event = knowledge.evolution_events(self.repository, (current.id,)).get(current.id, {})
+            refs = set(event.get("source_refs", ()))
             identity = f"merge:{merge.provider}:{merge.ref}"
-            if event.get("kind") == "merged_change" and identity in event.get("source_refs", ()):
+            # A replay is safe only for *the same* landing, Review and exact
+            # Snapshot. Another tenant/Review cannot claim somebody else's
+            # canonical generation by recycling a provider merge reference.
+            if event.get("kind") == "merged_change" and {
+                identity,
+                f"review:{review_id}",
+                f"revision:{revision_id}",
+            }.issubset(refs):
                 return {"applied": False, "kind": "unchanged", "generation": current.to_wire()}
             raise ValueError("canonical generation already advanced without this Review history")
         if stored != before.id:

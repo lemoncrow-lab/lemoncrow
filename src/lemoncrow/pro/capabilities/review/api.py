@@ -1821,6 +1821,7 @@ def register_review_api(
     automation_permission_check: Callable[[Any, str], bool] | None = None,
     branch_protection: Callable[[ReviewSession, Mapping[str, Any]], Any] | None = None,
     provider_merge_fact: Callable[[ReviewSession], Any] | None = None,
+    landed_knowledge_sync: Callable[[ReviewSession, Any], Mapping[str, Any] | None] | None = None,
     post_merge_executors: Mapping[str, Callable[[Any], Any]] | None = None,
     feedback_sync_provider: Callable[[ReviewSession], Any] | None = None,
     hard_delete_allowed: Callable[[ReviewSession], bool] | None = None,
@@ -20178,6 +20179,7 @@ def register_review_api(
             feedback_version=_feedback_annotation_version,
             branch_protection=branch_protection,
             provider_fact=provider_merge_fact,
+            landed_knowledge_sync=landed_knowledge_sync,
             executors=post_merge_executors,
             feedback_sync_provider=(
                 feedback_sync_provider

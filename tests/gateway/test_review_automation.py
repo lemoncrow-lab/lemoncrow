@@ -380,6 +380,67 @@ def test_without_a_rule_a_merge_runs_nothing_automatically(workspace: Workspace)
         )
 
 
+def test_opted_in_landed_history_sync_receives_only_provider_observed_merges(workspace: Workspace) -> None:
+    from lemoncrow.pro.capabilities.review.post_merge_actions import MergeObservation
+
+    received: list[tuple[str, MergeObservation]] = []
+
+    def sync(session: ReviewSession, merge: MergeObservation) -> dict[str, object]:
+        received.append((session.id, merge))
+        return {"applied": True}
+
+    # The ordinary Review API exposes no user-supplied merge/knowledge trigger.
+    # When the server does not observe a merge, no history is created.
+    unmerged = _client(workspace, landed_knowledge_sync=sync)
+    assert unmerged.get(f"/api/reviews/{workspace.review_id}/automation").status_code == 200
+    assert received == []
+    merged = _client(workspace, landing_delegate=_delegate("merged"), landed_knowledge_sync=sync)
+    settled = _arm(merged)
+    assert settled["landing"]["state"] == "merged"
+    assert len(received) == 1
+    review_id, merge = received[0]
+    assert review_id == workspace.review_id
+    assert merge.source == "provider_landing"
+    assert merge.provider == "github"
+    assert merge.provider_confirmed_reviewed_head is True
+    assert merge.reviewed_head_merged is True
+    assert merge.revision_id == merged.store.latest_revision(workspace.review_id).id
+    # The callback is invoked on a provider merge, independent of optional
+    # post-merge notification/changelog rules, and creates no action records.
+    assert merged.get(f"/api/reviews/{workspace.review_id}/automation").json()["post_merge"]["records"] == []
+
+
+def test_landed_history_sync_failure_never_prevents_provider_merge(workspace: Workspace) -> None:
+    attempts: list[str] = []
+
+    def refuse(_session: ReviewSession, _merge: Any) -> None:
+        attempts.append("called")
+        raise ValueError("canonical ref has not yet been fetched")
+
+    client = _client(workspace, landing_delegate=_delegate("merged"), landed_knowledge_sync=refuse)
+    settled = _arm(client)
+    assert settled["landing"]["state"] == "merged"
+    assert attempts == ["called"]
+    assert client.get(f"/api/reviews/{workspace.review_id}/automation").json()["merge"] is not None
+
+
+def test_provider_subject_that_is_not_merged_cannot_start_landed_history(workspace: Workspace) -> None:
+    calls: list[str] = []
+
+    def sync(_session: ReviewSession, _merge: Any) -> None:
+        calls.append("called")
+
+    unmerged = _client(
+        workspace,
+        provider_merge_fact=lambda _session: ProviderMergeFact(
+            provider="github", state="closed", external_id="widgets#9"
+        ),
+        landed_knowledge_sync=sync,
+    )
+    unmerged.client.app.state.review_merge_automation(workspace.review_id)
+    assert calls == []
+
+
 def test_an_enabled_rule_runs_once_per_merge_and_is_audited_with_its_rule_id(
     workspace: Workspace, _isolated_root: Path
 ) -> None:

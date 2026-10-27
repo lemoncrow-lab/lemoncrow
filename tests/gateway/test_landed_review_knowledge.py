@@ -339,6 +339,26 @@ def test_real_canonical_git_advance_publishes_landed_review_and_source_in_one_ge
     assert replay["applied"] is False
     assert replay["kind"] == "unchanged"
     assert knowledge.current_generation(REPO) == source._generation(git[git.head.target]).id
+    with pytest.raises(ValueError, match="already advanced without this Review history"):
+        source.sync_landed_review(
+            knowledge,
+            store,
+            "other-review",
+            revision.id,
+            merge=merge,
+            previous_revision=previous,
+            counted_evidence=lambda _rev: (),
+        )
+    with pytest.raises(ValueError, match="already advanced without this Review history"):
+        source.sync_landed_review(
+            knowledge,
+            store,
+            session.id,
+            "other-revision",
+            merge=merge,
+            previous_revision=previous,
+            counted_evidence=lambda _rev: (),
+        )
 
 
 def test_canonical_source_advance_cannot_be_relabelled_as_review_merge(tmp_path: Path) -> None:
@@ -381,3 +401,84 @@ def test_canonical_source_advance_cannot_be_relabelled_as_review_merge(tmp_path:
             previous_revision=previous,
             counted_evidence=lambda _rev: (),
         )
+
+
+def test_provider_merge_seam_publishes_canonical_review_history_from_real_git(tmp_path: Path) -> None:
+    """The existing Review merge hook invokes the configured provider-bound PK publisher."""
+    import pygit2
+    from fastapi import FastAPI
+
+    from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
+    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
+    from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
+    from lemoncrow.pro.capabilities.review.post_merge_actions import ProviderMergeFact
+    from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
+    from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
+    from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+    repo_root = _git_repo(tmp_path)
+    store = ReviewStore(tmp_path / "db")
+    source = CanonicalGitKnowledge(repo_root, REPO, "refs/heads/main")
+    knowledge = ProjectKnowledgeStore(store)
+    assert source.sync(knowledge)["kind"] == "baseline"
+    previous = str(source.git.head.peel(pygit2.Commit).id)
+    git = pygit2.Repository(pygit2.discover_repository(str(repo_root)))
+    git.index.add_all()
+    git.index.write()
+    signature = pygit2.Signature("Fixture Tester", "fixture@example.invalid", 1700000200, 0)
+    reviewed_sha = str(
+        git.create_commit(
+            "HEAD", signature, signature, "reviewed and landed", git.index.write_tree(), [git.head.target]
+        )
+    )
+    rng = resolve_rev_range(repo_root, base=previous, head=reviewed_sha)
+    built = build_review_packet_with_blobs(repo_root, rng, store_root=tmp_path / "db", with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title="provider merged review")
+    revision = snapshot_revision(store, session, repo_root, rng, store_root=tmp_path / "db", build=built)
+    assert revision.head_sha == reviewed_sha
+    store.append_decision_event(_event(session, revision, "accept", "accepted"), expected_prior_event_id="")
+
+    calls: list[dict[str, object]] = []
+
+    def sync(observed_session, merge: MergeObservation) -> dict[str, object]:
+        # An operator-provided identity binding, never a user-request field.
+        assert observed_session.id == session.id
+        assert merge.source == "provider_subject"
+        assert merge.provider == source.repository.provider
+        outcome = source.sync_landed_review(
+            knowledge,
+            store,
+            session.id,
+            revision.id,
+            merge=merge,
+            previous_revision=previous,
+            counted_evidence=lambda _rev: (),
+        )
+        calls.append(outcome)
+        return outcome
+
+    app = FastAPI()
+    register_review_api(
+        app,
+        store,
+        repo_root=repo_root,
+        port=45992,
+        auth_dependency=make_token_dependency("test-token"),
+        provider_merge_fact=lambda _session: ProviderMergeFact(
+            provider="github",
+            state="merged",
+            head_sha=revision.head_sha,
+            external_id="project/history#10",
+            observed_at="2026-10-27T15:00:00Z",
+        ),
+        landed_knowledge_sync=sync,
+    )
+    first = app.state.review_merge_automation(session.id)
+    assert first.merge is not None and first.merge.source == "provider_subject"
+    assert len(calls) == 1 and calls[0]["kind"] == "merged_change"
+    assert calls[0]["applied"] is True
+    second = app.state.review_merge_automation(session.id)
+    assert second.merge is not None
+    assert len(calls) == 2 and calls[1]["applied"] is False
+    assert knowledge.query(REPO, query=KnowledgeQuery(knowledge_kinds=("landed_review_decision",))).entries
+    assert len(knowledge.recent_evolution_events(REPO)) == 2  # baseline + one merged Change
