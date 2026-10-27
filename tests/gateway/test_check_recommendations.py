@@ -80,3 +80,22 @@ def test_unknown_impact_is_explicit_and_no_unplanned_or_provisional_recipe_can_r
     assert row["coverage"] == "unknown"
     assert row["selected_test_count"] == 0
     assert row["selection_mode"] == "all"
+
+
+def test_only_same_recipe_digest_can_suggest_reverification_or_claim_progress() -> None:
+    recipe = CheckRecipe(id="unit", kind="test", command=("pytest", "-q"), origin="config")
+    catalog = RecipeCatalog(recipes=(recipe,))
+    plan = _plan(_entry(recipe.entry_id))
+    mismatched = [{"recipe": {"id": "unit", "digest": "recipe:sha256:different"}, "head_verdict": "FAIL"}]
+    not_comparable = recommend_checks(plan, catalog, [], previous_results=mismatched)["recommendations"][0]
+    assert not_comparable["prior_snapshot_verdict"] == ""
+    assert "Previous Snapshot" not in not_comparable["reason"]
+
+    previous = [{"recipe": {"id": "unit", "digest": recipe.digest}, "head_verdict": "FAIL"}]
+    candidate = recommend_checks(plan, catalog, [], previous_results=previous)["recommendations"][0]
+    assert candidate["prior_snapshot_verdict"] == "FAIL"
+    assert "Previous Snapshot had FAIL" in candidate["reason"]
+    current_pass = [{"recipe": {"id": "unit", "digest": recipe.digest}, "head_verdict": "PASS"}]
+    progress = recommend_checks(plan, catalog, current_pass, previous_results=previous)["recommendations"][0]
+    assert "Current Snapshot's check passed" in progress["reason"]
+    assert progress["previous_verdict"] == "PASS"

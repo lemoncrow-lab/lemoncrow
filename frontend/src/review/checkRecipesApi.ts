@@ -206,11 +206,24 @@ export interface CheckRecommendation {
   recipe_digest: string;
 }
 
+export interface ObservedTestRegression {
+  recipe_id: string;
+  subject: string;
+  test_path: string;
+  differential_evidence_id: string;
+  executor_class: string;
+  independent_execution: boolean;
+  scope: "exact_snapshot_base_vs_head";
+  observation: "passed_on_base_failed_on_head";
+  limitation: string;
+}
+
 export interface CheckRecipesProjection {
   revision_id: string;
   historical: boolean;
   run_plan_digest: string;
-  recommended_checks?: { schema_version: number; recommendations: CheckRecommendation[]; omitted: number; policy: string };
+  recommended_checks?: { schema_version: number; previous_revision_id?: string; recommendations: CheckRecommendation[]; omitted: number; policy: string };
+  observed_regressions?: { schema_version: number; rows: ObservedTestRegression[]; omitted: number };
   recipes: CheckRecipe[];
   policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean };
   errors: string[];
@@ -255,10 +268,10 @@ export function fetchCheckRecipes(reviewId: string, revisionId = ""): Promise<Ch
 }
 
 /** Execute one planned check entry on one exact Snapshot; `pick` adds it to the plan first. */
-export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false): Promise<CheckRunResponse> {
+export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false, reverifyFromRevisionId = ""): Promise<CheckRunResponse> {
   return requestBrowserJson<CheckRunResponse>(`${base(reviewId)}/run`, {
     method: "POST",
-    body: JSON.stringify({ revision_id: revisionId, entry, pick }),
+    body: JSON.stringify({ revision_id: revisionId, entry, pick, ...(reverifyFromRevisionId ? { reverify_from_revision_id: reverifyFromRevisionId } : {}) }),
   });
 }
 

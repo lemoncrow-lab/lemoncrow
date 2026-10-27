@@ -338,9 +338,11 @@ export default function CheckRecipesPanel({
     }
   }
 
-  function run(entry: string, pick: boolean) {
+  function run(entry: string, pick: boolean, reverifyFromRevisionId = "") {
     void act(async () => {
-      const response = await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick);
+      const response = reverifyFromRevisionId
+        ? await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick, reverifyFromRevisionId)
+        : await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick);
       const verdict = response.verdicts[entry] ?? Object.values(response.verdicts)[0] ?? "NOT_RUN";
       const economy = [
         response.shared_base ? `${response.shared_base} base shared` : "",
@@ -408,12 +410,29 @@ export default function CheckRecipesPanel({
                   {suggestion.coverage === "unknown" && <p className="text-amber-300/80">Test impact coverage unknown; don't assume this validates the whole change.</p>}
                 </div>
                 {editable && suggestion.can_run_now && (
-                  <UiButton size="compact" variant="outline" disabled={busy} onClick={() => run(suggestion.entry_id, false)}>
-                    Run check
+                  <UiButton size="compact" variant="outline" disabled={busy} onClick={() => run(
+                    suggestion.entry_id, false,
+                    !suggestion.previous_verdict && ["FAIL", "UNKNOWN"].includes(suggestion.prior_snapshot_verdict) && snapshot.recommended_checks?.previous_revision_id
+                      ? snapshot.recommended_checks.previous_revision_id : "",
+                  )}>
+                    {!suggestion.previous_verdict && ["FAIL", "UNKNOWN"].includes(suggestion.prior_snapshot_verdict) ? "Reverify fresh" : "Run check"}
                   </UiButton>
                 )}
               </div>
             ))}
+          </section>
+        )}
+        {(snapshot.observed_regressions?.rows.length ?? 0) > 0 && (
+          <section aria-label="Observed test regressions" data-testid="check-observed-regressions" className="space-y-1 border-t border-border/80 pt-2">
+            <p className="text-caption font-semibold text-red-300">Observed test regressions · {snapshot.observed_regressions!.rows.length}</p>
+            <p className="text-micro text-muted-foreground">These tests passed on the base and failed on this Snapshot in comparable runs. An assertion failure is not automatically a confirmed code defect.</p>
+            {snapshot.observed_regressions!.rows.map((row) => (
+              <div key={`${row.recipe_id}:${row.subject}`} className="flex min-w-0 flex-wrap gap-x-2 text-micro">
+                <span className="min-w-0 break-all font-mono text-foreground">{row.subject}</span>
+                <span className="text-muted-foreground">{row.recipe_id} · {row.independent_execution ? "worker observed" : "author machine observed"}</span>
+              </div>
+            ))}
+            {snapshot.observed_regressions!.omitted > 0 && <p className="text-micro text-muted-foreground">{snapshot.observed_regressions!.omitted} additional observed failures omitted</p>}
           </section>
         )}
         {snapshot.future_policy.changed && (

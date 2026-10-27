@@ -53,7 +53,11 @@ def recommend_checks(
         runnable = entry.status == "run" and entry.available and not entry.external
         failure = last_verdict in {"FAIL", "UNKNOWN"}
         previous = previous_by_recipe.get(recipe.id)
-        prior_verdict = str(previous.get("head_verdict") or "") if previous else ""
+        previous_recipe = previous.get("recipe") if previous else None
+        # Previous outcomes are useful only for the *same* trusted evaluator.
+        # A recipe config change is not evidence that the old failure persists.
+        comparable_previous = isinstance(previous_recipe, Mapping) and previous_recipe.get("digest") == recipe.digest
+        prior_verdict = str(previous.get("head_verdict") or "") if previous and comparable_previous else ""
         previous_failure = not last_verdict and prior_verdict in {"FAIL", "UNKNOWN"}
         # This is a suggestion to *inspect* first, not a new execution grant.
         if not runnable and not failure and not previous_failure:
@@ -64,6 +68,9 @@ def recommend_checks(
         elif previous_failure:
             reason = f"Previous Snapshot had {prior_verdict}; this Snapshot has no corresponding check result"
             order = 1
+        elif prior_verdict in {"FAIL", "UNKNOWN"} and last_verdict == "PASS":
+            reason = "Current Snapshot's check passed; previous Snapshot's check failed. Inspect the specific fix."
+            order = 2
         elif entry.required:
             reason = "Required by the trusted Review policy"
             order = 2

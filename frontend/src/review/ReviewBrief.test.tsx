@@ -454,7 +454,10 @@ describe("ReviewBrief", () => {
             receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
               exit_code: 7, executor_class: "author_machine", environment_fingerprint: "envfp:sha256:0123456789", artifact_digest: "sha2", evidence_id: "r2",
               execution_provenance: "validated", execution_identity: "session-identity", recipe_digest: "recipe-digest",
-              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unverified_integrations: 2 }],
+              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unverified_integrations: 2 },
+              { id: "older", title: "Critical tests", status: "PASS", trust: "typed_observation", raw_attempt: false,
+                exit_code: 0, executor_class: "author_machine", environment_fingerprint: "", artifact_digest: "sha-old", evidence_id: "older",
+                superseded_by_newer_result: true }],
             receipts_omitted: 0,
             comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
           },
@@ -474,7 +477,8 @@ describe("ReviewBrief", () => {
     await userEvent.click(within(history).getByText("Execution receipts"));
     expect(within(history).getByText(/Critical tests · exit 7 · author_machine/i)).toBeInTheDocument();
     const receipt = within(history).getByTestId("receipt-provenance-r2");
-    expect(within(history).getByText(/author machine \(self-attested\); not independent verification/i)).toBeInTheDocument();
+    expect(within(history).getAllByText(/author machine \(self-attested\); not independent verification/i)).toHaveLength(2);
+    expect(within(history).getByText("Superseded by a newer check result; not counted in this Snapshot.")).toBeInTheDocument();
     expect(receipt).toHaveTextContent("Execution record validated");
     expect(receipt).toHaveTextContent("run: failed");
     expect(receipt).toHaveTextContent("artifacts: trace");

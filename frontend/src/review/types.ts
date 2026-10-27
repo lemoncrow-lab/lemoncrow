@@ -3603,6 +3603,8 @@ export interface ReviewEvaluationSnapshot {
     status: string;
     trust: "typed_observation" | "reported_only";
     raw_attempt: boolean;
+    /** Earlier retry retained for audit, excluded from current Snapshot counts and comparisons. */
+    superseded_by_newer_result?: boolean;
     exit_code: number | null;
     executor_class: string;
     /** An independently dispatched worker/sandbox, not an author-machine attestation. */

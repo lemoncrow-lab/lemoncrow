@@ -846,3 +846,138 @@ def test_rejected_nested_execution_cannot_be_counted_as_verified(tmp_path: Path)
     assert receipt["trust"] == "reported_only"
     assert receipt["status"] == "UNVERIFIED"
     assert not receipt["environment_fingerprint"]
+
+
+def test_evaluation_timeline_counts_only_latest_verdict_per_check(tmp_path: Path) -> None:
+    """Fresh reruns preserve history without counting the same check twice."""
+    review = _review(tmp_path)
+    for value in ("PASS", "FAIL", "PASS"):
+        review.store.add_evidence(
+            ReviewEvidence(
+                id="",
+                review_id=review.review_id,
+                revision_id=review.revision_id,
+                kind="verification",
+                title="Unit",
+                source="test",
+                source_ref=f"retake-{value}-{len(review.store.list_evidence(review.review_id))}",
+                stable_key="checks.recipe:unit",
+                verification_status=value,
+                attestation_class="lemoncrow_verification",
+                executor_class="author_machine",
+            )
+        )
+    history = _get(review, "evaluations")
+    latest = history["current"]
+    assert latest["counts"] == {"pass": 1, "fail": 0, "not_run": 0, "unknown": 0}
+    receipts = [item for item in latest["receipts"] if item["scenario"] == "checks.recipe:unit"]
+    assert len(receipts) == 3
+    assert [item["status"] for item in receipts] == ["PASS", "FAIL", "PASS"]
+    assert [item.get("superseded_by_newer_result", False) for item in receipts] == [False, True, True]
+    assert "effective_outcomes" not in latest
+
+
+def test_invalid_latest_verdict_cannot_resurrect_older_pass(tmp_path: Path) -> None:
+    """A corrupt final result keeps the check unverified, not passing via an older retry."""
+    from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
+
+    review = _review(tmp_path)
+    review.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=review.review_id,
+            revision_id=review.revision_id,
+            kind="verification",
+            title="Unit older",
+            source="test",
+            source_ref="old-verified",
+            stable_key="checks.recipe:unit",
+            verification_status="PASS",
+            attestation_class="lemoncrow_verification",
+            executor_class="author_machine",
+        )
+    )
+    review.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=review.review_id,
+            revision_id=review.revision_id,
+            kind="verification",
+            title="Unit newer unreadable",
+            source="test",
+            source_ref="new-corrupt",
+            stable_key="checks.recipe:unit",
+            verification_status="FAIL",
+            mime_type=RUNTIME_VALIDATION_MEDIA_TYPE,
+            content_hash="a" * 64,
+            attestation_class="lemoncrow_verification",
+            executor_class="author_machine",
+        )
+    )
+    history = _get(review, "evaluations")["current"]
+    assert history["counts"] == {"pass": 0, "fail": 0, "not_run": 0, "unknown": 0}
+    assert history["state"] == "unverified"
+    assert history["receipts"][0]["status"] == "UNVERIFIED"
+    assert history["receipts"][1]["superseded_by_newer_result"] is True
+
+
+def test_evaluation_comparison_uses_latest_repeated_verdict_not_stale_retry(tmp_path: Path) -> None:
+    """Only the final verdict of a repeated evaluator may produce cross-Snapshot trends."""
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    scenario = ValidationScenario(
+        id="checkout", title="Checkout", provider="command", surface_id="test", runtime_id="python"
+    )
+
+    def publish(revision_id: str, status: str, token: str) -> None:
+        request = ValidationRequest(
+            review_id=review.review_id,
+            revision_id=revision_id,
+            snapshot_identity="f" * 64,
+            scenario_kind="recipe",
+            scenario_id=scenario.id,
+            side="new",
+            viewport_key="",
+            runtime_id="python",
+            runtime_config_digest="a" * 64,
+            trusted_policy_digest="b" * 64,
+            scope_digest="c" * 64,
+        )
+        revision = next(row for row in review.store.list_revisions(review.review_id) if row.id == revision_id)
+        persist_validation_record(
+            review.store,
+            revision,
+            request,
+            scenario,
+            {
+                "identity": request.identity,
+                "request": request.to_wire(),
+                "snapshot_id": revision.id,
+                "status": status,
+                "deterministic_checks": [{"name": "process exit code", "actual": 0 if status == "PASS" else 5}],
+            },
+            executor_class="author_machine",
+            expected_current_revision_id=revision_id,
+            fresh_ref=token,
+        )
+
+    original = review.revision_id
+    for i, status in enumerate(("PASS", "FAIL", "PASS"), 1):
+        publish(original, status, f"run-{i}")
+    first = _get(review, "evaluations")["current"]
+    assert first["counts"] == {"pass": 1, "fail": 0, "not_run": 0, "unknown": 0}
+    assert len([row for row in first["receipts"] if row["status"] in {"PASS", "FAIL"}]) == 3
+    next_revision = _next_snapshot(review)
+    publish(next_revision, "FAIL", "next-run")
+    latest = _get(review, "evaluations")
+    assert latest["current"]["counts"]["fail"] == 1
+    assert latest["current"]["configuration_comparable"] is True
+    result = latest["current"]["comparable_results"]
+    assert len(result) == 1
+    assert result[0]["from"] == "PASS" and result[0]["to"] == "FAIL"
+    assert result[0]["change"] == "regression"

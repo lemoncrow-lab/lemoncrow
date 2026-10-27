@@ -129,6 +129,24 @@ describe("CheckRecipesPanel", () => {
     api.postCheckRequest.mockReset();
   });
 
+  it("shows only evidence-linked comparable test regressions as observations, not confirmed bugs", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recipes: RECIPES,
+      observed_regressions: { schema_version: 1, rows: [{
+        recipe_id: "unit", subject: "tests.test_calc::test_mul", test_path: "tests/test_calc.py",
+        differential_evidence_id: "evidence-1", executor_class: "author_machine", independent_execution: false,
+        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
+        limitation: "An observed test regression, not a confirmed code defect.",
+      }], omitted: 0 },
+    }));
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const failures = await screen.findByTestId("check-observed-regressions");
+    expect(failures).toHaveTextContent("Observed test regressions · 1");
+    expect(failures).toHaveTextContent("tests.test_calc::test_mul");
+    expect(failures).toHaveTextContent("not automatically a confirmed code defect");
+    expect(failures).toHaveTextContent("author machine observed");
+  });
+
   it("raises only the deltas and counts pre-existing and quarantined results", async () => {
     api.fetchCheckRecipes.mockResolvedValue(projection({ recipes: RECIPES, results: [differential()] }));
     render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
@@ -376,6 +394,31 @@ describe("trusted check recommendations", () => {
     expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
     await userEvent.click(within(suggestions).getByRole("button", { name: "Run check" }));
     expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.test", false);
+  });
+
+  it("re-verifies a previous Snapshot failure with an explicit fresh, source-bound run", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recipes: RECIPES,
+      recommended_checks: {
+        schema_version: 1, previous_revision_id: "revision-1",
+        recommendations: [{
+          ...proposed, previous_verdict: "", prior_snapshot_verdict: "FAIL",
+          reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
+        }], omitted: 0, policy: "Manual only",
+      },
+    }));
+    api.postCheckRecipesRun.mockResolvedValue({
+      entry_id: "checks.test", revision_id: "revision-2", verdicts: { "checks.test": "PASS" },
+      executions: 1, reused: 0, notes: [], executor_class: "author_machine", run_on: "local",
+    });
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const suggestions = await screen.findByTestId("check-recommendations");
+    expect(suggestions).toHaveTextContent("Previous Snapshot had FAIL");
+    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
+    await userEvent.click(within(suggestions).getByRole("button", { name: "Reverify fresh" }));
+    expect(api.postCheckRecipesRun).toHaveBeenCalledWith(
+      "review-1", "revision-2", "checks.test", false, "revision-1",
+    );
   });
 
   it("does not execute a recommendation blocked by the effective plan or in a historical Review", async () => {

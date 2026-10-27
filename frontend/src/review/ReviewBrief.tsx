@@ -901,6 +901,7 @@ function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }
                 {snapshot.receipts.filter((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected").slice(0, 5).map((receipt) => (
                   <div key={receipt.id} className="mt-1 break-words">
                     <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
+                    {receipt.superseded_by_newer_result && <div className="text-micro text-muted-foreground">Superseded by a newer check result; not counted in this Snapshot.</div>}
                     {receipt.executor_class === "author_machine" && <div className="text-micro text-muted-foreground">Author machine (self-attested); not independent verification.</div>}
                     <div className="text-micro text-muted-foreground" data-testid={`receipt-provenance-${receipt.id}`}>
                       {receipt.execution_provenance === "validated"

@@ -235,9 +235,11 @@ def evaluation_timeline(
     snapshots: list[dict[str, Any]] = []
     for revision in window:
         evidence = counted_evidence(revision) if counted_evidence else store.list_evidence(review_id)
+        # Newest first: repeated runs of one check on the same Snapshot have
+        # different evidence IDs but only the last verdict is current.
+        newest_first = sorted(evidence, key=lambda item: (item.created_at, item.id), reverse=True)
         rows: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for item in evidence:
+        for item in newest_first:
             if item.revision_id != revision.id or item.kind != "verification":
                 continue
             receipt = execution_receipt(store, item)
@@ -255,7 +257,7 @@ def evaluation_timeline(
                         "scenario": (item.stable_key or item.source_ref or item.id)[:180],
                         "evaluator_config_digest": "",
                         "status": "UNVERIFIED",
-                        "raw_attempt": True,
+                        "raw_attempt": not bool(item.verification_status),
                         "exit_code": None,
                         "executor_class": "unverified",
                         "artifact_digest": item.content_hash,
@@ -274,10 +276,6 @@ def evaluation_timeline(
                 continue
             authority = "typed_observation" if item.attestation_class in _TYPED else "reported_only"
             key = item.stable_key or item.source_ref or item.id
-            # No duplicate synthetic successes on repeated projections.
-            if key in seen:
-                continue
-            seen.add(key)
             rows.append(
                 {
                     "id": item.id,
@@ -297,10 +295,21 @@ def evaluation_timeline(
                     "scope": "",
                 }
             )
-        verdicts = [row["status"] for row in rows if not row["raw_attempt"] and row["trust"] == "typed_observation"]
+        effective: list[dict[str, Any]] = []
+        seen_checks: set[tuple[str, str]] = set()
+        for row in rows:
+            if row["raw_attempt"] or (row["trust"] != "typed_observation" and row["status"] != "UNVERIFIED"):
+                continue
+            key = (row["scenario"], row.get("scope") or "")
+            if key in seen_checks:
+                row["superseded_by_newer_result"] = True
+                continue
+            seen_checks.add(key)
+            effective.append(row)
+        verdicts = [row["status"] for row in effective if row["trust"] == "typed_observation"]
         counts = {status.lower(): verdicts.count(status) for status in ("PASS", "FAIL", "NOT_RUN", "UNKNOWN")}
         config_ids = sorted(
-            {row["scenario"] for row in rows if row["trust"] == "typed_observation" and row["scenario"]}
+            {row["scenario"] for row in effective if row["trust"] == "typed_observation" and row["scenario"]}
         )
         # Only evaluator identity is available for imported results; external
         # configuration is not exposed here, therefore comparability unknown.
@@ -312,6 +321,7 @@ def evaluation_timeline(
                 "source_identity": revision.source_fingerprint,
                 "counts": counts,
                 "receipts": rows[:60],
+                "effective_outcomes": effective[:60],
                 "receipts_omitted": max(0, len(rows) - 60),
                 "state": "failed" if counts["fail"] else "observed" if counts["pass"] else "unverified",
                 "evaluators": config_ids,
@@ -327,14 +337,14 @@ def evaluation_timeline(
     for new, old in pairwise(snapshots):
         old_results = {
             (row["scenario"], row["evaluator_config_digest"]): row
-            for row in old["receipts"]
+            for row in old["effective_outcomes"]
             if row.get("evaluator_config_digest")
             and not row["raw_attempt"]
             and row["trust"] == "typed_observation"
             and row["status"] in {"PASS", "FAIL"}
         }
         comparable = []
-        for row in new["receipts"]:
+        for row in new["effective_outcomes"]:
             if row["raw_attempt"] or row["trust"] != "typed_observation" or row["status"] not in {"PASS", "FAIL"}:
                 continue
             key = (row["scenario"], row.get("evaluator_config_digest") or "")
@@ -358,6 +368,9 @@ def evaluation_timeline(
             new["configuration_comparable"] = True
             new["comparable_results"] = comparable[:60]
             new["reason"] = f"{len(comparable)} evaluator(s) have matching recorded configurations"
+    for snapshot in snapshots:
+        # Internal aggregate only; the API already exposes bounded detailed receipts.
+        snapshot.pop("effective_outcomes", None)
     return {
         "schema_version": 1,
         "review_id": review_id,

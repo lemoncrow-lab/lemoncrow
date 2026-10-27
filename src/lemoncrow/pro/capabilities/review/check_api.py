@@ -326,10 +326,15 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             recommended = recommend_checks(
                 plan, catalog, [differentials[key] for key in sorted(differentials)], previous_results=prior_rows
             )
+            recommended["previous_revision_id"] = revisions[position - 1].id if position > 0 else ""
+            from lemoncrow.pro.capabilities.review.check_regressions import observed_test_regressions
+
+            observed = observed_test_regressions([differentials[key] for key in sorted(differentials)])
             return {
                 "revision_id": revision.id,
                 "historical": revision.id != latest.id,
                 "recommended_checks": recommended,
+                "observed_regressions": observed,
                 "run_plan_digest": plan.digest,
                 **catalog.to_wire(),
                 "entries": _entries(plan, catalog),
@@ -401,8 +406,44 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 detail=f"entry must be one of {', '.join(CHECK_ENTRIES)} or {RECIPE_ENTRY_PREFIX}<id>",
             )
         pick = body.get("pick") is True
+        # A correction re-verification is a fresh, user-authorized check against
+        # the immediately following Snapshot. The last failed verdict is only
+        # a *reason* to run; it never counts as this Snapshot's evidence.
+        from_revision_id = str(body.get("reverify_from_revision_id") or "").strip()
+        if from_revision_id:
+            if pick or revision.id != deps.latest(session).id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="correction re-verification requires an unmodified current run plan and the current Snapshot",
+                )
+            revisions = list(store.list_revisions(session.id))
+            index = next((position for position, row in enumerate(revisions) if row.id == revision.id), -1)
+            if index <= 0 or revisions[index - 1].id != from_revision_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the previous Snapshot is no longer adjacent; refresh the Review",
+                )
+            prior_differentials, prior_verdicts = latest_results(store, revisions[index - 1])
+            source_catalog = run_plans.recipe_catalog(revision)
+            original = run_plans.recipe_catalog(revisions[index - 1])
+            if source_catalog.base_state == "provisional" or original.base_state == "provisional":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="trusted-base recipes are unavailable")
+            eligible = any(
+                (recipe.entry_id == entry_id or recipe.kind_entry == entry_id)
+                and original.get(recipe.id) is not None
+                and original.get(recipe.id).digest == recipe.digest
+                and str(prior_differentials.get(recipe.id, {}).get("head_verdict") or "") in {"FAIL", "UNKNOWN"}
+                for recipe in source_catalog.recipes
+            ) or (
+                entry_id in prior_verdicts and str(prior_verdicts[entry_id].get("status") or "") in {"FAIL", "UNKNOWN"}
+            )
+            if not eligible:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="no failed check with the same trusted recipe identity exists on the immediately previous Snapshot",
+                )
         # An explicit fresh run: nothing replayed, carried forward, shared or satisfied by CI.
-        fresh = body.get("fresh") is True
+        fresh = body.get("fresh") is True or bool(from_revision_id)
         fresh_run_id = uuid.uuid4().hex if fresh else ""
 
         def run() -> dict[str, Any]:
@@ -508,6 +549,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 "executor_class": executor_class.value,
                 "run_on": run_on,
                 "fresh_run_id": fresh_run_id,
+                "reverified_from_revision_id": from_revision_id,
                 "wall_seconds": round(time.monotonic() - started, 3),
             }
 

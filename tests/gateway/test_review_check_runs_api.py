@@ -307,6 +307,10 @@ def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_p
     payload = _get(review)
     unit = _result(payload, "unit")
     assert unit["granularity"] == "test" and unit["comparable"] is True
+    linked = payload["observed_regressions"]["rows"]
+    assert {row["subject"].split("::")[-1] for row in linked} == {"test_mul"}
+    assert linked[0]["differential_evidence_id"] == unit["evidence_id"]
+    assert linked[0]["independent_execution"] is False
     assert unit["head_verdict"] == "FAIL" and unit["base_verdict"] == "FAIL"
     assert _classes(unit) == {
         "test_add": "unchanged",
@@ -1028,3 +1032,103 @@ def test_failed_check_on_previous_snapshot_is_suggested_without_carrying_result(
     assert "Previous Snapshot had" in unit["reason"]
     assert unit["manual_authorization_required"] is True
     assert unit["can_run_now"] in {True, False}
+
+
+@needs_bwrap
+def test_explicit_correction_reverification_runs_fresh_and_records_the_fixed_snapshot(tmp_path: Path) -> None:
+    """Real sandbox: failing Git revision, fixed revision, guarded fresh check, current PASS."""
+    review = _review(tmp_path)
+    first = _run(review, "checks.recipe:unit")
+    assert first.status_code == 200, first.text
+    assert first.json()["verdicts"]["checks.recipe:unit"] == "FAIL"
+    original = review.revision_id
+    # The reviewer requests actionable proof through the existing agent handoff,
+    # rather than a new correction subsystem or a synthetic successful check.
+    requested = review.client.post(
+        f"/api/reviews/{review.review_id}/check-recipes/requests",
+        headers=HEADERS,
+        json={
+            "kind": "proof",
+            "recipe_id": "unit",
+            "subject": "tests.test_calc::test_mul",
+            "path": "calc.py",
+            "expected_revision_id": original,
+        },
+    )
+    assert requested.status_code == 201, requested.text
+    handoff = review.client.post(f"/api/reviews/{review.review_id}/feedback/export", headers=HEADERS)
+    assert handoff.status_code == 200
+    assert requested.json()["annotation"]["id"] in handoff.json()["annotation_versions"]
+    # The original head fixes subtraction but introduces multiplication bug.
+    # Restore multiplication and the pre-existing integer division mismatch,
+    # while keeping subtraction fixed and retaining all test changes.
+    fixed = CALC_HEAD.replace("return a * b + 1", "return a * b").replace("return a / b", "return a // b")
+    following = _new_snapshot(review, {"calc.py": fixed})
+    pending = _get(review, following)
+    assert pending["results"] == []
+    next_check = next(row for row in pending["recommended_checks"]["recommendations"] if row["recipe_id"] == "unit")
+    assert next_check["prior_snapshot_verdict"] == "FAIL"
+    assert pending["recommended_checks"]["previous_revision_id"] == original
+    url = f"/api/reviews/{review.review_id}/check-recipes/run"
+    body = {
+        "revision_id": following,
+        "entry": next_check["entry_id"],
+        "reverify_from_revision_id": original,
+    }
+    # A stale or forged ancestor cannot dispatch a runner or grant another plan entry.
+    before = _compute_runs(review)
+    rejected = review.client.post(
+        url, headers=HEADERS, json={**body, "reverify_from_revision_id": "random-old-revision"}
+    )
+    assert rejected.status_code == 409
+    assert _compute_runs(review) == before
+    refused_pick = review.client.post(url, headers=HEADERS, json={**body, "pick": True})
+    assert refused_pick.status_code == 409
+    assert _compute_runs(review) == before
+    response = review.client.post(url, headers=HEADERS, json=body)
+    assert response.status_code == 200, response.text
+    output = response.json()
+    assert output["reverified_from_revision_id"] == original
+    assert output["fresh_run_id"]
+    assert output["executions"] >= 1
+    assert output["carried"] == 0 and output["reused"] == 0 and output["shared_base"] == 0
+    observed = _get(review, following)
+    assert output["verdicts"]["checks.recipe:unit"] == "PASS", {
+        "verdicts": output["verdicts"],
+        "unit": [(row["subject"], row["head"], row["class"]) for row in _result(observed, "unit")["tests"]],
+        "reasons": _result(observed, "unit")["reasons"],
+    }
+    assert _result(observed, "unit")["head_verdict"] == "PASS"
+    history = review.client.get(f"/api/reviews/{review.review_id}/evaluations", headers=HEADERS).json()
+    assert history["current"]["revision_id"] == following
+    assert history["current"]["counts"]["pass"] >= 1
+    assert any(row["status"] == "PASS" for row in history["current"]["receipts"])
+    assert history["snapshots"][1]["revision_id"] == original
+    assert history["snapshots"][1]["counts"]["fail"] >= 1
+    # The new Snapshot owns its results. Earlier failures remain historic evidence.
+    assert _result(_get(review, original), "unit")["head_verdict"] == "FAIL"
+
+
+def test_reverification_rejects_prior_pass_historical_source_and_unauthorized_caller(tmp_path: Path) -> None:
+    """The new API flag is not an unattended rerun or an executor bypass."""
+    review, runner = _scripted_review(tmp_path, _all_pass)
+    initial = _run(review, "checks.recipe:unit")
+    assert initial.status_code == 200 and initial.json()["verdicts"]["checks.recipe:unit"] == "PASS"
+    original = review.revision_id
+    following = _new_snapshot(review, {"calc.py": CALC_HEAD + "# second Snapshot\n"})
+    body = {
+        "revision_id": following,
+        "entry": "checks.recipe:unit",
+        "reverify_from_revision_id": original,
+    }
+    baseline = list(runner.calls)
+    url = f"/api/reviews/{review.review_id}/check-recipes/run"
+    assert review.client.post(url, json=body).status_code in {401, 403}
+    not_failed = review.client.post(url, headers=HEADERS, json=body)
+    assert not_failed.status_code == 409
+    assert "no failed check" in not_failed.json()["detail"]
+    historical = review.client.post(
+        url, headers=HEADERS, json={**body, "revision_id": original, "reverify_from_revision_id": following}
+    )
+    assert historical.status_code == 409
+    assert list(runner.calls) == baseline
