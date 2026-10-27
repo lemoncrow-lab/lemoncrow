@@ -236,6 +236,7 @@ export interface CheckRecipesProjection {
   verdicts: CheckVerdictRow[];
   claims: CheckClaim[];
   proposals: CheckProposal[];
+  approved_autofix_ids?: string[];
 }
 
 export interface CheckRunResponse {
@@ -256,7 +257,7 @@ export interface CheckRunResponse {
 
 export type CheckRequestBody =
   | { kind: "proof"; recipe_id: string; subject?: string; path?: string; body?: string }
-  | { kind: "autofix"; proposal_id: string; body?: string };
+  | { kind: "autofix"; proposal_id: string; approved: true; body?: string };
 
 function base(reviewId: string): string {
   return `/api/reviews/${encodeURIComponent(reviewId)}/check-recipes`;

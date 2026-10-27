@@ -12679,11 +12679,33 @@ def register_review_api(
         body: str,
         title: str,
         evidence: tuple[str, ...],
+        autofix_proposal_id: str = "",
     ) -> Annotation:
-        """A reviewer's file-level comment: it rides the existing feedback handoff."""
+        """Write reviewer feedback under the Review lock, never a code edit.
+
+        Generated autofix approvals use a deterministic annotation primary key:
+        two concurrent deliveries of the same proposal cannot both commit.
+        The three-approval cap is rechecked inside the write transaction.
+        """
 
         with store.atomic_review_transition():
             store.require_current_revision(session.id, revision.id)
+            if autofix_proposal_id:
+                approvals = [
+                    row
+                    for row in store.list_annotations(session.id)
+                    if row.source == "human" and row.title.startswith("Autofix proposed · ")
+                ]
+                if len(approvals) >= 3:
+                    raise ValueError("the Review reached its three autofix handoff limit; escalate to manual review")
+                if any(f"proposal:{autofix_proposal_id}" in row.evidence for row in approvals):
+                    raise ValueError("this autofix has already been approved and sent")
+            fixed_id = (
+                "ann-"
+                + hashlib.sha256(f"approved-autofix:{session.id}:{autofix_proposal_id}".encode()).hexdigest()[:32]
+                if autofix_proposal_id
+                else ""
+            )
             return annotate(
                 store,
                 session,
@@ -12700,6 +12722,7 @@ def register_review_api(
                 source_id=session.reviewer_id or "local",
                 title=title,
                 evidence=evidence,
+                annotation_id=fixed_id,
                 new_text=revision_new_side_text(store, resolved_repo, session, revision, path),
                 expected_current_revision_id=revision.id,
             )

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -315,6 +316,15 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 for item in store.list_change_proposals(session.id)
                 if item.base_revision_id == revision.id and item.intent.startswith("autofix:")
             ]
+            # Read the existing human feedback ledger rather than introducing a
+            # competing approval store or keeping a transient frontend flag.
+            approvals = {
+                ref.removeprefix("proposal:")
+                for annotation in store.list_annotations(session.id)
+                if annotation.source == "human" and annotation.title.startswith("Autofix proposed · ")
+                for ref in annotation.evidence
+                if ref.startswith("proposal:")
+            }
             from lemoncrow.pro.capabilities.review.check_recommendations import recommend_checks
 
             revisions = list(store.list_revisions(session.id))
@@ -345,6 +355,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 "verdicts": [verdicts[key] for key in sorted(verdicts)],
                 "claims": [row.to_wire() for row in claims],
                 "proposals": proposals,
+                "approved_autofix_ids": sorted(item["id"] for item in proposals if item["id"] in approvals),
                 **({"qualification": gate_h["summary"]} if gate_h.get("summary") else {}),
             }
 
@@ -584,17 +595,55 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         units = {unit.path for unit in store.list_units(revision.id) if unit.kind == "file"}
         evidence: list[str] = []
         if kind == "autofix":
+            if body.get("approved") is not True or not expected:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="an autofix needs explicit reviewer approval and the exact expected Snapshot",
+                )
             proposal = store.get_change_proposal(str(body.get("proposal_id") or ""))
             if (
                 proposal is None
                 or proposal.review_id != session.id
                 or proposal.base_revision_id != revision.id
+                or proposal.state != "proposed"
                 or not proposal.intent.startswith("autofix:")
+                or not proposal.created_by.startswith("lemoncrow:recipe:")
             ):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="no autofix proposal on the current Snapshot"
                 )
             recipe_id = proposal.intent.removeprefix("autofix:")
+            differentials, _ = latest_results(store, revision)
+            differential = differentials.get(recipe_id) or {}
+            fix_meta = differential.get("autofix") if isinstance(differential, Mapping) else None
+            proposal_ids = fix_meta.get("proposal_ids") if isinstance(fix_meta, Mapping) else None
+            if (
+                not isinstance(proposal_ids, list)
+                or proposal.id not in proposal_ids
+                or differential.get("head_verdict") != "FAIL"
+                or proposal.created_by != f"lemoncrow:recipe:{recipe_id}"
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the autofix is not backed by the current trusted failing check",
+                )
+            prior = [
+                annotation
+                for annotation in store.list_annotations(session.id)
+                if annotation.source == "human" and annotation.title.startswith("Autofix proposed · ")
+            ]
+            if any(f"proposal:{proposal.id}" in annotation.evidence for annotation in prior):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="this autofix has already been approved and sent; review the existing handoff",
+                )
+            # A bounded assisted correction loop, not unbounded agent retries:
+            # further changes require a reviewer to open a new Review.
+            if len(prior) >= 3:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the Review reached its three autofix handoff limit; escalate to manual review",
+                )
             path = proposal.path
             title = f"Autofix proposed · {recipe_id}"
             text = (
@@ -638,14 +687,33 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
 
         def create() -> Any:
             return deps.annotate_feedback(
-                session, revision, path=path, body=text, title=title, evidence=tuple(evidence)
+                session,
+                revision,
+                path=path,
+                body=text,
+                title=title,
+                evidence=tuple(evidence),
+                **({"autofix_proposal_id": proposal.id} if kind == "autofix" else {}),
             )
 
         try:
             annotation = await run_in_threadpool(create)
+        except sqlite3.IntegrityError as exc:
+            if kind != "autofix":
+                raise
+            # The deterministic approval annotation already exists: another
+            # request won the race. Do not create a second feedback handoff.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this autofix has already been approved and sent",
+            ) from exc
         except ValueError as exc:
             message = str(exc)
-            code = status.HTTP_409_CONFLICT if "advanced" in message else status.HTTP_422_UNPROCESSABLE_ENTITY
+            code = (
+                status.HTTP_409_CONFLICT
+                if any(term in message for term in ("advanced", "autofix", "handoff limit"))
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
             raise HTTPException(status_code=code, detail=message) from exc
         await deps.enforce_armed_landing(session)
         return {"annotation": deps.annotation_payload(annotation), "kind": kind, "revision_id": revision.id}

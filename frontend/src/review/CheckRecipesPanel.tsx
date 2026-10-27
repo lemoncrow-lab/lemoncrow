@@ -146,9 +146,11 @@ function DifferentialCard({
   editable,
   onProof,
   onSendAutofix,
+  approvedAutofixIds,
 }: {
   result: CheckDifferential;
   editable: boolean;
+  approvedAutofixIds: ReadonlySet<string>;
   onProof: (result: CheckDifferential, subject: string, file: string) => void;
   onSendAutofix: (proposalId: string) => void;
 }) {
@@ -225,12 +227,15 @@ function DifferentialCard({
       {result.autofix.status && (
         <div className="mt-1 text-micro text-muted-foreground" data-testid="check-autofix">
           Autofix: {result.autofix.reason ?? result.autofix.status}
-          {editable &&
-            (result.autofix.proposal_ids ?? []).map((id) => (
-              <UiButton key={id} type="button" size="xs" variant="outline" className="ml-2" onClick={() => onSendAutofix(id)}>
-                Send to agent
-              </UiButton>
-            ))}
+          {(result.autofix.proposal_ids ?? []).map((id) => (
+            approvedAutofixIds.has(id)
+              ? <span key={id} className="ml-2 text-foreground">Approved · sent to agent</span>
+              : editable ? (
+                <UiButton key={id} type="button" size="xs" variant="outline" className="ml-2" onClick={() => onSendAutofix(id)}>
+                  Approve & send
+                </UiButton>
+              ) : null
+          ))}
         </div>
       )}
     </div>
@@ -363,7 +368,7 @@ export default function CheckRecipesPanel({
 
   function sendAutofix(proposalId: string) {
     void act(async () => {
-      await postCheckRequest(reviewId, snapshot.revision_id, { kind: "autofix", proposal_id: proposalId });
+      await postCheckRequest(reviewId, snapshot.revision_id, { kind: "autofix", proposal_id: proposalId, approved: true });
       return "Autofix proposal sent as feedback for the agent";
     });
   }
@@ -444,7 +449,8 @@ export default function CheckRecipesPanel({
           <div key={row} className="text-micro text-red-300/80">{row}</div>
         ))}
         {snapshot.results.map((result) => (
-          <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof} onSendAutofix={sendAutofix} />
+          <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof}
+            onSendAutofix={sendAutofix} approvedAutofixIds={new Set(snapshot.approved_autofix_ids ?? [])} />
         ))}
         {message && <div className="text-micro text-subtle" role="status">{message}</div>}
       </div>

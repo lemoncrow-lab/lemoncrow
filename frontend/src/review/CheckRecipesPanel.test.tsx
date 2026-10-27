@@ -312,6 +312,21 @@ describe("CheckRecipesPanel", () => {
     expect(within(card).queryByTestId("check-economy")).not.toBeInTheDocument();
   });
 
+  it("renders persisted reviewer approval as sent, without a second action", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(
+      projection({
+        recipes: RECIPES,
+        results: [differential({ autofix: { status: "proposed", proposal_ids: ["proposal-1"], reason: "format fix" } })],
+        approved_autofix_ids: ["proposal-1"],
+      }),
+    );
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const autofix = await screen.findByTestId("check-autofix");
+    expect(autofix).toHaveTextContent("Approved · sent to agent");
+    expect(within(autofix).queryByRole("button", { name: "Approve & send" })).toBeNull();
+    expect(api.postCheckRequest).not.toHaveBeenCalled();
+  });
+
   it("sends autofix proposals and proof requests to the agent as feedback", async () => {
     api.fetchCheckRecipes.mockResolvedValue(
       projection({
@@ -324,8 +339,8 @@ describe("CheckRecipesPanel", () => {
 
     const autofix = await screen.findByTestId("check-autofix");
     expect(autofix).toHaveTextContent("1 file reformatted");
-    await userEvent.click(within(autofix).getByRole("button", { name: "Send to agent" }));
-    expect(api.postCheckRequest).toHaveBeenCalledWith("review-1", "revision-2", { kind: "autofix", proposal_id: "proposal-1" });
+    await userEvent.click(within(autofix).getByRole("button", { name: "Approve & send" }));
+    expect(api.postCheckRequest).toHaveBeenCalledWith("review-1", "revision-2", { kind: "autofix", proposal_id: "proposal-1", approved: true });
 
     await userEvent.click(within(screen.getByTestId("check-adequacy")).getByRole("button", { name: "Request proof" }));
     expect(api.postCheckRequest).toHaveBeenLastCalledWith("review-1", "revision-2", {

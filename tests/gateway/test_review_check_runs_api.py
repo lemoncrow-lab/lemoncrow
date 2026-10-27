@@ -434,16 +434,64 @@ def test_formatter_autofix_is_a_proposal_then_a_new_snapshot_never_a_source_muta
     fix_attempt = next(row for row in fmt["attempts"] if row["variant"] == "fix")
     assert fix_attempt["changed_paths"] == ["calc.py"]
 
-    # The proposal is routed to the authoring agent as reviewer feedback through the normal handoff.
-    routed = review.client.post(
-        f"/api/reviews/{review.review_id}/check-recipes/requests",
+    # The proposal is routed only after a reviewer approves this exact
+    # Snapshot. A bare agent request or a stale proposal may not send a fix.
+    url = f"/api/reviews/{review.review_id}/check-recipes/requests"
+    baseline_annotations = len(review.store.list_annotations(review.review_id))
+    no_approval = review.client.post(
+        url,
         headers=HEADERS,
         json={"kind": "autofix", "proposal_id": proposal.id, "expected_revision_id": review.revision_id},
+    )
+    assert no_approval.status_code == 422
+    assert len(review.store.list_annotations(review.review_id)) == baseline_annotations
+    review.store.update_change_proposal(proposal.id, state="dismissed")
+    dismissed = review.client.post(
+        url,
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "proposal_id": proposal.id,
+            "approved": True,
+            "expected_revision_id": review.revision_id,
+        },
+    )
+    assert dismissed.status_code == 404
+    assert len(review.store.list_annotations(review.review_id)) == baseline_annotations
+    review.store.update_change_proposal(proposal.id, state="proposed")
+    no_revision = review.client.post(
+        url,
+        headers=HEADERS,
+        json={"kind": "autofix", "proposal_id": proposal.id, "approved": True},
+    )
+    assert no_revision.status_code == 422
+    routed = review.client.post(
+        url,
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "proposal_id": proposal.id,
+            "approved": True,
+            "expected_revision_id": review.revision_id,
+        },
     )
     assert routed.status_code == 201, routed.text
     annotation = routed.json()["annotation"]
     assert annotation["source"] == "human" and annotation["path"] == "calc.py"
     assert annotation["title"] == "Autofix proposed · fmt" and f"proposal:{proposal.id}" in json.dumps(annotation)
+    assert _get(review)["approved_autofix_ids"] == [proposal.id]
+    duplicate = review.client.post(
+        url,
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "proposal_id": proposal.id,
+            "approved": True,
+            "expected_revision_id": review.revision_id,
+        },
+    )
+    assert duplicate.status_code == 409
+    assert len(review.store.list_annotations(review.review_id)) == baseline_annotations + 1
 
     # The agent applies it: a new Snapshot, on which the planned check runs fresh and passes.
     second = _new_snapshot(review, {"calc.py": proposal.replacement_text})
@@ -1132,3 +1180,98 @@ def test_reverification_rejects_prior_pass_historical_source_and_unauthorized_ca
     )
     assert historical.status_code == 409
     assert list(runner.calls) == baseline
+
+
+@needs_bwrap
+def test_autofix_handoff_refuses_forged_source_and_bounded_retries(tmp_path: Path) -> None:
+    """The agent cannot authorize a forged proposal or loop forever on one Review."""
+    from dataclasses import replace
+
+    from lemoncrow.pro.capabilities.review.session_models import Annotation, AnnotationAnchor
+
+    review = _review(tmp_path)
+    result = _run(review, "checks.format")
+    assert result.status_code == 200, result.text
+    fmt = _result(_get(review), "fmt")
+    actual = review.store.get_change_proposal(fmt["autofix"]["proposal_ids"][0])
+    assert actual is not None
+    forged = review.store.add_change_proposal(
+        replace(actual, id="", created_by="agent:untrusted", created_at="", updated_at=""),
+        expected_current_revision_id=review.revision_id,
+    )
+    url = f"/api/reviews/{review.review_id}/check-recipes/requests"
+
+    def approve(proposal_id: str) -> Any:
+        return review.client.post(
+            url,
+            headers=HEADERS,
+            json={
+                "kind": "autofix",
+                "approved": True,
+                "proposal_id": proposal_id,
+                "expected_revision_id": review.revision_id,
+            },
+        )
+
+    denied = approve(forged.id)
+    assert denied.status_code == 404
+    assert review.store.list_annotations(review.review_id) == ()
+    for number in range(3):
+        review.store.add_annotation(
+            Annotation(
+                id="",
+                review_id=review.review_id,
+                revision_id=review.revision_id,
+                anchor=AnnotationAnchor(path="calc.py", side="additions", start_line=1, end_line=1),
+                title=f"Autofix proposed · previously-reviewed-{number}",
+                body="Previous explicitly approved assistance attempt",
+                evidence=(f"proposal:old-{number}",),
+                kind="comment",
+                source="human",
+                created_by_actor="human",
+            )
+        )
+    before = len(review.store.list_annotations(review.review_id))
+    limited = approve(actual.id)
+    assert limited.status_code == 409
+    assert "three autofix handoff limit" in limited.json()["detail"]
+    assert len(review.store.list_annotations(review.review_id)) == before
+    # No approval action wrote a source file or created a new Snapshot.
+    assert review.store.latest_revision(review.review_id).id == review.revision_id
+
+
+@needs_bwrap
+def test_concurrent_autofix_requests_create_one_review_approval(tmp_path: Path) -> None:
+    """A browser double-submit must not produce two human approvals."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    review = _review(tmp_path)
+    assert _run(review, "checks.format").status_code == 200
+    fmt = _result(_get(review), "fmt")
+    proposal_id = fmt["autofix"]["proposal_ids"][0]
+    url = f"/api/reviews/{review.review_id}/check-recipes/requests"
+    payload = {
+        "kind": "autofix",
+        "proposal_id": proposal_id,
+        "approved": True,
+        "expected_revision_id": review.revision_id,
+    }
+    ready = Barrier(2)
+
+    def submit() -> int:
+        ready.wait(timeout=10)
+        response = review.client.post(url, headers=HEADERS, json=payload)
+        return response.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(submit) for _ in range(2)]
+        codes = sorted(future.result(timeout=30) for future in futures)
+    assert codes == [201, 409], codes
+    human = [
+        annotation
+        for annotation in review.store.list_annotations(review.review_id)
+        if annotation.title == "Autofix proposed · fmt"
+    ]
+    assert len(human) == 1
+    assert human[0].evidence and f"proposal:{proposal_id}" in human[0].evidence
