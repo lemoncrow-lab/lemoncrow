@@ -1462,6 +1462,8 @@ export default function ReviewBrief({
   const firstReadTarget = reviewFirst.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id))
     ?? understand.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id));
   const headlineCount = reviewFirst.length + orphanQuestions.length;
+  const findingSummary = projection.triage?.severity_summary;
+  const flaggedFindings = findingSummary ? findingSummary.p0 + findingSummary.p1 + findingSummary.p2 : 0;
   const decisionCard = (decision: ReviewProjectionDecision) => (
     <DecisionCard key={decision.key} decision={decision} byId={byId} onOpenTarget={onOpenTarget} onAsk={onAsk} onDecision={onDecision} />
   );
@@ -1549,6 +1551,15 @@ export default function ReviewBrief({
                 <h2 className="text-label font-semibold text-foreground">Needs your attention</h2>
                 {headlineCount > 0 && <span className="text-meta text-muted-foreground">{headlineCount} review-first items</span>}
               </div>
+              {flaggedFindings > 0 && findingSummary && (
+                <p data-testid="brief-findings-glance" className="mt-1 text-caption text-amber-300/90">
+                  {`Flagged findings: ${[
+                    findingSummary.p0 > 0 ? `${findingSummary.p0} P0` : "",
+                    findingSummary.p1 > 0 ? `${findingSummary.p1} P1` : "",
+                    findingSummary.p2 > 0 ? `${findingSummary.p2} P2` : "",
+                  ].filter(Boolean).join(" · ")}. Review the evidence; a finding is not automatically a verified defect.`}
+                </p>
+              )}
               {requiredChecks.length > 0 && <p className="mt-1 text-caption text-red-300">{plural(requiredChecks.length, "required check")} needs attention below</p>}
               {openDecisions.length > 0 && <p className="mt-1 text-caption text-amber-300/90">{plural(openDecisions.length, "human decision")} to resolve below</p>}
               <div className="mt-1.5 divide-y divide-border/60">

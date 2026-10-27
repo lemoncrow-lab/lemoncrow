@@ -385,6 +385,23 @@ describe("ReviewBrief", () => {
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
   });
 
+  it("surfaces P0/P1 findings early without calling them proven defects", () => {
+    const base = projection();
+    const origin = { layer: "trusted_base_repository", source: "snapshot", commit: "abc" };
+    const triage: NonNullable<ReviewProjection["triage"]> = {
+      version: 1, review_id: "r1", revision_id: "rev-1", priority: "high", computed_priority: "high",
+      criticality: "high", severity_summary: { p0: 1, p1: 2, p2: 0, suggestion: 0, unrated: 0, stale: 0, below_threshold: 0, highest: "p0" },
+      finding_threshold: { value: "medium", label: "Medium+", origin }, evidence_state: "missing",
+      review_state: "not_reviewed", evidence_label: "No run", release_urgency: "unknown",
+      dependency_changes: 0, required_failures: 0, override: null, explanation: [],
+      hidden_finding_ids: [], policy_state: "final", policy_errors: [], computed: true,
+    };
+    renderBrief({ ...base, triage });
+    const glance = screen.getByTestId("brief-glance");
+    expect(within(glance).getByTestId("brief-findings-glance")).toHaveTextContent("1 P0 · 2 P1");
+    expect(within(glance).getByTestId("brief-findings-glance")).toHaveTextContent("not automatically a verified defect");
+  });
+
   it("shows real Snapshot evaluation regression, raw receipt and an explicit no-score limit", async () => {
     const base = projection();
     renderBrief({
