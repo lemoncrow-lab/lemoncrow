@@ -31,8 +31,7 @@ def recommend_checks(
     }
     suggested: list[dict[str, Any]] = []
     for recipe in catalog.recipes:
-        if recipe.kind != "test":
-            continue
+        is_test = recipe.kind == "test"
         entry = plan.entry(recipe.entry_id) or plan.entry(recipe.kind_entry)
         if entry is None:
             # A recipe that cannot be named in the effective plan is not a
@@ -59,6 +58,13 @@ def recommend_checks(
         comparable_previous = isinstance(previous_recipe, Mapping) and previous_recipe.get("digest") == recipe.digest
         prior_verdict = str(previous.get("head_verdict") or "") if previous and comparable_previous else ""
         previous_failure = not last_verdict and prior_verdict in {"FAIL", "UNKNOWN"}
+        # Ordinary format/lint/check recipes are not broad discovery
+        # recommendations. Surface them only when a recorded failure needs
+        # explicit re-verification or remains unresolved.
+        if not is_test and not (
+            failure or previous_failure or (prior_verdict in {"FAIL", "UNKNOWN"} and last_verdict == "PASS")
+        ):
+            continue
         # This is a suggestion to *inspect* first, not a new execution grant.
         if not runnable and not failure and not previous_failure:
             continue
@@ -95,9 +101,9 @@ def recommend_checks(
                 "can_run_now": runnable,
                 "manual_authorization_required": True,
                 "selection_mode": selection_mode if selection_mode in {"impact", "all", "none"} else "all",
-                "selected_tests_sample": chosen,
-                "selected_test_count": len(tests) if selection_mode == "impact" else 0,
-                "coverage": "unknown" if coverage == "unknown" else "known",
+                "selected_tests_sample": chosen if is_test else [],
+                "selected_test_count": len(tests) if is_test and selection_mode == "impact" else 0,
+                "coverage": ("unknown" if coverage == "unknown" else "known") if is_test else "not_applicable",
                 "executor": entry.executor,
                 "recipe_digest": recipe.digest,
                 "_rank": order,

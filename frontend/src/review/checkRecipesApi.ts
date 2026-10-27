@@ -201,7 +201,7 @@ export interface CheckRecommendation {
   selection_mode: "impact" | "all" | "none";
   selected_tests_sample: string[];
   selected_test_count: number;
-  coverage: "known" | "unknown";
+  coverage: "known" | "unknown" | "not_applicable";
   executor: string;
   recipe_digest: string;
 }

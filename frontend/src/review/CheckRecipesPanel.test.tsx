@@ -12,6 +12,11 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("./checkRecipesApi", () => api);
+const actionApi = vi.hoisted(() => ({ fetchReviewActions: vi.fn() }));
+vi.mock("./reviewActionsApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./reviewActionsApi")>(),
+  fetchReviewActions: actionApi.fetchReviewActions,
+}));
 
 function unit(subject: string, klass: CheckUnit["class"], base: string, head: string, options: Partial<CheckUnit> = {}): CheckUnit {
   return { subject, class: klass, base, head, base_attempts: [], head_attempts: [], quarantine: "", file: "", ...options };
@@ -124,6 +129,8 @@ const RECIPES = [{ id: "unit" }, { id: "fmt" }] as CheckRecipesProjection["recip
 
 describe("CheckRecipesPanel", () => {
   beforeEach(() => {
+    actionApi.fetchReviewActions.mockReset();
+    actionApi.fetchReviewActions.mockResolvedValue({ revision_id: "revision-2", actions: [], catalog: [], fix_all_limit: 20 });
     api.fetchCheckRecipes.mockReset();
     api.postCheckRecipesRun.mockReset();
     api.postCheckRequest.mockReset();
@@ -389,8 +396,59 @@ describe("trusted check recommendations", () => {
   };
 
   beforeEach(() => {
+    actionApi.fetchReviewActions.mockReset();
+    actionApi.fetchReviewActions.mockResolvedValue({ revision_id: "revision-2", actions: [], catalog: [], fix_all_limit: 20 });
     api.fetchCheckRecipes.mockReset();
     api.postCheckRecipesRun.mockReset();
+  });
+
+  it("links a genuinely attributed correction to a pending formatter recheck without running anything", async () => {
+    const format = {
+      ...proposed, entry_id: "checks.recipe:fmt", recipe_id: "fmt", title: "Formatter",
+      previous_verdict: "", prior_snapshot_verdict: "FAIL",
+      reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
+      selection_mode: "all" as const, selected_test_count: 0, selected_tests_sample: [],
+      coverage: "not_applicable" as const,
+    };
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recommended_checks: { schema_version: 1, previous_revision_id: "revision-1", recommendations: [format], omitted: 0, policy: "Manual only" },
+    }));
+    actionApi.fetchReviewActions.mockResolvedValue({
+      revision_id: "revision-2", catalog: [], fix_all_limit: 20,
+      actions: [{ kind: "fix", status: "snapshot_recorded", result_certainty: "exact",
+        source_revision_id: "revision-1", resulting_revision_id: "revision-2",
+        subjects: [{ kind: "approved_autofix", title: "Approved formatter correction · fmt" }] }],
+    });
+    api.postCheckRecipesRun.mockResolvedValue({ entry_id: "checks.recipe:fmt", revision_id: "revision-2", verdicts: { "checks.recipe:fmt": "PASS" }, executions: 1, reused: 0 });
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    const notice = await screen.findByTestId("agent-correction-recheck");
+    expect(notice).toHaveTextContent("Agent correction captured · fresh verification pending");
+    expect(notice).toHaveTextContent("Approved formatter correction · fmt");
+    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
+    await userEvent.click(within(await screen.findByTestId("check-recommendations")).getByRole("button", { name: "Reverify fresh" }));
+    expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.recipe:fmt", false, "revision-1");
+  });
+
+  it("does not attribute correction when provenance is missing, unverifiable or from another Snapshot", async () => {
+    api.fetchCheckRecipes.mockResolvedValue(projection({
+      recommended_checks: { schema_version: 1, previous_revision_id: "revision-1", recommendations: [{ ...proposed, prior_snapshot_verdict: "FAIL" }], omitted: 0, policy: "Manual only" },
+    }));
+    actionApi.fetchReviewActions.mockResolvedValue({
+      revision_id: "revision-2", catalog: [], fix_all_limit: 20,
+      actions: [{ kind: "fix", status: "snapshot_recorded", result_certainty: "unattributed",
+        source_revision_id: "revision-1", resulting_revision_id: "revision-2",
+        subjects: [{ kind: "approved_autofix", title: "Unattributed" }] }],
+    });
+    const mounted = render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    await screen.findByTestId("check-recommendations");
+    await waitFor(() => expect(actionApi.fetchReviewActions).toHaveBeenCalled());
+    expect(screen.queryByTestId("agent-correction-recheck")).toBeNull();
+    mounted.unmount();
+    actionApi.fetchReviewActions.mockRejectedValue(new Error("no auth"));
+    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
+    await screen.findByTestId("check-recommendations");
+    expect(screen.queryByTestId("agent-correction-recheck")).toBeNull();
+    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
   });
 
   it("offers one explicit user action for a trusted planned check", async () => {

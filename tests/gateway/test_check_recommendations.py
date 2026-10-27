@@ -99,3 +99,34 @@ def test_only_same_recipe_digest_can_suggest_reverification_or_claim_progress() 
     progress = recommend_checks(plan, catalog, current_pass, previous_results=previous)["recommendations"][0]
     assert "Current Snapshot's check passed" in progress["reason"]
     assert progress["previous_verdict"] == "PASS"
+
+
+def test_prior_formatter_failure_is_recommended_only_for_comparable_recipe_without_automatic_execution() -> None:
+    fmt = CheckRecipe(id="fmt", kind="format", command=("ruff", "format", "--check", "."), origin="config")
+    lint = CheckRecipe(id="lint", kind="lint", command=("ruff", "check", "."), origin="config")
+    catalog = RecipeCatalog(recipes=(fmt, lint))
+    plan = _plan(_entry(fmt.entry_id), _entry(lint.entry_id))
+    # A non-test check is never recommended merely because it exists.
+    assert recommend_checks(plan, catalog, [])["recommendations"] == []
+    old = [{"recipe": {"id": "fmt", "digest": fmt.digest}, "head_verdict": "FAIL"}]
+    after_fix = recommend_checks(plan, catalog, [], previous_results=old)["recommendations"]
+    assert len(after_fix) == 1
+    suggestion = after_fix[0]
+    assert suggestion["recipe_id"] == "fmt"
+    assert suggestion["prior_snapshot_verdict"] == "FAIL"
+    assert suggestion["coverage"] == "not_applicable"
+    assert suggestion["can_run_now"] is True
+    assert suggestion["manual_authorization_required"] is True
+    assert "command" not in suggestion
+    changed = [{"recipe": {"id": "fmt", "digest": "not-same"}, "head_verdict": "FAIL"}]
+    assert recommend_checks(plan, catalog, [], previous_results=changed)["recommendations"] == []
+    # A read-only recommendation cannot override the effective plan.
+    denied = recommend_checks(
+        _plan(_entry(fmt.entry_id, status="not_available")),
+        catalog,
+        [],
+        previous_results=old,
+    )[
+        "recommendations"
+    ][0]
+    assert denied["can_run_now"] is False

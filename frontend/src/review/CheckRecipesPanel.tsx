@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button as UiButton } from "../components/ui/button";
 import { PanelCard } from "./ContextSections";
 import ReviewFixSheet from "./ReviewFixSheet";
-import type { ReviewActionRequest } from "./reviewActionsApi";
+import { fetchReviewActions, type ReviewActionListing, type ReviewActionRequest } from "./reviewActionsApi";
 import {
   fetchCheckRecipes,
   postCheckRecipesRun,
@@ -299,6 +299,7 @@ export default function CheckRecipesPanel({
     [fixAutofixId],
   );
   const [message, setMessage] = useState("");
+  const [actionListing, setActionListing] = useState<ReviewActionListing | null>(null);
 
   const load = useCallback(
     () =>
@@ -323,6 +324,20 @@ export default function CheckRecipesPanel({
     };
   }, [reviewId, revisionId]);
 
+  // This is a read-only join with the existing correction action ledger. The
+  // action GET reconciles attributed Snapshots, but never runs checks or agents.
+  // A failure leaves ordinary check suggestions available without claiming a
+  // correction was attributed.
+  useEffect(() => {
+    let active = true;
+    setActionListing(null);
+    if (!reviewId || !revisionId || readOnly) return () => { active = false; };
+    void fetchReviewActions(reviewId)
+      .then((value) => { if (active) setActionListing(value); })
+      .catch(() => { if (active) setActionListing(null); });
+    return () => { active = false; };
+  }, [reviewId, revisionId, readOnly]);
+
   if (error) {
     return (
       <PanelCard title="Check recipes">
@@ -341,6 +356,18 @@ export default function CheckRecipesPanel({
   const snapshot = data;
   const editable = !readOnly && !snapshot.historical;
   const entries = snapshot.entries.filter((row) => row.recipes.length > 0);
+  const preceding = snapshot.recommended_checks?.previous_revision_id;
+  const pendingRechecks = (snapshot.recommended_checks?.recommendations ?? []).filter(
+    (item) => !item.previous_verdict && ["FAIL", "UNKNOWN"].includes(item.prior_snapshot_verdict),
+  );
+  const attributedCorrection = !snapshot.historical && preceding && actionListing?.revision_id === snapshot.revision_id
+    ? actionListing.actions.find((action) => action.kind === "fix"
+      && action.status === "snapshot_recorded"
+      && action.result_certainty === "exact"
+      && action.source_revision_id === preceding
+      && action.resulting_revision_id === snapshot.revision_id
+      && action.subjects.some((subject) => subject.kind === "approved_autofix"))
+    : null;
 
   async function act(work: () => Promise<string>) {
     setBusy(true);
@@ -411,6 +438,17 @@ export default function CheckRecipesPanel({
               </div>
             ))}
           </div>
+        )}
+        {attributedCorrection && pendingRechecks.length > 0 && (
+          <section aria-label="Agent correction re-verification" data-testid="agent-correction-recheck"
+            className="space-y-1 border-t border-border/80 pt-2 text-micro">
+            <p className="font-semibold text-foreground">Agent correction captured · fresh verification pending</p>
+            <p className="text-muted-foreground">
+              Exact authoring-session Snapshot recorded for {attributedCorrection.subjects[0]?.title ?? "the correction"}.
+              {` ${pendingRechecks.length} previously failing trusted check${pendingRechecks.length === 1 ? "" : "s"} need a new result.`}
+              {" "}Use Reverify fresh below; execution is manual and remains subject to the run plan and budget.
+            </p>
+          </section>
         )}
         {(snapshot.recommended_checks?.recommendations.length ?? 0) > 0 && (
           <section aria-label="Suggested checks" data-testid="check-recommendations" className="space-y-1.5 border-t border-border/80 pt-2">

@@ -1404,13 +1404,25 @@ def test_approved_formatter_proposal_dispatches_once_to_author_agent_and_tracks_
     tracked = next(row for row in history.json()["actions"] if row["id"] == action["id"])
     assert tracked["status"] == "snapshot_recorded"
     assert tracked["resulting_revision_id"] == subsequent
+    pending = _get(review, subsequent)
+    eligible = next(row for row in pending["recommended_checks"]["recommendations"] if row["recipe_id"] == "fmt")
+    assert eligible["prior_snapshot_verdict"] == "FAIL"
+    assert eligible["previous_verdict"] == ""
+    assert eligible["entry_id"] == "checks.recipe:fmt"
+    assert eligible["can_run_now"] is True
+    assert eligible["manual_authorization_required"] is True
+    assert pending["results"] == []  # no automatic compute from reconciliation or GET
     fresh = review.client.post(
         f"/api/reviews/{review.review_id}/check-recipes/run",
         headers=HEADERS,
-        json={"revision_id": subsequent, "entry": "checks.format", "reverify_from_revision_id": review.revision_id},
+        json={
+            "revision_id": subsequent,
+            "entry": eligible["entry_id"],
+            "reverify_from_revision_id": review.revision_id,
+        },
     )
     assert fresh.status_code == 200, fresh.text
-    assert fresh.json()["verdicts"]["checks.format"] == "PASS"
+    assert fresh.json()["verdicts"][eligible["entry_id"]] == "PASS"
     assert fresh.json()["carried"] == fresh.json()["reused"] == 0
 
 
