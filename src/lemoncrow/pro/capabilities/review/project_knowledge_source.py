@@ -37,7 +37,13 @@ class CanonicalGitKnowledge:
     """
 
     def __init__(
-        self, root: Path, repository: RepositoryIdentity, canonical_ref: str, *, max_paths: int = 1000
+        self,
+        root: Path,
+        repository: RepositoryIdentity,
+        canonical_ref: str,
+        *,
+        max_paths: int = 1000,
+        include_document_bodies: bool = True,
     ) -> None:
         if not 1 <= max_paths <= 1000:
             raise ValueError("Project Knowledge path bound must be between 1 and 1000")
@@ -48,6 +54,7 @@ class CanonicalGitKnowledge:
         self.repository = repository
         self.ref = CanonicalRefIdentity(repository, canonical_ref)
         self.max_paths = max_paths
+        self.include_document_bodies = include_document_bodies
 
     def _generation(self, commit: Any) -> RepositoryGeneration:
         tree_digest = hashlib.sha256(str(commit.tree_id).encode("ascii")).hexdigest()
@@ -108,7 +115,7 @@ class CanonicalGitKnowledge:
                     source_paths=(path,),
                 )
             )
-            if Path(path).suffix.lower() not in {".md", ".rst", ".txt"}:
+            if not self.include_document_bodies or Path(path).suffix.lower() not in {".md", ".rst", ".txt"}:
                 continue
             blob = cast(pygit2.Blob, self.git[entry.id])
             if blob.size > 65536:
