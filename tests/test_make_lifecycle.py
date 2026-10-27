@@ -74,8 +74,12 @@ def test_prod_rebuilds_and_installs_into_the_live_home_on_both_sides() -> None:
     assert 'REHEARSE_HOME="$HOME/.lemoncrow"' in oss
     assert 'REHEARSE_PORT="7420"' in oss
     assert ".lemoncrow-oss" not in oss and "7428" not in oss
-    # Same installer, same staging; only home, port and freshness differ.
-    assert _install_line(oss).split("bash ")[-1] == _install_line(_make_dry_run("oss-dev")).split("bash ")[-1]
+    # OSS prod installs Runtime as well as Review, without configuring agent hosts.
+    assert _install_line(oss).endswith("--product both --local")
+    assert _install_line(_make_dry_run("oss-dev")).endswith("--product review --local")
+    assert "systemctl --user restart lemoncrow-mcp-gateway.service" in oss
+    assert "systemctl --user is-active --quiet lemoncrow-mcp-gateway.service" in oss
+    assert oss.index("--product both --local") < oss.index("systemctl --user restart")
 
     hosted = _make_dry_run("hosted-prod")
     build = hosted.index("bash scripts/build_review_client.sh")
@@ -89,6 +93,51 @@ def test_prod_rebuilds_and_installs_into_the_live_home_on_both_sides() -> None:
     assert _install_line(_make_dry_run("hosted-prod", "HOSTED_URL=https://lc.example")).endswith(
         "--cloud --url https://lc.example"
     )
+
+
+@pytest.mark.parametrize(
+    ("gateway_state", "expected_calls", "expected_rc"),
+    [
+        ("configured", ["cat", "restart", "is-active"], 0),
+        ("absent", ["cat"], 0),
+        ("restart-fails", ["cat", "restart"], 1),
+        ("health-fails", ["cat", "restart", "is-active"], 1),
+    ],
+)
+def test_oss_prod_refreshes_configured_gateway_without_touching_unconfigured_one(
+    tmp_path: Path, gateway_state: str, expected_calls: list[str], expected_rc: int
+) -> None:
+    """Use a mocked installer and systemctl: never touch a live install in tests."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    systemctl = fake_bin / "systemctl"
+    systemctl.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >> "$LC_TEST_SYSTEMCTL_LOG"\n'
+        'case "$*" in\n'
+        '  "--user cat lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != absent ] ;;\n'
+        '  "--user restart lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != restart-fails ] ;;\n'
+        '  "--user is-active --quiet lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != health-fails ] ;;\n'
+        "  *) exit 2 ;;\n"
+        "esac\n"
+    )
+    systemctl.chmod(0o755)
+    calls = tmp_path / "systemctl.log"
+    result = subprocess.run(
+        ["make", "oss-prod", "MAKE=true"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "HOME": str(tmp_path),
+            "LC_TEST_SYSTEMCTL_LOG": str(calls),
+            "LC_TEST_GATEWAY_STATE": gateway_state,
+        },
+    )
+    assert (result.returncode == 0) is (expected_rc == 0), result.stderr
+    assert [line.split()[1] for line in calls.read_text().splitlines()] == expected_calls
 
 
 @pytest.mark.parametrize("target", ["oss-prod", "hosted-prod"])

@@ -73,10 +73,19 @@ _sandbox_status = if [ -x "$(1)/bin/lc" ]; then LEMONCROW_HOME="$(1)" LEMONCROW_
 oss-dev: ## Real install.sh --local on staged assets into the OSS sandbox (OSS_HOME, port 7428); reuses fresh artifacts
 	@$(MAKE) --no-print-directory _rehearse-install FAST=1 REHEARSE_HOME="$(OSS_HOME)" REHEARSE_PORT="$(OSS_PORT)" REHEARSE_ARGS="--product review --local"
 
-oss-prod: ## Full rebuild, then real install.sh --local into the live home (port 7420)
+oss-prod: ## Full rebuild, install Review + Runtime Lite into the live home (port 7420), refresh persistent MCP
 	@$(call _log,step,OSS production installation)
 	@$(call _log,info,Installation home: $$HOME/.lemoncrow)
-	@$(MAKE) --no-print-directory _rehearse-install FAST= REHEARSE_HOME="$$HOME/.lemoncrow" REHEARSE_BIN="$$HOME/.lemoncrow/bin" REHEARSE_PORT="$(LIVE_PORT)" REHEARSE_ARGS="--product review --local"
+	@$(MAKE) --no-print-directory _rehearse-install FAST= REHEARSE_HOME="$$HOME/.lemoncrow" REHEARSE_BIN="$$HOME/.lemoncrow/bin" REHEARSE_PORT="$(LIVE_PORT)" REHEARSE_ARGS="--product both --local"
+	@if command -v systemctl >/dev/null 2>&1 && systemctl --user cat lemoncrow-mcp-gateway.service >/dev/null 2>&1; then \
+		$(call _log,step,Restart persistent Runtime MCP gateway); \
+		systemctl --user restart lemoncrow-mcp-gateway.service && \
+		systemctl --user is-active --quiet lemoncrow-mcp-gateway.service || { \
+			$(call _log,error,Runtime MCP gateway failed to restart) >&2; exit 1; \
+		}; \
+	else \
+		$(call _log,info,No persistent Runtime MCP gateway configured; Runtime Lite installed); \
+	fi
 
 oss-up: ## Start the OSS sandbox Review server (port 7428)
 	@$(call _log,step,Start OSS sandbox server)
