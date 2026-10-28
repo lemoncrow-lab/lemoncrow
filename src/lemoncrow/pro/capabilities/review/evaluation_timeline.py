@@ -102,6 +102,19 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
         if not isinstance(raw_verification, dict) or raw_verification.get("executor_class") != evidence.executor_class:
             raise ValueError("untrusted execution verification class")
         execution = ExecutionResult.from_wire(wire)
+        # Compatibility loading can silently discard malformed stage entries.
+        # Hosted workers may emit multiple bounded fetch/build operations; the
+        # actual run must be unique and no input row may disappear.
+        raw_stages = wire.get("stages")
+        stages = execution.stages
+        if (
+            not isinstance(raw_stages, list)
+            or len(raw_stages) != len(stages)
+            or len(stages) > 9
+            or sum(stage.stage == "run" for stage in stages) > 1
+            or wire.get("status") != execution.status
+        ):
+            raise ValueError("execution stage record is ambiguous or contradictory")
         request = record["request"]
         if execution.executor_class.value != evidence.executor_class:
             raise ValueError("executor class mismatch")
@@ -118,20 +131,43 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
             raise ValueError("environment fingerprint mismatch")
         if execution.verification.executor_class is not execution.executor_class:
             raise ValueError("verification's executor class disagrees")
+        # The outer verdict is not independent of the embedded process stages.
+        # A recorded PASS cannot be established by an execution that failed,
+        # was refused/skipped, or claims exit 0 despite a nonzero process code.
+        # A failing outer verdict with passing process stages remains possible
+        # (e.g. a browser assertion failed after the process ran successfully).
+        run_stage = execution.stage("run")
+        if record.get("status") == "PASS" and (
+            execution.status != "passed"
+            or run_stage is None
+            or run_stage.status != "passed"
+            or any(stage.status == "passed" and stage.exit_code not in (None, 0) for stage in execution.stages)
+        ):
+            raise ValueError("outer PASS contradicts observed execution stages")
     except (TypeError, ValueError, KeyError):
         return {**none, "execution_provenance": "rejected"}
     # The role allowlist avoids leaking user-controlled file paths, opaque
     # artifact keys and external URLs through the public Review summary.
     roles = {"screenshot", "image", "video", "trace", "playwright_trace", "log", "stdout", "stderr", "report"}
-    stages = [
-        {"stage": stage.stage, "status": stage.status, "exit_code": stage.exit_code} for stage in execution.stages[:3]
-    ]
+    # Always show the run outcome, even if the worker reported many bounded
+    # dependency stages. Select a failing dependency before a passing one.
+    summaries = []
+    for name in ("fetch", "build", "run"):
+        options = [stage for stage in execution.stages if stage.stage == name]
+        if not options:
+            continue
+        selected = next(
+            (stage for stage in options if stage.status not in {"passed", "skipped"}),
+            next((stage for stage in options if stage.status == "passed"), options[0]),
+        )
+        summaries.append({"stage": name, "status": selected.status, "exit_code": selected.exit_code})
+    stage_summaries = summaries
     return {
         "execution_provenance": "validated",
         "execution_identity": execution.identity,
         "environment_fingerprint": execution.environment_fingerprint,
         "recipe_digest": execution.recipe.digest,
-        "stage_outcomes": stages,
+        "stage_outcomes": stage_summaries,
         "artifact_roles": sorted({ref.role for ref in execution.artifacts if ref.role in roles}),
         "unverified_integrations": len(execution.verification.not_verified),
     }
@@ -191,8 +227,15 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
             else "UNVERIFIED" if provenance["execution_provenance"] == "rejected" else "REPORTED"
         ),
         "raw_attempt": not bool(evidence.verification_status),
-        "exit_code": exit_code,
-        "duration_ms": record.get("duration_ms") if isinstance(record.get("duration_ms"), int) else None,
+        "exit_code": None if provenance["execution_provenance"] == "rejected" else exit_code,
+        "duration_ms": (
+            record.get("duration_ms")
+            if provenance["execution_provenance"] != "rejected"
+            and isinstance(record.get("duration_ms"), int)
+            and not isinstance(record.get("duration_ms"), bool)
+            and record["duration_ms"] >= 0
+            else None
+        ),
         "executor_class": evidence.executor_class if trusted else "unverified",
         "independent_execution": trusted
         and evidence.executor_class != "author_machine"
