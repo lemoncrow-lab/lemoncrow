@@ -26,6 +26,7 @@ from lemoncrow.pro.capabilities.review.execution import (
     ExecutionResult,
     ExecutorClass,
     VerificationEnvironment,
+    canonical_digest,
     parse_executor_class,
 )
 from lemoncrow.pro.capabilities.review.run_evidence import protect_execution_result, protect_mapping, protect_text
@@ -744,9 +745,40 @@ def stamp_execution_record(record: Mapping[str, Any], executor: ExecutorClass) -
     data = dict(data)
     raw = data.pop("execution")
     try:
-        parsed = ExecutionResult.from_wire(raw if isinstance(raw, Mapping) else {})
+        if not isinstance(raw, Mapping):
+            raise ValueError("execution wire is not an object")
+        digest = raw.get("result_digest")
+        if not isinstance(digest, str) or digest != canonical_digest(
+            {key: value for key, value in raw.items() if key != "result_digest"}
+        ):
+            raise ValueError("execution result digest mismatch")
+        parsed = ExecutionResult.from_wire(raw)
+        stage_rows = raw.get("stages")
+        stages = parsed.stages
+        # Hosted workers may report several bounded fetch/build operations.
+        # Only the executable run stage must be unique; no dropped wire rows.
+        if (
+            not isinstance(stage_rows, list)
+            or len(stage_rows) != len(stages)
+            or len(stages) > 9
+            or sum(stage.stage == "run" for stage in stages) > 1
+            or raw.get("status") != parsed.status
+        ):
+            raise ValueError("execution stage record is ambiguous or contradictory")
+        run_stage = parsed.stage("run")
+        if out.get("status") == "PASS" and (
+            run_stage is None
+            or run_stage.status != "passed"
+            or parsed.status != "passed"
+            or any(stage.status == "passed" and stage.exit_code not in (None, 0) for stage in stages)
+        ):
+            raise ValueError("execution stages contradict the claimed PASS")
     except (TypeError, ValueError) as exc:
         data["execution_error"] = f"execution record rejected: {exc}"[:500]
+        # Failure to authenticate process proof cannot preserve a typed PASS in
+        # any Review/readiness consumer of the persisted verification_status.
+        if out.get("status") == "PASS":
+            out["status"] = "UNKNOWN"
     else:
         # Remote and in-process runners alike: the stored record is redacted here.
         data["execution"] = protect_execution_result(parsed.with_executor(executor)).to_wire()

@@ -271,6 +271,29 @@ def _compute_runs(review: SimpleNamespace, stage: str = "run") -> dict[str, int]
 
 
 @needs_bwrap
+def test_two_induced_defects_have_exact_observed_proof_without_clean_control_false_positives(tmp_path: Path) -> None:
+    """Execute real base/head commands: two new defects, clean and pre-existing controls."""
+    head = _head_files()
+    head["calc.py"] = str(head["calc.py"]).replace(
+        "def add(a, b):\n    return a + b", "def add(a, b):\n    return a + b + 1"
+    )
+    review = _review(tmp_path, head=head)
+    result = _run(review, "checks.test")
+    assert result.status_code == 200, result.text
+    observed = _get(review)
+    unit = _result(observed, "unit")
+    classes = _classes(unit)
+    assert classes["test_add"] == classes["test_mul"] == "introduced_failure"
+    assert classes["test_sub"] == "fixed"
+    assert classes["test_div"] == "pre_existing_failure"
+    assert classes["test_net_fetch"] == "quarantined"
+    regressions = observed["observed_regressions"]["rows"]
+    assert {row["subject"].rsplit("::", 1)[-1] for row in regressions} == {"test_add", "test_mul"}
+    assert all(row["differential_evidence_id"] == unit["evidence_id"] for row in regressions)
+    assert all(row["independent_execution"] is False for row in regressions)
+
+
+@needs_bwrap
 def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.check_ingest import EquivalenceKey, equivalence_key_of
     from lemoncrow.pro.capabilities.review.execution import ExecutorClass, executor_satisfies
