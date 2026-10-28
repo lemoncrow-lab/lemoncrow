@@ -80,8 +80,8 @@ def _prepare(
                 ":minified line numbers need the server's projection; use disk line numbers or old/new",
                 path=spelled,
             )
-        target = context.resolve(spec.path)
-        relative = context.relative(target)
+        target = context.resolve_write(spec.path)
+        relative = _display(context, target)
         edit = normalize_edit_aliases(entry)
         edit.pop("file_path", None)
         edit["path"] = spelled
@@ -89,6 +89,14 @@ def _prepare(
         relatives.append(relative)
         targets.setdefault(relative, target)
     return edits, relatives, targets
+
+
+def _display(context: LocalContext, target: Path) -> str:
+    """Worktree-relative path, or the absolute path for a granted directory outside it."""
+    try:
+        return context.relative(target)
+    except ValueError:
+        return str(target)
 
 
 def _changed(snapshot: FileSnapshot) -> bool:
@@ -144,7 +152,7 @@ def run_edit(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
         raise _refuse(str(exc)) from exc
 
     before = fsio.snapshot(targets)
-    result = apply_edits(edits, root=context.repo_root)
+    result = apply_edits(edits, root=context.repo_root, allowed_roots=context.write_roots())
     failures = result.get("failed") or []
     if failures:
         failure = dict(failures[0])
@@ -166,8 +174,9 @@ def run_edit(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
         summary = _summary(relative, entry, before[relative].existed, new_text)
         summaries_by_path.setdefault(relative, []).append(summary)
     lines = [_summarize_file_edits(path, summaries) for path, summaries in summaries_by_path.items()]
+    pushable = [path for path in changed if not Path(path).is_absolute()]
     return LocalResult(
         content=({"type": "text", "text": "\n".join(lines)},),
-        changed_paths=tuple(changed),
-        structured={"changed_paths": list(changed), "edits": len(entries)},
+        changed_paths=tuple(pushable),
+        structured={"changed_paths": pushable, "edits": len(entries)},
     )

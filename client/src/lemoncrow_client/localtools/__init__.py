@@ -183,6 +183,32 @@ class LocalContext:
                 action=AgentAction.FIX_REQUEST,
             ) from exc
 
+    def write_roots(self) -> list[Path]:
+        """Directories outside the worktree that the user granted write access to."""
+        from ..kit.write_roots import additional_write_roots
+
+        return additional_write_roots(self.repo_root, self.environment)
+
+    def resolve_write(self, spelled: str) -> Path:
+        """Resolve a write target: the worktree, or an absolute path inside a granted root.
+
+        The grant is checked on the resolved path, so a symlink inside a granted
+        directory that points elsewhere is still refused.
+        """
+        candidate = spelled.strip()
+        if candidate and Path(candidate).is_absolute():
+            try:
+                resolved = Path(candidate).resolve()
+            except OSError as exc:
+                raise ClientError(
+                    ErrorCode.PAYLOAD_INVALID,
+                    f"path is not resolvable: {candidate}",
+                    action=AgentAction.FIX_REQUEST,
+                ) from exc
+            if any(resolved == root or resolved.is_relative_to(root) for root in self.write_roots()):
+                return resolved
+        return self.resolve(spelled)
+
     def relative(self, path: Path) -> str:
         return path.resolve().relative_to(self.repo_root.resolve()).as_posix()
 

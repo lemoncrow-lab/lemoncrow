@@ -579,6 +579,83 @@ def test_edit_refuses_to_write_outside_the_worktree(context: LocalContext, escap
     assert caught.value.code is ErrorCode.PAYLOAD_INVALID
 
 
+def _with_grants(context: LocalContext, home: Path, **env: str) -> LocalContext:
+    return dataclasses.replace(context, environment={**context.environment, "HOME": str(home), **env})
+
+
+def _write_new(context: LocalContext, target: Path):
+    return run(context, "edit", {"edits": [{"path": str(target), "new": "granted\n", "replace": True}]})
+
+
+def test_edit_writes_to_a_directory_granted_by_the_env_var(context: LocalContext, tmp_path: Path) -> None:
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
+
+    result = _write_new(granted_context, granted / "note.md")
+
+    assert (granted / "note.md").read_text() == "granted\n"
+    assert result.changed_paths == (), "a file outside the worktree must never reach the blob push"
+    assert result.structured == {"changed_paths": [], "edits": 1}
+    assert str(granted / "note.md") in text(result)
+
+
+@pytest.mark.parametrize("layout", ["top-level", "nested"])
+def test_edit_writes_to_a_directory_granted_in_claude_settings(
+    context: LocalContext, tmp_path: Path, layout: str
+) -> None:
+    granted = tmp_path / "plans"
+    granted.mkdir()
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    body = {"additionalDirectories": [str(granted)]}
+    if layout == "nested":
+        body = {"permissions": body}
+    (home / ".claude" / "settings.local.json").write_text(json.dumps(body), encoding="utf-8")
+
+    _write_new(_with_grants(context, home), granted / "plan.md")
+
+    assert (granted / "plan.md").exists()
+
+
+def test_edit_still_refuses_what_was_not_granted(context: LocalContext, tmp_path: Path) -> None:
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    sibling = tmp_path / "granted-sibling"
+    sibling.mkdir()
+    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
+
+    for escape in (sibling / "x.md", granted / ".." / "x.md"):
+        with pytest.raises(ClientError) as caught:
+            _write_new(granted_context, escape)
+        assert caught.value.code is ErrorCode.PAYLOAD_INVALID
+    assert not (tmp_path / "x.md").exists()
+
+
+def test_edit_refuses_a_symlink_that_leaves_the_granted_directory(context: LocalContext, tmp_path: Path) -> None:
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (granted / "link").symlink_to(elsewhere)
+    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
+
+    with pytest.raises(ClientError):
+        _write_new(granted_context, granted / "link" / "x.md")
+    assert not (elsewhere / "x.md").exists()
+
+
+@pytest.mark.parametrize("entry", ["/", "~", "relative/dir"])
+def test_edit_ignores_blanket_and_relative_grants(context: LocalContext, tmp_path: Path, entry: str) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    granted_context = _with_grants(context, home, LEMONCROW_ADDITIONAL_DIRS=entry)
+
+    assert granted_context.write_roots() == []
+    with pytest.raises(ClientError):
+        _write_new(granted_context, home / "x.md")
+
+
 # --------------------------------------------------------------------------- #
 # grep                                                                        #
 # --------------------------------------------------------------------------- #

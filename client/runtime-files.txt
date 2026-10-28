@@ -36,6 +36,7 @@ kit/security_scan.py
 kit/security_taint.py
 kit/spill.py
 kit/sql.py
+kit/write_roots.py
 lite/__init__.py
 lite/imports.py
 lite/index.py
