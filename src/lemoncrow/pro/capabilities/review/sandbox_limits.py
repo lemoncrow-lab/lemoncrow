@@ -17,10 +17,13 @@ Chrome. Every sandboxed job therefore passes through this one gate:
 from __future__ import annotations
 
 import os
+import selectors
 import shutil
+import signal
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from functools import lru_cache
@@ -264,3 +267,88 @@ def run_limited(command: Sequence[str], *, timeout: float, **kwargs: Any) -> sub
         if sys.platform == "darwin" and proc.returncode == 124:
             raise subprocess.TimeoutExpired(command, timeout, output=proc.stdout, stderr=proc.stderr)
         return proc
+
+
+def run_limited_bounded(
+    command: Sequence[str],
+    *,
+    timeout: float,
+    max_output_bytes: int = 8192,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
+    """Execute with one sandbox slot and bounded stdout/stderr memory.
+
+    Unlike subprocess.run(PIPE), this drains *both* pipes while retaining only
+    their tails. Nothing from a reviewed process is accumulated unbounded in
+    the controller, even if a command continuously prints until timeout.
+    A fresh process group allows a deadline to kill descendants holding pipes.
+    """
+    if not 1 <= max_output_bytes <= 65536:
+        raise ValueError("bounded Review output must be 1..65536 bytes per stream")
+    forbidden = {"stdout", "stderr", "text", "encoding", "errors", "check", "start_new_session"}
+    if forbidden.intersection(kwargs):
+        raise ValueError("bounded Review capture owns stdout, stderr and process lifetime")
+    actual = [*limit_prefix(timeout=timeout), *command]
+    tails: dict[int, bytearray] = {}
+    proc: subprocess.Popen[bytes] | None = None
+    completed = False
+    with sandbox_slot(timeout):
+        try:
+            proc = subprocess.Popen(
+                actual,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                **kwargs,
+            )
+            assert proc.stdout is not None and proc.stderr is not None
+            with selectors.DefaultSelector() as selector:
+                for stream in (proc.stdout, proc.stderr):
+                    fd = stream.fileno()
+                    tails[fd] = bytearray()
+                    selector.register(stream, selectors.EVENT_READ)
+                deadline = time.monotonic() + (
+                    timeout + 3 if sys.platform == "darwin" and sandbox_memory_mb() else timeout
+                )
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(actual, timeout)
+                    for key, _event in selector.select(min(remaining, 0.2)):
+                        chunk = os.read(key.fd, 32768)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        tail = tails[key.fd]
+                        tail.extend(chunk)
+                        if len(tail) > max_output_bytes:
+                            del tail[:-max_output_bytes]
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(actual, timeout)
+                proc.wait(timeout=remaining)
+            if sys.platform == "darwin" and proc.returncode == 124:
+                raise subprocess.TimeoutExpired(actual, timeout)
+            completed = True
+            return subprocess.CompletedProcess(
+                actual,
+                proc.returncode,
+                stdout=bytes(tails[proc.stdout.fileno()]).decode("utf-8", "replace"),
+                stderr=bytes(tails[proc.stderr.fileno()]).decode("utf-8", "replace"),
+            )
+        finally:
+            if proc is not None:
+                if not completed or proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                if proc.stdout is not None:
+                    proc.stdout.close()
+                if proc.stderr is not None:
+                    proc.stderr.close()

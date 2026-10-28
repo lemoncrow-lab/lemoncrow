@@ -72,7 +72,12 @@ from lemoncrow.pro.capabilities.review.runtime_observation import (
     build_observation,
     workspace_change_rows,
 )
-from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, limit_note, run_limited
+from lemoncrow.pro.capabilities.review.sandbox_limits import (
+    SandboxCapacityBusy,
+    limit_note,
+    run_limited,
+    run_limited_bounded,
+)
 from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable, materialize_review_side
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry, SurfaceContext
 
@@ -1155,24 +1160,30 @@ class CommandRunner:
         started = time.monotonic()
         try:
             try:
-                # Same host capacity gate and memory ceiling as preview builds.
-                proc = run_limited(
+                # Shared host slot/CPU/memory ceiling with bounded capture
+                # in *parent memory* even when reviewed code floods pipes.
+                proc = run_limited_bounded(
                     sandbox,
                     timeout=timeout,
                     cwd=workspace_root,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    check=False,
+                    max_output_bytes=8192,
                     env={"PATH": _COMMAND_PATH, "HOME": "/tmp"},
                 )
             except (OSError, subprocess.TimeoutExpired, SandboxCapacityBusy) as exc:
+                # TimeoutError embeds the full argv; never expose trusted
+                # command arguments or environment values in Review output.
+                if isinstance(exc, SandboxCapacityBusy):
+                    reason = str(exc)
+                elif isinstance(exc, subprocess.TimeoutExpired):
+                    reason = "command timed out inside the isolated sandbox"
+                else:
+                    reason = "isolated command could not start"
                 return SurfaceRunResult(
                     surface.id,
                     surface.provider,
                     side,
                     "unavailable",
-                    str(exc) if isinstance(exc, SandboxCapacityBusy) else f"command could not run: {exc}",
+                    reason,
                     self.runner_id,
                     runtime.id,
                     duration_ms=int((time.monotonic() - started) * 1000),

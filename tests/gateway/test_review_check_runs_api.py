@@ -329,6 +329,26 @@ def test_local_sandbox_keeps_stdout_and_stderr_separate_and_redacted(tmp_path: P
 
 
 @needs_bwrap
+def test_deduplicated_log_and_stdout_share_bytes_without_losing_artifact_access(tmp_path: Path) -> None:
+    """Roles are attested by the execution receipt; content address may deduplicate their bytes."""
+    review = _review(tmp_path)
+    assert _run(review, "checks.test").status_code == 200
+    verdict = next(row for row in _get(review)["verdicts"] if row["stable_key"] == "checks.recipe:unit")
+    wire = _record(review, verdict["evidence_id"])["data"]["execution"]
+    refs = {item["role"]: item for item in wire["artifacts"]}
+    assert {"stdout", "log"} <= refs.keys()
+    for role in ("stdout", "log"):
+        response = review.client.get(
+            f"/api/reviews/{review.review_id}/execution-artifacts",
+            headers=HEADERS,
+            params={"evidence_id": verdict["evidence_id"], "revision_id": review.revision_id, "role": role},
+        )
+        assert response.status_code == 200, response.text
+    if refs["stdout"]["digest"] == refs["log"]["digest"]:
+        assert review.store.run_artifacts().meta(review.review_id, refs["stdout"]["digest"])["role"] == "log"
+
+
+@needs_bwrap
 def test_execution_artifact_viewer_rejects_corrupted_retained_bytes(tmp_path: Path) -> None:
     """A valid evidence ref cannot turn tampered local disk bytes into a reviewer artifact."""
     review = _review(tmp_path)

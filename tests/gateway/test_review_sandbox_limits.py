@@ -20,6 +20,7 @@ from lemoncrow.pro.capabilities.review.sandbox_limits import (
     limit_note,
     limit_prefix,
     run_limited,
+    run_limited_bounded,
     sandbox_memory_mb,
     sandbox_slot,
 )
@@ -264,3 +265,50 @@ def test_the_limiter_wraps_real_subprocess_calls(monkeypatch: pytest.MonkeyPatch
     run_limited(["bwrap", "true"], timeout=12)
 
     assert seen == [[*limit_prefix(), "bwrap", "true"]]
+
+
+def test_bounded_review_capture_drains_large_independent_streams_without_unbounded_buffers(slots) -> None:  # type: ignore[no-untyped-def]
+    slots(1)
+    program = (
+        "import sys;"
+        "sys.stdout.write('A'*2000000+'stdout-END');sys.stdout.flush();"
+        "sys.stderr.write('B'*2000000+'stderr-END');sys.stderr.flush()"
+    )
+    result = run_limited_bounded([sys.executable, "-c", program], timeout=8, max_output_bytes=128)
+    assert result.returncode == 0
+    assert result.stdout.endswith("stdout-END") and result.stderr.endswith("stderr-END")
+    assert len(result.stdout.encode()) <= 128 and len(result.stderr.encode()) <= 128
+    assert "stderr-END" not in result.stdout and "stdout-END" not in result.stderr
+
+
+def test_bounded_review_capture_times_out_chatty_child_and_releases_slot(slots) -> None:  # type: ignore[no-untyped-def]
+    slots(1)
+    program = (
+        "import sys,time;[(sys.stdout.write('x'*100000),sys.stdout.flush(),time.sleep(.001)) for _ in range(5000)]"
+    )
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_limited_bounded([sys.executable, "-c", program], timeout=0.3, max_output_bytes=32)
+    assert time.monotonic() - started < 3
+    with sandbox_slot(0.1):
+        pass
+
+
+def test_bounded_review_capture_reaps_descendants_holding_pipes_after_parent_exit(slots) -> None:  # type: ignore[no-untyped-def]
+    slots(1)
+    # A grandchild keeps stdout/stderr open even after the direct parent exits.
+    # The deadline must not leak that process group or hang forever.
+    program = "import subprocess,sys;subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'])"
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_limited_bounded([sys.executable, "-c", program], timeout=0.3, max_output_bytes=32)
+    assert time.monotonic() - started < 3
+    with sandbox_slot(0.1):
+        pass
+
+
+def test_bounded_review_capture_refuses_unbounded_or_conflicting_stdio() -> None:
+    with pytest.raises(ValueError, match=r"1\.\.65536"):
+        run_limited_bounded(["true"], timeout=1, max_output_bytes=10_000_000)
+    with pytest.raises(ValueError, match="owns stdout"):
+        run_limited_bounded(["true"], timeout=1, stdout=subprocess.PIPE)

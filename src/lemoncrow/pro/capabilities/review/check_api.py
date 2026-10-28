@@ -326,6 +326,10 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                     status_code=status.HTTP_404_NOT_FOUND, detail="protected artifact store unavailable"
                 )
             meta = artifacts.meta(session.id, ref.digest)
+            # Stored bytes are content-addressed: distinct roles, and later
+            # Snapshots, can reference identical protected output. The validated
+            # immutable evidence above binds exact role+Snapshot; metadata only
+            # proves this is a protected Review artifact in this tenant.
             if (
                 not isinstance(meta, Mapping)
                 or meta.get("role") not in {"log", "report", "stdout", "stderr"}
