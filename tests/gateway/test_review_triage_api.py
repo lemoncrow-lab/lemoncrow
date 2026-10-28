@@ -848,6 +848,91 @@ def test_rejected_nested_execution_cannot_be_counted_as_verified(tmp_path: Path)
     assert not receipt["environment_fingerprint"]
 
 
+@pytest.mark.parametrize(
+    ("outer_status", "stage_status", "exit_code", "expected_status", "expected_provenance"),
+    [
+        ("PASS", "failed", 7, "UNVERIFIED", "rejected"),
+        ("PASS", "refused", None, "UNVERIFIED", "rejected"),
+        ("PASS", "skipped", None, "UNVERIFIED", "rejected"),
+        ("PASS", "passed", 7, "UNVERIFIED", "rejected"),
+        ("PASS", "passed", 0, "PASS", "validated"),
+        ("FAIL", "failed", 7, "FAIL", "validated"),
+        ("FAIL", "passed", 0, "FAIL", "validated"),
+    ],
+)
+def test_execution_stage_cannot_be_laundered_into_outer_pass(
+    tmp_path: Path,
+    outer_status: str,
+    stage_status: str,
+    exit_code: int | None,
+    expected_status: str,
+    expected_provenance: str,
+) -> None:
+    """Even a hash-valid inner receipt cannot certify a contradictory PASS."""
+    from lemoncrow.pro.capabilities.review.execution import (
+        EnvironmentFingerprint,
+        ExecutionResult,
+        ExecutionSubject,
+        ExecutorClass,
+        StageOutcome,
+        VerificationEnvironment,
+    )
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    request = ValidationRequest(
+        review_id=review.review_id,
+        revision_id=review.revision_id,
+        snapshot_identity="1" * 64,
+        scenario_kind="recipe",
+        scenario_id="stage-proof",
+        side="new",
+        viewport_key="",
+        runtime_id="python",
+        runtime_config_digest="2" * 64,
+        trusted_policy_digest="3" * 64,
+        scope_digest="4" * 64,
+    )
+    scenario = ValidationScenario(
+        id="stage-proof", title="Observed process", provider="command", surface_id="test", runtime_id="python"
+    )
+    execution = ExecutionResult(
+        subject=ExecutionSubject(review_id=review.review_id, revision_id=review.revision_id, side="new"),
+        executor_class=ExecutorClass.AUTHOR_MACHINE,
+        fingerprint=EnvironmentFingerprint(image_digest="host:test"),
+        verification=VerificationEnvironment(executor_class=ExecutorClass.AUTHOR_MACHINE, image_digest="host:test"),
+        stages=(StageOutcome("run", stage_status, exit_code=exit_code),),
+    )
+    revision = review.store.latest_revision(review.review_id)
+    assert revision is not None
+    persist_validation_record(
+        review.store,
+        revision,
+        request,
+        scenario,
+        {
+            "identity": request.identity,
+            "request": request.to_wire(),
+            "snapshot_id": review.revision_id,
+            "status": outer_status,
+            "data": {"execution": execution.to_wire()},
+        },
+        executor_class=ExecutorClass.AUTHOR_MACHINE,
+        expected_current_revision_id=review.revision_id,
+    )
+    result = _get(review, "evaluations")["current"]
+    assert len(result["receipts"]) == 1
+    assert result["receipts"][0]["status"] == expected_status
+    assert result["receipts"][0]["execution_provenance"] == expected_provenance
+    assert result["counts"]["pass"] == (1 if expected_status == "PASS" else 0)
+    assert "command" not in result["receipts"][0]
+    assert "output" not in result["receipts"][0]
+
+
 def test_evaluation_timeline_counts_only_latest_verdict_per_check(tmp_path: Path) -> None:
     """Fresh reruns preserve history without counting the same check twice."""
     review = _review(tmp_path)

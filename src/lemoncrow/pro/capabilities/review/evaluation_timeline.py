@@ -118,6 +118,17 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
             raise ValueError("environment fingerprint mismatch")
         if execution.verification.executor_class is not execution.executor_class:
             raise ValueError("verification's executor class disagrees")
+        # The outer verdict is not independent of the embedded process stages.
+        # A recorded PASS cannot be established by an execution that failed,
+        # was refused/skipped, or claims exit 0 despite a nonzero process code.
+        # A failing outer verdict with passing process stages remains possible
+        # (e.g. a browser assertion failed after the process ran successfully).
+        if record.get("status") == "PASS" and (
+            execution.status != "passed"
+            or not execution.stages
+            or any(stage.status == "passed" and stage.exit_code not in (None, 0) for stage in execution.stages)
+        ):
+            raise ValueError("outer PASS contradicts observed execution stages")
     except (TypeError, ValueError, KeyError):
         return {**none, "execution_provenance": "rejected"}
     # The role allowlist avoids leaking user-controlled file paths, opaque
