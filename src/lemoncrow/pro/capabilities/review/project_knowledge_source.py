@@ -227,6 +227,7 @@ class CanonicalGitKnowledge:
         merge: Any,
         previous_revision: str,
         counted_evidence: Any,
+        provider_merge_result_sha: str = "",
     ) -> dict[str, Any]:
         """Persist one provider-observed Review and immutable canonical delta together.
 
@@ -268,18 +269,41 @@ class CanonicalGitKnowledge:
         reviewed_head = str(merge.reviewed_head or "")
         if reviewed_head:
             reviewed_commit = self._immutable_commit(reviewed_head)
-            if commit.id != reviewed_commit.id:
-                # Normal GitHub merge commit: first parent must be the exact
-                # previous canonical generation, second the reviewed PR head.
-                # A descendant many merges later is NOT an attributed delta:
-                # no provider fact here says which commits belong to this PR.
-                # Squash/rebase needs independently verified patch equivalence
-                # before being promoted to Project Knowledge.
-                parents = tuple(str(parent.id) for parent in commit.parents)
-                if parents != (str(original.id), str(reviewed_commit.id)):
+            if commit.id == reviewed_commit.id:
+                # A fast-forward is attributable only when the reviewed
+                # Snapshot started at the *stored* canonical generation. If
+                # another PR was already in the history between Snapshot base
+                # and that generation, the resulting delta could claim work
+                # never reviewed in this Change.
+                snapshot = review_store.get_revision(revision_id)
+                if snapshot is None or str(getattr(snapshot, "base_sha", "")) != str(original.id):
                     raise ValueError(
-                        "canonical merge window is ambiguous; cannot attribute later commits to this Review"
+                        "canonical merge window is ambiguous; fast-forward Snapshot base differs from stored generation"
                     )
+            else:
+                # Normal merge: the first parent is our stored generation,
+                # the second is exactly the reviewed PR head.
+                parents = tuple(str(parent.id) for parent in commit.parents)
+                exact_merge = parents == (str(original.id), str(reviewed_commit.id))
+                if not exact_merge:
+                    # GitHub squash (or a one-commit rebase) rewrites the SHA.
+                    # Trust this alternative ONLY when the already-persisted
+                    # provider PR merge result names the exact canonical tip,
+                    # its single parent is our prior generation, and the
+                    # resulting tree is identical to the reviewed Snapshot.
+                    # Multi-commit/interleaved histories still fail closed.
+                    snapshot = review_store.get_revision(revision_id)
+                    proven_single_rewrite = (
+                        provider_merge_result_sha == str(commit.id)
+                        and parents == (str(original.id),)
+                        and snapshot is not None
+                        and str(getattr(snapshot, "base_sha", "")) == str(original.id)
+                        and commit.tree_id == reviewed_commit.tree_id
+                    )
+                    if not proven_single_rewrite:
+                        raise ValueError(
+                            "canonical merge window is ambiguous; cannot attribute later commits to this Review"
+                        )
         changed: set[str] = set()
         for delta in self.git.diff(original.tree, commit.tree).deltas:
             changed.update((delta.old_file.path, delta.new_file.path))
