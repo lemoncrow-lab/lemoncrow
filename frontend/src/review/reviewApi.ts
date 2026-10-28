@@ -1049,6 +1049,26 @@ export function runRuntimeValidation(
     },
   );
 }
+export interface ReviewExecutionArtifactView {
+  role: "log" | "report";
+  expired: boolean;
+  text: string;
+  truncated: boolean;
+  bytes: number;
+}
+
+/** Authenticated, exact-Review retrieval of protected run output; never an arbitrary artifact URL. */
+export function fetchReviewExecutionArtifact(
+  reviewId: string,
+  revisionId: string,
+  evidenceId: string,
+  role: "log" | "report",
+): Promise<ReviewExecutionArtifactView> {
+  const params = new URLSearchParams({ revision_id: revisionId, evidence_id: evidenceId, role });
+  return request<ReviewExecutionArtifactView>(
+    `/api/reviews/${encodeURIComponent(reviewId)}/execution-artifacts?${params.toString()}`,
+  );
+}
 
 export function fetchRuntimeValidationJob(
   id: string,

@@ -1299,8 +1299,24 @@ class _Run:
             "differentials": list(differential_ids),
         }
         if execution is not None:
-            # The head run's typed execution: the verdict carries its executor and fingerprint.
-            data["execution"] = dict(execution)
+            # A trusted-policy quarantine may qualify a logical PASS even when
+            # the underlying process failed. The individual attempts retain
+            # their genuine failing execution and differential evidence.
+            try:
+                observed = ExecutionResult.from_wire(execution)
+            except (TypeError, ValueError):
+                observed = None
+            run_stage = observed.stage("run") if observed is not None else None
+            if status != "PASS" or (
+                observed is not None
+                and observed.status == "passed"
+                and run_stage is not None
+                and run_stage.status == "passed"
+                and run_stage.exit_code in (None, 0)
+            ):
+                data["execution"] = dict(execution)
+            else:
+                data["process_proof"] = "not_claimed_policy_qualified_verdict"
         record = {
             "v": 1,
             "execution_version": 1,

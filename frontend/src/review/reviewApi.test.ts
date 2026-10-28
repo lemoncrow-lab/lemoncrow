@@ -25,6 +25,7 @@ import {
   armReviewLanding,
   cancelReviewLanding,
   fetchReviewVerification,
+  fetchReviewExecutionArtifact,
   fetchReviewDependencies,
   fetchReviewSurfaces,
   fetchSurfacePreview,
@@ -556,6 +557,18 @@ describe("requests", () => {
       expected_feedback_hash: "abc123",
     });
     expect(result.annotation_count).toBe(2);
+  });
+
+  it("fetches a protected execution artifact by Review, Snapshot and evidence without a machine token", async () => {
+    const spy = stubFetch(200, { role: "log", expired: false, text: "redacted", truncated: false, bytes: 8 });
+    const output = await fetchReviewExecutionArtifact("r/review 1", "rev 2", "evidence/3", "log");
+    expect(output.text).toBe("redacted");
+    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      "/api/reviews/r%2Freview%201/execution-artifacts?revision_id=rev+2&evidence_id=evidence%2F3&role=log",
+    );
+    expect(init.credentials).toBe("same-origin");
+    expect(new Headers(init.headers).get("Authorization")).toBeNull();
   });
 
   it("lists revision-bound review evidence through the authenticated review route", async () => {

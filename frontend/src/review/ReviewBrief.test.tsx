@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import ReviewBrief from "./ReviewBrief";
+import * as reviewApi from "./reviewApi";
 import type {
   ReviewAiAssurance,
   ReviewDecisionState,
@@ -484,6 +485,57 @@ describe("ReviewBrief", () => {
     expect(receipt).toHaveTextContent("artifacts: trace");
     expect(receipt).toHaveTextContent("2 integration scope(s) not verified");
     expect(receipt).not.toHaveTextContent("session-identity");
+  });
+
+  it("loads a protected run log on demand without exposing artifact URLs or executing output as HTML", async () => {
+    const fetch = vi.spyOn(reviewApi, "fetchReviewExecutionArtifact").mockResolvedValue({
+      role: "log",
+      expired: false,
+      text: "<script>never execute</script>\nrun failed",
+      bytes: 40,
+      truncated: false,
+    });
+    try {
+      const base = projection();
+      const receipt = {
+        id: "evidence-log", evidence_id: "evidence-log", title: "Unit run", status: "FAIL",
+        trust: "typed_observation" as const, raw_attempt: false, exit_code: 7,
+        executor_class: "author_machine", environment_fingerprint: "env", artifact_digest: "digest",
+        execution_provenance: "validated" as const, artifact_roles: ["log", "report"],
+      };
+      renderBrief({
+        ...base,
+        evaluation_timeline: {
+          schema_version: 1, selected_revision_id: "rev-1", limitations: [],
+          current: {
+            revision_id: "rev-1", snapshot_number: 3, head_sha: "", state: "failed",
+            configuration_comparable: false, reason: "Current run failed",
+            counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
+            receipts: [receipt], receipts_omitted: 0,
+          },
+          snapshots: [{
+            revision_id: "rev-1", snapshot_number: 3, head_sha: "", state: "failed",
+            configuration_comparable: false, reason: "Current run failed",
+            counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
+            receipts: [receipt], receipts_omitted: 0,
+          }],
+        },
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      const history = screen.getByTestId("brief-evaluation-history");
+      await userEvent.click(within(history).getByText("Evaluation history · 1 Snapshot"));
+      await userEvent.click(within(history).getByText("Execution receipts"));
+      expect(within(history).getByRole("button", { name: "Inspect report" })).toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalled();
+      await userEvent.click(within(history).getByRole("button", { name: "Inspect log" }));
+      expect(fetch).toHaveBeenCalledWith("r1", "rev-1", "evidence-log", "log");
+      const output = await within(history).findByTestId("review-execution-artifact-evidence-log-log");
+      expect(output).toHaveTextContent("<script>never execute</script>");
+      expect(output.querySelector("script")).toBeNull();
+      expect(output).not.toHaveTextContent("run-artifact:");
+    } finally {
+      fetch.mockRestore();
+    }
   });
 
   it("puts the question, Snapshot-proof verdict and next-reading action ahead of detailed behavior", () => {

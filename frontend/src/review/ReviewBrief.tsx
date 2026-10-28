@@ -10,6 +10,7 @@ import { ToggleGroup } from "../components/ui/toggle-group";
 import BehaviorChanges, { ExecutionCoverageLine, type BehaviorJudgmentState } from "./BehaviorChanges";
 import BriefArchitectureDelta from "./BriefArchitectureDelta";
 import BriefProjectContext from "./ProjectHistory";
+import { fetchReviewExecutionArtifact, type ReviewExecutionArtifactView } from "./reviewApi";
 import { LARGE_REVIEW_TARGET_THRESHOLD } from "./reviewSurfaceModel";
 import { DependencyReviewSummary, dependencyReviewRelevant } from "./ReviewFileSemantics";
 import ReviewTriageLine from "./ReviewTriageLine";
@@ -871,8 +872,54 @@ function ProofCard({
   );
 }
 
+/** Protected process output is never eagerly fetched or exposed as a raw artifact URL. */
+function ReceiptArtifactDisclosure({
+  reviewId, revisionId, evidenceId, role,
+}: {
+  reviewId: string;
+  revisionId: string;
+  evidenceId: string;
+  role: "log" | "report";
+}) {
+  const [view, setView] = useState<ReviewExecutionArtifactView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setView(await fetchReviewExecutionArtifact(reviewId, revisionId, evidenceId, role));
+    } catch (reason) {
+      setView(null);
+      setError(reason instanceof Error ? reason.message : "Protected artifact could not be read");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-1">
+      <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => void load()}>
+        {busy ? "Loading…" : `Inspect ${role}`}
+      </UiButton>
+      {error && <p role="alert" className="text-red-300">{error}</p>}
+      {view && (
+        <div data-testid={`review-execution-artifact-${evidenceId}-${role}`}>
+          {view.expired
+            ? <p className="text-muted-foreground">Protected artifact expired. The immutable summary remains.</p>
+            : (
+              <>
+                <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-sm border border-border/80 p-2 text-micro">{view.text}</pre>
+                {view.truncated && <p className="text-muted-foreground">Output truncated for this view.</p>}
+              </>
+            )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Entire-style revision context, derived from existing evidence; never a fake score. */
-function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }) {
+function EvaluationHistory({ timeline, reviewId }: { timeline?: ReviewEvaluationTimeline; reviewId: string }) {
   if (!timeline || timeline.snapshots.length === 0) return null;
   const current = timeline.current;
   return (
@@ -895,10 +942,16 @@ function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }
               </span>
             ))}
             <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
-            {snapshot.receipts.some((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected") && (
+            {snapshot.receipts.some((receipt) =>
+              receipt.exit_code !== null || receipt.execution_provenance === "rejected"
+              || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => role === "log" || role === "report"))
+            ) && (
               <details className="basis-full text-meta text-muted-foreground">
                 <summary className="cursor-pointer">Execution receipts</summary>
-                {snapshot.receipts.filter((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected").slice(0, 5).map((receipt) => (
+                {snapshot.receipts.filter((receipt) =>
+                  receipt.exit_code !== null || receipt.execution_provenance === "rejected"
+                  || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => role === "log" || role === "report"))
+                ).slice(0, 5).map((receipt) => (
                   <div key={receipt.id} className="mt-1 break-words">
                     <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
                     {receipt.superseded_by_newer_result && <div className="text-micro text-muted-foreground">Superseded by a newer check result; not counted in this Snapshot.</div>}
@@ -913,6 +966,19 @@ function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }
                       {(receipt.artifact_roles?.length ?? 0) > 0 && ` · artifacts: ${receipt.artifact_roles!.join(", ")}`}
                       {(receipt.unverified_integrations ?? 0) > 0 && ` · ${receipt.unverified_integrations} integration scope(s) not verified`}
                     </div>
+                    {reviewId && receipt.execution_provenance === "validated" && (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {(["log", "report"] as const).filter((role) => receipt.artifact_roles?.includes(role)).map((role) => (
+                          <ReceiptArtifactDisclosure
+                            key={role}
+                            reviewId={reviewId}
+                            revisionId={snapshot.revision_id}
+                            evidenceId={receipt.evidence_id}
+                            role={role}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </details>
@@ -1690,7 +1756,7 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      <EvaluationHistory timeline={projection.evaluation_timeline} />
+      <EvaluationHistory timeline={projection.evaluation_timeline} reviewId={projection.review_id} />
 
       {/* 5. Where to read next; everything else stays one step away. */}
       {understand.length > 0 && (

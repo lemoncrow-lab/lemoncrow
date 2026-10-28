@@ -60,7 +60,12 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     workspace_digest,
 )
 from lemoncrow.pro.capabilities.review.host_tools import host_executable
-from lemoncrow.pro.capabilities.review.run_evidence import RunArtifactStore, protect_execution_result, protect_text
+from lemoncrow.pro.capabilities.review.run_evidence import (
+    RunArtifactStore,
+    protect_bytes,
+    protect_execution_result,
+    protect_text,
+)
 from lemoncrow.pro.capabilities.review.runtime_observation import (
     ObservationSetup,
     ObservationSpec,
@@ -1180,22 +1185,36 @@ class CommandRunner:
             content_access = hermetic.content_access if hermetic is not None else "ai_denied"
             captures: tuple[Any, ...] = ()
             refs: tuple[Any, ...] = ()
-            if sinks is not None:
-                # The Review store's run-artifact store carries the reference-aware closer.
-                artifacts = (
-                    context.store.run_artifacts(retention_seconds=policy.retention_seconds)
-                    if context.store is not None
-                    else (
-                        hermetic.artifacts
-                        if hermetic is not None
-                        else RunArtifactStore.for_store(context.store_root, retention_seconds=policy.retention_seconds)
-                    )
+            artifacts = (
+                context.store.run_artifacts(retention_seconds=policy.retention_seconds)
+                if context.store is not None
+                else (
+                    hermetic.artifacts
+                    if hermetic is not None
+                    else RunArtifactStore.for_store(context.store_root, retention_seconds=policy.retention_seconds)
                 )
+            )
+            if sinks is not None:
                 captures, refs = sinks.collect(
                     review_id=context.revision.review_id,
                     policy=policy.redaction,
                     content_access=content_access,
                     artifacts=artifacts,
+                )
+            output_refs = list(refs)
+            # stderr is merged into stdout by the current sandbox invocation.
+            # Preserve the bounded, redacted combined log without pretending
+            # to have independently captured either stream.
+            if artifacts is not None and output:
+                protected_log, _ = protect_bytes(output.encode("utf-8"), policy.redaction)
+                output_refs.append(
+                    artifacts.put(
+                        context.revision.review_id,
+                        protected_log,
+                        role="log",
+                        media_type="text/plain; charset=utf-8",
+                        owner=f"review:{context.revision.id}",
+                    )
                 )
             if observer is not None:
                 raw_observation = observer.collect(command)
@@ -1209,8 +1228,20 @@ class CommandRunner:
             report_text, truncated = read_report(reports_dir)
             shutil.rmtree(reports_dir, ignore_errors=True)
             # Redacted like output: a report is reviewed code's own text.
-            extra["report"] = protect_text(report_text, policy.redaction)[0] if report_text else ""
+            protected_report = protect_text(report_text, policy.redaction)[0] if report_text else ""
+            extra["report"] = protected_report
             extra["report_truncated"] = truncated
+            if artifacts is not None and protected_report:
+                protected_bytes, _ = protect_bytes(protected_report.encode("utf-8"), policy.redaction)
+                output_refs.append(
+                    artifacts.put(
+                        context.revision.review_id,
+                        protected_bytes,
+                        role="report",
+                        media_type="text/plain; charset=utf-8",
+                        owner=f"review:{context.revision.id}",
+                    )
+                )
         if collect_changes:
             extra["changes"] = collect_workspace_changes(workspace_root, before_hashes)
         if observer is not None:
@@ -1267,7 +1298,7 @@ class CommandRunner:
             content_access=content_access,
             environment=identity,
             captures=captures,
-            artifacts=refs,
+            artifacts=output_refs,
             sinks_active=sinks is not None,
             sandbox=_command_sandbox(),
             lockfile_digest=deps.lockfile_digest or locks,

@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
 # Module level: FastAPI resolves the (postponed) ``Request`` annotation from these globals.
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Response, status
 
 from lemoncrow.pro.capabilities.review.check_runs import (
     CHECK_ENTRIES,
@@ -37,12 +37,14 @@ from lemoncrow.pro.capabilities.review.differential import (
     claim_status,
     reconcile_claims,
 )
-from lemoncrow.pro.capabilities.review.execution import ExecutorClass
+from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
+from lemoncrow.pro.capabilities.review.execution import ExecutionResult, ExecutorClass
 from lemoncrow.pro.capabilities.review.recipes import (
     RECIPE_ENTRY_PREFIX,
     entry_recipe_digests,
     future_recipe_policy,
 )
+from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
 from lemoncrow.pro.capabilities.review.test_impact import selections_from_document
 
 if TYPE_CHECKING:
@@ -270,6 +272,83 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 }
             )
         return out
+
+    @router.get("/reviews/{review_id}/execution-artifacts")
+    async def _get_execution_artifact(
+        review_id: str, evidence_id: str, role: str, response: Response, revision_id: str = ""
+    ) -> dict[str, Any]:
+        """Reviewer-only, bounded redacted command log/report cited by verified evidence.
+
+        A digest or user-chosen path is never sufficient to grant access:
+        an exact Review+Snapshot evidence record must attest the artifact ref.
+        """
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        session = deps.session(review_id)
+        revision = deps.requested_revision(session, revision_id) if revision_id else deps.latest(session)
+        if role not in {"log", "report"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported execution artifact"
+            )
+
+        def read() -> dict[str, Any]:
+            item = store.get_evidence(evidence_id)
+            if (
+                item is None
+                or item.review_id != session.id
+                or item.revision_id != revision.id
+                or item.mime_type != RUNTIME_VALIDATION_MEDIA_TYPE
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="no execution evidence on this Snapshot"
+                )
+            receipt = execution_receipt(store, item)
+            if receipt is None or receipt["execution_provenance"] != "validated":
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="execution proof is unavailable")
+            record = _read_json(store, item)
+            data = record.get("data") if isinstance(record, Mapping) else None
+            wire = data.get("execution") if isinstance(data, Mapping) else None
+            if not isinstance(wire, Mapping):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="execution proof is unavailable")
+            execution = ExecutionResult.from_wire(wire)
+            ref = next((row for row in execution.artifacts if row.role == role), None)
+            if (
+                ref is None
+                or len(ref.digest) != 64
+                or any(char not in "0123456789abcdef" for char in ref.digest)
+                or ref.ref != f"run-artifact:{session.id}:{ref.digest}"
+            ):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no referenced artifact")
+            opener = getattr(store, "run_artifacts", None)
+            artifacts = opener() if callable(opener) else None
+            if artifacts is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="protected artifact store unavailable"
+                )
+            meta = artifacts.meta(session.id, ref.digest)
+            if (
+                not isinstance(meta, Mapping)
+                or meta.get("role") not in {"log", "report"}
+                or not str(meta.get("owner") or "").startswith("review:")
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="artifact was not protected by a Review run"
+                )
+            payload = artifacts.read(session.id, ref.digest)
+            if payload is None:
+                return {"role": role, "expired": True, "text": "", "truncated": False, "bytes": 0}
+            if hashlib.sha256(payload).hexdigest() != ref.digest or len(payload) != ref.bytes:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="artifact integrity failed")
+            limit = 24 * 1024
+            return {
+                "role": role,
+                "expired": False,
+                "text": payload[:limit].decode("utf-8", "replace"),
+                "truncated": len(payload) > limit,
+                "bytes": len(payload),
+            }
+
+        return cast(dict[str, Any], await run_in_threadpool(read))
 
     @router.get("/reviews/{review_id}/check-recipes")
     async def _get_check_recipes(review_id: str, revision_id: str = "") -> dict[str, Any]:

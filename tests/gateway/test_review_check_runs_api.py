@@ -294,6 +294,26 @@ def test_two_induced_defects_have_exact_observed_proof_without_clean_control_fal
 
 
 @needs_bwrap
+def test_execution_artifact_viewer_rejects_corrupted_retained_bytes(tmp_path: Path) -> None:
+    """A valid evidence ref cannot turn tampered local disk bytes into a reviewer artifact."""
+    review = _review(tmp_path)
+    assert _run(review, "checks.test").status_code == 200
+    verdict = next(row for row in _get(review)["verdicts"] if row["stable_key"] == "checks.recipe:unit")
+    execution = _record(review, verdict["evidence_id"])["data"]["execution"]
+    log = next(row for row in execution["artifacts"] if row["role"] == "log")
+    raw = review.store_root / "review" / "run-artifacts" / review.review_id / f"{log['digest']}.bin"
+    assert raw.is_file()
+    raw.write_bytes(b"tampered reviewed code output")
+    response = review.client.get(
+        f"/api/reviews/{review.review_id}/execution-artifacts",
+        headers=HEADERS,
+        params={"evidence_id": verdict["evidence_id"], "revision_id": review.revision_id, "role": "log"},
+    )
+    assert response.status_code == 404
+    assert "integrity failed" in response.json()["detail"]
+
+
+@needs_bwrap
 def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.check_ingest import EquivalenceKey, equivalence_key_of
     from lemoncrow.pro.capabilities.review.execution import ExecutorClass, executor_satisfies
@@ -403,6 +423,47 @@ def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_p
     verdict_record = _record(review, recipe_row.id)
     assert verdict_record["data"]["execution"]["executor_class"] == "author_machine"
     assert verdict_record["data"]["execution"]["environment_fingerprint"] == unit["environment"]["head"] != ""
+    # Actual sandboxed command output and JUnit report live behind the Review's
+    # protected run-artifact store, not arbitrary links in the public timeline.
+    execution = verdict_record["data"]["execution"]
+    retained = {ref["role"]: ref for ref in execution["artifacts"] if ref["role"] in {"log", "report"}}
+    assert set(retained) == {"log", "report"}
+    artifacts = review.store.run_artifacts()
+    assert artifacts is not None
+    for role, ref in retained.items():
+        data = artifacts.read(review.review_id, ref["digest"])
+        assert data is not None and len(data) > 0
+        assert artifacts.meta(review.review_id, ref["digest"])["role"] == role
+        assert artifacts.read("not-the-review", ref["digest"]) is None
+    timeline = review.client.get(f"/api/reviews/{review.review_id}/evaluations", headers=HEADERS)
+    assert timeline.status_code == 200
+    matching = [row for row in timeline.json()["current"]["receipts"] if row.get("recipe_digest")]
+    assert any({"log", "report"} <= set(row["artifact_roles"]) for row in matching)
+    assert all("run-artifact:" not in json.dumps(row) for row in matching)
+    artifact_url = f"/api/reviews/{review.review_id}/execution-artifacts"
+    for role in ("log", "report"):
+        params = {"evidence_id": recipe_row.id, "revision_id": review.revision_id, "role": role}
+        assert review.client.get(artifact_url, params=params).status_code in {401, 403}
+        shown = review.client.get(artifact_url, headers=HEADERS, params=params)
+        assert shown.status_code == 200, shown.text
+        assert "no-store" in shown.headers["cache-control"]
+        assert shown.headers["x-content-type-options"] == "nosniff"
+        assert shown.json()["role"] == role and shown.json()["expired"] is False
+        assert shown.json()["text"] and "run-artifact:" not in shown.text
+        wrong_revision = review.client.get(
+            artifact_url, headers=HEADERS, params={**params, "revision_id": "not-a-snapshot"}
+        )
+        assert wrong_revision.status_code in {404, 409}
+        other_evidence = review.client.get(
+            artifact_url, headers=HEADERS, params={**params, "evidence_id": "not-an-evidence"}
+        )
+        assert other_evidence.status_code == 404
+    denied_role = review.client.get(
+        artifact_url,
+        headers=HEADERS,
+        params={"evidence_id": recipe_row.id, "revision_id": review.revision_id, "role": "sink:smtp"},
+    )
+    assert denied_role.status_code == 422
     attempt_rows = [_evidence(review, row["evidence_id"]) for row in unit["attempts"]]
     assert all(row.verification_status == "" for row in attempt_rows)
     # A local sandboxed result is author_machine too: it can never satisfy a trusted reservation.
@@ -1190,8 +1251,24 @@ def test_explicit_correction_reverification_runs_fresh_and_records_the_fixed_sna
     assert _result(observed, "unit")["head_verdict"] == "PASS"
     history = review.client.get(f"/api/reviews/{review.review_id}/evaluations", headers=HEADERS).json()
     assert history["current"]["revision_id"] == following
-    assert history["current"]["counts"]["pass"] >= 1
-    assert any(row["status"] == "PASS" for row in history["current"]["receipts"])
+    assert history["current"]["counts"]["pass"] >= 1, history["current"]
+    qualified = next(
+        row
+        for row in history["current"]["receipts"]
+        if row["scenario"] == "checks.recipe:unit" and row["status"] == "PASS"
+    )
+    assert qualified["execution_provenance"] == "not_recorded"
+    assert qualified["independent_execution"] is False
+    verdict = next(
+        item
+        for item in review.store.list_evidence(review.review_id)
+        if item.revision_id == following
+        and item.verification_status == "PASS"
+        and item.stable_key == "checks.recipe:unit"
+    )
+    record = _record(review, verdict.id)
+    assert record["data"]["process_proof"] == "not_claimed_policy_qualified_verdict"
+    assert "execution" not in record["data"]
     assert history["snapshots"][1]["revision_id"] == original
     assert history["snapshots"][1]["counts"]["fail"] >= 1
     # The new Snapshot owns its results. Earlier failures remain historic evidence.
@@ -1286,6 +1363,31 @@ def test_autofix_handoff_refuses_forged_source_and_bounded_retries(tmp_path: Pat
     assert "three autofix handoff limit" in limited.json()["detail"]
     assert len(review.store.list_annotations(review.review_id)) == before
     # No approval action wrote a source file or created a new Snapshot.
+    assert review.store.latest_revision(review.review_id).id == review.revision_id
+
+
+@needs_bwrap
+def test_reviewer_declines_autofix_without_authorizing_agent_or_mutating_source(tmp_path: Path) -> None:
+    """An explicit decline never mints approval or starts a correction loop."""
+    review = _review(tmp_path)
+    assert _run(review, "checks.format").status_code == 200
+    proposal_id = _result(_get(review), "fmt")["autofix"]["proposal_ids"][0]
+    before = (review.repo_root / "calc.py").read_text(encoding="utf-8")
+    response = review.client.post(
+        f"/api/reviews/{review.review_id}/check-recipes/requests",
+        headers=HEADERS,
+        json={
+            "kind": "autofix",
+            "approved": False,
+            "proposal_id": proposal_id,
+            "expected_revision_id": review.revision_id,
+        },
+    )
+    assert response.status_code == 422
+    assert "explicit reviewer approval" in response.json()["detail"]
+    assert _get(review)["approved_autofix_ids"] == []
+    assert review.store.list_annotations(review.review_id) == ()
+    assert (review.repo_root / "calc.py").read_text(encoding="utf-8") == before
     assert review.store.latest_revision(review.review_id).id == review.revision_id
 
 
