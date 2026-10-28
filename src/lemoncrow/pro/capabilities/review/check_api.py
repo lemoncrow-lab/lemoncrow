@@ -286,7 +286,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         response.headers["X-Content-Type-Options"] = "nosniff"
         session = deps.session(review_id)
         revision = deps.requested_revision(session, revision_id) if revision_id else deps.latest(session)
-        if role not in {"log", "report"}:
+        if role not in {"log", "report", "stdout", "stderr"}:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported execution artifact"
             )
@@ -328,7 +328,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             meta = artifacts.meta(session.id, ref.digest)
             if (
                 not isinstance(meta, Mapping)
-                or meta.get("role") not in {"log", "report"}
+                or meta.get("role") not in {"log", "report", "stdout", "stderr"}
                 or not str(meta.get("owner") or "").startswith("review:")
             ):
                 raise HTTPException(

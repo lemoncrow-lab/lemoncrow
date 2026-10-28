@@ -1050,7 +1050,7 @@ export function runRuntimeValidation(
   );
 }
 export interface ReviewExecutionArtifactView {
-  role: "log" | "report";
+  role: "log" | "report" | "stdout" | "stderr";
   expired: boolean;
   text: string;
   truncated: boolean;
@@ -1062,7 +1062,7 @@ export function fetchReviewExecutionArtifact(
   reviewId: string,
   revisionId: string,
   evidenceId: string,
-  role: "log" | "report",
+  role: "log" | "report" | "stdout" | "stderr",
 ): Promise<ReviewExecutionArtifactView> {
   const params = new URLSearchParams({ revision_id: revisionId, evidence_id: evidenceId, role });
   return request<ReviewExecutionArtifactView>(

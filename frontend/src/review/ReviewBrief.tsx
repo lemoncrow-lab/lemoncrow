@@ -879,7 +879,7 @@ function ReceiptArtifactDisclosure({
   reviewId: string;
   revisionId: string;
   evidenceId: string;
-  role: "log" | "report";
+  role: "log" | "report" | "stdout" | "stderr";
 }) {
   const [view, setView] = useState<ReviewExecutionArtifactView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -944,13 +944,13 @@ function EvaluationHistory({ timeline, reviewId }: { timeline?: ReviewEvaluation
             <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
             {snapshot.receipts.some((receipt) =>
               receipt.exit_code !== null || receipt.execution_provenance === "rejected"
-              || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => role === "log" || role === "report"))
+              || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => ["stdout", "stderr", "log", "report"].includes(role)))
             ) && (
               <details className="basis-full text-meta text-muted-foreground">
                 <summary className="cursor-pointer">Execution receipts</summary>
                 {snapshot.receipts.filter((receipt) =>
                   receipt.exit_code !== null || receipt.execution_provenance === "rejected"
-                  || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => role === "log" || role === "report"))
+                  || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => ["stdout", "stderr", "log", "report"].includes(role)))
                 ).slice(0, 5).map((receipt) => (
                   <div key={receipt.id} className="mt-1 break-words">
                     <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
@@ -968,7 +968,7 @@ function EvaluationHistory({ timeline, reviewId }: { timeline?: ReviewEvaluation
                     </div>
                     {reviewId && receipt.execution_provenance === "validated" && (
                       <div className="mt-1 flex flex-wrap gap-2">
-                        {(["log", "report"] as const).filter((role) => receipt.artifact_roles?.includes(role)).map((role) => (
+                        {(["stdout", "stderr", "log", "report"] as const).filter((role) => receipt.artifact_roles?.includes(role)).map((role) => (
                           <ReceiptArtifactDisclosure
                             key={role}
                             reviewId={reviewId}

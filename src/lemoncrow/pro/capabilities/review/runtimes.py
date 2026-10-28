@@ -1161,7 +1161,7 @@ class CommandRunner:
                     timeout=timeout,
                     cwd=workspace_root,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     text=True,
                     check=False,
                     env={"PATH": _COMMAND_PATH, "HOME": "/tmp"},
@@ -1178,8 +1178,12 @@ class CommandRunner:
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
             duration_ms = int((time.monotonic() - started) * 1000)
-            # Redact before the output is returned, persisted or shown.
-            output, _redactions = protect_text(proc.stdout.strip()[-8000:], policy.redaction)
+            # Keep the independently observed streams; the compatibility
+            # output combines bounded tails but makes no interleaving claim.
+            stdout_text = (proc.stdout or "").strip()[-8000:]
+            stderr_text = (proc.stderr or "").strip()[-8000:]
+            combined_text = "\n".join(part for part in (stdout_text, stderr_text) if part)[-8000:]
+            output, _redactions = protect_text(combined_text, policy.redaction)
             status = "passed" if proc.returncode == 0 else "failed"
             note = limit_note(proc.returncode)
             content_access = hermetic.content_access if hermetic is not None else "ai_denied"
@@ -1202,20 +1206,22 @@ class CommandRunner:
                     artifacts=artifacts,
                 )
             output_refs = list(refs)
-            # stderr is merged into stdout by the current sandbox invocation.
-            # Preserve the bounded, redacted combined log without pretending
-            # to have independently captured either stream.
-            if artifacts is not None and output:
-                protected_log, _ = protect_bytes(output.encode("utf-8"), policy.redaction)
-                output_refs.append(
-                    artifacts.put(
-                        context.revision.review_id,
-                        protected_log,
-                        role="log",
-                        media_type="text/plain; charset=utf-8",
-                        owner=f"review:{context.revision.id}",
+            if artifacts is not None:
+                # Combined log remains compatible with old Review readers.
+                # Separate pipe captures are independently bounded and redacted.
+                for role, text in (("log", output), ("stdout", stdout_text), ("stderr", stderr_text)):
+                    if not text:
+                        continue
+                    protected, _ = protect_bytes(text.encode("utf-8"), policy.redaction)
+                    output_refs.append(
+                        artifacts.put(
+                            context.revision.review_id,
+                            protected,
+                            role=role,
+                            media_type="text/plain; charset=utf-8",
+                            owner=f"review:{context.revision.id}",
+                        )
                     )
-                )
             if observer is not None:
                 raw_observation = observer.collect(command)
         finally:

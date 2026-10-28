@@ -294,6 +294,41 @@ def test_two_induced_defects_have_exact_observed_proof_without_clean_control_fal
 
 
 @needs_bwrap
+def test_local_sandbox_keeps_stdout_and_stderr_separate_and_redacted(tmp_path: Path) -> None:
+    """Real trusted command: independently captured pipes, not inferred from merged output."""
+    files = _base_files()
+    files["run_tests.py"] = RUN_TESTS.replace(
+        "sys.exit(1 if failed else 0)",
+        "print('stderr-separate-marker', file=sys.stderr)\nsys.exit(1 if failed else 0)",
+    )
+    review = _review(tmp_path, base=files)
+    response = _run(review, "checks.test")
+    assert response.status_code == 200, response.text
+    verdict = next(row for row in _get(review)["verdicts"] if row["stable_key"] == "checks.recipe:unit")
+    wire = _record(review, verdict["evidence_id"])["data"]["execution"]
+    refs = {row["role"]: row for row in wire["artifacts"] if row["role"] in {"stdout", "stderr", "log", "report"}}
+    assert set(refs) == {"stdout", "stderr", "log", "report"}
+    artifacts = review.store.run_artifacts()
+    assert artifacts is not None
+    stdout = artifacts.read(review.review_id, refs["stdout"]["digest"])
+    stderr = artifacts.read(review.review_id, refs["stderr"]["digest"])
+    combined = artifacts.read(review.review_id, refs["log"]["digest"])
+    assert stdout is not None and b"tests" in stdout
+    assert stderr is not None and b"stderr-separate-marker" in stderr
+    assert b"stderr-separate-marker" not in stdout
+    assert b"tests" not in stderr
+    assert combined is not None and b"stderr-separate-marker" in combined
+    for role in ("stdout", "stderr"):
+        shown = review.client.get(
+            f"/api/reviews/{review.review_id}/execution-artifacts",
+            headers=HEADERS,
+            params={"evidence_id": verdict["evidence_id"], "revision_id": review.revision_id, "role": role},
+        )
+        assert shown.status_code == 200, shown.text
+        assert shown.json()["text"] == (stdout if role == "stdout" else stderr).decode()
+
+
+@needs_bwrap
 def test_execution_artifact_viewer_rejects_corrupted_retained_bytes(tmp_path: Path) -> None:
     """A valid evidence ref cannot turn tampered local disk bytes into a reviewer artifact."""
     review = _review(tmp_path)

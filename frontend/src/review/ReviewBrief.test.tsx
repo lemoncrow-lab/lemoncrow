@@ -501,7 +501,7 @@ describe("ReviewBrief", () => {
         id: "evidence-log", evidence_id: "evidence-log", title: "Unit run", status: "FAIL",
         trust: "typed_observation" as const, raw_attempt: false, exit_code: 7,
         executor_class: "author_machine", environment_fingerprint: "env", artifact_digest: "digest",
-        execution_provenance: "validated" as const, artifact_roles: ["log", "report"],
+        execution_provenance: "validated" as const, artifact_roles: ["stdout", "stderr", "log", "report"],
       };
       renderBrief({
         ...base,
@@ -526,6 +526,8 @@ describe("ReviewBrief", () => {
       await userEvent.click(within(history).getByText("Evaluation history · 1 Snapshot"));
       await userEvent.click(within(history).getByText("Execution receipts"));
       expect(within(history).getByRole("button", { name: "Inspect report" })).toBeInTheDocument();
+      expect(within(history).getByRole("button", { name: "Inspect stdout" })).toBeInTheDocument();
+      expect(within(history).getByRole("button", { name: "Inspect stderr" })).toBeInTheDocument();
       expect(fetch).not.toHaveBeenCalled();
       await userEvent.click(within(history).getByRole("button", { name: "Inspect log" }));
       expect(fetch).toHaveBeenCalledWith("r1", "rev-1", "evidence-log", "log");
