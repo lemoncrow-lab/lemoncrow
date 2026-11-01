@@ -84,7 +84,7 @@ SUPPLY_CHAIN_REQUIREMENT_KEY: Final[str] = "supply-chain-policy"
 ConditionOwner = Literal["lemoncrow", "scm"]
 #: Bumped whenever a built-in rule changes what readiness requires; it is a
 #: policy layer, so a rules change yields a new policy generation.
-READINESS_RULES_VERSION: Final[int] = 1
+READINESS_RULES_VERSION: Final[int] = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -794,6 +794,10 @@ class BehaviorFacts:
     #: A planned behavior producer (the static inventory) has not finished: its
     #: changes are unknown, so nothing may pass on their absence.
     analyzing: bool = False
+    #: Refused older behavior contracts must not make missing targets look safe.
+    incompatible_contracts: int = 0
+    #: Incomplete/non-comparable recorded runtime observations must not look safe.
+    incomplete_observations: int = 0
     #: Gate H: outstanding/blocked targets from advisory LemonCrow-executed
     #: results (enforce mode), left out of ``open`` / ``blocked``.
     advisory: int = 0
@@ -1075,18 +1079,38 @@ def _latest_snapshot_reviewed(inputs: ReadinessInputs) -> Iterable[ReadinessCond
     )
 
 
-def _behavior_condition(open_count: int, blocked: int, analyzing: bool, advisory: int) -> ReadinessCondition:
-    state = "fail" if blocked else "pending" if open_count or analyzing else "pass"
+def _behavior_condition(
+    open_count: int,
+    blocked: int,
+    analyzing: bool,
+    advisory: int,
+    *,
+    incompatible_contracts: int = 0,
+    incomplete_observations: int = 0,
+) -> ReadinessCondition:
+    state = (
+        "unknown"
+        if incompatible_contracts or incomplete_observations
+        else "fail" if blocked else "pending" if open_count or analyzing else "pass"
+    )
     detail = (
-        f"{blocked} behavior change(s) were judged as needing changes."
-        if blocked
+        f"{incompatible_contracts} behavior producer result(s) use an incompatible contract and must be regenerated before approval."
+        if incompatible_contracts
         else (
-            f"{open_count} observed behavior change(s) still need human judgment."
-            if open_count
+            f"{incomplete_observations} runtime observation(s) are incomplete or non-comparable; re-run to verify behavior changes."
+            if incomplete_observations
             else (
-                "Static analysis of this Snapshot is still running; its behavior changes are not known yet."
-                if analyzing
-                else "Every observed behavior change has current human judgment."
+                f"{blocked} behavior change(s) were judged as needing changes."
+                if blocked
+                else (
+                    f"{open_count} observed behavior change(s) still need human judgment."
+                    if open_count
+                    else (
+                        "Static analysis of this Snapshot is still running; its behavior changes are not known yet."
+                        if analyzing
+                        else "Every observed behavior change has current human judgment."
+                    )
+                )
             )
         )
     )
@@ -1101,7 +1125,15 @@ def _behavior_condition(open_count: int, blocked: int, analyzing: bool, advisory
         state=state,
         detail=detail,
         category="human_review",
-        reason={"fail": "judged_needs_changes", "pending": "awaiting_human"}.get(state, "satisfied"),
+        reason=(
+            "incompatible_behavior_contract"
+            if incompatible_contracts
+            else (
+                "incomplete_runtime_observation"
+                if incomplete_observations
+                else {"fail": "judged_needs_changes", "pending": "awaiting_human"}.get(state, "satisfied")
+            )
+        ),
     )
 
 
@@ -1111,7 +1143,14 @@ def _behavior_changes_judged(inputs: ReadinessInputs) -> Iterable[ReadinessCondi
     behavior = inputs.fact("behavior")
     if not isinstance(behavior, BehaviorFacts):
         return ()
-    condition = _behavior_condition(behavior.open, behavior.blocked, behavior.analyzing, behavior.advisory)
+    condition = _behavior_condition(
+        behavior.open,
+        behavior.blocked,
+        behavior.analyzing,
+        behavior.advisory,
+        incompatible_contracts=behavior.incompatible_contracts,
+        incomplete_observations=behavior.incomplete_observations,
+    )
     if behavior.gate_h_mode == "enforce" and behavior.advisory:
         condition = replace(
             condition,
@@ -1120,7 +1159,12 @@ def _behavior_changes_judged(inputs: ReadinessInputs) -> Iterable[ReadinessCondi
     elif behavior.gate_h_mode == "report" and behavior.would_be and behavior.would_be.get("advisory"):
         would = behavior.would_be
         enforced = _behavior_condition(
-            int(would.get("open") or 0), int(would.get("blocked") or 0), behavior.analyzing, int(would["advisory"])
+            int(would.get("open") or 0),
+            int(would.get("blocked") or 0),
+            behavior.analyzing,
+            int(would["advisory"]),
+            incompatible_contracts=behavior.incompatible_contracts,
+            incomplete_observations=behavior.incomplete_observations,
         )
         condition = replace(
             condition,

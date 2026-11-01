@@ -24,6 +24,7 @@ from lemoncrow.pro.capabilities.review.evaluation.benchmark import (
     SpendLedger,
     score_run,
 )
+from lemoncrow.pro.capabilities.review.evaluation.benchmark_compare import build_comparison, render_comparison_markdown
 from lemoncrow.pro.capabilities.review.evaluation.real_prs import RealPrCorpus
 from lemoncrow.pro.capabilities.review.evaluation.scoring import match_labels, percentile, wilson
 
@@ -383,9 +384,10 @@ def build_report(
     for result in results:
         for depth, run in result.reviews.items():
             scores[(result.pr.id, depth)] = score_run(result.pr, run, corpus, result.comments, options)
-    aggregate = {depth: _depth_aggregate(depth, results, scores) for depth in options.depths}
-    pushes = {depth: _push_aggregate(depth, results) for depth in options.depths}
-    baseline = _baseline_summary(results, scores, options.depths)
+    depths_run = options.depths if "lemoncrow" in options.reviewers else ()
+    aggregate = {depth: _depth_aggregate(depth, results, scores) for depth in depths_run}
+    pushes = {depth: _push_aggregate(depth, results) for depth in depths_run}
+    baseline = _baseline_summary(results, scores, depths_run)
     baseline["against_labels"] = _baseline_against_labels(results, corpus)
     if baseline_usd_per_review is not None:
         baseline["usd_per_review_supplied"] = {"value": baseline_usd_per_review, "label": baseline_label}
@@ -418,6 +420,10 @@ def build_report(
                 push_cells[push_id] = row
             wire["pushes"] = push_cells
             depths[depth] = wire
+        for diy in result.attempts.get("diy", [])[:1]:
+            # Under the key ``diy``, so `golden-score --report … --depth diy` scores the baseline like any depth. Its
+            # catch and noise are in the comparison block, which scores every reviewer the same way.
+            depths["diy"] = {**diy.to_wire(), "pushes": {}}
         prs.append(
             {
                 "id": pr.id,
@@ -465,6 +471,24 @@ def build_report(
             ),
         },
         "corpus": corpus.summary(),
+        "comparison": {
+            "run": {
+                "date": (generated_at or datetime.now(UTC).isoformat(timespec="seconds"))[:10],
+                "git_head": (code or {}).get("git_head", ""),
+                "dirty": (code or {}).get("dirty"),
+                "mode": mode,
+                "driver": facts.get("driver", ""),
+                "model": facts.get("model", ""),
+                "depths": list(depths_run),
+                "reviewers": list(options.reviewers),
+                "repeat": options.repeat,
+                "corpus_id": corpus.id,
+                "corpus_digest": corpus.digest(),
+            },
+            **build_comparison(
+                corpus, options, results, model=str(facts.get("model", "")), usd_supplied=baseline_usd_per_review
+            ),
+        },
         "aggregate": aggregate,
         "pushes": pushes,
         "baseline": baseline,
@@ -536,7 +560,9 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"- Generated {report['generated_at']} from corpus `{report['corpus']['id']}` "
         f"({report['corpus']['prs']} pull requests, {report['corpus']['labelled_prs']} labelled, "
         f"{report['corpus']['labels']} labels, digest `{report['corpus']['digest'][:12]}`).",
-        f"- Route: {run['driver'] or 'n/a'} / {run['model'] or 'n/a'}. Depths: {', '.join(run['options']['depths'])}.",
+        f"- Route: {run['driver'] or 'n/a'} / {run['model'] or 'n/a'}. Depths: {', '.join(run['options']['depths'])}. "
+        f"Reviewers: {', '.join(run['options']['reviewers'])}; reviews per pull request and reviewer: "
+        f"{run['options']['repeat']}.",
         f"- Ceiling: max USD {_n(run['ledger']['max_usd'])}, max calls {_n(run['ledger']['max_calls'])}; "
         f"used {run['ledger']['calls']} calls and {_usd(run['ledger']['spent_usd'])}"
         + (f"; **stopped: {run['ledger']['stopped']}**" if run["ledger"]["stopped"] else "."),
@@ -546,6 +572,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
     for note in run["notes"]:
         lines.append(f"- Note: {note}")
     lines += ["", f"_{run['wall_time_note']}._ _{run['overshoot_note']}._", ""]
+    lines += render_comparison_markdown(report["comparison"])
 
     aggregate = report["aggregate"]
     lines += ["## Cost and speed per review", ""]

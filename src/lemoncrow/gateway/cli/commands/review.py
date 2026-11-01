@@ -40,6 +40,8 @@ from lemoncrow.pro.capabilities.review.local_cli.ai import (
     _review_pull_request_with_ai,
     use_agent_cli,
 )
+from lemoncrow.pro.capabilities.review.local_cli.main import MaxUsd
+from lemoncrow.pro.capabilities.review.pr_bot.spend import DEFAULT_MAX_USD_PER_PR
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
     from collections.abc import Callable, Mapping, Sequence
@@ -283,14 +285,15 @@ class _ReviewCliProgress:
 @click.option(
     "--max-usd-per-pr",
     "max_usd_per_pr",
-    type=click.FloatRange(min=0, min_open=True),
+    type=MaxUsd(),
     default=None,
     metavar="USD",
     help=(
         "With --publish-bot, stop reviewing a pull request once its reviews have cost this much in total, read from "
         "the usage the summary comment carries (for a local --ai review, the usage carried for this working tree or "
-        "range). Needs a known cost (the provider's, or a model in the local price "
-        "table); a cancelled run's spend is not counted. Default: no limit."
+        "range). Needs a known cost (the provider's, or a model in the local price table); a cancelled run's spend is "
+        f"not counted. `none` for no cap. Default: ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request; no cap for a local "
+        "--ai review."
     ),
 )
 @click.option(

@@ -59,7 +59,10 @@ _LINK_STYLE = re.compile(
     r"^linkStyle (\d+(?:,\d+)*) stroke:#[0-9a-f]{6},stroke-width:\dpx(?:,stroke-dasharray:\d+ \d+)?$"
 )
 _ENTITY = re.compile(r"#(\d+);")
-_ARROW_STATUS = {"-->": "added", "-.->": "removed", "==>": "changed"}
+#: Solid for a fact of this commit, thick for a changed count, dotted for what is not a fact of this commit (P3.4).
+_ARROWS = {"-->", "==>", "-.->"}
+#: The words a dotted edge's label ends with, and the only ones.
+_NOT_THIS_COMMIT = ("#183; current index", "#183; inferred")
 
 
 @dataclass
@@ -128,9 +131,13 @@ def block_of(section: str) -> Drawn:
         # Labels hold no raw quote, bracket, angle bracket, pipe, backtick, @, backslash or semicolon: only entities.
         assert not re.search(r"[\"\[\]<>|`@\\;%{}]", _ENTITY.sub("", label)), label
         assert all(1 <= int(code) <= 0x10FFFF for code in _ENTITY.findall(label))
-    # The arrow decides how an edge is drawn: solid added, dotted removed, thick changed.
-    for _, arrow, _, _ in drawn.edges:
-        assert arrow in _ARROW_STATUS
+    # P3.4: nothing that is not a fact of this commit looks like one. A dotted arrow says why in its label and is styled
+    # dashed; a solid or thick one never carries those words and is never dashed.
+    dashed = {int(index) for line in styles if "stroke-dasharray" in line for index in line.split()[1].split(",")}
+    for index, (_, arrow, label, _) in enumerate(drawn.edges):
+        assert arrow in _ARROWS
+        inferred = label.endswith(_NOT_THIS_COMMIT)
+        assert (arrow == "-.->") == inferred == (index in dashed), (arrow, label)
     return drawn
 
 
@@ -202,17 +209,20 @@ def test_a_call_edge_added_between_two_modules_is_a_solid_arrow_marked_added() -
     assert drawn.nodes[source] == ("src/cache.py", "changed") and drawn.nodes[target] == ("src/auth.py", "context")
     assert section.startswith("### Diagram\n\n"), "a heading and the block, open by default"
     assert "<details" not in section and section.rstrip().endswith("<!-- /lemoncrow:diagram -->")
-    # One legend line under the block names every encoding.
+    # One legend line under the block names every encoding, the exactness of a line included.
     legend = [line for line in section.splitlines() if line.startswith("<sub>**+**")]
-    assert len(legend) == 1 and "added (solid)" in legend[0] and "removed (dashed)" in legend[0]
+    assert len(legend) == 1 and "added (green)" in legend[0] and "removed (red)" in legend[0]
     assert "bold changed" in legend[0] and "grey unchanged" in legend[0]
+    assert (
+        "solid: in this commit \N{MIDDLE DOT} dashed: inferred or from the current index, not this commit" in legend[0]
+    )
     # The classes read on a light and a dark page alike: each carries its own fill and its own text colour.
     for line in drawn.text.splitlines():
         if line.strip().startswith("classDef"):
             assert re.search(r"fill:#[0-9a-f]{6}", line) and "color:#1f2328" in line
 
 
-def test_a_removed_edge_is_dashed_and_so_is_the_file_that_went_away() -> None:
+def test_a_removed_edge_is_a_solid_red_arrow_because_its_removal_is_a_fact_of_this_commit() -> None:
     delta = delta_of(
         before=[("src/billing.py", "src/legacy.py"), ("src/api.py", "src/billing.py")],
         after=[("src/api.py", "src/billing.py")],
@@ -222,10 +232,11 @@ def test_a_removed_edge_is_dashed_and_so_is_the_file_that_went_away() -> None:
     drawn = block_of(section_of(delta))
 
     _, arrow, label, target = drawn.edge("src/billing.py", "src/legacy.py")
-    assert arrow == "-.->" and label == f"{MINUS}legacy"
+    assert arrow == "-->" and label == f"{MINUS}legacy"
     assert drawn.nodes[target] == (f"{MINUS}src/legacy.py", "removed")
-    assert "removed" in drawn.classes and "stroke-dasharray" in drawn.text
-    # The relationship that did not change is not drawn at all.
+    # Red, and not dashed: dashed is kept for what is not a fact of this commit.
+    assert "removed" in drawn.classes and "stroke-dasharray" not in drawn.text and "stroke:#e5534b" in drawn.text
+    # The relationship that did not change, to a file that is not drawn, is not drawn at all.
     assert len(drawn.edges) == 1
 
 
@@ -410,7 +421,7 @@ def test_a_removed_edge_outranks_a_changed_one_when_the_cap_cuts() -> None:
     removed = ("s99/gone_a.py", "t99/gone_b.py")
     delta = delta_of(before=[*pairs, removed], after=pairs, weights=weights, deleted=removed)
     drawn = block_of(section_of(delta))
-    assert drawn.edge(*removed)[1] == "-.->"
+    assert drawn.edge(*removed)[1:3] == ("-->", f"{MINUS}gone_b")
 
 
 # --------------------------------------------------------------------------- #
@@ -674,7 +685,7 @@ def test_a_pull_request_that_adds_a_call_between_modules_gets_a_flowchart_in_its
     source, arrow, label, target = drawn.edge("src/cache.py", "src/auth.py")
     assert (arrow, label) == ("-->", "+authorize"), "the added edge, from the delta, with the symbol it carries"
     assert drawn.nodes[source][1] == "changed" and drawn.nodes[target][1] == "context"
-    assert re.fullmatch(r"2:[0-9a-f]{16}", report.state.diagram)
+    assert re.fullmatch(r"3:[0-9a-f]{16}", report.state.diagram)
     assert f'"diagram":"{report.state.diagram}"' in report.summary
     assert world.github.summary_comments()[0]["body"] == report.summary
     assert counting and report.noop is False
@@ -696,7 +707,7 @@ def test_a_trivial_change_draws_no_diagram_even_when_it_adds_a_relationship(
     assert report.verdict is not None and report.verdict.state == "clean"
 
 
-def test_a_pull_request_that_removes_a_call_between_modules_draws_it_dashed(
+def test_a_pull_request_that_removes_a_call_between_modules_draws_it_red_with_a_minus(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = {**BASE, "src/cache.py": CALLS_AUTH}
@@ -705,7 +716,7 @@ def test_a_pull_request_that_removes_a_call_between_modules_draws_it_dashed(
     report = world.review()
 
     drawn = block_of(report.summary)
-    assert drawn.edge("src/cache.py", "src/auth.py")[1:3] == ("-.->", f"{MINUS}authorize")
+    assert drawn.edge("src/cache.py", "src/auth.py")[1:3] == ("-->", f"{MINUS}authorize")
 
 
 def test_a_pull_request_that_only_edits_a_body_gets_no_diagram_and_says_so_in_its_state(
@@ -889,8 +900,10 @@ def test_a_finding_title_a_model_wrote_cannot_reach_the_diagram(
     assert any("octocat" in finding.title for finding in report.findings), "the model's finding is in the comment"
     (section,) = re.findall(r"### Diagram\n.*?<!-- /lemoncrow:diagram -->", report.summary, re.DOTALL)
     block_of(section)
-    for word in ("octocat", "evil.example", "Break out", "![", "](", "</details> @"):
+    for word in ("octocat", "evil.example", "Break out", "![", "</details> @"):
         assert word not in section
+    # The only links are the Change Story's own, to the repository's files at the head.
+    assert section.count("](") == section.count("](https://github.com/acme/widgets/blob/")
 
 
 def test_many_disjoint_relationships_still_draw_the_strongest_ones_and_count_the_rest() -> None:
@@ -971,6 +984,8 @@ def test_a_label_that_starts_like_a_list_item_does_not_become_one(label: str, dr
 def test_a_changed_file_named_like_markdown_is_drawn_with_its_real_name() -> None:
     delta = delta_of(after=[("src/__init__.py", "src/_core.py")], modified=("src/__init__.py",))
     section = section_of(delta)
-    block_of(section)  # the block is still made only of lines the diagram may emit
-    assert "__init__" not in section and "src/#95;#95;init#95;#95;.py" in section
-    assert '"+#95;core"' in section, "the sign goes against the name, so it is not a list item"
+    block = block_of(section).text  # the block is still made only of lines the diagram may emit
+    assert "__init__" not in block and "src/#95;#95;init#95;#95;.py" in block
+    assert '"+#95;core"' in block, "the sign goes against the name, so it is not a list item"
+    # The walkthrough under it names the file in a code span, where Markdown leaves it as it is.
+    assert "1. `src/__init__.py` \N{MIDDLE DOT} entry point" in section

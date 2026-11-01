@@ -304,6 +304,14 @@ def _run_streaming_process(
     return returncode, "".join(stdout_chunks), "".join(stderr_chunks)
 
 
+def schema_output_instruction(schema: Mapping[str, Any]) -> str:
+    """What tells a model the exact JSON object to answer with: the schema itself, verbatim."""
+
+    return "Return ONLY one JSON object matching this schema; do not wrap it in markdown: " + json.dumps(
+        dict(schema), separators=(",", ":")
+    )
+
+
 def _execute_cli_structured(
     *,
     driver: CliDriver,
@@ -391,10 +399,7 @@ def _execute_cli_structured(
         )
     )
     if not output_instruction:
-        output_instruction = (
-            "Return ONLY one JSON object matching this schema; do not wrap it in markdown: "
-            + json.dumps(dict(schema), separators=(",", ":"))
-        )
+        output_instruction = schema_output_instruction(schema)
     instruction = (
         system
         + "\n\n"
@@ -844,5 +849,6 @@ __all__ = [
     "parse_codex_events",
     "parse_opencode_events",
     "parse_structured_json",
+    "schema_output_instruction",
     "tool_profile_for",
 ]

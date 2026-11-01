@@ -37,12 +37,14 @@ from lemoncrow.pro.capabilities.review.intent import (
     parse_intent_references,
     record_intent,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.safety import Redactor, addressed_to_ai
 from lemoncrow.pro.capabilities.review.repo_context import estimate_tokens
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.pr_bot.engine import Captured
-    from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts
+    from lemoncrow.pro.capabilities.review.pr_bot.github import PullFacts
+    from lemoncrow.pro.capabilities.review.pr_bot.host import ReviewHost
 
 #: ``LEMONCROW_REVIEW_INTENT=0`` reads no intent at all; ``..._TOKENS`` raises or lowers the budget.
 ENABLE_ENV: Final[str] = "LEMONCROW_REVIEW_INTENT"
@@ -94,6 +96,9 @@ class IntentNote:
     issues: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     off: bool = False
+    #: Which of what was read holds text addressed to AI reviewers (``the description``, ``linked issue #12``): labels for
+    #: the summary's note (:attr:`safety.Safety.note`), never the text. It is data to the model all the same.
+    addressed: tuple[str, ...] = ()
 
     @property
     def stated(self) -> bool:
@@ -139,7 +144,7 @@ def _issue_refs(body: str, slug: str, number: int) -> tuple[list[tuple[int, str]
     return list(found.items()), elsewhere
 
 
-def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: int | None = None) -> IntentNote:
+def gather(github: ReviewHost, facts: PullFacts, captured: Captured, *, budget: int | None = None) -> IntentNote:
     """Read the description and the linked issues, record them on the Snapshot, and say what happened.
 
     Never raises for a source that cannot be read: that issue is skipped with a note. The description costs no call;
@@ -158,6 +163,11 @@ def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: i
     )
     observations: list[IntentObservation] = []
     read: list[str] = []
+    addressed: list[str] = []
+    if addressed_to_ai(facts.title):
+        addressed.append("the title")
+    if addressed_to_ai(body):
+        addressed.append("the description")
     now = datetime.now(UTC).isoformat()
     for number, origin in named[:MAX_ISSUES]:
         reference = IntentReference(
@@ -187,6 +197,8 @@ def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: i
             )
         )
         read.append(f"#{number}")
+        if addressed_to_ai(str(row.get("title") or "")) or addressed_to_ai(str(row.get("body") or "")):
+            addressed.append(f"linked issue #{number}")
     if len(named) > MAX_ISSUES:
         skipped.append(f"{len(named) - MAX_ISSUES} more linked issues not read (the limit is {MAX_ISSUES})")
     description = IntentContent(title=facts.title, body=body, fetched_at=now, url=facts.html_url)
@@ -203,7 +215,13 @@ def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: i
     except Exception as exc:  # intent is context: a store that refuses it never fails a review
         skipped.append(f"intent could not be recorded ({type(exc).__name__}); skipped")
         return IntentNote(skipped=tuple(skipped))
-    return IntentNote(described=described, titled=titled, issues=tuple(read), skipped=tuple(skipped))
+    return IntentNote(
+        described=described,
+        titled=titled,
+        issues=tuple(read),
+        skipped=tuple(skipped),
+        addressed=tuple(addressed),
+    )
 
 
 def _unread_issue_note(number: int, message: str) -> str:
@@ -233,12 +251,17 @@ def _why(message: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def clean_text(text: str) -> str:
-    """*text* as a model should read it: no HTML comments (invisible to a human reading the rendered page), no credentials."""
+def clean_text(text: str, redactor: Redactor | None = None) -> str:
+    """*text* as a model should read it: no HTML comments (invisible to a human reading the rendered page), no credentials.
+
+    *redactor* masks (and counts) the credential-shaped values first; the prose redactor then takes what is left.
+    """
 
     from lemoncrow_client.kit.redaction import redact
 
     without = _COMMENT.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+    if redactor is not None:
+        without = redactor.mask(without)
     return _BLANKS.sub("\n\n", redact(without)).strip()
 
 
@@ -253,13 +276,15 @@ def _tokens(value: object) -> int:
     return estimate_tokens(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
-def prompt_block(store: Any, review_id: str, *, budget: int | None = None) -> dict[str, Any] | None:
+def prompt_block(
+    store: Any, review_id: str, *, budget: int | None = None, redactor: Redactor | None = None
+) -> dict[str, Any] | None:
     """The bound intent of the Review as the small data block investigators are shown, or ``None`` when there is none.
 
     ``{"description": {title, body, truncated}, "linked_issues": [{ref, title, state, body, truncated}]}``, the two
     parts together within *budget* estimated tokens (:data:`BUDGET_TOKENS`): the description is cut to
     :data:`DESCRIPTION_TOKENS`, each issue to :data:`ISSUE_TOKENS`, and the whole is then shrunk until it fits, the
-    last issue first. Cleaned by :func:`clean_text`.
+    last issue first. Cleaned by :func:`clean_text`, with *redactor* counting the secrets it masks.
     """
 
     room = budget if budget is not None else budget_tokens()
@@ -269,20 +294,20 @@ def prompt_block(store: Any, review_id: str, *, budget: int | None = None) -> di
     written = latest_description(evidence)
     description: dict[str, Any] | None = None
     if written is not None and (written.title.strip() or written.body.strip()):
-        body, cut = _cut(clean_text(written.body), min(DESCRIPTION_TOKENS, room))
+        body, cut = _cut(clean_text(written.body, redactor), min(DESCRIPTION_TOKENS, room))
         # (the store titles a row with no title by its reference)
-        title = "" if written.title == DESCRIPTION_REF else clean_text(written.title)[:200]
+        title = "" if written.title == DESCRIPTION_REF else clean_text(written.title, redactor)[:200]
         description = {"title": title, "body": body, "truncated": cut or written.truncated}
     issues: list[dict[str, Any]] = []
     for binding in intent_bindings(evidence)[:MAX_ISSUES]:
         snapshot = binding.bound
         if not snapshot.captured:
             continue
-        body, cut = _cut(clean_text(snapshot.text), min(ISSUE_TOKENS, room))
+        body, cut = _cut(clean_text(snapshot.text, redactor), min(ISSUE_TOKENS, room))
         issues.append(
             {
                 "ref": "#" + snapshot.ref.rsplit("#", 1)[-1],
-                "title": clean_text(snapshot.title)[:200],
+                "title": clean_text(snapshot.title, redactor)[:200],
                 "body": body,
                 "truncated": cut or snapshot.truncated,
             }

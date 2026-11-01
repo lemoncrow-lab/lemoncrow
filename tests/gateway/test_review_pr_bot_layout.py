@@ -199,7 +199,8 @@ def summary(findings: tuple[BotFinding, ...], **fields: Any) -> str:
 def test_golden_a_clean_review_says_what_was_checked() -> None:
     clean = summary((), overview=OVERVIEW)
     assert_golden("summary_clean", clean)
-    assert "<h2>Confidence Score: 5/5</h2>" in clean and "### What we checked" in clean and "### Findings" not in clean
+    assert "<h2>No issues found</h2>" in clean and "### What we checked" in clean and "### Findings" not in clean
+    assert "Confidence Score" not in clean, "the score is data, not the headline"
 
 
 def test_golden_findings_are_numbered_p0_first_each_linking_to_its_thread() -> None:
@@ -210,13 +211,14 @@ def test_golden_findings_are_numbered_p0_first_each_linking_to_its_thread() -> N
     assert f"**[Token is logged in clear text]({THREAD}1)**" in rows[0]
     fold = body.split("<details><summary>1 low-priority finding held back</summary>")[1]
     assert fold.lstrip().startswith("3. "), "the fold goes on numbering where the rows stopped"
-    assert "<h2>Confidence Score: 1/5</h2>" in body, "an open P0 is the lowest score"
+    assert "<h2>1 must-fix before merge · 1 should-fix · 1 optional</h2>" in body
 
 
 def test_golden_a_partial_review_never_reads_as_complete() -> None:
     body = summary((), facts=RunFacts(True, 80, 3, 0, 0, 0, 0, uninvestigated=2), receipt=RECEIPT)
     assert_golden("summary_partial", body)
-    assert "<h2>Confidence Score: 4/5</h2>" in body and "Partially reviewed: 1 of 3 risk signals examined" in body
+    assert "<h2>No must-fix in the part reviewed</h2>" in body
+    assert "**Partially reviewed: 1 of 3 risk signals examined** · Human review required: touches payments code" in body
 
 
 def test_golden_a_spent_budget_says_nothing_new_was_reviewed() -> None:
@@ -228,6 +230,7 @@ def test_golden_a_spent_budget_says_nothing_new_was_reviewed() -> None:
     )
     assert_golden("summary_budget", body)
     assert "Review budget reached: 3 of 3 reviews used" in body and "This push was not reviewed" in body
+    assert "**Nothing reviewed on this push**" in body
 
 
 def test_golden_a_failed_model_call_is_an_incomplete_review_not_a_pass() -> None:
@@ -239,7 +242,8 @@ def test_golden_a_failed_model_call_is_an_incomplete_review_not_a_pass() -> None
         state={"complete": False},
     )
     assert_golden("summary_model_failed", body)
-    assert "<h2>Confidence Score: 3/5</h2>" in body and "Review incomplete: the model provider rejected the key" in body
+    assert "<h2>Review incomplete: the model provider rejected the key</h2>" in body
+    assert "**Partially reviewed: 0 of 3 risk signals examined before it stopped**" in body
 
 
 def test_golden_a_re_review_shows_what_was_fixed_and_what_carried_over() -> None:
@@ -266,7 +270,7 @@ def test_golden_an_inline_comment_has_the_badge_the_body_a_fix_prompt_and_the_ru
     )
     assert_golden("inline_p0", comment)
     first = comment.splitlines()[0]
-    assert first == f'{badge("p0")} **Token is logged in clear text**'
+    assert first == f"{badge('p0')} **Token is logged in clear text**"
     assert comment.index("```suggestion") < comment.index("\n---\n") < comment.index("Prompt To Fix With AI")
     assert comment.index("Prompt To Fix With AI") < comment.index("**Rule used:** `no-secrets-in-logs`")
 
@@ -347,13 +351,14 @@ def test_findings_held_back_below_the_threshold_do_not_move_the_score() -> None:
 
     held = (finding("a", "p1"), finding("b", "p2"))
     # A critical-only threshold keeps P1 and P2 out of the verdict: the score is the verdict's, a clean 5.
-    body = summary(held, noise=NoisePolicy(threshold="critical"), overview=None)
-    assert "<h2>Confidence Score: 5/5</h2>" in body and "2 held back" in body
+    body, posted = render(held, noise=NoisePolicy(threshold="critical"), overview=None)
+    assert posted.confidence == 5 and "<h2>No must-fix findings · 2 held back</h2>" in body
 
 
-def test_the_score_the_summary_shows_is_the_one_the_check_and_the_wire_use() -> None:
+def test_the_score_is_kept_as_data_and_is_the_one_the_check_and_the_wire_use() -> None:
     assert verdict([P0], complete=True).confidence == 1
-    assert "<h2>Confidence Score: 1/5</h2>" in summary((P0,))
+    body, posted = render((P0,))
+    assert posted.confidence == 1 and "Confidence Score" not in body
 
 
 # --------------------------------------------------------------------------- #
@@ -361,14 +366,16 @@ def test_the_score_the_summary_shows_is_the_one_the_check_and_the_wire_use() -> 
 # --------------------------------------------------------------------------- #
 
 
-def test_the_top_of_the_comment_is_the_marker_the_rereview_line_the_score_a_rule_the_impact_and_the_verdict() -> None:
+def test_the_top_of_the_comment_is_the_verdict_the_coverage_and_human_review_then_a_rule_and_the_impact() -> None:
     lines = summary((P1,)).split("\n")
     assert lines[0] == "<!-- lemoncrow:summary v1 -->"
     assert lines[1] == "<sub>Re-review: comment `@lemoncrow review`</sub>"
-    assert lines[3] == "<h2>Confidence Score: 3/5</h2>" and lines[5] == "---"
-    assert lines[7] == "**[Medium impact]** Adds retries and a token check to the checkout client"
-    assert lines[8].startswith("<sub>payments code, concurrency or shared state") and "not a model" in lines[8]
-    assert lines[10].startswith("**No must-fix findings** · 1 should-fix")
+    assert lines[3] == "<h2>No must-fix findings · 1 should-fix</h2>"
+    assert lines[5] == "**All 3 changed files reviewed** · Human review required: touches payments code"
+    assert lines[7] == "---"
+    assert lines[9] == "**[Medium impact]** Adds retries and a token check to the checkout client"
+    assert lines[10].startswith("<sub>payments code, concurrency or shared state") and "not a model" in lines[10]
+    assert lines[12].startswith("<sub>Reviewed 80 changed lines in 3 files")
 
 
 def test_a_workflow_that_does_not_listen_to_comments_is_not_told_to_comment() -> None:
@@ -416,9 +423,9 @@ def test_the_sections_come_in_the_reference_order() -> None:
         for part in (
             "<!-- lemoncrow:summary v1 -->",
             "Re-review:",
-            "<h2>Confidence Score",
+            "<h2>1 must-fix before merge",
+            "**All 3 changed files reviewed**",
             "**[Medium impact]**",
-            "**1 must-fix before merge**",
             "### Findings",
             "### Summary",
             "### Diagram",
@@ -448,7 +455,7 @@ def huge_view_findings() -> tuple[BotFinding, ...]:
 def test_near_the_size_limit_the_diagram_goes_first_and_the_summary_and_the_findings_stay() -> None:
     findings = huge_view_findings()
     body, posted = render(findings[:2])
-    assert "### Diagram" in body and "### Summary" in body and posted.diagram.startswith("2:")
+    assert "### Diagram" in body and "### Summary" in body and posted.diagram.startswith("3:")
     dropped_at = 0
     for count in range(2, 41):
         body, posted = render(findings[:count])
@@ -464,7 +471,7 @@ def test_near_the_size_limit_the_diagram_goes_first_and_the_summary_and_the_find
     assert all(row.explanation for row in posted.findings), "no finding's text was shortened before the diagram went"
     # One finding fewer and the whole comment fits with the diagram in it.
     before, kept = render(findings[: dropped_at - 1])
-    assert "### Diagram" in before and kept.diagram.startswith("2:") and len(before) <= MAX_COMMENT
+    assert "### Diagram" in before and kept.diagram.startswith("3:") and len(before) <= MAX_COMMENT
 
 
 # --------------------------------------------------------------------------- #

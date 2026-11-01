@@ -16,7 +16,7 @@ FORCE_ARG := $(if $(f),--force,)
 RELEASE_IMPACT_ARG = $(if $(filter 1,$(RELEASE_FULL)),,--changed-since-last-release)
 # Messages choose color at recipe execution time, so redirected logs stay plain.
 _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
-.PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-qualify release-stage \
+.PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-quick release-qualify release-stage \
 	oss-dev oss-prod oss-up oss-down oss-status oss-reset oss-ui oss-ui-build oss-test \
 	hosted-dev hosted-prod hosted-up hosted-down hosted-status hosted-reset hosted-ui hosted-ui-build hosted-test review-hosted-test-full \
 	_rehearse-install _verify-hosted-artifact _verify-hosted-e2e \
@@ -217,6 +217,9 @@ release-prepare: release-preflight ## Version and commit the release, not pushed
 	git diff --cached --check; \
 	git commit -m "chore(release): $$TAG"; \
 	echo "✓ Prepared $$TAG at $$(git rev-parse --short HEAD) (not pushed); next: make release-qualify tag=$$TAG"
+
+release-quick: ## Bounded real candidate checks, never a release or stamp (tag=vX.Y.Z)
+	uv run --locked --extra postgres python -m scripts.release_quick --tag "$(tag)"
 
 # Real model usage (about $0.10): five verified tasks on the last release's Runtime Lite and on HEAD.
 runtime-credit-evidence: ## Record runtime-credit evidence for the release gate: OUT=<new dir outside the checkout> [BASE=<last tag>]
@@ -449,7 +452,8 @@ review-demo-plugin: ## Install the example CSV preview plugin used by the demo's
 # Development                                                                 #
 # --------------------------------------------------------------------------- #
 
-build-host-skills: ## Generate Codex/Gemini skill bundles from integrations/skills (set LEMONCROW_DEV_MODE=1 to include dev-only skills)
+build-host-skills: ## Regenerate host contexts and skill bundles (set LEMONCROW_DEV_MODE=1 to include dev-only skills)
+	uv run python scripts/sync_agent_context.py
 	@bash scripts/build_host_skills.sh --host all $$( [ "$${LEMONCROW_DEV_MODE:-0}" = "1" ] && echo --include-dev )
 
 sync-agent-context: ## Regenerate host instruction surfaces from integrations/agents/shared/

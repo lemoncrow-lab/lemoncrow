@@ -1,5 +1,9 @@
 """The bot's GitHub calls: one summary comment, one atomic inline review, threads, a commit status.
 
+It also reads, never writes, what the summary's proof of work and independence line rest on: the check runs and
+combined status CI reported on the reviewed head (:meth:`BotGitHub.ci_results`) and the pull request's commit messages,
+whose ``Co-authored-by:`` trailers declare a coding agent author (:meth:`BotGitHub.commit_messages`).
+
 Everything goes through ``gh api`` (a :data:`GhRunner`), which the Actions runner
 authenticates with ``GH_TOKEN``. The identity is whatever owns that token -- the
 workflow's ``GITHUB_TOKEN`` posts as ``github-actions[bot]`` -- so AI output is
@@ -38,7 +42,9 @@ from lemoncrow.pro.capabilities.review.github_publish import (
     load_bot_pull_request_state,
     publish_plan,
 )
+from lemoncrow.pro.capabilities.review.pr_bot import proof_of_work
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
+from lemoncrow.pro.capabilities.review.pr_bot.proof_of_work import CiReport
 from lemoncrow.pro.capabilities.review.pr_bot.render import STATUS_CONTEXT, inline_comment, reply_text
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     FINDING_MARKER_PREFIX,
@@ -55,6 +61,9 @@ from lemoncrow.pro.capabilities.review.sources.github import (
 )
 
 BOT_TYPE: Final[str] = "Bot"
+#: The ``author_association`` of a review whose approval counts as a person's review of the change: GitHub's own
+#: required approvals count only people with write access, and these are the associations that can hold it.
+TRUSTED_APPROVERS: Final[frozenset[str]] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 _FINDING_MARKER = re.compile(r"<!-- lemoncrow:finding (\S+) -->")
 _FINGERPRINT_MARKER = re.compile(r"<!-- lemoncrow:fingerprint (fp-[0-9a-f]{16}) -->")
 _RESOLVED_MARKER = re.compile(r"<!-- lemoncrow:resolved (\S+) -->")
@@ -363,12 +372,63 @@ class ThreadOutcome:
     notes: tuple[str, ...] = ()
 
 
+def adopt_existing(
+    findings: Sequence[BotFinding], comments: Sequence[Remote], *, tracked: Collection[str] = ()
+) -> dict[str, Remote]:
+    """Findings that already have an inline comment of the bot's, found by their marker, on any host.
+
+    This is what keeps a re-run, or a run whose summary write was lost, from posting a second comment for a
+    finding. A comment is matched by the finding's id first. A finding the id does not find is matched by its
+    fingerprint, which does not change when the model words the same concern differently (a cancelled run
+    that posted its comment and lost its summary meets a reworded finding next time): the bot's own inline
+    comment on the same file with the same fingerprint, one comment per finding. A comment whose finding was
+    closed (the bot replied that it was fixed) is never matched, or a bug that comes back would be silenced by
+    the thread of the one that was fixed; neither is a comment of another finding the review tracks
+    (*tracked*: all their ids), which is why two bugs in one function keep a comment each, or a person's.
+    """
+
+    wanted = {finding.id for finding in findings}
+    found: dict[str, Remote] = {}
+    for comment in comments:
+        if not comment.by_bot or comment.reply_to or FINDING_MARKER_PREFIX not in comment.body:
+            continue
+        match = _FINDING_MARKER.search(comment.body)
+        if match is not None and match[1] in wanted:
+            found.setdefault(match[1], comment)
+    unmatched = [finding for finding in findings if finding.id not in found and finding.fingerprint]
+    if not unmatched:
+        return found
+    closed = {
+        match[1]
+        for comment in comments
+        if comment.by_bot
+        for match in [_RESOLVED_MARKER.search(comment.body)]
+        if match is not None
+    }
+    taken = {comment.id for comment in found.values()}
+    for finding in unmatched:
+        for comment in comments:
+            if comment.id in taken or not comment.by_bot or comment.reply_to or comment.path != finding.path:
+                continue
+            marked = _FINGERPRINT_MARKER.search(comment.body)
+            owner = _FINDING_MARKER.search(comment.body)
+            if marked is None or marked[1] != finding.fingerprint:
+                continue
+            if owner is not None and owner[1] in closed | wanted | set(tracked):
+                continue  # a closed finding's thread, or one that belongs to a finding of its own
+            found[finding.id] = comment
+            taken.add(comment.id)
+            break
+    return found
+
+
 class BotGitHub:
     """GitHub, as the bot sees one pull request."""
 
     def __init__(self, pr: PullRequestRef, runner: GhRunner) -> None:
         self.pr = pr
         self.runner = runner
+        self._commits: list[tuple[str, str]] | None = None
 
     # ----- reads -------------------------------------------------------- #
 
@@ -402,6 +462,85 @@ class BotGitHub:
         if not isinstance(row, dict):
             raise GitHubCliError(f"GitHub returned an unexpected shape for issue #{number}")
         return row
+
+    def ci_results(self, sha: str, *, exclude_run: str = "") -> CiReport:
+        """What CI reported on *sha*: its check runs and combined commit status (``proof_of_work``). Never raises.
+
+        The check runs need ``checks: read``; a token without it gets a 403, and the report says so instead of hiding the
+        block. The combined status needs ``statuses: read`` (``statuses: write`` includes it); a refused status leaves the
+        check runs standing and is said. *exclude_run* is the workflow run doing this review, whose own jobs are left out.
+        """
+
+        base = f"repos/{self.pr.slug}/commits/{sha}"
+        rows: list[object] = []
+        total: object = None
+        try:
+            # Every page up to the cap: what is past it stays counted in ``total_count`` and is said as not read.
+            for page in range(1, proof_of_work.MAX_CHECK_PAGES + 1):
+                found = _mapping(
+                    gh_json(self.runner, ["api", f"{base}/check-runs?per_page={proof_of_work.PAGE}&page={page}"])
+                )
+                runs = found.get("check_runs")
+                total = found.get("total_count", total)
+                rows.extend(runs if isinstance(runs, list) else ())
+                if not isinstance(runs, list) or len(runs) < proof_of_work.PAGE:
+                    break
+                if isinstance(total, int) and len(rows) >= total:
+                    break
+        except GitHubCliError as exc:
+            if not rows:
+                return proof_of_work.unreadable(sha, str(exc))
+        checks = {"total_count": total, "check_runs": rows}
+        try:
+            combined: object | None = gh_json(self.runner, ["api", f"{base}/status?per_page={proof_of_work.PAGE}"])
+        except GitHubCliError:
+            combined = None
+        return proof_of_work.from_api(sha, checks, combined, exclude_run=exclude_run)
+
+    def commits(self) -> list[tuple[str, str]] | None:
+        """``(sha, message)`` of each of the pull request's commits (GitHub lists at most 250), or ``None`` when they
+        cannot be read. One listing, read once per run: :meth:`commit_messages` is derived from it."""
+
+        if self._commits is None:
+            try:
+                rows = gh_paginated(self.runner, f"{self.pr.api_path}/commits?per_page=100")
+            except GitHubCliError:
+                return None
+            self._commits = [
+                (str(row.get("sha") or ""), str(_mapping(row.get("commit")).get("message") or "")) for row in rows
+            ]
+        return list(self._commits)
+
+    def approvals(self, *, trusted: bool = False) -> list[tuple[str, str]] | None:
+        """``(login, commit sha)`` of each person's standing approval, or ``None`` when the reviews cannot be read.
+
+        A person's latest approve, request-changes or dismissed review decides (a comment-only review changes nothing,
+        as on GitHub); bots are left out. The sha is the head the person approved, which may be older than this one.
+        *trusted* keeps only an owner's, a member's or a collaborator's (the review's ``author_association``): anyone
+        can approve on a public repository, and that approval must not clear the human-review tier.
+        """
+
+        try:
+            rows = gh_paginated(self.runner, f"{self.pr.api_path}/reviews?per_page=100")
+        except GitHubCliError:
+            return None
+        latest: dict[str, tuple[str, str, str]] = {}
+        for row in rows:
+            user = _mapping(row.get("user"))
+            login, state = str(user.get("login") or ""), str(row.get("state") or "")
+            if login and user.get("type") != "Bot" and state in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+                latest[login] = (state, str(row.get("commit_id") or ""), str(row.get("author_association") or ""))
+        return [
+            (login, sha)
+            for login, (state, sha, association) in latest.items()
+            if state == "APPROVED" and (not trusted or association in TRUSTED_APPROVERS)
+        ]
+
+    def commit_messages(self) -> list[str] | None:
+        """The messages of the pull request's commits, or ``None`` when they cannot be read."""
+
+        commits = self.commits()
+        return None if commits is None else [message for _, message in commits]
 
     def _issue_path(self) -> str:
         return f"repos/{self.pr.slug}/issues/{self.pr.number}"
@@ -550,51 +689,9 @@ class BotGitHub:
     def adopt_existing(
         self, findings: Sequence[BotFinding], comments: Sequence[Remote], *, tracked: Collection[str] = ()
     ) -> dict[str, Remote]:
-        """Findings that already have an inline comment on the PR, found by their marker.
+        """Findings that already have an inline comment on the PR, found by their marker (:func:`adopt_existing`)."""
 
-        This is what keeps a re-run, or a run whose summary write was lost, from posting a second comment for a
-        finding. A comment is matched by the finding's id first. A finding the id does not find is matched by its
-        fingerprint, which does not change when the model words the same concern differently (a cancelled run
-        that posted its comment and lost its summary meets a reworded finding next time): the bot's own inline
-        comment on the same file with the same fingerprint, one comment per finding. A comment whose finding was
-        closed (the bot replied that it was fixed) is never matched, or a bug that comes back would be silenced by
-        the thread of the one that was fixed; neither is a comment of another finding the review tracks
-        (*tracked*: all their ids), which is why two bugs in one function keep a comment each, or a person's.
-        """
-
-        wanted = {finding.id for finding in findings}
-        found: dict[str, Remote] = {}
-        for comment in comments:
-            if not comment.by_bot or comment.reply_to or FINDING_MARKER_PREFIX not in comment.body:
-                continue
-            match = _FINDING_MARKER.search(comment.body)
-            if match is not None and match[1] in wanted:
-                found.setdefault(match[1], comment)
-        unmatched = [finding for finding in findings if finding.id not in found and finding.fingerprint]
-        if not unmatched:
-            return found
-        closed = {
-            match[1]
-            for comment in comments
-            if comment.by_bot
-            for match in [_RESOLVED_MARKER.search(comment.body)]
-            if match is not None
-        }
-        taken = {comment.id for comment in found.values()}
-        for finding in unmatched:
-            for comment in comments:
-                if comment.id in taken or not comment.by_bot or comment.reply_to or comment.path != finding.path:
-                    continue
-                marked = _FINGERPRINT_MARKER.search(comment.body)
-                owner = _FINDING_MARKER.search(comment.body)
-                if marked is None or marked[1] != finding.fingerprint:
-                    continue
-                if owner is not None and owner[1] in closed | wanted | set(tracked):
-                    continue  # a closed finding's thread, or one that belongs to a finding of its own
-                found[finding.id] = comment
-                taken.add(comment.id)
-                break
-        return found
+        return adopt_existing(findings, comments, tracked=tracked)
 
     def post_inline(
         self,
@@ -909,10 +1006,12 @@ class BotGitHub:
 
     # ----- the check ---------------------------------------------------- #
 
-    def set_status(self, sha: str, state: str, description: str, target_url: str = "") -> None:
-        """The ``LemonCrow Review`` commit status on the reviewed head (needs ``statuses: write``)."""
+    def set_status(
+        self, sha: str, state: str, description: str, target_url: str = "", *, context: str = STATUS_CONTEXT
+    ) -> None:
+        """The ``LemonCrow Review`` commit status (or *context*) on the reviewed head (needs ``statuses: write``)."""
 
-        body: dict[str, str] = {"state": state, "context": STATUS_CONTEXT, "description": description[:140]}
+        body: dict[str, str] = {"state": state, "context": context, "description": description[:140]}
         if target_url:
             body["target_url"] = target_url
         gh_json(

@@ -168,7 +168,7 @@ def test_behavior_contract_identity() -> None:
     ):
         assert kind in BEHAVIOR_KINDS
     assert set(behavior_module.EXECUTOR_CLASSES) == {"", "author_machine", "customer_worker", "managed_sandbox"}
-    assert BEHAVIOR_CONTRACT_VERSION == 1
+    assert BEHAVIOR_CONTRACT_VERSION == 2
     "case: test_identity_is_stable_but_fingerprint_follows_observations_environment_and_executor"
     delta = _delta()
     key = behavior_key(delta)
@@ -216,6 +216,89 @@ def test_behavior_contract_identity() -> None:
     finally:
         unregister_behavior_producer("r3.static_side_effects")
     assert [item.producer_id for item in registered_behavior_producers()] == builtin_ids
+
+
+def test_behavior_v2_reopens_legacy_marks_on_risk_escalation_and_rejects_old_approval_digest() -> None:
+    """A v1 judgment is preserved for audit, not silently accepted under v2."""
+    import hashlib
+
+    delta = _delta()
+    [target] = behavior_targets([delta], [])
+    mark = behavior_mark(target, review_id="review-1", revision_id="rev-1", reviewer_id="me", state="reviewed")
+    old_payload = {
+        "v": 1,
+        "producer": delta.producer,
+        "kind": delta.kind,
+        "subject": delta.subject,
+        "change": delta.change,
+        "base": {"side": delta.base.side, "status": delta.base.status, "digest": delta.base.digest},
+        "head": {"side": delta.head.side, "status": delta.head.status, "digest": delta.head.digest},
+        "environment": delta.environment_fingerprint,
+        "executor": delta.executor_class,
+    }
+    old_hash = hashlib.sha256(json.dumps(old_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    historical = replace(mark, content_fingerprint=old_hash)
+    [reopened] = behavior_targets([delta], [historical])
+    assert reopened.state == "changed_since_review" and reopened.priority.outstanding
+    assert historical.content_fingerprint != target.fingerprint
+    # Even a plausible digest from the earlier contract is no longer authority.
+    old_evidence = {
+        "fingerprint": old_hash,
+        "title": delta.title,
+        "summary": delta.summary,
+        "base": delta.base.to_wire(),
+        "head": delta.head.to_wire(),
+        "evidence": sorted((ref.ref, ref.digest) for ref in delta.evidence),
+        "facts": [list(item) for item in delta.facts],
+    }
+    old_digest = hashlib.sha256(json.dumps(old_evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    with pytest.raises(BehaviorJudgmentRefused) as refused:
+        check_behavior_judgment(target, state="reviewed", evidence_digest=old_digest)
+    assert refused.value.code == "evidence_mismatch"
+    assert check_behavior_judgment(target, state="reviewed", evidence_digest=target.evidence_digest) == "reviewed"
+    assert behavior_key(delta) == behavior_key(replace(delta, critical=True, severity="high"))
+    for changed in (
+        replace(delta, critical=True),
+        replace(delta, severity="high"),
+        replace(delta, unverified_integrations=("stripe",)),
+    ):
+        assert behavior_fingerprint(changed) != behavior_fingerprint(delta)
+        [stale] = behavior_targets([changed], [mark])
+        assert stale.state == "changed_since_review" and stale.priority.outstanding
+
+
+def test_behavior_v2_approval_digest_covers_all_displayed_reference_metadata() -> None:
+    base = _delta()
+    ref = base.evidence[1]
+    for changed in (
+        replace(ref, label="Different evidence description"),
+        replace(ref, kind="check"),
+        replace(ref, side="base"),
+        replace(ref, role="verification"),
+        replace(ref, media_type="image/png"),
+        replace(ref, evidence_id="ev-substituted"),
+    ):
+        updated = replace(base, evidence=(base.evidence[0], changed))
+        assert behavior_evidence_digest(updated) != behavior_evidence_digest(base)
+        assert behavior_key(updated) == behavior_key(base)
+    # Evidence ordering is not a change when refs are otherwise identical.
+    assert behavior_evidence_digest(replace(base, evidence=tuple(reversed(base.evidence)))) == behavior_evidence_digest(
+        base
+    )
+
+
+def test_incompatible_behavior_contract_fails_closed_when_no_targets_survive() -> None:
+    from lemoncrow.pro.capabilities.review.readiness import _behavior_condition
+
+    outdated = _Producer("test.producer", BehaviorProduction(deltas=(_delta(contract_version=1),)))
+    collected = collect_behavior(_context(), [outdated])
+    assert collected.deltas == ()
+    assert any("contract version 1 is not 2" in note for note in collected.degraded)
+    # Missing targets from an obsolete producer must not silently look green.
+    condition = _behavior_condition(0, 0, False, 0, incompatible_contracts=1)
+    assert condition.state == "unknown"
+    assert condition.reason == "incompatible_behavior_contract"
+    assert "regenerated" in condition.detail
 
 
 def test_behavior_collection_and_judgment_contract() -> None:

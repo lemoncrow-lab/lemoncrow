@@ -245,9 +245,9 @@ def test_an_edge_label_that_reads_as_a_verdict_is_blanked_not_drawn() -> None:
 # --------------------------------------------------------------------------- #
 
 _NODE = re.compile(r'^n\d+(?:\["[^"]*"\]|\("[^"]*"\)|\(\["[^"]*"\]\))$')
-_EDGE = re.compile(r'^n\d+ -->(?:\|"[^"]*"\|)? n\d+$')
+_EDGE = re.compile(r'^n\d+ -\.->(?:\|"[^"]*"\|)? n\d+$')
 _PARTICIPANT = re.compile(r"^participant n\d+ as [^\n]*$")
-_MESSAGE = re.compile(r"^n\d+->>n\d+: [^\n]*$")
+_MESSAGE = re.compile(r"^n\d+-->>n\d+: [^\n]*$")
 _ENTITY = re.compile(r"#(\d+);")
 
 
@@ -272,7 +272,8 @@ def test_a_flowchart_is_drawn_with_counter_ids_and_a_shape_for_what_a_node_names
     assert lines[1:4] == ['n1["auth.py"]', 'n2("authorize")', 'n3(["User"])']
     for line in lines[1:]:
         assert _NODE.match(line) or _EDGE.match(line), line
-    assert 'n3 -->|"calls"| n1' in lines and "n2 --> n3" in lines
+    # Every edge the model proposed is inferred, so every one is dotted: never the solid arrow of a Snapshot fact.
+    assert 'n3 -.->|"calls"| n1' in lines and "n2 -.-> n3" in lines
 
 
 def test_a_sequence_diagram_has_participants_then_messages() -> None:
@@ -282,7 +283,7 @@ def test_a_sequence_diagram_has_participants_then_messages() -> None:
     assert spec is not None
     lines = mermaid_lines(spec)
     assert lines[0] == "sequenceDiagram"
-    assert lines[1:] == ["participant n1 as User", "participant n2 as auth.py", "n1->>n2: logs in", "n2->>n1: token"]
+    assert lines[1:] == ["participant n1 as User", "participant n2 as auth.py", "n1-->>n2: logs in", "n2-->>n1: token"]
     assert all(_PARTICIPANT.match(row) or _MESSAGE.match(row) for row in lines[1:])
 
 
@@ -308,7 +309,7 @@ def test_a_model_label_that_would_be_markdown_is_drawn_as_text() -> None:
     assert found is not None and found.diagram is not None
     lines = [line.strip() for line in overview_diagram.mermaid(found.diagram).split("\n")[2:]]
     assert lines[0] == 'n1["#95;#95;init#95;#95;.py"]'
-    assert lines[2:] == ['n2 -->|"#49;. loads"| n1', 'n1 -->|"#45; answers"| n2']
+    assert lines[2:] == ['n2 -.->|"#49;. loads"| n1', 'n1 -.->|"#45; answers"| n2']
 
 
 def test_two_files_with_the_same_name_are_told_apart_by_their_paths() -> None:
@@ -337,7 +338,7 @@ def test_nothing_in_an_edge_label_can_leave_its_label_or_start_anything(label: s
         (Edge("a", "b", label),),
     )
     lines = mermaid_lines(spec)
-    (edge,) = [row for row in lines if "-->" in row]
+    (edge,) = [row for row in lines if "-.->" in row]
     inside = edge.split('|"', 1)[1].rsplit('"|', 1)[0]
     assert not re.search(r"[\"\[\]<>|`@\\;%{}\n]", _ENTITY.sub("", inside)), inside
     assert _EDGE.match(edge), edge
@@ -350,7 +351,7 @@ def test_a_sequence_message_is_escaped_the_same_way() -> None:
         (Node("a", "src/auth.py", "file"), Node("b", "Database", "actor")),
         (Edge("a", "b", "x; deleteAll() # @bob <b>"),),
     )
-    (message,) = [row for row in mermaid_lines(spec) if "->>" in row]
+    (message,) = [row for row in mermaid_lines(spec) if "-->>" in row]
     assert _MESSAGE.match(message) and not re.search(r"[<>@;]", _ENTITY.sub("", message.split(": ", 1)[1]))
 
 
@@ -361,7 +362,8 @@ def test_the_section_is_a_heading_an_open_mermaid_block_and_a_caption_that_says_
     assert drawn.section.startswith("### Diagram\n\n```mermaid\n%%{init: {'theme': 'neutral'}}%%\nflowchart TD")
     assert "<details" not in drawn.section, "open by default, not folded"
     assert "not checked against the code" in drawn.section and drawn.section.endswith("<!-- /lemoncrow:diagram -->")
-    assert drawn.state.startswith("2:") and drawn.kind == "flowchart"
+    assert "dashed arrows" in drawn.section and "inferred" in drawn.section, "the caption says what a dashed arrow is"
+    assert drawn.state.startswith("3:") and drawn.kind == "flowchart"
 
 
 # --------------------------------------------------------------------------- #
@@ -572,10 +574,11 @@ def test_a_review_makes_one_overview_call_counted_in_its_usage_and_shows_it(worl
     )
     report = world.review()
     assert len(world.model.overviews) == 1
-    assert (
-        report.state is not None and report.state.usage.calls == len(world.model.calls) + 1
-    ), "the call is one of the review's"
-    assert report.state.usage.input_tokens == 1000 * len(world.model.calls) + world.model.overview_input_tokens
+    asked = len(world.model.calls) + len(
+        world.model.dedupes
+    )  # the investigations and the repeat check of their findings
+    assert report.state is not None and report.state.usage.calls == asked + 1, "the call is one of the review's"
+    assert report.state.usage.input_tokens == 1000 * asked + world.model.overview_input_tokens
     body = summary_body(world)
     assert "Guards authorize and bounds the cache" in body and "### Summary" in body
     assert "- authorize rejects a missing user" in body
@@ -712,10 +715,10 @@ def test_a_diagram_the_model_proposed_is_drawn_by_the_bot_with_only_real_names(w
     lines = block.split("\n")
     assert lines[0] == "%%{init: {'theme': 'neutral'}}%%" and lines[1] == "flowchart TD"
     assert all(re.match(r"^\s+n\d+", line) for line in lines[2:]), "only counter ids"
-    assert 'n3 -->|"logs in#34;#93;#59; click x"| n1' in [
+    assert 'n3 -.->|"logs in#34;#93;#59; click x"| n1' in [
         line.strip() for line in lines
     ], "the label is entities, whole"
-    assert report.state is not None and report.state.diagram.startswith("2:") and report.state.diagram != "2:none"
+    assert report.state is not None and report.state.diagram.startswith("3:") and report.state.diagram != "3:none"
     again = world.review()
     assert again.noop and summary_body(world) == body, "the same head draws the same picture and rewrites nothing"
 
@@ -768,7 +771,9 @@ def test_the_overview_never_changes_the_verdict_the_score_or_the_status(world: W
     report = world.review()
     body = summary_body(world)
     assert report.verdict is not None and report.verdict.confidence == 3
-    assert "<h2>Confidence Score: 3/5</h2>" in body and "perfect and safe to merge" not in body
+    assert (
+        "<h2>No must-fix findings · 1 should-fix · 1 optional</h2>" in body and "perfect and safe to merge" not in body
+    )
     assert world.github.last_status()["state"] == "success"
 
 

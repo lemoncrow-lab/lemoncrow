@@ -1,8 +1,64 @@
-import { useEffect, useState } from "react";
-import { Network } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Footprints, Network } from "lucide-react";
 
 import { Button as UiButton } from "../components/ui/button";
-import type { ReviewArchitectureDelta } from "./types";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
+import type { CodeTarget } from "../lib/codeLinks";
+import ChangeStory, { type ChangeStoryEvidence } from "./changeStory/ChangeStory";
+import { isChangedNode } from "./changeStory/changeStoryModel";
+import type { Annotation, EvidenceRow, ReviewArchitectureDelta, ReviewMapSelection, ReviewTarget } from "./types";
+import type { XRay, XRayStep } from "./xray/xrayModel";
+
+/** What the Brief hands the Change Story: data it already holds, plus local reads. */
+export interface BriefChangeStory {
+  targets: readonly ReviewTarget[];
+  /** Recorded checks on this exact Snapshot; absent when the Brief has none to show. */
+  checks?: readonly EvidenceRow[] | null;
+  /** Local Review read of this Snapshot's findings; absent when it cannot be read. */
+  loadFindings?: () => Promise<Annotation[]>;
+  onOpenTarget: (targetId: string) => void;
+  /** N04: challenge an X-Ray step; the walk closes first so the challenge sheet is not under its dialog. */
+  onChallengeStep?: (step: XRayStep, xray: XRay) => void;
+  /** Opens the recorded run behind an X-Ray trace; the walk closes first. */
+  onOpenEvidence?: (selection: ReviewMapSelection) => void;
+  /** Opens Snapshot source at a line that no review target covers (an import line, say); the walk closes first. */
+  onOpenLocation?: (location: CodeTarget) => void;
+  /** The Reader has been told a newer Snapshot exists, so an open walkthrough is the older path. */
+  superseded?: boolean;
+  /** The number of the Snapshot being walked, for wording. */
+  snapshot?: number | null;
+}
+
+/** The review target that holds a source location: the span containing the line, else the file. */
+export function targetForSelection(targets: readonly ReviewTarget[], selection: ReviewMapSelection): ReviewTarget | null {
+  const inFile = targets.filter((target) => target.path === selection.path);
+  const line = selection.line ?? 0;
+  return inFile.find((target) => line > 0 && target.start_line <= line && line <= target.end_line) ?? inFile[0] ?? null;
+}
+
+/**
+ * The review target that holds the selection's line (a symbol's own lines or a
+ * changed span in it), else the target of the same file nearest to that line;
+ * null only when the file has no review target at all (it is outside the patch).
+ */
+function targetNearSelection(targets: readonly ReviewTarget[], selection: ReviewMapSelection): ReviewTarget | null {
+  const inFile = targets.filter((target) => target.path === selection.path);
+  const line = selection.line ?? 0;
+  if (line <= 0 || inFile.length === 0) return inFile[0] ?? null;
+  const reach = (target: ReviewTarget): [number, number][] => {
+    const ranges = (target.spans ?? []).filter((span) => span.side === "new").map((span): [number, number] => [span.start_line, span.end_line]);
+    if (target.start_line > 0) ranges.push([target.start_line, Math.max(target.start_line, target.end_line)]);
+    return ranges;
+  };
+  const distance = (target: ReviewTarget): number => Math.min(
+    Number.POSITIVE_INFINITY,
+    ...reach(target).map(([start, end]) => (line < start ? start - line : line > end ? line - end : 0)),
+  );
+  return inFile.reduce<{ target: ReviewTarget; gap: number } | null>((best, target) => {
+    const gap = distance(target);
+    return best && best.gap <= gap ? best : { target, gap };
+  }, null)?.target ?? inFile[0];
+}
 
 const MOVED: ReadonlySet<string> = new Set(["added", "removed", "changed"]);
 const CONCERN_LIMIT = 3;
@@ -19,6 +75,18 @@ export function architectureMaterial(delta: ReviewArchitectureDelta | null | und
 export function architectureFocusNode(delta: ReviewArchitectureDelta): string {
   const moved = delta.graph.nodes.find((node) => node.exactness === "snapshot" && MOVED.has(String(node.delta_status ?? "")));
   return moved?.id ?? delta.graph.focus ?? "";
+}
+
+/** Why there is no graph to walk, in words; null when the comparison ran and the Brief stays quiet. */
+function noGraphReason(state: "idle" | "loading" | "loaded" | "failed", delta: ReviewArchitectureDelta | null): string | null {
+  if (state === "failed") return "Architecture details could not load, so the change cannot be walked through yet.";
+  if (state !== "loaded") return null;
+  if (!delta) return "This Snapshot has no architecture comparison, so there is no change to walk through.";
+  if (delta.status === "unavailable") {
+    return `The architecture comparison is unavailable for this Snapshot${delta.reason ? ` (${delta.reason.replace(/[.\s]+$/, "")})` : ""}, so there is no change to walk through.`;
+  }
+  if (delta.graph.nodes.length === 0) return "This Snapshot's architecture graph is empty, so there is no change to walk through.";
+  return null;
 }
 
 function exactnessLabel(delta: ReviewArchitectureDelta): string {
@@ -40,18 +108,38 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`): s
 
 /**
  * Brief §5.1 item 2: the Architecture Delta, shown only when the deterministic
- * delta reports material movement. Its one action opens the Map's
- * Architecture Δ at the moved component; the Brief stays on the backtrail.
+ * delta reports material movement. Its actions open the Map's Architecture Δ
+ * at the moved component, or walk through the change in place; the Brief
+ * stays on the backtrail.
  */
 export default function BriefArchitectureDelta({
   load,
   onOpen,
   eager = true,
+  story,
 }: {
   load: () => Promise<ReviewArchitectureDelta | null>;
   onOpen: (nodeId: string) => void;
   eager?: boolean;
+  story?: BriefChangeStory;
 }) {
+  const [walking, setWalking] = useState(false);
+  // The Reader moved to another Snapshot while a walkthrough was open: the old
+  // path closes, says so, and is not reopened on the new Snapshot unasked.
+  const [closedBySnapshot, setClosedBySnapshot] = useState(false);
+  const walkingRef = useRef(walking);
+  walkingRef.current = walking;
+  const loadRef = useRef(load);
+  useEffect(() => {
+    if (loadRef.current === load) return;
+    loadRef.current = load;
+    setClosedBySnapshot(walkingRef.current);
+    setWalking(false);
+  }, [load]);
+  const loadFindings = story?.loadFindings;
+  const loadStoryEvidence = useCallback(async (): Promise<ChangeStoryEvidence> => {
+    return { findings: loadFindings ? await loadFindings() : null };
+  }, [loadFindings]);
   const [requestedLoad, setRequestedLoad] = useState<typeof load | null>(null);
   const [requestNumber, setRequestNumber] = useState(0);
   const [result, setResult] = useState<{
@@ -98,15 +186,37 @@ export default function BriefArchitectureDelta({
               {state === "loading" ? "Checking architecture changes…" : "Check architecture changes"}
             </UiButton>
             {(state === "failed" || state === "loaded") && (
-              <p className="text-caption text-muted-foreground" role="status">Architecture details could not load. Try again.</p>
+              <p className="text-caption text-muted-foreground" role="status">
+                {(state === "loaded" ? noGraphReason(state, delta) : null) ?? "Architecture details could not load. Try again."}
+              </p>
             )}
           </>
         )}
       </section>
     );
   }
-  if (state === "loading" || !architectureMaterial(delta)) return null;
+  if (state === "loading") return null;
+  if (!architectureMaterial(delta)) {
+    // Quiet when the comparison ran and simply found nothing material; worded when there is no graph to walk.
+    const missing = noGraphReason(state, delta);
+    if (!missing) return null;
+    return (
+      <section aria-label="Architecture delta" className="flex flex-col gap-1.5 border-t border-border/70 py-3" data-testid="brief-architecture-delta">
+        <div className="flex items-center gap-2 text-label font-medium text-foreground">
+          <Footprints size={14} aria-hidden="true" className="text-muted-foreground" />
+          <span>Change Story unavailable</span>
+        </div>
+        <p className="text-caption text-muted-foreground" role="status" data-testid="brief-architecture-no-graph">{missing}</p>
+        {state === "failed" && (
+          <div>
+            <UiButton variant="ghost" size="compact" type="button" onClick={request}>Try again</UiButton>
+          </div>
+        )}
+      </section>
+    );
+  }
   const summary = delta.summary;
+  const walkable = delta.graph.nodes.some(isChangedNode);
   const concerns = summary.important_concerns.slice(0, CONCERN_LIMIT);
   const relationshipParts = [
     summary.added_edges ? `${summary.added_edges} added` : "",
@@ -138,11 +248,69 @@ export default function BriefArchitectureDelta({
       {summary.degraded.length > 0 && (
         <p className="text-micro text-amber-300">{`Not covered: ${summary.degraded.join(" · ")}`}</p>
       )}
-      <div>
+      <div className="flex flex-wrap items-center gap-2">
         <UiButton variant="outline" size="compact" type="button" onClick={() => onOpen(architectureFocusNode(delta))}>
           Open architecture view
         </UiButton>
+        {story && walkable && (
+          <UiButton variant="ghost" size="compact" type="button" onClick={() => { setClosedBySnapshot(false); setWalking(true); }} icon={<Footprints size={14} />}>
+            Walk through the change
+          </UiButton>
+        )}
       </div>
+      {story && !walkable && (
+        <p className="text-caption text-muted-foreground" role="status" data-testid="brief-architecture-no-graph">
+          This Snapshot's architecture graph lists no changed file, so there is no change to walk through.
+        </p>
+      )}
+      {story && closedBySnapshot && !walking && (
+        <p className="text-caption text-amber-300/90" role="status" data-testid="brief-story-closed">
+          The Reader moved to another Snapshot, so the walkthrough of the previous one was closed. Walk through the change to see this Snapshot's path.
+        </p>
+      )}
+      {story && walking && (
+        <Dialog open onOpenChange={(open) => { if (!open) setWalking(false); }}>
+          <DialogContent className="h-[min(780px,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-[1240px]">
+            <DialogTitle className="sr-only">Walk through the change</DialogTitle>
+            <DialogDescription className="sr-only">The changed architecture, one component at a time, from the base to this Snapshot.</DialogDescription>
+            <ChangeStory
+              graph={delta.graph}
+              flow={delta.flow}
+              snapshotChecks={story.checks ?? null}
+              targets={story.targets}
+              loadEvidence={loadStoryEvidence}
+              stale={story.superseded
+                ? `A newer Snapshot exists. This walkthrough shows ${story.snapshot != null ? `Snapshot ${story.snapshot}` : "an older Snapshot"}, which is no longer the current path. Close it and use Reload review to walk the new Snapshot.`
+                : undefined}
+              onOpenSource={(selection) => {
+                setWalking(false);
+                // The target that holds the step's line, else the file's nearest one; a file with no review
+                // target (outside the patch) opens as Snapshot source at that line.
+                const target = targetNearSelection(story.targets, selection);
+                if (target) {
+                  story.onOpenTarget(target.target_id);
+                  return;
+                }
+                if (story.onOpenLocation && selection.path) {
+                  const line = Math.max(0, selection.line ?? 0);
+                  story.onOpenLocation({ path: selection.path, line, endLine: Math.max(line, selection.end_line ?? line) });
+                  return;
+                }
+                onOpen(delta.graph.nodes.find((node) => node.path === selection.path)?.id ?? architectureFocusNode(delta));
+              }}
+              onClose={() => setWalking(false)}
+              onChallengeStep={story.onChallengeStep ? (step, xray) => {
+                setWalking(false);
+                story.onChallengeStep?.(step, xray);
+              } : undefined}
+              onOpenEvidence={story.onOpenEvidence ? (selection) => {
+                setWalking(false);
+                story.onOpenEvidence?.(selection);
+              } : undefined}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </section>
   );
 }

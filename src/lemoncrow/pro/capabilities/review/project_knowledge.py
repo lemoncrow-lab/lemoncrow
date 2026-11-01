@@ -1401,6 +1401,36 @@ class ProjectKnowledgeStore:
             ).fetchall()
         return [self._event_wire(row) for row in rows]
 
+    def has_merged_review_event(
+        self,
+        repository: RepositoryRef,
+        *,
+        merge_ref: str,
+        review_ref: str,
+        revision_ref: str,
+    ) -> bool:
+        """Check a durable exact landing receipt, independent of recent-event limits.
+
+        A narrow, repository-scoped JSON-text candidate lookup avoids paging
+        through arbitrarily old merges. Always parse and check exact source
+        references: a LIKE match is a search hint, not attribution proof.
+        """
+        required = {merge_ref, review_ref, revision_ref}
+        for reference, kind in ((merge_ref, "merge"), (review_ref, "review"), (revision_ref, "revision")):
+            if validate_source_ref(reference).kind != kind:
+                raise ValueError(f"expected an exact {kind} source reference")
+        encoded = json.dumps(review_ref, ensure_ascii=False)
+        escaped = encoded.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        self._ensure()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT source_refs_json FROM project_knowledge_events "
+                "WHERE repository_id = ? AND kind = 'merged_change' "
+                "AND source_refs_json LIKE ? ESCAPE '\\'",
+                (repository.id, f"%{escaped}%"),
+            ).fetchall()
+        return any(required.issubset(self._unjson(str(row["source_refs_json"]))) for row in rows)
+
     def repositories(self, *, limit: int = 50) -> dict[str, Any]:
         """Stored repositories, most recently advanced first, with their live entry counts (read-only, bounded).
 

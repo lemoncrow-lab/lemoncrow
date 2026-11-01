@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, Compass, Eye, EyeOff, Loader2, Network, Search, X } from "lucide-react";
+import { ChevronRight, Compass, Eye, EyeOff, Footprints, Loader2, Network, Search, X } from "lucide-react";
 
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { ToggleGroup } from "../components/ui/toggle-group";
-import { explainHistoricalReviewArchitecture, fetchHistoricalReviewMap } from "./reviewApi";
+import ChangeStory, { type ChangeStoryEvidence } from "./changeStory/ChangeStory";
+import { isChangedNode } from "./changeStory/changeStoryModel";
+import {
+  explainHistoricalReviewArchitecture,
+  fetchHistoricalAnnotations,
+  fetchHistoricalReviewMap,
+  fetchHistoricalTargets,
+} from "./reviewApi";
 import {
   REVIEW_MAP_OVERVIEW,
   reviewMapLocationKey,
@@ -55,6 +62,8 @@ interface ReviewMapSheetProps {
   onCloseAsk?(): void;
   /** Opens a file or symbol in Code; absent without a trusted local workspace. */
   onOpenInCode?(target: CodeTarget): void;
+  /** Opens the recorded run behind an X-Ray trace (the Reader's checks view for that code). */
+  onOpenEvidence?(selection: ReviewMapSelection): void;
   /** The brief's reading-order chapters; the change overview groups by them. */
   chapters?: readonly MapChapter[];
   /** Reports the selected node, so switching to Implementation lands on it. */
@@ -80,7 +89,7 @@ function plural(count: number, one: string, many = one + "s"): string {
   return count.toLocaleString() + " " + (count === 1 ? one : many);
 }
 
-function locationOf(stack: MapView[]): ReviewMapLocation | null {
+function locationOf(stack: MapView[], story = "", xray = ""): ReviewMapLocation | null {
   const top = stack[stack.length - 1];
   if (!top?.payload) return null;
   return {
@@ -90,8 +99,12 @@ function locationOf(stack: MapView[]): ReviewMapLocation | null {
     node: top.selectedId ?? "",
     edge: top.selectedEdgeId ?? "",
     path: "",
+    ...(story && top.level === "architecture" ? { story, ...(xray ? { xray } : {}) } : {}),
   };
 }
+
+/** Story value while it opens, before the first step reports its node. */
+const STORY_OPENING = "start";
 
 /** Applies a location's selection to a loaded view; `fallback` stands when it names nothing on the graph. */
 function withSelection(view: MapView, location: ReviewMapLocation, fallback: string | null): MapView {
@@ -125,7 +138,14 @@ function MapSkeleton() {
  * The Map view of the Review shell (Brief · Implementation · Map): the change,
  * what it reaches, and what it relies on, drawn by the shared lane engine.
  */
-export default function ReviewMapSheet({
+export default function ReviewMapSheet(props: ReviewMapSheetProps) {
+  // A Map stack (including selected edges and the architecture explanation)
+  // belongs to a single immutable Snapshot. A keyed child avoids painting
+  // the prior graph even once before the fetch-reset effect runs.
+  return <ReviewMapSheetForSnapshot key={`${props.reviewId}:${props.revisionNumber}:${props.historical}`} {...props} />;
+}
+
+function ReviewMapSheetForSnapshot({
   reviewId,
   revisionNumber,
   historical,
@@ -138,6 +158,7 @@ export default function ReviewMapSheet({
   askPanel,
   onCloseAsk,
   onOpenInCode,
+  onOpenEvidence,
   chapters,
   onSelectionChange,
   loadProjectHistory,
@@ -179,6 +200,10 @@ export default function ReviewMapSheet({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [canvasWidth, setCanvasWidth] = useState(0);
   const [sheetWidth, setSheetWidth] = useState(typeof window === "undefined" ? 1440 : window.innerWidth);
+  // The Change Story's current step (a node id), mirrored in the URL; "" while closed.
+  const [story, setStory] = useState(rawLocation.level === "architecture" ? rawLocation.story ?? "" : "");
+  // The Behavioral X-Ray open inside the story, mirrored in the URL; "" while closed.
+  const [xray, setXRay] = useState(rawLocation.level === "architecture" && rawLocation.story ? rawLocation.xray ?? "" : "");
 
   const view = stack[stack.length - 1] ?? null;
   const payload = view?.payload ?? null;
@@ -223,7 +248,7 @@ export default function ReviewMapSheet({
   // Records what the stack now shows. When that differs from the location it
   // was asked for, the URL is corrected in place rather than adding history.
   const settle = useCallback((requested: ReviewMapLocation, views: MapView[]) => {
-    const shown = locationOf(views) ?? requested;
+    const shown = locationOf(views, requested.story ?? "", requested.xray ?? "") ?? requested;
     shownLocation.current = shown;
     if (reviewMapLocationKey(shown) !== reviewMapLocationKey(requested)) onLocationChangeRef.current?.(shown, "replace");
   }, []);
@@ -245,6 +270,8 @@ export default function ReviewMapSheet({
       setLoading(false);
       setError("");
       setQuery("");
+      setStory(location.level === "architecture" ? location.story ?? "" : "");
+      setXRay(location.level === "architecture" && location.story ? location.xray ?? "" : "");
       const views = [...current.slice(0, index), withSelection(current[index], location, null)];
       setStack(views);
       settle(location, views);
@@ -263,6 +290,8 @@ export default function ReviewMapSheet({
     setError("");
     setQuery("");
     setExpanded(new Set());
+    setStory(location.level === "architecture" ? location.story ?? "" : "");
+    setXRay(location.level === "architecture" && location.story ? location.xray ?? "" : "");
     graphRefreshAttempts.current = 0;
     const load = async () => {
       const base = await fetchArchitecture();
@@ -302,12 +331,14 @@ export default function ReviewMapSheet({
   // Reports the reviewer's own moves: a new drill-down step adds history, a
   // selection change on the same step replaces it.
   useEffect(() => {
-    const next = locationOf(stack);
+    const next = locationOf(stack, story, xray);
     const previous = shownLocation.current;
     if (!next || !previous || reviewMapLocationKey(next) === reviewMapLocationKey(previous)) return;
     shownLocation.current = next;
-    onLocationChangeRef.current?.(next, sameReviewMapLevel(previous, next) ? "replace" : "push");
-  }, [stack]);
+    // Opening the story or its X-Ray adds history, so Back closes it; stepping replaces.
+    const opened = (!previous.story && Boolean(next.story)) || (!previous.xray && Boolean(next.xray));
+    onLocationChangeRef.current?.(next, sameReviewMapLevel(previous, next) && !opened ? "replace" : "push");
+  }, [stack, story, xray]);
 
   // Map node jumps stay in the Review: the Reader records the Map on its
   // backtrail, so Back returns here. A dedicated tab is the secondary link.
@@ -503,9 +534,32 @@ export default function ReviewMapSheet({
       ? "Relationships from the current code index"
       : `Relationships ${graphState}`;
   const indexing = overview?.context.source === "current_index" && graphState === "building" && !hasCurrentIndexEdges;
+  // The engine deliberately folds large changes. The full change count in
+  // graph.stats is not the number of cards currently visible on the canvas.
+  // Make the difference explicit so a 401-file Review does not appear to have
+  // silently dropped hundreds of changed files.
+  const foldedChanged = payload?.level === "architecture"
+    ? model?.groups.filter((group) => group.lane === "subject").reduce((sum, group) => sum + group.hidden, 0) ?? 0
+    : 0;
+  const visibleChanged = model?.cards.filter((card) => isChangedStatus(card.node)).length ?? 0;
 
   const showGuide = payload?.level === "architecture" && !selected && !selectedEdge;
   const showInspector = Boolean(payload) && (inspectorDocked || selected || selectedEdge || (guideOpen && showGuide));
+  const storyAvailable = payload?.level === "architecture" && overviewNodes.some(isChangedNode);
+  const storyOpen = Boolean(story) && payload?.level === "architecture" && overview !== null;
+  const closeStory = useCallback(() => {
+    setStory("");
+    setXRay("");
+    window.setTimeout(() => viewRef.current?.focus({ preventScroll: true }), 0);
+  }, []);
+  // Local Review reads only: the Snapshot's findings and review targets.
+  const loadStoryEvidence = useCallback(async (): Promise<ChangeStoryEvidence> => {
+    const [annotations, targets] = await Promise.all([
+      fetchHistoricalAnnotations(reviewId, revisionNumber),
+      fetchHistoricalTargets(reviewId, revisionNumber, "file").catch(() => null),
+    ]);
+    return { findings: annotations.annotations, targets: targets?.targets ?? null };
+  }, [reviewId, revisionNumber]);
 
   return (
     <section
@@ -513,6 +567,8 @@ export default function ReviewMapSheet({
       tabIndex={-1}
       aria-labelledby="review-map-title"
       onKeyDown={(event) => {
+        // The Change Story owns its keys (← → Esc) and stops them itself.
+        if (storyOpen) return;
         if (event.target instanceof Element && event.target.closest("[data-review-map-ask-panel]")) {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -556,6 +612,25 @@ export default function ReviewMapSheet({
       }}
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background outline-none"
     >
+      {storyOpen && overview ? (
+        <>
+          <h2 id="review-map-title" className="sr-only">Review Map</h2>
+          <ChangeStory
+            graph={overview.graph}
+            flow={overview.architecture_delta?.flow ?? null}
+            snapshotChecks={overview.snapshot.verification.checks}
+            loadEvidence={loadStoryEvidence}
+            stepNodeId={story === STORY_OPENING ? undefined : story}
+            onStepChange={setStory}
+            xray={xray}
+            onXRayChange={setXRay}
+            onOpenSource={openSelection}
+            onOpenEvidence={onOpenEvidence}
+            onClose={closeStory}
+          />
+        </>
+      ) : (
+      <>
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/80 bg-background px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60 text-subtle"><Network size={16} aria-hidden="true" /></div>
@@ -596,11 +671,32 @@ export default function ReviewMapSheet({
                 : `Snapshot ${revisionNumber}`}
               {indexing && <span className="ml-1 inline-flex items-center gap-1 text-muted-foreground"><Loader2 size={14} className="animate-spin" aria-hidden="true" />indexing</span>}
             </div>
+            {foldedChanged > 0 && (
+              <p className="mt-0.5 text-caption text-muted-foreground" data-testid="map-folded-summary">
+                {`Showing ${visibleChanged} of ${visibleChanged + foldedChanged} mapped changed files · ${foldedChanged} folded into expandable groups. Select a folder to reveal its files.`}
+              </p>
+            )}
           </div>
         </div>
 
         {payload && (
           <div className="flex items-center gap-2">
+            {payload.level === "architecture" && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-8"
+                disabled={!storyAvailable}
+                tooltip={storyAvailable ? "Step through the changed path, one file at a time" : "This Snapshot records no changed file to walk through"}
+                onClick={() => {
+                  updateView({ selectedId: null, selectedEdgeId: null });
+                  setStory(STORY_OPENING);
+                }}
+                icon={<Footprints size={14} />}
+              >
+                Walk through the change
+              </Button>
+            )}
             {payload.level === "architecture" && (
               <ToggleGroup
                 aria-label="Map projection"
@@ -788,6 +884,8 @@ export default function ReviewMapSheet({
           </div>
         )}
       </div>
+      </>
+      )}
     </section>
   );
 }

@@ -54,11 +54,11 @@ if [[ -z "$HOST" ]]; then
     exit 1
 fi
 
-# Regenerate host context files if uv is available; skip silently in binary-only envs
-# (build.sh pre-generates these before packaging).
-if command -v uv >/dev/null 2>&1; then
-    uv run python "$RENDER_SCRIPT" >/dev/null 2>&1 || true
-fi
+# A skill-bundle build must be a read-only projection, even without --dest.
+# Regenerating canonical host instructions is a distinct, explicit operation
+# (`make sync-agent-context`); doing it implicitly dirtied release checkouts
+# while independent test/build steps staged host bundles.
+# build.sh pre-generates contexts inside its packaged bundle, not here.
 
 if [[ ! -d "$SKILLS_SRC" ]]; then
     echo "Shared packaged skills directory not found: $SKILLS_SRC" >&2
@@ -175,7 +175,16 @@ render_host_bundle() {
             continue
         fi
         mkdir -p "$dest_dir/$skill_name"
-        cp "$skill_dir/SKILL.md" "$dest_dir/$skill_name/SKILL.md"
+        # Host-specific generated skills include safety/context guards absent
+        # from the shared authoring source. Reuse that projection when present:
+        # copying the raw source into the tracked canonical destination used to
+        # strip its guard and silently dirty a release checkout.
+        source_path="$(default_dest_for_host "$host")/$skill_name/SKILL.md"
+        [[ -f "$source_path" ]] || source_path="$skill_dir/SKILL.md"
+        dest_path="$dest_dir/$skill_name/SKILL.md"
+        if [[ "$source_path" != "$dest_path" ]]; then
+            cp "$source_path" "$dest_path"
+        fi
     done < <(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d | sort)
 
     echo "[lc:skills] generated ${host} bundle -> ${dest_dir}"

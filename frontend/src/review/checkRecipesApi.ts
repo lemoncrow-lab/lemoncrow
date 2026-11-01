@@ -218,12 +218,29 @@ export interface ObservedTestRegression {
   limitation: string;
 }
 
+/** Exact current-Snapshot references between an annotation and a measured test delta.
+ * A citation is not an independently confirmed defect and does not borrow
+ * worker process attestation, even when the test's reported executor is managed.
+ */
+export interface FindingRegressionCitation {
+  annotation_id: string;
+  source: "ai_review" | "human";
+  recipe_id: string;
+  subject: string;
+  differential_evidence_id: string;
+  link_class: "explicit_current_snapshot_test_citation";
+  independent_execution: false;
+  confirmed_defect: false;
+  limitation: string;
+}
+
 export interface CheckRecipesProjection {
   revision_id: string;
   historical: boolean;
   run_plan_digest: string;
   recommended_checks?: { schema_version: number; previous_revision_id?: string; recommendations: CheckRecommendation[]; omitted: number; policy: string };
   observed_regressions?: { schema_version: number; rows: ObservedTestRegression[]; omitted: number };
+  finding_regression_citations?: { schema_version: number; rows: FindingRegressionCitation[]; omitted: number };
   recipes: CheckRecipe[];
   policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean };
   errors: string[];

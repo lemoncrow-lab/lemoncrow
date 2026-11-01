@@ -10,6 +10,7 @@ threads, statuses -- so tests assert what GitHub ends up with, not what was sent
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import subprocess
@@ -106,6 +107,8 @@ class FakeGitHub:
         self.review_comments: list[dict[str, Any]] = []
         self.reviews: list[dict[str, Any]] = []
         self.statuses: list[dict[str, Any]] = []
+        self.human_statuses: list[dict[str, Any]] = []
+        """The ``LemonCrow / human review`` statuses, apart from ``statuses`` (``LemonCrow Review``)."""
         self.threads: dict[int, dict[str, Any]] = {}
         self.deny_resolve = False
         self.deny_status = False
@@ -133,6 +136,18 @@ class FakeGitHub:
         its number."""
         self._bot_reactions: dict[int, tuple[str, int, str, str]] = {}
         self._ids = 1000
+        self.check_runs: list[dict[str, Any]] = []
+        """Check runs on the head as ``GET commits/{sha}/check-runs`` lists them (``name``, ``status``, ``conclusion``)."""
+        self.commit_statuses: list[dict[str, Any]] = []
+        """Other tools' commit statuses on the head (``context``, ``state``); the bot's own are in ``statuses``."""
+        self.deny_checks = False
+        """The token lacks ``checks: read``: the check runs are refused with a 403."""
+        self.commit_messages: list[str] = []
+        """The pull request's commit messages, as ``GET pulls/{n}/commits`` lists them."""
+        self.description = ""
+        """The pull request's body, as its author wrote it."""
+        self.contents: dict[tuple[str, str], str | list[str]] = {}
+        """``(ref, path) -> text`` (a file) or file paths (a directory) the contents API serves; anything else is 404."""
 
     # ----- helpers ------------------------------------------------------ #
 
@@ -243,11 +258,19 @@ class FakeGitHub:
                 self.calls.append((method, path))
             return self._write(method, path, json.loads(stdin or "{}"))
         self.calls.append(("GET", call[1]))
+        ci = re.fullmatch(
+            rf"repos/{SLUG}/commits/([0-9a-f]+)/(check-runs|status)\?per_page=100(?:&page=(\d+))?", call[1]
+        )
+        if ci is not None:
+            return self._ci(ci[1], ci[2], int(ci[3] or 1))
         collaborator = re.fullmatch(rf"repos/{SLUG}/collaborators/([^/]+)/permission", call[1])
         if collaborator is not None:
             if collaborator[1] not in self.permissions:
                 raise GitHubCliError("Not Found (HTTP 404)")
             return json.dumps({"permission": self.permissions[collaborator[1]]})
+        contents = re.fullmatch(rf"repos/{SLUG}/contents/([^?]+)\?ref=(.+)", call[1])
+        if contents is not None:
+            return self._contents(unquote(contents[2]), unquote(contents[1]))
         assert call[1] == self.api, call
         return json.dumps(self._pull())
 
@@ -280,9 +303,30 @@ class FakeGitHub:
             "head": head,
             "base": {"ref": "main", "repo": {"id": 4242, "full_name": SLUG}},
             "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}",
+            **({"body": self.description} if self.description else {}),
         }
 
+    def _contents(self, ref: str, path: str) -> str:
+        found = self.contents.get((ref, path))
+        if found is None:
+            raise GitHubCliError("Not Found (HTTP 404)")
+        if isinstance(found, list):
+            return json.dumps([{"type": "file", "path": name} for name in found])
+        data = found.encode("utf-8")
+        return json.dumps({"type": "file", "size": len(data), "content": base64.b64encode(data).decode()})
+
+    def _ci(self, sha: str, kind: str, page: int = 1) -> str:
+        if kind == "check-runs":
+            if self.deny_checks:
+                raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
+            runs = [{"head_sha": sha, **row} for row in self.check_runs]
+            return json.dumps({"total_count": len(runs), "check_runs": runs[(page - 1) * 100 : page * 100]})
+        own = [{"context": row["context"], "state": row["state"]} for row in self.statuses if row.get("sha") == sha]
+        return json.dumps({"sha": sha, "statuses": [*self.commit_statuses, *own]})
+
     def _list(self, endpoint: str) -> list[dict[str, Any]]:
+        if endpoint.startswith(f"{self.api}/commits"):
+            return [{"sha": f"{n:040x}", "commit": {"message": m}} for n, m in enumerate(self.commit_messages)]
         if endpoint.startswith(f"{self.api}/files"):
             return self.origin.patches()
         if endpoint.startswith(f"{self.api}/reviews/"):
@@ -347,7 +391,9 @@ class FakeGitHub:
         if method == "POST" and path.startswith(f"repos/{SLUG}/statuses/"):
             if self.deny_status:
                 raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
-            self.statuses.append({"sha": path.rsplit("/", 1)[1], **body})
+            # The human-review tier is kept apart, so ``statuses`` stays the ``LemonCrow Review`` history tests read.
+            kept = self.human_statuses if body.get("context") == "LemonCrow / human review" else self.statuses
+            kept.append({"sha": path.rsplit("/", 1)[1], **body})
             return json.dumps(body)
         raise AssertionError(f"unexpected write: {method} {path}")
 
@@ -918,6 +964,7 @@ def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str
         "LEMONCROW_REVIEW_CHAT_ASSOCIATIONS",
         "LEMONCROW_OPENGREP_BIN",
         "LEMONCROW_OPENGREP_NOTE",
+        "LEMONCROW_REVIEW_MAX_USD",
     ):
         monkeypatch.delenv(name, raising=False)
     # The security scan is off unless a test turns it on: a developer's own `opengrep` on PATH must not change a result.

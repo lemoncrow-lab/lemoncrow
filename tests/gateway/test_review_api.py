@@ -4170,6 +4170,118 @@ def test_surface_impact_runs_only_explicitly_safe_plugin_surfaces(
     assert _plan_row(_shown_plan(workspace), "surface:fixture-runner:unsafe") is None
 
 
+def test_hosted_auto_snapshot_schedules_only_explicit_trusted_surface_without_runner_or_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.pro.capabilities.review.run_plan_service import RunPlanService
+    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+
+    repo_root = tmp_path / "auto-runtime-repo"
+    repo = _init_repo(repo_root)
+    _write(repo_root, "src/check.py", "VALUE = 1\n")
+    _write(
+        repo_root,
+        ".lemoncrow/review.yaml",
+        "version: 1\n"
+        "runtimes:\n"
+        "  - id: checks\n"
+        "    runner: fixture-runner\n"
+        "    command: [python, -m, trusted_check]\n"
+        "surfaces:\n"
+        "  - id: checks\n"
+        "    provider: service\n"
+        "    runtime: checks\n"
+        "    services: [tests]\n"
+        "    auto_run: true\n",
+    )
+    _commit(repo, "trusted base", 0)
+    _write(repo_root, "src/check.py", "VALUE = 2\n")
+    _commit(repo, "candidate change", 1)
+    store_root = tmp_path / "auto-runtime-store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, base="HEAD~1", head="HEAD")
+    built = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=built.packet.title)
+    revision = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=built)
+    store.publish_snapshot(session.id, revision.id)
+
+    class MustNotRun:
+        runner_id = "fixture-runner"
+
+        def setup_candidates(self, _root):
+            return ()
+
+        def run(self, *args, **kwargs):
+            raise AssertionError("the hosted Snapshot-event scheduler must never execute code")
+
+    dispatched: list[Any] = []
+
+    def submitter(_session, _revision, request, intent):
+        assert (_session.id, _revision.id, request.revision_id, request.side, intent) == (
+            session.id,
+            revision.id,
+            revision.id,
+            "new",
+            "current",
+        )
+        dispatched.append(request)
+        return {"job_id": "durable-fixture", "state": "queued", "observation": {"secret": "never echo"}}
+
+    app = FastAPI()
+    register_review_api(
+        app,
+        store,
+        auth_dependency=make_token_dependency(TOKEN),
+        repo_root=repo_root,
+        port=PORT,
+        runner_registry=RunnerRegistry((MustNotRun(),)),
+        runtime_validation_submitter=submitter,
+    )
+    entry = SimpleNamespace(
+        status="run",
+        when="push",
+        available=True,
+        external=False,
+        executor="managed",
+        required=False,
+    )
+    plan = SimpleNamespace(
+        review_id=session.id,
+        revision_id=revision.id,
+        policy_error="",
+        digest="effective-plan",
+        entry=lambda entry_id: entry if entry_id.startswith("surface:") else None,
+    )
+    monkeypatch.setattr(RunPlanService, "current", lambda self, *args, **kwargs: plan)
+    scheduled = app.state.review_runtime_auto_scheduler(session, revision)
+    assert scheduled["status"] == "submitted"
+    assert scheduled["revision_id"] == revision.id
+    assert scheduled["run_plan_digest"] == "effective-plan"
+    assert scheduled["jobs"] == [{"scenario_id": "checks:tests", "state": "queued", "job_id": "durable-fixture"}]
+    assert len(dispatched) == 1
+    assert "secret" not in str(scheduled)
+    # A replay of this durable event yields the same semantic queue identity;
+    # the real hosted queue's idempotency key converges these submissions.
+    again = app.state.review_runtime_auto_scheduler(session, revision)
+    assert again["jobs"] == scheduled["jobs"]
+    assert dispatched[0].identity == dispatched[1].identity
+
+    # An explicitly requested manual pick has plan status=run, but its
+    # authorization is for the user's action, not an automatic Snapshot event.
+    entry.when = "manual"
+    assert app.state.review_runtime_auto_scheduler(session, revision)["status"] == "not_planned"
+    assert len(dispatched) == 2
+    entry.when = "push"
+
+    plan.policy_error = "head changed policy"
+    assert app.state.review_runtime_auto_scheduler(session, revision)["status"] == "not_planned"
+    assert len(dispatched) == 2
+    plan.policy_error = ""
+    assert app.state.review_runtime_auto_scheduler(session, replace(revision, id="older"))["status"] == "superseded"
+    assert len(dispatched) == 2
+
+
 def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -4345,19 +4457,122 @@ def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
             del context, runtime, surface, side
             raise AssertionError("hosted control plane must not invoke a repository runner")
 
+    completed_on_post = False
+    unavailable_on_post = False
+
     def submitter(_session, _revision, validation_request, execution_intent, approve_untrusted_execution=False):
         assert execution_intent == "current"
         approval_flags.append(bool(approve_untrusted_execution))
         hosted_calls.append(("submit", validation_request.revision_id, validation_request.identity))
-        return {"job_id": "job-runtime", "state": "queued", "attempt": 0, "execution_intent": execution_intent}
+        if unavailable_on_post:
+            return {
+                "state": "unavailable",
+                "detail": "SECRET_UNAVAILABLE_INTERNAL_ERROR",
+                "execution_grant": {"approver_id": "SECRET_APPROVER"},
+                "last_error": "SECRET_LAST_ERROR",
+            }
+        if completed_on_post:
+            return lookup(_session, _revision, validation_request, "job-runtime-completed-on-post")
+        return {
+            "job_id": "job-runtime",
+            "state": "queued",
+            "attempt": 0,
+            "execution_intent": execution_intent,
+            "execution_grant": {"approver_id": "SECRET_APPROVER"},
+            "lease_token": "SECRET_LEASE",
+            "worker_id": "SECRET_WORKER",
+            "last_error": "SECRET_ERROR",
+            "report": "SECRET_REPORT",
+            "completion_receipt": {"receipt_id": "FAKE_UNVERIFIED_RECEIPT"},
+        }
 
     def lookup(_session, _revision, validation_request, job_id):
         hosted_calls.append(("lookup", job_id, validation_request.identity))
-        return {"job_id": job_id, "state": "running", "attempt": 1}
+        if job_id == "job-runtime-malformed":
+            return {
+                "job_id": job_id,
+                "state": {"secret": "SECRET_BAD_STATE"},
+                "attempt": {"secret": "SECRET_BAD_ATTEMPT"},
+                "execution_intent": {"secret": "SECRET_BAD_INTENT"},
+                "publication_state": ["SECRET_BAD_PUBLICATION"],
+                "superseded": "SECRET_BAD_SUPERSEDED",
+                "last_error": "SECRET_BAD_LAST_ERROR",
+                "completion_receipt": {"receipt_id": "FAKE_UNVERIFIED_RECEIPT"},
+            }
+        if job_id in {
+            "job-runtime-completed",
+            "job-runtime-completed-on-post",
+            "job-runtime-stale",
+            "job-runtime-invalid",
+        }:
+            receipt_doc = {
+                "kind": "runtime-validation-queue-completion/v1",
+                "org_id": "org-runtime",
+                "repo_id": "repo-runtime",
+                "review_id": validation_request.review_id,
+                "revision_id": validation_request.revision_id,
+                "request_identity": validation_request.identity,
+                "job_id": job_id,
+                "attempt": 1,
+                "contract_digest": "b" * 64,
+                "result_digest": "c" * 64,
+                "queue_started_at": 100.0,
+                "queue_completed_at": 101.0,
+                "time_basis": "durable_queue_lifecycle",
+            }
+            receipt_id = (
+                "queue-receipt:"
+                + hashlib.sha256(json.dumps(receipt_doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            )
+            receipt = {**receipt_doc, "receipt_id": receipt_id}
+            if job_id == "job-runtime-invalid":
+                receipt["result_digest"] = "0" * 64
+            return {
+                "job_id": job_id,
+                "state": "succeeded",
+                "attempt": 1,
+                "lease_token": "SECRET_LEASE",
+                "worker_id": "SECRET_WORKER",
+                "execution_grant": {"approver_id": "SECRET_APPROVER"},
+                "last_error": "SECRET_ERROR",
+                "execution_intent": "current",
+                "historical": False,
+                "superseded": job_id == "job-runtime-stale",
+                "publication_state": "superseded" if job_id == "job-runtime-stale" else "current",
+                "completion_receipt": receipt,
+                "observation": {
+                    "surface_id": "checks:tests",
+                    "provider": "service",
+                    "side": "new",
+                    "runtime": "checks",
+                    "runner": "trusted-remote-worker",
+                    "status": "passed",
+                    "exit_code": 0,
+                    "callback_private_data": "NEVER_EXPOSE_RAW_WORKER_OBSERVATION",
+                },
+            }
+        return {
+            "job_id": job_id,
+            "state": "running",
+            "attempt": 1,
+            "execution_grant": {"approver_id": "SECRET_APPROVER"},
+            "lease_token": "SECRET_LEASE",
+            "worker_id": "SECRET_WORKER",
+            "last_error": "SECRET_ERROR",
+            "report": "SECRET_REPORT",
+            "completion_receipt": {"receipt_id": "FAKE_UNVERIFIED_RECEIPT"},
+        }
 
     def cancel(_session, _revision, validation_request, job_id):
         hosted_calls.append(("cancel", job_id, validation_request.identity))
-        return {"job_id": job_id, "state": "cancelled", "attempt": 1, "cancel_requested": True}
+        return {
+            "job_id": job_id,
+            "state": "cancelled",
+            "attempt": 1,
+            "cancel_requested": True,
+            "lease_token": "SECRET_LEASE",
+            "execution_grant": {"approver_id": "SECRET_APPROVER"},
+        }
 
     hosted_app = FastAPI()
     register_review_api(
@@ -4389,6 +4604,9 @@ def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
     )
     assert queued.status_code == 201, queued.text
     assert queued.json()["runtime_validation"]["status"] == "QUEUED"
+    assert queued.json()["runtime_validation"]["job"]["job_id"] == "job-runtime"
+    assert "completion_receipt" not in queued.json()["runtime_validation"]["job"]
+    assert not any(marker in queued.text for marker in ("SECRET_", "FAKE_UNVERIFIED_RECEIPT", "execution_grant"))
     assert approval_flags == [False]
 
     approved = hosted.post(
@@ -4427,6 +4645,73 @@ def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
     )
     assert running.status_code == 200, running.text
     assert running.json()["runtime_validation"]["status"] == "RUNNING"
+    assert "completion_receipt" not in running.json()["runtime_validation"]["job"]
+    assert not any(marker in running.text for marker in ("SECRET_", "FAKE_UNVERIFIED_RECEIPT", "execution_grant"))
+    malformed = hosted.get(
+        f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime-malformed",
+        params={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+    assert malformed.status_code == 200, malformed.text
+    assert malformed.json()["runtime_validation"]["status"] == "UNAVAILABLE"
+    assert malformed.json()["runtime_validation"]["job"]["state"] == "unavailable"
+    assert not any(marker in malformed.text for marker in ("SECRET_", "FAKE_UNVERIFIED_RECEIPT"))
+
+    completed = hosted.get(
+        f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime-completed",
+        params={
+            "revision_id": revision.id,
+            "provider": "service",
+            "surface_id": "checks:tests",
+            "side": "new",
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    completed_payload = completed.json()
+    assert completed_payload["runtime_validation"]["status"] == "PASS"
+    assert completed_payload["evidence"]["id"]
+    completed_job = completed_payload["runtime_validation"]["job"]
+    assert completed_job["completion_receipt"]["job_id"] == "job-runtime-completed"
+    assert completed_job["completion_receipt"]["time_basis"] == "durable_queue_lifecycle"
+    assert completed_job["completion_receipt"]["revision_id"] == revision.id
+    assert "observation" not in completed_job
+    assert "NEVER_EXPOSE_RAW_WORKER_OBSERVATION" not in completed.text
+    assert not any(marker in completed.text for marker in ("SECRET_", "lease_token", "execution_grant"))
+    persisted = store.get_evidence(completed_payload["evidence"]["id"])
+    assert persisted is not None
+    stored_bytes = store.read_evidence_artifact(persisted)
+    assert stored_bytes is not None
+    assert json.loads(stored_bytes)["queue_completion_receipt"] == completed_job["completion_receipt"]
+    # A second authorized status poll is an exact queue-evidence replay.
+    repeated = hosted.get(
+        f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime-completed",
+        params={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["evidence"]["id"] == persisted.id
+    assert len(store.list_evidence(session.id)) == 2  # earlier local run plus one hosted queue job
+
+    invalid = hosted.get(
+        f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime-invalid",
+        params={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+    assert invalid.status_code == 422, invalid.text
+    assert len(store.list_evidence(session.id)) == 2  # invalid queue receipt minted nothing
+
+    stale = hosted.get(
+        f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime-stale",
+        params={
+            "revision_id": revision.id,
+            "provider": "service",
+            "surface_id": "checks:tests",
+            "side": "new",
+        },
+    )
+    assert stale.status_code == 200, stale.text
+    assert stale.json()["runtime_validation"]["status"] == "SUPERSEDED"
+    assert "evidence" not in stale.json()
+    assert "completion_receipt" not in stale.json()["runtime_validation"]["job"]
+    assert "NEVER_EXPOSE_RAW_WORKER_OBSERVATION" not in stale.text
+    assert not any(marker in stale.text for marker in ("SECRET_", "execution_grant", "lease_token"))
 
     cancelled = hosted.post(
         f"/api/reviews/{session.id}/runtime-validation/jobs/job-runtime/cancel",
@@ -4439,7 +4724,55 @@ def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
     )
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json()["runtime_validation"]["status"] == "CANCELLED"
-    assert [call[0] for call in hosted_calls] == ["submit", "submit", "lookup", "cancel"]
+    assert cancelled.json()["runtime_validation"]["job"]["cancel_requested"] is True
+    assert not any(marker in cancelled.text for marker in ("SECRET_", "execution_grant", "lease_token"))
+
+    # A worker may finish during POST. The same receipt must accompany its
+    # normalized, persisted result without publishing callback-private fields.
+    completed_on_post = True
+    completed_post = hosted.post(
+        f"/api/reviews/{session.id}/runtime-validation",
+        json={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+    assert completed_post.status_code == 201, completed_post.text
+    assert completed_post.json()["runtime_validation"]["status"] == "PASS"
+    assert completed_post.json()["runtime_validation"]["job"]["completion_receipt"]["job_id"] == (
+        "job-runtime-completed-on-post"
+    )
+    assert completed_post.json()["evidence"]["id"]
+    assert not any(marker in completed_post.text for marker in ("SECRET_", "execution_grant", "lease_token"))
+
+    # Internal queue refusal strings can contain machine errors. Neither
+    # Review JSON nor persisted public evidence may reproduce them verbatim.
+    completed_on_post = False
+    unavailable_on_post = True
+    unavailable = hosted.post(
+        f"/api/reviews/{session.id}/runtime-validation",
+        json={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+    assert unavailable.status_code == 201, unavailable.text
+    assert unavailable.json()["runtime_validation"]["status"] == "NOT_RUN"
+    assert unavailable.json()["runtime_validation"]["job"]["state"] == "unavailable"
+    assert "SECRET_" not in unavailable.text
+    unverified_evidence = store.get_evidence(unavailable.json()["evidence"]["id"])
+    assert unverified_evidence is not None
+    evidence_content = store.read_evidence_artifact(unverified_evidence)
+    assert evidence_content is not None and b"SECRET_" not in evidence_content
+
+    assert [call[0] for call in hosted_calls] == [
+        "submit",
+        "submit",
+        "lookup",
+        "lookup",
+        "lookup",
+        "lookup",
+        "lookup",
+        "lookup",
+        "cancel",
+        "submit",
+        "lookup",
+        "submit",
+    ]
 
 
 def test_surface_run_rejects_unknown_surface(workspace: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -9541,6 +9874,160 @@ def test_author_addressed_claim_moves_feedback_to_rereview_instead_of_republishi
     next_preview = workspace.post(f"/api/reviews/{workspace.review_id}/feedback/export").json()
     assert next_preview["status"]["unpublished"] == 0
     assert created["body"] not in next_preview["markdown"]
+
+
+def test_author_addressed_batch_validation_does_not_consume_earlier_delivery(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An invalid later annotation cannot partially consume a valid first delivery."""
+    session_id = "11111111-2222-4333-8444-555555555555"
+    _make_latest_revision_exact_claude(workspace, session_id)
+    first = workspace.post(
+        f"/api/reviews/{workspace.review_id}/annotations",
+        json={"path": "src/session.py", "start_line": 10, "body": "Fix the invalid state"},
+    ).json()["annotation"]
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.review.delivery.deliver_to_claude_session",
+        lambda target, _repo, _feedback: ClaudeDeliveryResult("sent", f"claude:{target}", remote_ref="receipt-1"),
+    )
+    preview = workspace.post(f"/api/reviews/{workspace.review_id}/feedback/export").json()
+    sent = workspace.post(
+        f"/api/reviews/{workspace.review_id}/feedback/deliver",
+        json={
+            "operation_id": preview["operation_id"],
+            "expected_revision_id": preview["revision_id"],
+            "expected_feedback_hash": preview["feedback_hash"],
+        },
+    )
+    assert sent.status_code == 200, sent.text
+    [delivery] = workspace.store.list_deliveries(first["id"])
+    assert delivery.state == "sent" and delivery.operation_id
+
+    # This comment has not been delivered; validation of the batch must fail
+    # without partially consuming the earlier, correctly delivered comment.
+    second = workspace.post(
+        f"/api/reviews/{workspace.review_id}/annotations",
+        json={"path": "src/session.py", "start_line": 11, "body": "Second independent fix"},
+    ).json()["annotation"]
+    with pytest.raises(ValueError, match="not delivered"):
+        mark_feedback_addressed(
+            workspace.store,
+            workspace.repo_root,
+            [first["id"], second["id"]],
+            host="claude",
+            session_id=session_id,
+        )
+    [after] = workspace.store.list_deliveries(first["id"])
+    assert after.state == "sent"
+    assert workspace.store.get_annotation(first["id"]).author_response == "none"
+    assert workspace.store.get_annotation(second["id"]).author_response == "none"
+
+    # Deliver the second comment, then simulate a second-row write failure.
+    # The first author response AND first consumed delivery must roll back.
+    next_preview = workspace.post(f"/api/reviews/{workspace.review_id}/feedback/export").json()
+    second_sent = workspace.post(
+        f"/api/reviews/{workspace.review_id}/feedback/deliver",
+        json={
+            "operation_id": next_preview["operation_id"],
+            "expected_revision_id": next_preview["revision_id"],
+            "expected_feedback_hash": next_preview["feedback_hash"],
+        },
+    )
+    assert second_sent.status_code == 200, second_sent.text
+    [second_delivery] = workspace.store.list_deliveries(second["id"])
+    assert second_delivery.state == "sent"
+
+    original_update = workspace.store.update_annotation
+
+    def fail_second(annotation_id: str, *args: Any, **kwargs: Any) -> Any:
+        if annotation_id == second["id"]:
+            raise RuntimeError("simulated second response write failure")
+        return original_update(annotation_id, *args, **kwargs)
+
+    monkeypatch.setattr(workspace.store, "update_annotation", fail_second)
+    with pytest.raises(RuntimeError, match="simulated second response write failure"):
+        mark_feedback_addressed(
+            workspace.store,
+            workspace.repo_root,
+            [first["id"], second["id"]],
+            host="claude",
+            session_id=session_id,
+        )
+    monkeypatch.setattr(workspace.store, "update_annotation", original_update)
+    assert workspace.store.get_annotation(first["id"]).author_response == "none"
+    assert workspace.store.get_annotation(second["id"]).author_response == "none"
+    assert workspace.store.list_deliveries(first["id"])[0].state == "sent"
+    assert workspace.store.list_deliveries(second["id"])[0].state == "sent"
+
+    addressed = mark_feedback_addressed(
+        workspace.store,
+        workspace.repo_root,
+        [first["id"], second["id"]],
+        host="claude",
+        session_id=session_id,
+    )
+    assert [row.id for row in addressed] == [first["id"], second["id"]]
+    assert all(row.author_response == "addressed" for row in addressed)
+    assert workspace.store.list_deliveries(first["id"])[0].state == "consumed"
+    assert workspace.store.list_deliveries(second["id"])[0].state == "consumed"
+
+
+def test_feedback_handoff_source_correction_refresh_and_human_verdict(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local source/ReviewStore loop: an agent claim is not a reviewer verdict."""
+    session_id = "11111111-2222-4333-8444-555555555555"
+    _make_latest_revision_exact_claude(workspace, session_id)
+    root = f"/api/reviews/{workspace.review_id}"
+    before = workspace.store.latest_revision(workspace.review_id)
+    assert before is not None
+    created = workspace.post(
+        f"{root}/annotations",
+        json={"path": "src/session.py", "start_line": 10, "body": "Correct invalid session behavior"},
+    ).json()["annotation"]
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.review.delivery.deliver_to_claude_session",
+        lambda target, _repo, _feedback: ClaudeDeliveryResult("sent", f"claude:{target}", remote_ref="author-message"),
+    )
+    preview = workspace.post(f"{root}/feedback/export").json()
+    delivered = workspace.post(
+        f"{root}/feedback/deliver",
+        json={
+            "operation_id": preview["operation_id"],
+            "expected_revision_id": preview["revision_id"],
+            "expected_feedback_hash": preview["feedback_hash"],
+        },
+    )
+    assert delivered.status_code == 200, delivered.text
+    assert _list_handoff(workspace)["primary_bucket"] == "waiting_on_agent"
+    (agent_claim,) = mark_feedback_addressed(
+        workspace.store,
+        workspace.repo_root,
+        [created["id"]],
+        host="claude",
+        session_id=session_id,
+    )
+    assert agent_claim.author_response == "addressed" and agent_claim.state != "resolved"
+    assert workspace.store.latest_revision(workspace.review_id).id == before.id
+    assert _list_handoff(workspace)["primary_bucket"] == "returned_to_me"
+
+    # Simulated author correction: an actual source edit and fresh immutable Snapshot.
+    _write(workspace.repo_root, "src/session.py", _CHANGED_SOURCE.replace('"invalid"', '"blocked"'))
+    refreshed = workspace.post(f"{root}/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    after = workspace.store.latest_revision(workspace.review_id)
+    assert after is not None and after.id != before.id
+    assert workspace.store.get_annotation(created["id"]).state != "resolved"
+    assert workspace.get(f"{root}/targets").json()["targets"]
+
+    _review_all_current_targets(workspace)
+    marks = workspace.store.list_marks(workspace.review_id)
+    assert any(mark.state == "reviewed" and mark.reviewed_revision_id == after.id for mark in marks)
+    assert workspace.store.get_annotation(created["id"]).state != "resolved"
+    verdict = workspace.patch(f"/api/annotations/{created['id']}", json={"state": "resolved"})
+    assert verdict.status_code == 200, verdict.text
+    assert workspace.store.get_annotation(created["id"]).state == "resolved"
+    assert _list_handoff(workspace).get("primary_bucket") != "returned_to_me"
 
 
 def _list_handoff(workspace: Workspace, *, actionable_targets: int = 0) -> dict[str, Any]:

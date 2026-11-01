@@ -23,6 +23,8 @@ Nothing here calls a model except through the :class:`~golden_judge.Judge` it is
 from __future__ import annotations
 
 import json
+import os
+import stat
 import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -49,6 +51,9 @@ from lemoncrow.pro.capabilities.review.evaluation.golden_judge import (
 
 SCHEMA: Final[int] = 1
 KIND: Final[str] = "golden-comment-score"
+# A mixed Low+counted duplicate now counts as a strict FP.
+# Older reports lacking this field must be rescored before comparison.
+SCORING_POLICY_VERSION: Final[int] = 2
 #: Statuses of a benchmark run that produced a review a user would have seen.
 _REVIEWED: Final[frozenset[str]] = frozenset({"ran", "nothing_changed"})
 
@@ -195,11 +200,34 @@ def load_reviewer_comments(directory: Path, pr_ids: Sequence[str]) -> dict[str, 
 
     out: dict[str, Submission] = {}
     for pr_id in pr_ids:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,79}", pr_id):
+            raise ValueError("benchmark reviewer file id is invalid")
         path = directory / f"{pr_id}.json"
+        if path.is_symlink():
+            out[pr_id] = Submission(reviewed=False, note="reviewer evidence is a symlink, not a regular file")
+            continue
         if not path.is_file():
             out[pr_id] = Submission(reviewed=False, note=f"no comments file {path.name}")
             continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # No-follow open + fstat on the *opened* file closes the symlink-swap
+        # race between path validation and reading vendor benchmark evidence.
+        try:
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except OSError:
+            out[pr_id] = Submission(reviewed=False, note="reviewer evidence could not be opened safely")
+            continue
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 4 * 1024 * 1024:
+                out[pr_id] = Submission(reviewed=False, note="reviewer evidence is not a bounded regular file")
+                continue
+            raw = handle.read(4 * 1024 * 1024 + 1)
+        if len(raw) > 4 * 1024 * 1024:
+            out[pr_id] = Submission(reviewed=False, note="reviewer evidence exceeds 4 MiB cap")
+            continue
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, Mapping) or not isinstance(data.get("comments", []), list):
+            raise ValueError("benchmark reviewer evidence must have a comments array")
         comments: list[PostedComment] = []
         for item in data.get("comments") or ():
             found = re.search(r"\d+", str(item.get("lines") or ""))
@@ -318,11 +346,13 @@ def resolve(
         names = tuple(g.id for g in found)
         if cid in held:
             verdicts.append(CommentVerdict(cid, "tp", golden=held[cid], candidates=names))
-        elif any(not g.counted for g in found):
-            verdicts.append(CommentVerdict(cid, "neutral", candidates=names))
         elif counted[cid]:
+            # Matching an excluded Low issue cannot erase a counted duplicate.
             duplicates += 1
             verdicts.append(CommentVerdict(cid, "fp", duplicate_of=counted[cid][0].id, candidates=names))
+        elif any(not g.counted for g in found):
+            # Neutral only when there is no counted golden candidate.
+            verdicts.append(CommentVerdict(cid, "neutral", candidates=names))
         else:
             verdicts.append(CommentVerdict(cid, "fp", candidates=names))
     outcomes = tuple(
@@ -548,6 +578,7 @@ def build_report(
     return {
         "schema": SCHEMA,
         "kind": KIND,
+        "scoring_policy_version": SCORING_POLICY_VERSION,
         "name": name,
         "generated_at": generated_at or datetime.now(UTC).isoformat(timespec="seconds"),
         "reviewer": dict(reviewer),
@@ -555,7 +586,8 @@ def build_report(
             "A reviewer comment is a true positive when the judge says it names the same underlying issue as a golden "
             "comment and the one-to-one assignment gives it that comment; a false positive when it matches none (strict: "
             "or only one another comment already holds); a golden comment nobody holds is a false negative. Golden "
-            "comments of severity Low are excluded from all three. Counts are summed over pull requests."
+            "comments of severity Low are excluded; only a reviewer comment matching no counted golden comment is "
+            "neutral. Counts are summed over pull requests."
         ),
         "key": {
             "repository": golden.source.repository,
@@ -616,6 +648,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         f"`{judge['prompt_version']}` / `{judge['prompt_digest']}`. {judge['questions']} questions: "
         f"{judge['answered_from_cache']} answered from the cache, {judge['asked_now']} asked now "
         f"({judge['cost_now']['calls']} calls, {_usd(judge['cost_now']['usd'])}). {judge['ignored_pairs']} judge pairs named an unknown id and were ignored.",
+        f"* Scoring policy: v{report.get('scoring_policy_version', 'legacy-unknown')}; older results must be rescored before comparison.",
         f"* Rule: {report['rule']}",
     ]
     if publishing := publishing_line(report, run=f"<out-dir>/{report['name']}.json"):

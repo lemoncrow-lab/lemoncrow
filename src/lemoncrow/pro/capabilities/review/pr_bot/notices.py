@@ -1,7 +1,8 @@
 """The lines of the summary that say how the noise controls shaped this review, so nothing is left out silently.
 
 Pure text. A file name, a glob or a rule key is repository text, so each goes through the summary's own neutralisers
-(:func:`render.code`, :func:`render.clean`) before it is written; the model writes none of it.
+(:func:`render.code`, :func:`render.clean`) before it is written; the model writes none of it. The safety lines
+(:class:`safety.Safety`) are fixed sentences around labels this package writes, never the text that was flagged.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from collections.abc import Sequence
 from lemoncrow.pro.capabilities.review.pr_bot.large_pr import MAX_NAMED
 from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import IntentNote
 from lemoncrow.pro.capabilities.review.pr_bot.render import clean, code, plural
+from lemoncrow.pro.capabilities.review.pr_bot.safety import Safety
 
 #: Config notes shown in the summary; the rest are in the job log.
 MAX_NOTES: int = 4
@@ -45,10 +47,14 @@ def settings_line(
     inline: bool,
     notes: Sequence[str],
     intent_skipped: Sequence[str],
+    safety: Safety | None = None,
 ) -> str:
-    """One line of what the settings left out or could not do: ignored files, summary-only mode, config problems, unread intent."""
+    """One line of what the settings left out or could not do: ignored files, summary-only mode, config problems, unread
+    intent; and the note that text addressed to AI reviewers was found and treated as data."""
 
     parts: list[str] = []
+    if safety is not None and safety.note:
+        parts.append(clean(safety.note))
     if ignored:
         parts.append(f"{plural(len(ignored), 'file')} left out by `review.ignore` ({_globs(globs)})")
     if not inline:
@@ -60,12 +66,17 @@ def settings_line(
     return " · ".join(parts)
 
 
-def receipt_extra(*, intent: IntentNote | None, ignored: Sequence[str], globs: Sequence[str]) -> tuple[str, ...]:
-    """The extra lines of the clean-review receipt (``What we checked``): the intent the review was told, and the files left out."""
+def receipt_extra(
+    *, intent: IntentNote | None, ignored: Sequence[str], globs: Sequence[str], safety: Safety | None = None
+) -> tuple[str, ...]:
+    """The extra lines of the clean-review receipt (``What we checked``): the intent the review was told, the files left
+    out, and how many secrets were masked before the model saw the change."""
 
     lines: list[str] = []
     if intent is not None:
         lines.append(intent.receipt())
+    if safety is not None and safety.receipt:
+        lines.append(f"Secrets: {safety.receipt}")
     if ignored:
         lines.append(f"Left out by review.ignore: {plural(len(ignored), 'file')} ({_globs(globs)})")
     return tuple(lines)

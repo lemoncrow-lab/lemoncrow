@@ -431,14 +431,23 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 plan, catalog, [differentials[key] for key in sorted(differentials)], previous_results=prior_rows
             )
             recommended["previous_revision_id"] = revisions[position - 1].id if position > 0 else ""
-            from lemoncrow.pro.capabilities.review.check_regressions import observed_test_regressions
+            from lemoncrow.pro.capabilities.review.check_regressions import (
+                cited_regressions,
+                observed_test_regressions,
+            )
 
             observed = observed_test_regressions([differentials[key] for key in sorted(differentials)])
+            # The only link source is this Review's persisted annotation ledger,
+            # and only exact current-Snapshot recipe+test citations can join.
+            observed_citations = cited_regressions(
+                store.list_annotations(session.id), observed, revision_id=revision.id
+            )
             return {
                 "revision_id": revision.id,
                 "historical": revision.id != latest.id,
                 "recommended_checks": recommended,
                 "observed_regressions": observed,
+                "finding_regression_citations": observed_citations,
                 "run_plan_digest": plan.digest,
                 **catalog.to_wire(),
                 "entries": _entries(plan, catalog),

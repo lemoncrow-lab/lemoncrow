@@ -48,7 +48,12 @@ def recommend_checks(
         chosen = tests[:_MAX_TEST_LABELS]
         coverage = str(selected.get("coverage") or "known")
         observed = result_by_recipe.get(recipe.id)
-        last_verdict = str(observed.get("head_verdict") or "") if observed else ""
+        observed_recipe = observed.get("recipe") if observed else None
+        # An identical recipe ID may be reused after its trusted-base command
+        # or policy changed. Without the exact current digest, the historical
+        # outcome cannot be presented as the current evaluator's PASS/FAIL.
+        comparable_current = isinstance(observed_recipe, Mapping) and observed_recipe.get("digest") == recipe.digest
+        last_verdict = str(observed.get("head_verdict") or "") if observed and comparable_current else ""
         runnable = entry.status == "run" and entry.available and not entry.external
         failure = last_verdict in {"FAIL", "UNKNOWN"}
         previous = previous_by_recipe.get(recipe.id)
@@ -80,6 +85,11 @@ def recommend_checks(
         elif entry.required:
             reason = "Required by the trusted Review policy"
             order = 2
+        elif selection_mode == "impact" and coverage != "known":
+            # An incomplete/stale dependency graph must never be described as
+            # known coverage, even when it returns a few plausible test names.
+            reason = "Test impact coverage is unknown; inspect the trusted full-suite scope before an approved run"
+            order = 4
         elif selection_mode == "impact" and chosen:
             reason = f"Planner selected impacted tests ({len(tests)} recorded)"
             order = 3
@@ -101,8 +111,10 @@ def recommend_checks(
                 "can_run_now": runnable,
                 "manual_authorization_required": True,
                 "selection_mode": selection_mode if selection_mode in {"impact", "all", "none"} else "all",
-                "selected_tests_sample": chosen if is_test else [],
-                "selected_test_count": len(tests) if is_test and selection_mode == "impact" else 0,
+                "selected_tests_sample": chosen if is_test and coverage == "known" else [],
+                "selected_test_count": (
+                    len(tests) if is_test and selection_mode == "impact" and coverage == "known" else 0
+                ),
                 "coverage": ("unknown" if coverage == "unknown" else "known") if is_test else "not_applicable",
                 "executor": entry.executor,
                 "recipe_digest": recipe.digest,

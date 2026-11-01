@@ -61,29 +61,97 @@ def _depths(raw: str) -> tuple[str, ...]:
     return depths
 
 
-def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushes: bool, ceiling: str) -> list[str]:
+def _reviewers(raw: str) -> tuple[str, ...]:
+    from lemoncrow.pro.capabilities.review.evaluation.benchmark import REVIEWERS
+
+    names = tuple(part.strip() for part in raw.split(",") if part.strip())
+    if not names or any(name not in REVIEWERS for name in names) or len(set(names)) != len(names):
+        raise click.BadParameter(f"choose from {', '.join(REVIEWERS)} (comma separated)", param_hint="--reviewer")
+    return names
+
+
+def _plan_text(
+    corpus: RealPrCorpus,
+    depths: tuple[str, ...],
+    driver: str,
+    pushes: bool,
+    ceiling: str,
+    *,
+    reviewers: tuple[str, ...] = ("lemoncrow",),
+    repeat: int = 1,
+    max_usd: float | None = None,
+    max_calls: int | None = None,
+) -> list[str]:
+    """What the run would do, its call bound and its maximum spend: the page the owner approves spend from."""
+
+    from lemoncrow.pro.capabilities.review.ai_coverage import MAX_PARALLEL_CALLS
     from lemoncrow.pro.capabilities.review.evaluation.benchmark import CALLS_AT_MOST
 
-    reviews = len(corpus.prs) * len(depths)
-    push_runs = 2 * sum(len(pr.pushes) for pr in corpus.prs) * len(depths) if pushes else 0
-    worst = sum(CALLS_AT_MOST[depth] for depth in depths) * (
-        len(corpus.prs) + (2 * sum(len(pr.pushes) for pr in corpus.prs) if pushes else 0)
-    )
+    prs = len(corpus.prs)
+    lemoncrow = "lemoncrow" in reviewers
+    diy = "diy" in reviewers
+    push_count = sum(len(pr.pushes) for pr in corpus.prs) if pushes and lemoncrow else 0
+    reviews = prs * len(depths) * repeat if lemoncrow else 0
+    push_runs = 2 * push_count * len(depths)
+    diy_reviews = prs * repeat if diy else 0
+    bounds: list[tuple[str, int]] = []
+    if lemoncrow:
+        bounds += [
+            (
+                f"lemoncrow {depth}: {prs} PRs x {repeat} run(s) x at most {CALLS_AT_MOST[depth]} call(s)",
+                prs * repeat * CALLS_AT_MOST[depth],
+            )
+            for depth in depths
+        ]
+        if push_runs:
+            bounds.append(
+                (
+                    f"pushes: {push_count} push(es) x 2 reviews x each depth, once (not repeated)",
+                    2 * push_count * sum(CALLS_AT_MOST[depth] for depth in depths),
+                )
+            )
+    if diy:
+        bounds.append((f"diy: {prs} PRs x {repeat} run(s) x 1 call", diy_reviews))
+    worst = sum(count for _name, count in bounds)
+    effective = min(worst, max_calls) if max_calls is not None else worst
     lines = [
-        f"corpus {corpus.id} ({corpus.visibility}): {len(corpus.prs)} pull requests, "
+        f"corpus {corpus.id} ({corpus.visibility}): {prs} pull requests, "
         f"{sum(1 for pr in corpus.prs if pr.labelled)} labelled, {sum(len(pr.labels) for pr in corpus.prs)} labels",
-        f"driver {driver}; depths {', '.join(depths)}; {ceiling}",
-        f"{reviews} full reviews"
-        + (
-            f" and {push_runs} push reviews (each push once with carry-forward, once re-reviewing everything)"
-            if pushes
-            else ""
-        ),
+        f"driver {driver}; reviewers {', '.join(reviewers)}; depths {', '.join(depths) if lemoncrow else 'n/a'}; "
+        f"{repeat} run(s) per pull request and reviewer; {ceiling}",
+    ]
+    if lemoncrow:
+        lines.append(
+            f"{reviews} full reviews"
+            + (
+                f" and {push_runs} push reviews (each push once with carry-forward, once re-reviewing everything)"
+                if pushes
+                else ""
+            )
+        )
+    if diy:
+        lines.append(f"{diy_reviews} DIY reviews (one prompt over the unified diff, one model call each)")
+    lines += [f"  {name} = {count}" for name, count in bounds]
+    lines += [
         f"at most {worst} model calls in all: what one review can make at each depth "
         f"({', '.join(f'{name} {count}' for name, count in CALLS_AT_MOST.items())}; the hard cap is 20, and an Auto review "
         "of an ordinary pull request makes a handful)",
-        "dollars cannot be bounded before a call returns its tokens: the ceiling stops the run, not this plan",
     ]
+    if max_calls is not None:
+        lines.append(f"call bound: {effective} (--max-calls {max_calls} stops the run at that many calls)")
+    else:
+        lines.append(f"call bound: {effective} (no --max-calls)")
+    if max_usd is not None:
+        lines.append(
+            f"maximum spend: ${max_usd:g} (--max-usd), checked before every call; calls already running when it is "
+            f"reached finish, so a run can pass it by up to {MAX_PARALLEL_CALLS} calls"
+        )
+    else:
+        lines.append(
+            "maximum spend: not bounded in dollars; pass --max-usd (a live run refuses to start without "
+            "--max-usd or --max-calls)"
+        )
+    lines.append("dollars cannot be bounded before a call returns its tokens: the ceiling stops the run, not this plan")
     for pr in corpus.prs:
         lines.append(
             f"  {pr.id:<28} {pr.repository}  {'labelled' if pr.labelled else 'unlabelled'} "
@@ -105,6 +173,33 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
     default="quick,auto,deep",
     show_default=True,
     help="Depths to run, comma separated: quick auto thorough deep.",
+)
+@click.option(
+    "--reviewer",
+    "reviewer",
+    default="lemoncrow",
+    show_default=True,
+    help="Reviewers to run, comma separated: lemoncrow, diy (one plain prompt over the unified diff). "
+    "Comments imported with the corpus (baseline:) or --fetch-baseline are scored as extra rows.",
+)
+@click.option(
+    "--repeat",
+    type=click.IntRange(min=1, max=20),
+    default=1,
+    show_default=True,
+    help="Review every pull request this many times per reviewer, and report how stable the findings are.",
+)
+@click.option(
+    "--diy-prompt",
+    type=click.Path(path_type=Path, dir_okay=False, exists=True),
+    default=None,
+    help="The DIY reviewer's prompt file (default: evals/review/diy_review_prompt.v1.txt beside gate.yaml).",
+)
+@click.option(
+    "--diy-max-diff-chars",
+    type=click.IntRange(min=1000),
+    default=None,
+    help="Cut the diff sent to the DIY reviewer at this many characters (default 400000, about 100k tokens); a cut is reported.",
 )
 @click.option(
     "--driver",
@@ -211,6 +306,10 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
 def benchmark(
     corpus_path: Path | None,
     depth: str,
+    reviewer: str,
+    repeat: int,
+    diy_prompt: Path | None,
+    diy_max_diff_chars: int | None,
     driver: str,
     max_usd: float | None,
     max_calls: int | None,
@@ -251,6 +350,12 @@ def benchmark(
     )
     from lemoncrow.pro.capabilities.review.evaluation.benchmark_report import build_report, render_markdown
     from lemoncrow.pro.capabilities.review.evaluation.corpus import CorpusError, bundled_roots
+    from lemoncrow.pro.capabilities.review.evaluation.diy_review import (
+        DEFAULT_MAX_DIFF_CHARS,
+        DIY_PROMPT_FILE,
+        DiyPromptError,
+        load_diy_prompt,
+    )
     from lemoncrow.pro.capabilities.review.evaluation.real_prs import load_real_pr_corpus
     from lemoncrow.pro.capabilities.review.repo_context import CONTEXT_VERSION, repo_context_enabled
 
@@ -269,6 +374,16 @@ def benchmark(
     except CorpusError as exc:
         raise click.ClickException(str(exc)) from exc
     depths = _depths(depth)
+    reviewers = _reviewers(reviewer)
+    prompt = None
+    if "diy" in reviewers:
+        prompt_path = diy_prompt or (gate_root / DIY_PROMPT_FILE if gate_root is not None else None)
+        if prompt_path is None:
+            raise click.UsageError("no evals/review directory found; pass --diy-prompt")
+        try:
+            prompt = load_diy_prompt(prompt_path)
+        except DiyPromptError as exc:
+            raise click.UsageError(str(exc)) from exc
     reports = out_dir or (gate_root / "reports" if gate_root is not None else Path("reports"))
     if corpus.visibility == "organization":
         if out_dir is None:
@@ -287,7 +402,17 @@ def benchmark(
         if part
     ) or ("no ceiling (not a live run)" if driver != "live" else "no ceiling")
     if plan_only:
-        for line in _plan_text(corpus, depths, driver, pushes, ceiling):
+        for line in _plan_text(
+            corpus,
+            depths,
+            driver,
+            pushes,
+            ceiling,
+            reviewers=reviewers,
+            repeat=repeat,
+            max_usd=max_usd,
+            max_calls=max_calls,
+        ):
             click.echo(line)
         return
     try:
@@ -307,6 +432,10 @@ def benchmark(
             similarity=similarity,
             reviewer_logins=tuple(logins),
             fetch_baseline=fetch_baseline,
+            reviewers=reviewers,
+            repeat=repeat,
+            diy_prompt=prompt,
+            diy_max_diff_chars=diy_max_diff_chars or DEFAULT_MAX_DIFF_CHARS,
         )
         # Read before the run: a long run can outlast a commit, and the report must name the code that ran.
         head, dirty = _git_head(checkout), _git_dirty(checkout)
@@ -411,9 +540,41 @@ def _git_dirty(checkout: Path | None) -> bool | None:
     return bool(completed.stdout.strip()) if completed.returncode == 0 else None
 
 
+def _rate_text(rate: dict[str, Any]) -> str:
+    if rate["value"] is None:
+        return "n/a"
+    text = f"{rate['value'] * 100:.0f}%"
+    interval = rate["ci95"]
+    return f"{text} ({interval[0] * 100:.0f}-{interval[1] * 100:.0f})" if interval else text
+
+
+def _n(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
+
+
 def _summary(report: dict[str, Any]) -> str:
     run = report["run"]
     lines = [f"{report['name']}: basis {run['basis']}"]
+    comparison = report["comparison"]
+    if comparison["reviewers"]:
+        lines.append(
+            f"  {'reviewer':<30} {'TP':>3} {'FP':>3} {'FN':>3}  {'precision':<18} {'recall':<18} {'f1':<18} usd/PR"
+        )
+        for row in comparison["reviewers"]:
+            totals = row["totals"]
+            usd = row["cost"]["per_pr"]["mean"]
+            lines.append(
+                f"  {row['name']:<30} {totals['tp']:>3} {totals['fp']:>3} {totals['fn']:>3}  "
+                f"{_rate_text(totals['precision']):<18} {_rate_text(totals['recall']):<18} {_rate_text(totals['f1']):<18} "
+                f"{'n/a' if usd is None else f'{usd:.4f}'} ({row['cost']['usd_basis']})"
+            )
+            stab = row["stability"]
+            if stab is not None:
+                lines.append(
+                    f"    {comparison['repeat']} runs: agreement {_n(stab['mean_jaccard'])}, "
+                    f"{stab['flipping_findings']}/{stab['findings']} findings flip, "
+                    f"{stab['labels_flipping']}/{stab['labels_scored']} labels flip"
+                )
     for depth, agg in report["aggregate"].items():
         usd = agg["provider_usd"]
         catch = agg["catch"]
@@ -421,7 +582,7 @@ def _summary(report: dict[str, Any]) -> str:
         lines.append(
             f"  {depth:<9} {agg['complete']}/{agg['prs']} complete  "
             f"calls {agg['model_calls']['mean'] if agg['model_calls']['mean'] is not None else 'n/a'}/review  "
-            f"usd {'n/a' if usd['mean'] is None else f'{usd['mean']:.4f}'}/review  "
+            f"usd {'n/a' if usd['mean'] is None else f'{usd["mean"]:.4f}'}/review  "
             f"findings p0/p1/p2 {agg['findings']['p0']}/{agg['findings']['p1']}/{agg['findings']['p2']}  "
             f"catch {catch['caught']}/{catch['expected']}  noise {noise['unmatched']}/{noise['findings']}"
         )

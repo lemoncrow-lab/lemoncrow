@@ -222,11 +222,12 @@ permissions:
   contents: read        # fetch the pull request's commits
   pull-requests: write  # the summary comment, inline findings, thread replies and resolves
   statuses: write       # the "LemonCrow Review" commit status
+  checks: read          # the CI results on the head commit, for the summary's proof of work
 jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -236,7 +237,11 @@ the history it needs and cleans up its own status, and a bad key or a token
 without `pull-requests: write` fails loudly instead of passing quietly. Replace
 `<sha>` with the release commit the
 [latest release](https://github.com/lemoncrow-lab/lemoncrow/releases/latest)
-prints (a commit, not a branch: the commit is the version that reviews). The
+prints (a commit, not a branch: the commit is the version that reviews), or let
+`lc review init-action` write the file pinned to the newest release. Each pull
+request's reviews are capped at $3.00 of model spend by default, held before
+every model call (`max-usd-per-pr`; `none` turns it off), and the summary's
+footer shows the spend against the cap. The
 options (depth, `fail-on`, strictness, chat, budgets), the permissions, the one
 status to require and the fork-pull-request behavior are in
 [Install the GitHub Action](docs/setup/github-action.md). To try it without CI:

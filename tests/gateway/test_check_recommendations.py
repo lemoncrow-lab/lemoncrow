@@ -56,7 +56,7 @@ def test_failures_first_but_never_override_denied_execution() -> None:
         _entry("checks.recipe:failed", status="not_available"),
         _entry("checks.recipe:required", required=True),
     )
-    actual = [{"recipe": {"id": "failed"}, "head_verdict": "FAIL"}]
+    actual = [{"recipe": {"id": "failed", "digest": catalog.recipes[0].digest}, "head_verdict": "FAIL"}]
     rows = recommend_checks(plan, catalog, actual)["recommendations"]
     assert [row["recipe_id"] for row in rows] == ["failed", "required"]
     assert rows[0]["can_run_now"] is False
@@ -80,6 +80,48 @@ def test_unknown_impact_is_explicit_and_no_unplanned_or_provisional_recipe_can_r
     assert row["coverage"] == "unknown"
     assert row["selected_test_count"] == 0
     assert row["selection_mode"] == "all"
+
+
+def test_unknown_impact_cannot_claim_targeted_coverage_from_unsafe_partial_graph() -> None:
+    recipe = CheckRecipe(id="unit", kind="test", command=("pytest", "{tests}"), origin="config")
+    catalog = RecipeCatalog(recipes=(recipe,))
+    plan = _plan(
+        _entry(
+            recipe.entry_id,
+            selection={
+                "unit": {
+                    "mode": "impact",
+                    "tests": ["tests/test_safe.py", "tests/test_possible.py"],
+                    "coverage": "unknown",
+                }
+            },
+        )
+    )
+    row = recommend_checks(plan, catalog, [])["recommendations"][0]
+    assert row["coverage"] == "unknown"
+    assert row["selection_mode"] == "impact"
+    assert row["selected_tests_sample"] == []
+    assert row["selected_test_count"] == 0
+    assert "coverage is unknown" in row["reason"]
+    assert row["manual_authorization_required"] is True
+    assert "command" not in row and "argv" not in row
+
+
+def test_current_verdict_requires_exact_trusted_recipe_digest_even_when_id_matches() -> None:
+    recipe = CheckRecipe(id="unit", kind="test", command=("pytest", "-q"), origin="config")
+    catalog = RecipeCatalog(recipes=(recipe,))
+    plan = _plan(_entry(recipe.entry_id))
+    stale = [{"recipe": {"id": "unit", "digest": "former-digest"}, "head_verdict": "PASS"}]
+    omitted = [{"recipe": {"id": "unit"}, "head_verdict": "FAIL"}]
+    for rows in (stale, omitted):
+        result = recommend_checks(plan, catalog, rows)["recommendations"][0]
+        assert result["previous_verdict"] == ""
+        assert "passed" not in result["reason"] and "execution FAIL" not in result["reason"]
+        assert result["manual_authorization_required"] is True
+    exact = [{"recipe": {"id": "unit", "digest": recipe.digest}, "head_verdict": "FAIL"}]
+    result = recommend_checks(plan, catalog, exact)["recommendations"][0]
+    assert result["previous_verdict"] == "FAIL"
+    assert "Previous execution FAIL" in result["reason"]
 
 
 def test_only_same_recipe_digest_can_suggest_reverification_or_claim_progress() -> None:

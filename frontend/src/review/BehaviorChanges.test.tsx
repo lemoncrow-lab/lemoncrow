@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ManualChecklist, registerDeltaText } from "./BehaviorChanges";
+import BehaviorChanges, { ManualChecklist, registerDeltaText } from "./BehaviorChanges";
 import ReviewBrief from "./ReviewBrief";
 import ReviewReadinessSheet from "./ReviewReadinessSheet";
 import {
@@ -83,7 +83,7 @@ const EVIDENCE = {
 function behavior(options: Partial<ReviewBehaviorSummary> = {}): ReviewBehaviorSummary {
   const targets = options.targets ?? [behaviorTarget()];
   return {
-    contract_version: 1,
+    contract_version: 2,
     revision_id: "rev-1",
     total: targets.length,
     progress: {
@@ -163,8 +163,11 @@ function renderBrief(value: ReviewProjection, overrides: Partial<Parameters<type
   );
 }
 
+/** Section labels; the Blind spots count is dropped because behavior data can genuinely add a blind spot. */
 function sectionLabels(container: HTMLElement): string[] {
-  return [...container.querySelectorAll("section[aria-label]")].map((node) => node.getAttribute("aria-label") ?? "");
+  return [...container.querySelectorAll("section[aria-label]")]
+    .map((node) => node.getAttribute("aria-label") ?? "")
+    .map((label) => (label.startsWith("Blind spots") ? "Blind spots" : label));
 }
 
 const BEHAVIOR_QUEUE_ENTRY = {
@@ -255,6 +258,71 @@ describe("Behavior changes in the Brief", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled());
   });
 
+  it("refuses a wrong-target or outdated fingerprint returned by the evidence endpoint", async () => {
+    const judge = vi.fn(async () => undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce(behaviorTarget({ behavior_key: "wrong-target", evidence: EVIDENCE }))
+      .mockResolvedValueOnce(behaviorTarget({ fingerprint: "wrong-version", evidence: EVIDENCE }));
+    const first = render(<BehaviorChanges behavior={behavior()} revisionId="rev-1" onLoadTarget={load} onJudge={judge} />);
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("belongs to another target");
+    expect(screen.queryByTestId("behavior-evidence")).toBeNull();
+    expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled();
+    first.unmount();
+    render(<BehaviorChanges behavior={behavior()} revisionId="rev-1" onLoadTarget={load} onJudge={judge} />);
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("evidence changed");
+    expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled();
+    expect(judge).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a stale behavior digest when a previous Snapshot's evidence arrives late", async () => {
+    let resolveOld!: (value: ReviewBehaviorTarget) => void;
+    const oldEvidence = new Promise<ReviewBehaviorTarget>((resolve) => { resolveOld = resolve; });
+    const newEvidence = { ...EVIDENCE, digest: "n".repeat(64) };
+    const load = vi.fn()
+      .mockImplementationOnce(() => oldEvidence)
+      .mockImplementationOnce(async () => behaviorTarget({ fingerprint: "fp-2", evidence: newEvidence }));
+    const judge = vi.fn(async () => undefined);
+    const first = behavior();
+    const { rerender } = render(<BehaviorChanges behavior={first} revisionId="rev-1" onLoadTarget={load} onJudge={judge} />);
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    expect(screen.getByText("Loading evidence…")).toBeInTheDocument();
+    const second = behavior({ revision_id: "rev-2", targets: [behaviorTarget({ fingerprint: "fp-2" })] });
+    rerender(<BehaviorChanges behavior={second} revisionId="rev-2" onLoadTarget={load} onJudge={judge} />);
+    expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled();
+    expect(screen.queryByText("Loading evidence…")).not.toBeInTheDocument();
+    await act(async () => { resolveOld(behaviorTarget({ evidence: EVIDENCE })); });
+    expect(screen.queryByTestId("behavior-evidence")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge).toHaveBeenCalledWith("beh:visual:abc", "reviewed", newEvidence.digest);
+  });
+
+  it("withdraws judgment when evidence or execution environment changes in the same Snapshot", async () => {
+    const newEvidence = { ...EVIDENCE, digest: "e".repeat(64) };
+    const load = vi.fn()
+      .mockResolvedValueOnce(behaviorTarget({ evidence: EVIDENCE }))
+      .mockResolvedValueOnce(behaviorTarget({ evidence: newEvidence, environment_fingerprint: "env-new" }));
+    const judge = vi.fn(async () => undefined);
+    const first = behavior();
+    const view = render(<BehaviorChanges behavior={first} revisionId="rev-1" onLoadTarget={load} onJudge={judge} />);
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeEnabled());
+    const next = behavior({ targets: [behaviorTarget({ environment_fingerprint: "env-new" })] });
+    view.rerender(<BehaviorChanges behavior={next} revisionId="rev-1" onLoadTarget={load} onJudge={judge} />);
+    expect(screen.queryByTestId("behavior-evidence")).toBeNull();
+    expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Show evidence" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge).toHaveBeenCalledWith("beh:visual:abc", "reviewed", newEvidence.digest);
+  });
+
   it("labels critical changes as individually judged and is read-only on a historical Snapshot", () => {
     renderBrief(
       projection({ historical: true, behavior: behavior({ targets: [behaviorTarget({ critical: true, bulk_eligible: false })] }) }),
@@ -281,7 +349,7 @@ describe("Behavior changes in the Brief", () => {
     );
     const narrative = screen.getByTestId("behavior-narrative");
     expect(narrative).toHaveTextContent("Checkout now renders a wider total.");
-    expect(narrative).toHaveTextContent("AI narrative · every statement cites the evidence it describes");
+    expect(narrative).toHaveTextContent("AI interpretation · not a verified runtime observation");
   });
 
   it("states changed-but-never-executed in the proof card only when execution ran", () => {
@@ -355,6 +423,18 @@ describe("Manual verification checklist", () => {
     await userEvent.type(within(sso).getByRole("textbox"), "login works");
     await userEvent.click(within(sso).getByRole("button", { name: "Observed working" }));
     expect(onRecord).toHaveBeenCalledWith("manual:sso", "PASS", "login works");
+  });
+
+  it("does not carry a previous Snapshot's human-observation note into a new verdict", async () => {
+    const record = vi.fn(async () => undefined);
+    const first = render(<ManualChecklist key="revision-1" checklist={CHECKLIST} onRecord={record} />);
+    const note = screen.getByRole("textbox", { name: "What you observed for Single sign-on" });
+    await userEvent.type(note, "Worked on an older deployment");
+    expect(note).toHaveValue("Worked on an older deployment");
+    first.rerender(<ManualChecklist key="revision-2" checklist={CHECKLIST} onRecord={record} />);
+    expect(screen.getByRole("textbox", { name: "What you observed for Single sign-on" })).toHaveValue("");
+    await userEvent.click(within(screen.getByTestId("manual-check-manual:sso")).getByRole("button", { name: "Could not verify" }));
+    expect(record).toHaveBeenCalledWith("manual:sso", "UNKNOWN", "");
   });
 
   it("is read-only without a recorder and lives inside the Status sheet's Verification subsection", () => {

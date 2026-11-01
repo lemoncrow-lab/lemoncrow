@@ -667,3 +667,72 @@ def test_a_retried_call_cannot_be_priced_from_its_last_attempt_alone(tmp_path: P
     assert attempts == 2
     assert outcome.status == "failed"
     assert "earlier attempt failed with no usage" in outcome.error  # its cost is unknown, so the ceiling cannot hold it
+
+
+_ANSWER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["confirmed", "not_confirmed", "unknown"]},
+        "target_ids": {"type": "array", "items": {"type": "string"}},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["status", "target_ids", "evidence_refs"],
+    "additionalProperties": False,
+}
+_FULL_ANSWER: dict[str, Any] = {"status": "not_confirmed", "target_ids": [], "evidence_refs": []}
+
+
+def _api_route(monkeypatch: pytest.MonkeyPatch, driver: str, answer: dict[str, Any]) -> list[list[dict[str, Any]]]:
+    """Stand in for *driver*'s provider client; returns the message lists it was sent."""
+
+    from lemoncrow.infra.internal_llm import litellm_client, ollama_client, openai_client
+    from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+
+    sent: list[list[dict[str, Any]]] = []
+
+    def with_result(messages: list[dict[str, Any]], **_: Any) -> InternalLLMChatResult:
+        sent.append(messages)
+        return InternalLLMChatResult(content=json.dumps(answer), parsed_json=dict(answer), model="m")
+
+    def ollama_chat(messages: list[dict[str, Any]], **_: Any) -> dict[str, Any]:
+        sent.append(messages)
+        return dict(answer)
+
+    monkeypatch.setattr(openai_client, "chat_with_result", with_result)
+    monkeypatch.setattr(litellm_client, "chat_with_result", with_result)
+    monkeypatch.setattr(ollama_client, "chat", ollama_chat)
+    return sent
+
+
+@pytest.mark.parametrize("driver", ["ollama", "openai", "litellm"])
+def test_a_model_api_route_is_told_the_output_schema(monkeypatch: pytest.MonkeyPatch, driver: str) -> None:
+    """A model-API call carries no tool or CLI schema flag: the schema must be in what the model reads.
+
+    Without it a model answering in JSON mode guesses the keys, and an answer with no ``target_ids`` or
+    ``evidence_refs`` can never become a finding.
+    """
+
+    sent = _api_route(monkeypatch, driver, _FULL_ANSWER)
+
+    execution = execute_structured(
+        system="You review code.", prompt="{}", output_schema=_ANSWER_SCHEMA, driver=driver, model="m", origin="machine"
+    )
+
+    assert execution.result == _FULL_ANSWER
+    system = sent[0][0]
+    assert system["role"] == "system" and system["content"].startswith("You review code.")
+    assert json.dumps(_ANSWER_SCHEMA, separators=(",", ":")) in system["content"]
+
+
+@pytest.mark.parametrize("driver", ["ollama", "openai", "litellm"])
+def test_an_answer_missing_a_required_field_fails_instead_of_reading_as_a_clean_review(
+    monkeypatch: pytest.MonkeyPatch, driver: str
+) -> None:
+    """``{"status": "not_confirmed"}`` alone is not an answer to the schema: it must fail, never pass as no finding."""
+
+    _api_route(monkeypatch, driver, {"status": "not_confirmed"})
+
+    with pytest.raises(InternalLLMError, match="evidence_refs, target_ids"):
+        execute_structured(
+            system="s", prompt="{}", output_schema=_ANSWER_SCHEMA, driver=driver, model="m", origin="machine"
+        )

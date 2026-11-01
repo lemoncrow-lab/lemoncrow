@@ -2,6 +2,8 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { INVESTIGATION_FIXTURES } from "./investigation/fixtures";
+import { authRefreshWithConsumers } from "./whatIf/fixtures";
 import ReviewBrief from "./ReviewBrief";
 import * as reviewApi from "./reviewApi";
 import type {
@@ -379,7 +381,7 @@ describe("ReviewBrief", () => {
   it("orders sections decision first: decisions, attention, proof, then where to read next", () => {
     renderBrief(projection());
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "What is proven", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
+    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "What is proven", "Blind spots · 4", "Assumptions", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
     expect(screen.getByText("Reviews now remain with their branch.")).toBeInTheDocument();
     expect(screen.getByText(/2 changed targets have no author explanation/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open files" })).toBeInTheDocument();
@@ -432,6 +434,39 @@ describe("ReviewBrief", () => {
     expect(within(history).getByText("No verified results")).toBeInTheDocument();
   });
 
+  it("distinguishes a validated worker report from independently signed process proof", async () => {
+    const base = projection();
+    const row = {
+      id: "worker-report", title: "Backend tests", status: "PASS", trust: "typed_observation" as const,
+      raw_attempt: false, exit_code: 0, executor_class: "customer_worker",
+      independent_execution: false, execution_provenance: "validated" as const,
+      environment_fingerprint: "env:worker", artifact_digest: "sha:report", evidence_id: "ev-worker",
+    };
+    const snapshot = {
+      revision_id: "rev-1", snapshot_number: 1, head_sha: "", state: "observed" as const,
+      configuration_comparable: false, reason: "Worker result is recorded",
+      counts: { pass: 1, fail: 0, not_run: 0, unknown: 0 },
+      receipts: [row], receipts_omitted: 0,
+    };
+    renderBrief({
+      ...base,
+      evaluation_timeline: {
+        schema_version: 1, selected_revision_id: "rev-1", limitations: [],
+        current: snapshot, snapshots: [snapshot],
+      },
+    });
+    const history = screen.getByTestId("brief-evaluation-history");
+    await userEvent.click(within(history).getByText("Evaluation history · 1 Snapshot"));
+    await userEvent.click(within(history).getByText("Execution receipts"));
+    expect(within(history).getByText(/Backend tests · exit 0 · customer_worker · PASS/)).toBeInTheDocument();
+    expect(within(history).getByText(
+      "Worker execution reported; independently signed process proof not verified.",
+    )).toBeInTheDocument();
+    expect(within(history).getByTestId("receipt-provenance-worker-report")).toHaveTextContent(
+      "Execution record validated",
+    );
+  });
+
   it("shows real Snapshot evaluation regression, raw receipt and an explicit no-score limit", async () => {
     const base = projection();
     renderBrief({
@@ -455,7 +490,9 @@ describe("ReviewBrief", () => {
             receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
               exit_code: 7, executor_class: "author_machine", environment_fingerprint: "envfp:sha256:0123456789", artifact_digest: "sha2", evidence_id: "r2",
               execution_provenance: "validated", execution_identity: "session-identity", recipe_digest: "recipe-digest",
-              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unverified_integrations: 2 },
+              attempt_receipt_id: "receipt:" + "a".repeat(52) + "deadbeefcafe",
+              attempt_recorded_at: "2026-10-28T08:00:00+00:00", attempt_lifecycle: "observed_run",
+              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unavailable_artifact_roles: ["stdout"], unverified_integrations: 2 },
               { id: "older", title: "Critical tests", status: "PASS", trust: "typed_observation", raw_attempt: false,
                 exit_code: 0, executor_class: "author_machine", environment_fingerprint: "", artifact_digest: "sha-old", evidence_id: "older",
                 superseded_by_newer_result: true }],
@@ -482,8 +519,11 @@ describe("ReviewBrief", () => {
     expect(within(history).getByText("Superseded by a newer check result; not counted in this Snapshot.")).toBeInTheDocument();
     expect(receipt).toHaveTextContent("Execution record validated");
     expect(receipt).toHaveTextContent("run: failed");
-    expect(receipt).toHaveTextContent("artifacts: trace");
+    expect(receipt).toHaveTextContent("available artifacts: trace");
+    expect(receipt).toHaveTextContent("unavailable/unverified artifacts: stdout");
+    expect(within(history).queryByRole("button", { name: "Inspect stdout" })).not.toBeInTheDocument();
     expect(receipt).toHaveTextContent("2 integration scope(s) not verified");
+    expect(within(history).getByText(/Evidence receipt deadbeefcafe/)).toHaveTextContent("recorded 2026-10-28");
     expect(receipt).not.toHaveTextContent("session-identity");
   });
 
@@ -738,7 +778,7 @@ describe("ReviewBrief", () => {
     renderBrief(
       projection({
         behavior: {
-          contract_version: 1,
+          contract_version: 2,
           revision_id: "rev-1",
           total: 0,
           progress: { total: 0, reviewed: 0, unreviewed: 0, changed_since_review: 0, needs_changes: 0, unknown: 0, critical: 0, outstanding: 0 },
@@ -781,7 +821,7 @@ describe("ReviewBrief", () => {
       queue: ["t-prune"],
     }));
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["What is proven", "Understand · 1"]);
+    expect(headings).toEqual(["What is proven", "Blind spots", "Assumptions", "Understand · 1"]);
     expect(screen.getByText("No open decisions")).toBeInTheDocument();
     expect(screen.getByTestId("brief-proof-counts")).toHaveTextContent(
       "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.",
@@ -836,6 +876,114 @@ function actionable(
     ...overrides,
   };
 }
+
+describe("ReviewBrief blind spots", () => {
+  it("mounts after the proof with distinct states and no score", () => {
+    renderBrief(projection());
+    const section = screen.getByRole("region", { name: "Blind spots · 4" });
+    expect(within(section).getByTestId("blind-spot-counts")).toHaveTextContent("Known blind spot2 areasNot measured");
+    expect(within(section).getByTestId("blind-spot-untested_hypotheses")).toHaveAttribute("data-state", "known");
+    expect(within(section).getByTestId("blind-spot-unexamined_consumers")).toHaveAttribute("data-state", "not_measured");
+    expect(within(section).queryByRole("button", { name: "Challenge" })).toBeNull();
+    expect(section.textContent).not.toMatch(/all clear|confidence|%/i);
+  });
+
+  it("opens the exact target, its evidence and Ask from a target-anchored item", async () => {
+    const handlers = renderBrief(projection());
+    const section = screen.getByTestId("blind-spots");
+    await userEvent.click(within(section).getByText("Untested claims and hypotheses"));
+    const item = within(section).getAllByTestId("blind-spot-item")[0];
+    expect(within(item).getByTestId("blind-spot-anchor")).toHaveTextContent("src/review/session.py · resolve_review");
+    await userEvent.click(within(item).getByRole("button", { name: "Open source" }));
+    expect(handlers.onOpenTarget).toHaveBeenCalledWith("t-resolve");
+    await userEvent.click(within(item).getByRole("button", { name: "See evidence" }));
+    expect(handlers.onInspectEvidence).toHaveBeenCalledWith("t-resolve");
+    await userEvent.click(within(item).getByRole("button", { name: "Ask" }));
+    expect(handlers.onAsk).toHaveBeenCalledWith("t-resolve");
+  });
+
+  it("keeps a Snapshot-wide gap at Review level with no source jump", async () => {
+    const handlers = renderBrief(projection(), { checks: [] });
+    const section = screen.getByTestId("blind-spots");
+    await userEvent.click(within(section).getByText("Stale or failed checks"));
+    const item = within(screen.getByTestId("blind-spot-checks")).getByTestId("blind-spot-item");
+    expect(item).toHaveTextContent("No check recorded on this Snapshot");
+    expect(within(item).getByTestId("blind-spot-anchor")).toHaveTextContent("Review level");
+    expect(within(item).queryByRole("button", { name: "Open source" })).toBeNull();
+    await userEvent.click(within(item).getByRole("button", { name: "See evidence" }));
+    expect(handlers.onInspectEvidence).toHaveBeenCalledWith(null);
+  });
+
+  it("records a decision through the existing decision card, never on a historical Snapshot", async () => {
+    const fixture = INVESTIGATION_FIXTURES.paymentRetry();
+    const onDecision = vi.fn().mockResolvedValue(undefined);
+    renderBrief(fixture.projection, { targets: fixture.targets, checks: fixture.checks, onDecision });
+    const human = screen.getByTestId("blind-spot-unresolved_human");
+    await userEvent.click(within(human).getByText("Unresolved comments and decisions"));
+    await userEvent.click(within(human).getByRole("button", { name: "Record decision" }));
+    await userEvent.click(within(within(human).getByTestId("brief-decision-retry-limit")).getByRole("button", { name: "Accept decision" }));
+    expect(onDecision).toHaveBeenCalledWith("retry-limit", { action: "accept", option_key: "three" });
+    cleanup();
+    renderBrief({ ...fixture.projection, historical: true }, { targets: fixture.targets, checks: fixture.checks, onDecision });
+    const historical = screen.getByTestId("blind-spot-unresolved_human");
+    await userEvent.click(within(historical).getByText("Unresolved comments and decisions"));
+    expect(within(historical).queryByRole("button", { name: "Record decision" })).toBeNull();
+  });
+
+  it("groups a 400+ target Review by file and renders rows only on demand", async () => {
+    const fixture = INVESTIGATION_FIXTURES.largeReview();
+    renderBrief(fixture.projection, { targets: fixture.targets, checks: fixture.checks });
+    const regions = screen.getByTestId("blind-spot-uninspected_regions");
+    expect(within(regions).queryAllByTestId("blind-spot-item")).toHaveLength(0);
+    await userEvent.click(within(regions).getByText("Important code not yet reviewed"));
+    const groups = within(regions).getAllByTestId("blind-spot-group");
+    expect(groups).toHaveLength(6);
+    expect(within(regions).queryAllByTestId("blind-spot-item")).toHaveLength(0);
+    await userEvent.click(within(groups[0]).getByText("src/large/module_00.py"));
+    expect(within(groups[0]).getAllByTestId("blind-spot-item")).toHaveLength(14);
+  });
+});
+
+describe("ReviewBrief what if", () => {
+  it("overlays a hypothetical on one target, opens its source and drops it on a new Snapshot", async () => {
+    const fixture = authRefreshWithConsumers({ index_status: "stale" });
+    const handlers = renderBrief(fixture.projection, { targets: fixture.targets, checks: fixture.checks });
+    const section = screen.getByRole("region", { name: "What if" });
+    await userEvent.click(within(section).getByRole("combobox", { name: "Changed target" }));
+    await userEvent.click(screen.getByRole("option", { name: "src/auth/refresh.ts · refreshToken" }));
+    await userEvent.click(within(section).getByRole("radio", { name: "Return value becomes nullable" }));
+    const overlay = within(section).getByTestId("what-if-overlay");
+    const rows = within(overlay).getAllByTestId("what-if-row");
+    expect(rows[0]).toHaveTextContent("src/api/session.ts:12 · session.renew");
+    expect(rows[0]).toHaveTextContent("Simulated effect");
+    expect(rows[0]).toHaveTextContent("Unchanged by this PR");
+    expect(within(overlay).getByTestId("what-if-unknowns")).toHaveTextContent("Code index is stale");
+    // Without the Reader's code-location opener, an out-of-patch row opens the changed code it depends on.
+    await userEvent.click(within(rows[0]).getByRole("button", { name: "Open changed code" }));
+    expect(handlers.onOpenTarget).toHaveBeenCalledWith("auth-refresh");
+    cleanup();
+
+    const onOpenCodeLocation = vi.fn();
+    const { rerender } = render(
+      <ReviewBrief projection={fixture.projection} loading={false} error="" targets={fixture.targets} onOpenTarget={vi.fn()} onOpenFiles={vi.fn()} onInspectEvidence={vi.fn()} onOpenCodeLocation={onOpenCodeLocation} />,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Changed target" }));
+    await userEvent.click(screen.getByRole("option", { name: "src/auth/refresh.ts · refreshToken" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Return value becomes nullable" }));
+    await userEvent.click(within(screen.getAllByTestId("what-if-row")[0]).getByRole("button", { name: "Open source" }));
+    expect(onOpenCodeLocation).toHaveBeenCalledWith({ path: "src/api/session.ts", line: 12, endLine: 12 });
+
+    const next = { ...fixture.projection, revision_id: "rev-auth-2", snapshot_number: 1 };
+    rerender(<ReviewBrief projection={next} loading={false} error="" targets={fixture.targets} onOpenTarget={vi.fn()} onOpenFiles={vi.fn()} onInspectEvidence={vi.fn()} />);
+    expect(screen.queryByTestId("what-if-overlay")).toBeNull();
+    expect(screen.getByTestId("what-if")).toHaveAttribute("data-snapshot", "review-auth@rev-auth-2");
+  });
+
+  it("is absent for a projection without a consumer inventory", () => {
+    renderBrief(projection());
+    expect(screen.queryByRole("region", { name: "What if" })).toBeNull();
+  });
+});
 
 describe("ReviewBrief decisions", () => {
   it("accepts the chosen option, the author's choice preselected", async () => {

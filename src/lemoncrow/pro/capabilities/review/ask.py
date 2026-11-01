@@ -213,6 +213,23 @@ def _source_snippet(
     return lo, hi, "\n".join(lines[lo - 1 : hi])
 
 
+def _bounded_snippet_lines(snippet: str, budget: int) -> tuple[str, int]:
+    """Fit complete source lines only; never advertise text clipped mid-line."""
+    if budget <= 0 or not snippet:
+        return "", 0
+    if len(snippet) <= budget:
+        return snippet, snippet.count("\n") + 1
+    kept: list[str] = []
+    remaining = budget
+    for line in snippet.split("\n"):
+        cost = len(line) + (1 if kept else 0)
+        if cost > remaining:
+            break
+        kept.append(line)
+        remaining -= cost
+    return "\n".join(kept), len(kept)
+
+
 def build_ask_context(
     *,
     store: ReviewStore,
@@ -253,9 +270,15 @@ def build_ask_context(
     # source context from authorized Snapshot bytes below.
     surface_context = {} if restricted_context else raw_surface_context
     paths = _candidate_paths(packet, question + " " + symbol, selected_path)
-    paths = [path for path in dict.fromkeys([*mentioned_paths, *paths]) if allowed is None or path in allowed][
-        :_MAX_SOURCE_FILES
-    ]
+    # The reviewer's explicit source selection is a stronger intent signal
+    # than incidental mentions or related Map paths. Reserve its source slot
+    # before applying the total file budget; policy-denied paths remain excluded.
+    selected_paths = (selected_path,) if selected_path else ()
+    paths = [
+        path
+        for path in dict.fromkeys([*selected_paths, *mentioned_paths, *paths])
+        if allowed is None or path in allowed
+    ][:_MAX_SOURCE_FILES]
     snapshot_paths = raw_surface_context.get("snapshot_paths")
     if isinstance(snapshot_paths, list):
         exact_context_paths = [
@@ -263,7 +286,7 @@ def build_ask_context(
             for item in snapshot_paths
             if isinstance(item, str) and item and (allowed is None or str(item) in allowed)
         ]
-        paths = list(dict.fromkeys([*exact_context_paths[:4], *paths]))[:_MAX_SOURCE_FILES]
+        paths = list(dict.fromkeys([*selected_paths, *exact_context_paths[:4], *paths]))[:_MAX_SOURCE_FILES]
     sources = exact_revision_sources(store, revision, paths=paths, side="new")
     selected_side: Literal["new", "old"] = "old" if side in {"old", "deletions"} else "new"
     selected_side_sources = (
@@ -290,9 +313,10 @@ def build_ask_context(
         )
         if not snippet:
             continue
-        snippet = snippet[:char_budget]
-        if not snippet:
-            break
+        snippet, included_lines = _bounded_snippet_lines(snippet, char_budget)
+        if not included_lines or not snippet:
+            continue
+        hi = lo + included_lines - 1
         char_budget -= len(snippet)
         source_rows.append(
             {
@@ -494,7 +518,16 @@ def build_ask_context(
                 }
             )
 
-    selected_source_available = not selected_path or selected_path in selected_side_sources
+    selected_source_available = not selected_path or (
+        selected_path in selected_side_sources
+        and any(
+            row["path"] == selected_path
+            and row["side"] == selected_side
+            and (start_line <= 0 or row["start_line"] <= start_line <= row["end_line"])
+            and (end_line <= 0 or row["end_line"] >= end_line)
+            for row in source_rows
+        )
+    )
     return {
         "revision": {
             "id": revision.id,
@@ -527,7 +560,11 @@ def build_ask_context(
                 else (
                     "selected source content is excluded from AI by policy"
                     if selected_path and allowed is not None and selected_path not in allowed
-                    else f"exact persisted {selected_side}-side source is unavailable; use persisted diff evidence only"
+                    else (
+                        f"exact persisted {selected_side}-side source is unavailable; use persisted diff evidence only"
+                        if selected_path not in selected_side_sources
+                        else "selected source lines were not fully included within the Ask source budget; narrow the selection"
+                    )
                 )
             ),
         },

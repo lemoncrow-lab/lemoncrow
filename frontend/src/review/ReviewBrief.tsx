@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
@@ -8,9 +8,27 @@ import { Select, SelectItem } from "../components/ui/select";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import BehaviorChanges, { ExecutionCoverageLine, type BehaviorJudgmentState } from "./BehaviorChanges";
-import BriefArchitectureDelta from "./BriefArchitectureDelta";
+import BlindSpots from "./blindSpots/BlindSpots";
+import { blindSpotsModel } from "./blindSpots/blindSpotsModel";
+import Assumptions from "./assumptions/Assumptions";
+import Challenge from "./challenge/Challenge";
+import {
+  OUTCOME_LABEL,
+  claimDigest,
+  claimFromAssumption,
+  claimFromBlindSpot,
+  claimFromWhatIf,
+  claimFromXRayStep,
+  observationFromRun,
+  type ChallengeClaim,
+} from "./challenge/challengeModel";
+import { useHeldChallenge, type HeldChallenge } from "./challenge/heldChallenge";
+import { investigationContext, type InvestigationInput } from "./investigation/investigationContext";
+import WhatIf from "./whatIf/WhatIf";
+import type { CodeTarget } from "../lib/codeLinks";
+import BriefArchitectureDelta, { targetForSelection, type BriefChangeStory } from "./BriefArchitectureDelta";
 import BriefProjectContext from "./ProjectHistory";
-import { fetchReviewExecutionArtifact, type ReviewExecutionArtifactView } from "./reviewApi";
+import { fetchHistoricalAnnotations, fetchReviewExecutionArtifact, type ReviewExecutionArtifactView } from "./reviewApi";
 import { LARGE_REVIEW_TARGET_THRESHOLD } from "./reviewSurfaceModel";
 import { DependencyReviewSummary, dependencyReviewRelevant } from "./ReviewFileSemantics";
 import ReviewTriageLine from "./ReviewTriageLine";
@@ -53,6 +71,8 @@ const REVIEW_DETAIL_KEY = "lemoncrow.review.detail";
 
 export interface ReviewBriefProps {
   projection: ReviewProjection | null;
+  /** The Reader's current revision: gives investigations their base and head commits on that Snapshot. */
+  revision?: InvestigationInput["revision"];
   loading: boolean;
   error: string;
   targets: readonly ReviewTarget[];
@@ -62,6 +82,8 @@ export interface ReviewBriefProps {
   onOpenFiles: () => void;
   onOpenTour?: () => void;
   onInspectEvidence: (targetId: string | null) => void;
+  /** N06: opens the target in Code with the Context drawer's Investigate tab; absent where that drawer is not. */
+  onInvestigate?: (targetId: string) => void;
   onAsk?: (targetId: string | null) => void;
   onDecision?: (key: string, input: ReviewDecisionEventInput) => Promise<void>;
   /** Explain unexplained change groups through the shared Review intelligence runtime. */
@@ -98,6 +120,10 @@ export interface ReviewBriefProps {
   checks?: readonly EvidenceRow[];
   /** Snapshot-wide check counts; without them the proof card counts the checks linked to claims. */
   checkCounts?: CheckCounts | null;
+  /** Opens a code location: the covering in-patch target, else the Snapshot source there (What if rows outside the patch). */
+  onOpenCodeLocation?: (location: CodeTarget) => void;
+  /** The Reader has been told a newer Snapshot exists; an open Change Story then says it is the older path. */
+  snapshotSuperseded?: boolean;
 }
 
 type CheckCounts = { pass: number; fail: number; not_run: number; unknown: number };
@@ -751,6 +777,38 @@ function linkedStatuses(claims: readonly ReviewProjectionClaim[]): string[] {
   return [...worst.values()];
 }
 
+/** The held challenge in one line: its claim, what a run showed, and whether it still describes this Snapshot. */
+function HeldChallengeLine({
+  held,
+  currentIdentity,
+  onReopen,
+  onDismiss,
+}: {
+  held: HeldChallenge;
+  currentIdentity: string;
+  onReopen: () => void;
+  onDismiss: () => void;
+}) {
+  const stale = held.claim.snapshotIdentity !== currentIdentity;
+  const result = held.run ? observationFromRun(held.run, held.claim, currentIdentity) : null;
+  return (
+    <Section title="Challenge">
+      <div className="ch-held" data-testid="challenge-held" data-stale={stale ? "true" : "false"}>
+        {stale && <Badge tone="warning" data-testid="challenge-held-stale">Stale</Badge>}
+        <span className="ch-held-text" title={held.claim.text}>{held.claim.text}</span>
+        <span className="text-micro text-muted-foreground">
+          {result ? `${OUTCOME_LABEL[result.outcome]}${result.checkOutcome ? ` · check ${result.checkOutcome.replace("_", " ")}` : ""}` : "Not run"}
+        </span>
+        <UiButton variant="outline" size="compact" type="button" onClick={onReopen}>Reopen</UiButton>
+        <UiButton variant="ghost" size="compact" type="button" onClick={onDismiss}>Dismiss</UiButton>
+      </div>
+      {stale && (
+        <p className="text-caption text-muted-foreground">Read on an earlier Snapshot: it says nothing about the Snapshot shown now. Challenge it again here.</p>
+      )}
+    </Section>
+  );
+}
+
 /**
  * The proof card: what ran on this Snapshot and what it showed, each claim
  * beside its evidence, and what nothing verified. A check that did not run
@@ -944,18 +1002,31 @@ function EvaluationHistory({ timeline, reviewId }: { timeline?: ReviewEvaluation
             <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
             {snapshot.receipts.some((receipt) =>
               receipt.exit_code !== null || receipt.execution_provenance === "rejected"
-              || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => ["stdout", "stderr", "log", "report"].includes(role)))
+              || (receipt.execution_provenance === "validated" && ((receipt.artifact_roles?.length ?? 0) > 0 || (receipt.unavailable_artifact_roles?.length ?? 0) > 0))
             ) && (
               <details className="basis-full text-meta text-muted-foreground">
                 <summary className="cursor-pointer">Execution receipts</summary>
                 {snapshot.receipts.filter((receipt) =>
                   receipt.exit_code !== null || receipt.execution_provenance === "rejected"
-                  || (receipt.execution_provenance === "validated" && (receipt.artifact_roles ?? []).some((role) => ["stdout", "stderr", "log", "report"].includes(role)))
+                  || (receipt.execution_provenance === "validated" && ((receipt.artifact_roles?.length ?? 0) > 0 || (receipt.unavailable_artifact_roles?.length ?? 0) > 0))
                 ).slice(0, 5).map((receipt) => (
                   <div key={receipt.id} className="mt-1 break-words">
                     <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
+                    {receipt.attempt_receipt_id && (
+                      <div className="text-micro text-muted-foreground" title="Hash-bound persisted evidence receipt; not a worker-signed run identifier">
+                        {`Evidence receipt ${receipt.attempt_receipt_id.slice(-12)}`}
+                        {receipt.attempt_recorded_at && ` · recorded ${receipt.attempt_recorded_at}`}
+                        {receipt.attempt_lifecycle !== "observed_run" && " · no independently attested run lifecycle"}
+                      </div>
+                    )}
                     {receipt.superseded_by_newer_result && <div className="text-micro text-muted-foreground">Superseded by a newer check result; not counted in this Snapshot.</div>}
                     {receipt.executor_class === "author_machine" && <div className="text-micro text-muted-foreground">Author machine (self-attested); not independent verification.</div>}
+                    {(receipt.executor_class === "customer_worker" || receipt.executor_class === "managed_sandbox") &&
+                      receipt.execution_provenance === "validated" && receipt.independent_execution !== true && (
+                        <div className="text-micro text-muted-foreground">
+                          Worker execution reported; independently signed process proof not verified.
+                        </div>
+                      )}
                     <div className="text-micro text-muted-foreground" data-testid={`receipt-provenance-${receipt.id}`}>
                       {receipt.execution_provenance === "validated"
                         ? `Execution record validated${receipt.environment_fingerprint ? ` · environment ${receipt.environment_fingerprint.slice(0, 17)}…` : ""}`
@@ -963,7 +1034,8 @@ function EvaluationHistory({ timeline, reviewId }: { timeline?: ReviewEvaluation
                           ? "Execution record rejected; not verified"
                           : "No structured execution record available"}
                       {(receipt.stage_outcomes?.length ?? 0) > 0 && ` · ${receipt.stage_outcomes!.map((stage) => `${stage.stage}: ${stage.status}`).join(", ")}`}
-                      {(receipt.artifact_roles?.length ?? 0) > 0 && ` · artifacts: ${receipt.artifact_roles!.join(", ")}`}
+                      {(receipt.artifact_roles?.length ?? 0) > 0 && ` · available artifacts: ${receipt.artifact_roles!.join(", ")}`}
+                      {(receipt.unavailable_artifact_roles?.length ?? 0) > 0 && ` · unavailable/unverified artifacts: ${receipt.unavailable_artifact_roles!.join(", ")}`}
                       {(receipt.unverified_integrations ?? 0) > 0 && ` · ${receipt.unverified_integrations} integration scope(s) not verified`}
                     </div>
                     {reviewId && receipt.execution_provenance === "validated" && (
@@ -1079,6 +1151,7 @@ function ItemCard({
   onToggle,
   onOpenTarget,
   onInspectEvidence,
+  onInvestigate,
   onAsk,
 }: {
   item: ReviewProjectionItem;
@@ -1090,6 +1163,7 @@ function ItemCard({
   onToggle: () => void;
   onOpenTarget: (targetId: string) => void;
   onInspectEvidence: (targetId: string | null) => void;
+  onInvestigate?: (targetId: string) => void;
   onAsk?: (targetId: string | null) => void;
 }) {
   const first = item.primary_target_ids[0] ?? item.related_target_ids[0] ?? null;
@@ -1187,6 +1261,9 @@ function ItemCard({
         <div className="mt-2 flex flex-wrap gap-1.5">
           {reviewFirst && (
             <>
+              {onInvestigate && byId.has(first) && (
+                <UiButton variant="outline" size="compact" type="button" onClick={() => onInvestigate(first)}>Investigate</UiButton>
+              )}
               <UiButton variant="outline" size="compact" type="button" onClick={() => onInspectEvidence(first)}>Inspect evidence</UiButton>
               {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(first)}>Ask</UiButton>}
             </>
@@ -1422,6 +1499,7 @@ export default function ReviewBrief({
   onOpenFiles,
   onOpenTour,
   onInspectEvidence,
+  onInvestigate,
   onAsk,
   onDecision,
   onSynthesize,
@@ -1441,6 +1519,9 @@ export default function ReviewBrief({
   productionOutcomes,
   checks,
   checkCounts,
+  onOpenCodeLocation,
+  snapshotSuperseded,
+  revision,
 }: ReviewBriefProps) {
   const [expandedId, setExpandedId] = useState("");
   const [detailLevel, setDetailLevelState] = useState<ReviewDetail>(() => {
@@ -1460,6 +1541,56 @@ export default function ReviewBrief({
   const [doneOpen, setDoneOpen] = useState(false);
 
   const byId = useMemo(() => new Map(targets.map((target) => [target.target_id, target])), [targets]);
+  // Challenge (N04): the one claim this tab holds, opened from any entry point below.
+  const [heldChallenge, setHeldChallenge] = useHeldChallenge(projection?.review_id ?? "");
+  const [challengeOpen, setChallengeOpen] = useState(false);
+  const openChallenge = useCallback((claim: ChallengeClaim | null) => {
+    if (!claim) return;
+    // Reopening the same claim on the same Snapshot keeps its run; anything else starts clean.
+    const same = heldChallenge
+      && heldChallenge.claim.snapshotIdentity === claim.snapshotIdentity
+      && claimDigest(heldChallenge.claim) === claimDigest(claim);
+    setHeldChallenge({ claim, run: same ? heldChallenge.run : null });
+    setChallengeOpen(true);
+  }, [heldChallenge, setHeldChallenge]);
+  // Change Story (C04): local reads of this Snapshot only; no model or external call.
+  const storyReviewId = projection?.review_id ?? "";
+  const storySnapshot = projection?.snapshot_number ?? null;
+  // Stable per Snapshot, so a flag that flips mid-walk does not reload the story's findings.
+  const loadStoryFindings = useMemo(
+    () => (storyReviewId && storySnapshot !== null
+      ? () => fetchHistoricalAnnotations(storyReviewId, storySnapshot).then((list) => list.annotations)
+      : undefined),
+    [storyReviewId, storySnapshot],
+  );
+  const changeStory = useMemo<BriefChangeStory>(() => ({
+    targets,
+    checks: checks ?? null,
+    loadFindings: loadStoryFindings,
+    onOpenTarget,
+    onOpenLocation: onOpenCodeLocation,
+    superseded: snapshotSuperseded,
+    snapshot: storySnapshot,
+    onChallengeStep: (step, xray) => openChallenge(claimFromXRayStep(step, xray, targets)),
+    // The run's own record lives with the step's checks; with no target, the readiness view lists every run.
+    onOpenEvidence: (selection) => onInspectEvidence(targetForSelection(targets, selection)?.target_id ?? null),
+  }), [checks, loadStoryFindings, onInspectEvidence, onOpenCodeLocation, onOpenTarget, openChallenge, snapshotSuperseded, storySnapshot, targets]);
+  // The Review-subject investigation context of the Snapshot shown now.
+  const briefContext = useMemo(
+    () => (projection ? investigationContext({ projection, targets, checks, revision }) : null),
+    [checks, projection, revision, targets],
+  );
+  // Blind Spots (N05): a read-only projection over data already in hand; no fetch, no model call.
+  const blindSpots = useMemo(() => {
+    if (!projection || !briefContext) return null;
+    return blindSpotsModel({
+      context: briefContext,
+      projection,
+      targets,
+      checkCounts,
+      capabilities: { openSource: true, evidence: true, ask: Boolean(onAsk), decide: Boolean(onDecision) && !projection.historical },
+    });
+  }, [briefContext, checkCounts, onAsk, onDecision, projection, targets]);
 
   if (!projection) {
     return (
@@ -1558,6 +1689,7 @@ export default function ReviewBrief({
       onToggle={() => setExpandedId((current) => current === item.id ? "" : item.id)}
       onOpenTarget={onOpenTarget}
       onInspectEvidence={onInspectEvidence}
+      onInvestigate={onInvestigate}
       onAsk={onAsk}
     />
   );
@@ -1742,6 +1874,81 @@ export default function ReviewBrief({
         />
       </Section>
 
+      {/* N04: the challenge this tab holds, while its sheet is closed; stale once the Snapshot moved on. */}
+      {heldChallenge && !challengeOpen && (
+        <HeldChallengeLine
+          held={heldChallenge}
+          currentIdentity={briefContext?.snapshot_identity ?? ""}
+          onReopen={() => setChallengeOpen(true)}
+          onDismiss={() => setHeldChallenge(null)}
+        />
+      )}
+
+      {/* 4b. What is not proven: known blind spots, and what was never measured. */}
+      {blindSpots && (
+        <Section title={blindSpots.counts.items > 0 ? `Blind spots · ${blindSpots.counts.items}` : "Blind spots"}>
+          <BlindSpots
+            model={blindSpots}
+            onOpenTarget={onOpenTarget}
+            onInspectEvidence={onInspectEvidence}
+            onAsk={onAsk}
+            renderDecision={(key) => {
+              const decision = projection.decisions.find((row) => row.key === key);
+              return decision ? decisionCard(decision) : null;
+            }}
+            onChallenge={(item, context) => openChallenge(claimFromBlindSpot(item, projection, targets, context.snapshot_identity))}
+            canChallenge={(item) => claimFromBlindSpot(item, projection, targets, blindSpots.context.snapshot_identity) !== null}
+          />
+        </Section>
+      )}
+
+      {/* 4c. Assumptions (N02): what the change relies on; keyed so a new Snapshot drops its view state. */}
+      <Section title="Assumptions">
+        <Assumptions
+          key={`${projection.review_id}@${projection.revision_id}`}
+          projection={projection}
+          targets={targets}
+          checks={checks}
+          revision={revision}
+          onOpenTarget={onOpenTarget}
+          onOpenCodeLocation={onOpenCodeLocation}
+          onAsk={onAsk}
+          onChallenge={(row, context) => openChallenge(claimFromAssumption(row, context.snapshot_identity))}
+        />
+      </Section>
+
+      {/* 4d. What if (N03): a read-only hypothetical over this Snapshot's impact data; keyed so a new Snapshot drops it. */}
+      {projection.context !== undefined && (
+        <Section title="What if">
+          <WhatIf
+            key={`${projection.review_id}@${projection.revision_id}`}
+            projection={projection}
+            targets={targets}
+            checks={checks}
+            onOpenTarget={onOpenTarget}
+            onOpenCodeLocation={onOpenCodeLocation}
+            revision={revision}
+            onChallenge={(row, model, label) => openChallenge(claimFromWhatIf(row, model, label))}
+          />
+        </Section>
+      )}
+
+      {heldChallenge && challengeOpen && (
+        <Challenge
+          claim={heldChallenge.claim}
+          projection={projection}
+          targets={targets}
+          checks={checks}
+          revision={revision}
+          canRun={Boolean(onDecision) && !projection.historical}
+          run={heldChallenge.run}
+          onRun={(run) => setHeldChallenge({ claim: heldChallenge.claim, run })}
+          onOpenTarget={onOpenTarget}
+          onOpenCodeLocation={onOpenCodeLocation}
+          onClose={() => setChallengeOpen(false)}
+        />
+      )}
+
       {/* 3. What deserves attention: the behavior that changed, then the code to read first. */}
       {behavior && (
         <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
@@ -1829,6 +2036,7 @@ export default function ReviewBrief({
           load={loadArchitectureDelta}
           onOpen={onOpenArchitecture}
           eager={targets.length <= LARGE_REVIEW_TARGET_THRESHOLD}
+          story={changeStory}
         />
       )}
 

@@ -24,7 +24,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from functools import lru_cache
 from typing import Any, Final
@@ -269,11 +269,16 @@ def run_limited(command: Sequence[str], *, timeout: float, **kwargs: Any) -> sub
         return proc
 
 
+class SandboxExecutionCancelled(RuntimeError):
+    """Trusted host revoked an isolated process before its output could be published."""
+
+
 def run_limited_bounded(
     command: Sequence[str],
     *,
     timeout: float,
     max_output_bytes: int = 8192,
+    should_cancel: Callable[[], bool] | None = None,
     **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
     """Execute with one sandbox slot and bounded stdout/stderr memory.
@@ -283,6 +288,8 @@ def run_limited_bounded(
     the controller, even if a command continuously prints until timeout.
     A fresh process group allows a deadline to kill descendants holding pipes.
     """
+    if should_cancel is not None and should_cancel():
+        raise SandboxExecutionCancelled("isolated process cancelled before launch")
     if not 1 <= max_output_bytes <= 65536:
         raise ValueError("bounded Review output must be 1..65536 bytes per stream")
     forbidden = {"stdout", "stderr", "text", "encoding", "errors", "check", "start_new_session"}
@@ -294,6 +301,8 @@ def run_limited_bounded(
     completed = False
     with sandbox_slot(timeout):
         try:
+            if should_cancel is not None and should_cancel():
+                raise SandboxExecutionCancelled("isolated process cancelled before launch")
             proc = subprocess.Popen(
                 actual,
                 stdout=subprocess.PIPE,
@@ -311,6 +320,8 @@ def run_limited_bounded(
                     timeout + 3 if sys.platform == "darwin" and sandbox_memory_mb() else timeout
                 )
                 while selector.get_map():
+                    if should_cancel is not None and should_cancel():
+                        raise SandboxExecutionCancelled("isolated process cancelled during execution")
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise subprocess.TimeoutExpired(actual, timeout)
@@ -323,10 +334,16 @@ def run_limited_bounded(
                         tail.extend(chunk)
                         if len(tail) > max_output_bytes:
                             del tail[:-max_output_bytes]
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise subprocess.TimeoutExpired(actual, timeout)
-                proc.wait(timeout=remaining)
+                while proc.poll() is None:
+                    if should_cancel is not None and should_cancel():
+                        raise SandboxExecutionCancelled("isolated process cancelled during execution")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(actual, timeout)
+                    try:
+                        proc.wait(timeout=min(0.2, remaining))
+                    except subprocess.TimeoutExpired:
+                        continue
             if sys.platform == "darwin" and proc.returncode == 124:
                 raise subprocess.TimeoutExpired(actual, timeout)
             completed = True

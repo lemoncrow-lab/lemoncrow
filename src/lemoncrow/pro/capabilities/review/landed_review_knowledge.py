@@ -26,6 +26,15 @@ from lemoncrow.pro.capabilities.review.project_knowledge import (
 
 _MAX_DECISIONS = 100
 _MAX_OBSERVATIONS = 100
+# Exact human action/disposition pairs. A deferred or reopened decision is
+# historical context, never an accepted policy decision or code proof.
+_HUMAN_HISTORY_ACTIONS = {
+    ("accept", "accepted"): "accepted",
+    ("reconfirm", "accepted"): "reconfirmed acceptance of",
+    ("defer", "deferred"): "deferred",
+    ("request_change", "change_requested"): "requested changes to",
+    ("reopen", "open"): "reopened",
+}
 
 
 def landed_review_facts(
@@ -64,19 +73,19 @@ def landed_review_facts(
             event.revision_id != revision_id
             or event.reviewer_id != session.reviewer_id
             or event.actor_type != "human"
-            or event.action not in {"accept", "reconfirm"}
-            or event.disposition != "accepted"
+            or (event.action, event.disposition) not in _HUMAN_HISTORY_ACTIONS
         ):
             continue
+        action = _HUMAN_HISTORY_ACTIONS[(event.action, event.disposition)]
         fingerprint = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
         facts.append(
             KnowledgeFact(
                 subject=KnowledgeSubject("concept", f"review-decision:{review_id}:{fingerprint}"),
                 knowledge_kind="landed_review_decision",
                 body=(
-                    f"Human reviewer accepted a recorded decision in Review Snapshot {revision_id} "
-                    f"(decision hash {fingerprint}; event {event.id}). "
-                    "Historical reviewer disposition, not code evidence or governing policy; "
+                    f"Human reviewer {action} a recorded decision in Review Snapshot {revision_id} "
+                    f"(decision hash {fingerprint}; event {event.id}; final disposition {event.disposition}). "
+                    "Historical reviewer disposition, not code evidence, active acceptance or governing policy; "
                     "read decision details only through the authorized Review."
                 ),
                 source_refs=(*refs, f"outcome:decision-event:{event.id}"),

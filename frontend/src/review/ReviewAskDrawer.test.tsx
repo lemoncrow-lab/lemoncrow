@@ -892,6 +892,53 @@ describe("ReviewAskDrawer", () => {
       fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
     }
 
+    it("never paints another Review's private conversation when the Review ID changes", async () => {
+      const oldMessage = message({ id: "private-message", body: "PRIVATE PREVIOUS REVIEW MESSAGE" });
+      const deferred = new Promise<Awaited<ReturnType<typeof api.fetchReviewAsk>>>(() => undefined);
+      vi.mocked(api.fetchReviewAsk).mockImplementation((id) => id === "first-review"
+        ? Promise.resolve({ review_id: id, latest_revision_number: 2, messages: [oldMessage] })
+        : deferred);
+      const shared = {
+        revisionId: "rev-2", revisionNumber: 2, latestRevisionNumber: 2,
+        onClearScope: vi.fn(), onClose: vi.fn(), onSwitchLatest: vi.fn(), onOpenReference: vi.fn(),
+      };
+      const first = render(<ReviewAskDrawer {...shared} reviewId="first-review" />);
+      expect(await screen.findByText("PRIVATE PREVIOUS REVIEW MESSAGE")).toBeInTheDocument();
+      first.rerender(<ReviewAskDrawer {...shared} reviewId="second-review" />);
+      expect(screen.queryByText("PRIVATE PREVIOUS REVIEW MESSAGE")).toBeNull();
+      expect(screen.getByLabelText("Syncing conversation")).toBeInTheDocument();
+    });
+
+    it("rejects a late answer when the viewed Snapshot changes during the stream", async () => {
+      let emit: ((event: api.ReviewAskStreamEvent) => void) | undefined;
+      let finish: ((result: Awaited<ReturnType<typeof api.streamReviewAsk>>) => void) | undefined;
+      let signal: AbortSignal | undefined;
+      vi.mocked(api.streamReviewAsk).mockImplementation((_id, _input, onEvent, abortSignal) => {
+        emit = onEvent;
+        signal = abortSignal;
+        return new Promise((resolve) => { finish = resolve; });
+      });
+      const shared = {
+        reviewId: "review-1", latestRevisionNumber: 5, onClearScope: vi.fn(),
+        onClose: vi.fn(), onSwitchLatest: vi.fn(), onOpenReference: vi.fn(),
+      };
+      const view = render(<ReviewAskDrawer {...shared} revisionId="rev-5" revisionNumber={5} />);
+      await askQuestion("Why is this token trusted?");
+      act(() => emit?.({ type: "delta", text: "An unverified assertion about the old Snapshot" }));
+      expect(screen.getByText(/An unverified assertion/)).toBeInTheDocument();
+      view.rerender(<ReviewAskDrawer {...shared} revisionId="rev-6" revisionNumber={6} latestRevisionNumber={6} />);
+      expect(signal?.aborted).toBe(true);
+      expect(await screen.findByText(/Snapshot changed while Ask was running/)).toBeInTheDocument();
+      act(() => emit?.({ type: "delta", text: " INJECTED LATE" }));
+      await act(async () => finish?.({
+        review_id: "review-1", latest_revision_number: 6,
+        human: message({ id: "old-human", revision_number: 5 }),
+        assistant: message({ id: "old-answer", revision_number: 5, body: "INCORRECT LATE ANSWER" }),
+      }));
+      expect(screen.queryByText(/INJECTED LATE|INCORRECT LATE ANSWER/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Send Ask question" })).toBeInTheDocument();
+    });
+
     it("stops an Ask that is still starting: the request is aborted and the question stays as a stopped turn, not a failure", async () => {
       let signal: AbortSignal | undefined;
       vi.mocked(api.streamReviewAsk).mockImplementation(abortableStream((value) => { signal = value; }));

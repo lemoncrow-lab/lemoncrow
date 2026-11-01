@@ -86,22 +86,29 @@ export function ProjectHistoryList({ context, testId }: { context: ReviewProject
  * history exists for this Change. Loading is a plain read; it never starts AI.
  */
 export default function BriefProjectContext({ load }: { load: (term?: string, history?: "" | "decisions" | "checks", force?: boolean) => Promise<ReviewProjectContext | null> }) {
-  const [context, setContext] = useState<ReviewProjectContext | null>(null);
+  const [loadedContext, setContext] = useState<ReviewProjectContext | null>(null);
+  const [loadedFor, setLoadedFor] = useState<typeof load>(() => load);
+  // A new Snapshot supplies a new load callback. Hide the old revision's
+  // history during render, before the cleanup/reload effect runs.
+  const visibleContext = loadedFor === load ? loadedContext : null;
   const [term, setTerm] = useState("");
   const [browse, setBrowse] = useState<"related" | "decisions" | "checks" | "search">("related");
   const [busy, setBusy] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [initialLoadFailed, setInitialLoadFailed] = useState(false);
   const generationRef = useRef(0);
   useEffect(() => {
     const generation = ++generationRef.current;
+    setLoadedFor(() => load);
     setContext(null);
     setTerm("");
     setBrowse("related");
     setSearchError("");
+    setInitialLoadFailed(false);
     Promise.resolve()
       .then(() => load())
-      .then((next) => { if (generationRef.current === generation) setContext(next); })
-      .catch(() => { if (generationRef.current === generation) setContext(null); });
+      .then((next) => { if (generationRef.current === generation) { setContext(next); setInitialLoadFailed(false); } })
+      .catch(() => { if (generationRef.current === generation) { setContext(null); setInitialLoadFailed(true); } });
     return () => { generationRef.current += 1; };
   }, [load]);
   const search = (event: FormEvent<HTMLFormElement>) => {
@@ -136,7 +143,23 @@ export default function BriefProjectContext({ load }: { load: (term?: string, hi
       .catch(() => { if (generationRef.current === generation) setSearchError("Landed history is unavailable."); })
       .finally(() => { if (generationRef.current === generation) setBusy(false); });
   };
-  if (!context) return null;
+  if (loadedFor === load && !visibleContext && initialLoadFailed) return (
+    <section aria-label="Relevant history unavailable" data-testid="brief-history-unavailable" className="border-t border-border/70 py-2 text-caption text-muted-foreground">
+      <p role="status">Landed history could not be loaded. This does not mean no previous decisions or checks exist.</p>
+      <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => {
+        const generation = ++generationRef.current;
+        setBusy(true);
+        setSearchError("");
+        void Promise.resolve().then(() => load("", "", true))
+          .then((next) => { if (generationRef.current === generation) { setContext(next); setInitialLoadFailed(false); } })
+          .catch(() => { if (generationRef.current === generation) setSearchError("Landed history is still unavailable."); })
+          .finally(() => { if (generationRef.current === generation) setBusy(false); });
+      }}>Retry history</UiButton>
+      {searchError && <p role="alert">{searchError}</p>}
+    </section>
+  );
+  if (!visibleContext) return null;
+  const context = visibleContext;
   if (!context.available && context.reason === "no_canonical_generation") {
     return (
       <section aria-label="Project history sync" data-testid="brief-history-not-synced"

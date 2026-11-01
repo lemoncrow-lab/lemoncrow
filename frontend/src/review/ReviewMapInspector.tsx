@@ -56,7 +56,7 @@ function statusLine(node: ReviewMapNode): string {
     const change = (node.change || node.change_kinds?.[0] || "modified").toLowerCase();
     return change === "deleted" || change === "removed" ? "Deleted in this change" : change === "renamed" ? "Renamed in this change" : "Modified in this change";
   }
-  if (node.status === "impacted") return "Unchanged, but reached by the change";
+  if (node.status === "impacted") return "Unchanged source · statically linked to the change (not execution proof)";
   return "Surrounding code";
 }
 
@@ -376,10 +376,10 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
         <p className="mt-1.5 text-body leading-5 text-muted-foreground">
           {summary}{" "}
           {affected
-            ? `${plural(affected, "unchanged file")} ${affected === 1 ? "is" : "are"} reached by it.`
+            ? `${plural(affected, "unchanged file")} ${affected === 1 ? "has" : "have"} a reported static relationship to the change; this does not prove runtime execution or impact.`
             : impactSkipped
-              ? "Change-impact analysis did not run for this Snapshot."
-              : "No unchanged file was found to be reached by it."}
+              ? "Change-impact analysis did not run for this Snapshot; absence of links is not evidence of safety."
+              : "No unchanged file is shown by the available relationships; missing or dynamic links may still exist."}
           {pending && " Surrounding relationships are still being indexed and will appear shortly."}
         </p>
       </div>
@@ -416,11 +416,11 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
       <Section title="Reading the map">
         <ul className="space-y-1.5 text-label leading-4 text-muted-foreground">
           <li><span className="text-foreground">Changed</span> files sit in the middle, grouped by folder and ordered by review priority.</li>
-          <li><span className="text-foreground">Used by</span> (left) is code that depends on the change; <span className="text-foreground">Uses</span> (right) is code the change depends on.</li>
+          <li><span className="text-foreground">Used by</span> and <span className="text-foreground">Uses</span> show available static dependencies, not an observed runtime execution path. Dynamic or unindexed relationships may be missing.</li>
           <li>Hover or select a file to trace its links. Double-click to map one file; press <kbd className="rounded border border-border px-1 font-mono text-caption">o</kbd> to open it in the diff.</li>
         </ul>
         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-caption text-muted-foreground">
-          <span className="flex items-center gap-1.5"><KindSwatch kind="impacts" />affects (Snapshot)</span>
+          <span className="flex items-center gap-1.5"><KindSwatch kind="impacts" />static impact (Snapshot)</span>
           <span className="flex items-center gap-1.5"><KindSwatch kind="calls" />calls</span>
           <span className="flex items-center gap-1.5"><KindSwatch kind="imports" />imports</span>
           <span className="flex items-center gap-1.5"><KindSwatch kind="references" />references</span>
@@ -696,7 +696,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
   const fromName = fromNode ? nodeName(fromNode) : from;
   const toName = toNode ? nodeName(toNode) : to;
   const sentence = kind === "impacts"
-    ? `${toName} changed in a way that reaches ${fromName}`
+    ? `Snapshot evidence links ${toName} with unchanged ${fromName}`
     : `${fromName} ${EDGE_KIND_LABEL[kind]} ${toName}`;
   const architectureLabel = edge.delta_status ? ` · architecture ${edge.delta_status.replace(/_/g, " ")}` : "";
   const label = `${fromName} → ${toName} · ${edge.kind}`;
@@ -712,7 +712,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
           <div className="min-w-0 flex-1">
             <h2 className="text-heading font-semibold leading-5 text-foreground">{sentence}</h2>
             <p className="mt-0.5 text-label tabular-nums text-muted-foreground">
-              {plural(edge.weight || 1, "link site")}{edge.exactness === "snapshot" ? " · Snapshot fact" : edge.exactness === "current_index" ? " · current index" : " · exactness unavailable"}{architectureLabel}{edge.uncertain ? " · uncertain" : ""}
+              {plural(edge.weight || 1, "link site")}{edge.exactness === "snapshot" ? " · Snapshot source relationship" : edge.exactness === "current_index" ? " · current index (may differ from Snapshot)" : " · exactness unavailable"}{architectureLabel}{edge.uncertain ? " · uncertain" : ""} · not runtime proof
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClear} aria-label="Close map inspector"><X size={14} /></Button>

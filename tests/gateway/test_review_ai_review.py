@@ -1596,6 +1596,62 @@ def test_cli_snapshot_root_removes_denied_adjacent_content_before_model(
     assert result.excluded_by_policy == ()
 
 
+def test_cli_snapshot_root_masks_secrets_in_files_and_keeps_their_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot.safety import Redactor, bound_redactor
+
+    store, revision = _store(tmp_path / "cli-mask")
+    # Assembled at run time so this file never holds a literal a credential scan would flag.
+    token = "ghp_" + "a1b2c3d4e5" * 4
+    key = "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\ndef\n-----END RSA PRIVATE KEY-----"
+    written = f'TOKEN = "{token}"\n{key}\ndef authorize():\n    return True\n'
+
+    def materialize(*_: Any, target: Path, **__: Any) -> None:
+        (target / "src").mkdir(parents=True, exist_ok=True)
+        (target / "src" / "auth.py").write_text(written, encoding="utf-8")
+        (target / "logo.bin").write_bytes(b"\x00\x01" + token.encode())
+
+    monkeypatch.setattr(ai_review_module, "materialize_review_side", materialize)
+    seen: list[str] = []
+
+    def execute(**kwargs: Any) -> StructuredExecution:
+        seen.append((kwargs["project_root"] / "src" / "auth.py").read_text(encoding="utf-8"))
+        return _execution(
+            {
+                "status": "not_confirmed",
+                "category": "security",
+                "target_ids": ["target-auth"],
+                "title": "",
+                "explanation": "",
+                "consequence": "",
+                "evidence_refs": [],
+                "rule_refs": [],
+            },
+            driver="claude",
+            model="sonnet",
+        )
+
+    with bound_redactor(Redactor()) as redactor:
+        run_independent_review(
+            store=store,
+            revision=revision,
+            targets=(_target(),),
+            repo_root=tmp_path,
+            effort="quick",
+            driver="claude",
+            model="sonnet",
+            structured_executor=execute,
+        )
+    (copy,) = seen
+    assert token not in copy and "MIIabc" not in copy
+    assert "<redacted-github-token>" in copy and "<redacted-private-key>" in copy
+    # The CLI cites lines: the masked file has the line count it had, so "def authorize" is where it was.
+    assert copy.splitlines()[5] == written.splitlines()[5] == "def authorize():"
+    assert redactor.count == 2
+
+
 def test_deep_review_uses_bounded_authority_tagged_cross_repo_context(tmp_path: Path) -> None:
     store, revision = _store(tmp_path / "cross-repo-deep")
     seen_loader: list[str] = []

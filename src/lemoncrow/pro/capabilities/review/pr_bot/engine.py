@@ -32,12 +32,20 @@ from lemoncrow.pro.capabilities.review.pr_bot import large_pr, pr_intent
 from lemoncrow.pro.capabilities.review.pr_bot import overview as overview_mod
 from lemoncrow.pro.capabilities.review.pr_bot.findings import Located, locate_target
 from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import IntentNote
+from lemoncrow.pro.capabilities.review.pr_bot.safety import (
+    Redactor,
+    Safety,
+    bound_redactor,
+    comments_addressed,
+    defang,
+)
 from lemoncrow.pro.capabilities.review.pr_bot.settings import (
     NoiseInputs,
     NoisePolicy,
     resolve_policy,
     with_ignored_paths,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.spend import SpendCapReached, SpendGuard
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_units, unit_token
 
 if TYPE_CHECKING:
@@ -146,6 +154,11 @@ class AiStage:
     #: The change whose overview this run decided (:attr:`overview.Request.identity`), kept in the state so the same change
     #: is not asked again; ``""``: undecided (not asked for, or the call failed).
     overview_for: str = ""
+    #: Where text addressed to AI reviewers was found, and how many secrets were masked before any model call
+    #: (:mod:`safety`); the summary says both through :mod:`notices`.
+    safety: Safety = field(default_factory=Safety)
+    #: Why the cost cap stopped this run part way (:class:`spend.SpendGuard`); ``""``: it did not.
+    stopped: str = ""
 
     @property
     def ran(self) -> bool:
@@ -326,7 +339,8 @@ def revision_usage(store: ReviewStore, review_id: str, revision_id: str) -> tupl
     cost: float | None = 0.0
     models: list[str] = []
     for run in store.list_intelligence_runs(review_id, revision_id=revision_id):
-        if run.model_calls <= 0:
+        if run.model_calls <= 0 or run.error.startswith(f"{SpendCapReached.__name__}:"):
+            # A call the cost cap refused was never made: it cost nothing and reported nothing.
             continue
         calls += run.model_calls
         label = f"{run.driver}/{run.model}" if run.model else run.driver
@@ -337,6 +351,10 @@ def revision_usage(store: ReviewStore, review_id: str, revision_id: str) -> tupl
         except ValueError:
             raw = None
         used = ModelCallUsage.from_wire(raw if isinstance(raw, dict) else {})
+        if run.error and used.input_tokens is None and used.output_tokens is None and used.provider_cost is None:
+            # A call the provider refused (a rejected key, no credit, overloaded) reported nothing because it was not
+            # served: counted as a call, never as an unknown cost that would hold the pull request by calls from then on.
+            continue
         if used.input_tokens is None or used.output_tokens is None:
             tokens_in = tokens_out = None
         elif tokens_in is not None and tokens_out is not None:
@@ -445,8 +463,12 @@ def run_ai_stage(
     inputs: NoiseInputs | None = None,
     intent_loader: Callable[[Captured], IntentNote] | None = None,
     overview: overview_mod.Request | None = None,
+    spend: SpendGuard | None = None,
 ) -> AiStage:
     """Run the AI review on what changed since *previous*, through the Review API's own AI endpoint.
+
+    *spend* holds every model call of the stage to the pull request's cost cap (:mod:`spend`): a call it refuses is
+    not made, the targets it was for stay pending, and ``stopped`` says why.
 
     *inputs* are the workflow's defaults for the noise controls (the trusted base's ``.lemoncrow/review.yaml`` wins);
     *intent_loader* reads the pull request's description and linked issues onto the Snapshot, called only when a model
@@ -492,6 +514,7 @@ def run_ai_stage(
             inputs=inputs,
             intent_loader=intent_loader,
             overview=overview,
+            spend=spend,
         )
         return {"status": "inline", "revision_id": request_revision.id}
 
@@ -722,6 +745,7 @@ def _execute(
     inputs: NoiseInputs | None = None,
     intent_loader: Callable[[Captured], IntentNote] | None = None,
     overview: overview_mod.Request | None = None,
+    spend: SpendGuard | None = None,
 ) -> AiStage:
     from lemoncrow.pro.capabilities.review.ai_review import (
         changed_file_facts,
@@ -742,6 +766,14 @@ def _execute(
     from lemoncrow.pro.capabilities.review.static_findings import static_security_lines
 
     store, session, revision = captured.store, captured.session, captured.revision
+    # Every model call of this stage is handed a prompt whose secrets are masked, each counted once for the receipt: the
+    # one choke point between what the Snapshot holds (code, diff, static results, context, intent) and a provider.
+    redactor = Redactor()
+    executor = redactor.executor(structured_executor or execute_structured)
+    if spend is not None:
+        # The cost cap is checked before each of those calls, on the prompt as it would be sent.
+        executor = spend.wrap(executor)
+    host = captured.pull.ref.host if captured.pull is not None else ""
     context = app.state.review_worker_ai_publication_context(session.id, revision.id)
     # Lines the security scan reported an error-level result on (recorded before this stage): they make a target a
     # ``security`` candidate, which ranks a large pull request, names a risk signal and is investigated.
@@ -861,8 +893,10 @@ def _execute(
             kept, truncated = dict(previous.reviewed_units), previous.units_truncated
         # No investigator ran, but a push that changed only what no review looks at still gets an overview of itself.
         unchanged_fields, spent = _overview(
-            overview, captured, governance, policy, structured_executor, calls_used=0, calls_cap=base.max_calls
+            overview, captured, governance, policy, executor, calls_used=0, calls_cap=base.max_calls
         )
+        _capped_overview(unchanged_fields, spend)
+        _defang_overview(unchanged_fields, host)
         return replace(
             base,
             reviewed_units=kept,
@@ -871,11 +905,12 @@ def _execute(
             intact=intact,
             signals=signals(set(), {}, kept),
             usage=spent,
+            safety=Safety(redacted=redactor.count),
             **unchanged_fields,
         )
 
     budget = ModelCallBudget.from_env(max_calls=1)
-    examined = _Examined(structured_executor or execute_structured)
+    examined = _Examined(executor)
     candidate_ids = {
         target_id
         for candidate in pr_candidates(
@@ -888,8 +923,17 @@ def _execute(
     # What the author says the change is for: read only when a model is about to be asked (each linked issue is a GET),
     # recorded on the Snapshot as bound intent, and shown to the investigators as small, cleaned, untrusted data.
     note = intent_loader(captured) if intent_loader is not None and asking else None
-    intent_block = pr_intent.prompt_block(store, session.id) if pr_intent.enabled() and asking else None
-    with bound_intelligence_policy(review_intelligence_policy(policy)):
+    intent_block = (
+        pr_intent.prompt_block(store, session.id, redactor=redactor) if pr_intent.enabled() and asking else None
+    )
+    # Added code comments written to an AI reviewer: data to the model like all code, and a note in the summary.
+    from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
+
+    commented = (
+        comments_addressed(read_packet_json(store, revision), {target.path for target in changed}) if asking else ()
+    )
+    # An agent-CLI route reads a Snapshot copy, not only the prompt: that copy is masked by this same Redactor.
+    with bound_intelligence_policy(review_intelligence_policy(policy)), bound_redactor(redactor):
         result: IndependentReviewResult = run_independent_review(
             store=store,
             revision=revision,
@@ -928,11 +972,13 @@ def _execute(
             captured,
             governance,
             policy,
-            structured_executor,
+            executor,
             calls_used=max(usage.calls, result.calls_used),
             calls_cap=result.calls_max or base.max_calls,
         )
         usage = usage.plus(spent)
+        _capped_overview(described, spend)
+        _defang_overview(described, host)
     # Reviewed means a model call about the target returned (or there was nothing to look at in it: documentation, a
     # generated file, a formatting-only change). A target no call reached -- a failed call, a spent budget, the hard cap
     # on model calls -- is pending: it is retried on the next push and competes for the cap again, so a large pull
@@ -943,7 +989,10 @@ def _execute(
     other_ids = set(result.general_target_ids) - candidate_ids
     pending = ((candidate_ids | other_ids) - examined.targets) | deferred_ids
     why = ""
-    if result.skipped_by_budget:
+    stopped = spend.stopped if spend is not None else ""
+    if stopped:
+        why = f"stopped at the cost cap: {stopped}"
+    elif result.skipped_by_budget:
         why = "the model-call budget ran out"
     kept, truncated = cap_units(_tokens(targets, units, pending=pending))
     if narrow and previous is not None:
@@ -956,7 +1005,16 @@ def _execute(
         base,
         status="ran",
         reason=why,
-        findings=tuple(result.machine_findings),
+        # Model-written text is what the bot posts: no image, and no link off the repository's host, survives it.
+        findings=tuple(
+            replace(
+                finding,
+                title=defang(finding.title, host=host),
+                explanation=defang(finding.explanation, host=host),
+                consequence=defang(finding.consequence, host=host),
+            )
+            for finding in result.machine_findings
+        ),
         # Deferred targets count as asked-about but not covered: a finding on one is carried, marked unverified.
         rereviewed=tuple(target.target_id for target in changed_all),
         covered=tuple(target_id for target_id in changed_ids if target_id not in pending),
@@ -979,5 +1037,30 @@ def _execute(
         intact=intact,
         signals=signals(set(changed_ids), examined.categories, kept),
         intent=note,
+        safety=Safety(
+            addressed=(*(note.addressed if note is not None else ()), *(("added code comments",) if commented else ())),
+            redacted=redactor.count,
+        ),
+        stopped=stopped,
         **described,
     )
+
+
+def _capped_overview(fields: dict[str, Any], spend: SpendGuard | None) -> None:
+    """An overview the cost cap refused says so in its note, not as a failed call."""
+
+    if spend is not None and spend.stopped and str(fields.get("overview_note") or "").endswith("(SpendCapReached)"):
+        fields["overview_note"] = "overview skipped: max-usd-per-pr was reached"
+
+
+def _defang_overview(fields: dict[str, Any], host: str) -> None:
+    """The overview in *fields* (``_overview``'s result) with its model-written sentences defanged, in place."""
+
+    made = fields.get("overview")
+    if made is not None:
+        fields["overview"] = replace(
+            made,
+            one_line=defang(made.one_line, host=host),
+            intro=defang(made.intro, host=host),
+            bullets=tuple(defang(bullet, host=host) for bullet in made.bullets),
+        )

@@ -283,9 +283,9 @@ def test_every_surface_reads_the_same_severity(
         )
     )
     # The summary's first line, the counts in its hidden state and the commit status say one thing.
-    assert any(row.startswith(f"**{headline}**") for row in body.split("\n"))
-    # And the score is read off the same verdict.
-    assert f"<h2>Confidence Score: {result.confidence}/5</h2>" in body
+    assert any(row.startswith(f"<h2>{headline}") for row in body.split("\n"))
+    # And the score, kept as data in the state, is read off the same verdict.
+    assert posted.confidence == result.confidence
     parsed = parse_state(body)
     assert parsed is not None and parsed == posted
     assert verdict_counts(parsed.findings) == {"p0": result.p0, "p1": result.p1, "p2": result.p2}
@@ -443,7 +443,7 @@ def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(worl
         row["kind"] == "repo_context" and "src/handlers.py" in row["ref"] for rows in prompts for row in rows
     ), "the corroborating excerpt is a real file of the Snapshot, found by the pack, not by the model"
     assert world.github.last_status()["state"] == "failure"
-    assert "**1 must-fix before merge**" in summary_body(world).split("\n")
+    assert "<h2>1 must-fix before merge</h2>" in summary_body(world).split("\n")
     (inline,) = world.github.inline()
     assert inline["body"].startswith(f"{badge('p0')} **lets a missing principal through**")
     state = parse_state(summary_body(world))
@@ -501,7 +501,7 @@ def test_an_unverified_high_finding_is_p1_and_the_status_passes(world: World) ->
     (found,) = report.findings
     assert (found.severity, found.impact, found.verified) == ("p1", "high", False)
     assert report.status == ("success", "No must-fix findings; 1 should-fix")
-    assert "**No must-fix findings** · 1 should-fix" in summary_body(world).split("\n")
+    assert "<h2>No must-fix findings · 1 should-fix</h2>" in summary_body(world).split("\n")
     (inline,) = world.github.inline()
     assert inline["body"].startswith(badge("p1"))
 
@@ -516,7 +516,7 @@ def test_a_low_finding_is_p2_and_held_back_with_no_inline_comment(world: World) 
     assert found.severity == "p2"
     assert world.github.inline() == [] and world.github.review_posts == 0
     body = summary_body(world)
-    assert "**No must-fix findings** · 1 optional" in body.split("\n")
+    assert "<h2>No must-fix findings · 1 optional</h2>" in body.split("\n")
     assert "<details><summary>1 low-priority finding held back</summary>" in body
     assert report.status == ("success", "No must-fix findings; 1 optional")
 
@@ -597,7 +597,7 @@ def test_an_open_p1_fails_the_status_and_the_job_only_under_fail_on_p1(
     # The summary and the inline comment say P1 whatever the gate is: the badge does not change with a setting.
     (inline,) = world.github.inline()
     assert inline["body"].startswith(badge("p1"))
-    assert "**No must-fix findings** · 1 should-fix" in summary_body(world).split("\n")
+    assert "<h2>No must-fix findings · 1 should-fix</h2>" in summary_body(world).split("\n")
 
 
 @pytest.mark.parametrize("fail_on", ["none", "p0", "p1"])

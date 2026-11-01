@@ -19,6 +19,7 @@ import json
 import logging
 import re
 import sqlite3
+import time
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -299,34 +300,50 @@ class HistoryStore(SqliteTableStore):
 
     def record_trace(self, trace: Trace, *, write_json: bool = True) -> None:
         payload = json.dumps(to_jsonable(trace), ensure_ascii=False)
-        with self._transaction() as conn, closing(conn.cursor()) as cur:
-            cur.execute(
-                """
-                INSERT INTO traces (id, agent, host, domain, status, task, workspace_path, created_at, payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    agent = excluded.agent,
-                    host = excluded.host,
-                    domain = excluded.domain,
-                    status = excluded.status,
-                    task = excluded.task,
-                    workspace_path = excluded.workspace_path,
-                    created_at = excluded.created_at,
-                    payload = excluded.payload
-                """,
-                (
-                    trace.id,
-                    trace.agent,
-                    trace.host,
-                    trace.domain,
-                    trace.status,
-                    trace.task,
-                    trace.workspace_path,
-                    trace.created_at.isoformat(),
-                    payload,
-                ),
-            )
-            self._update_trace_fts(cur, trace)
+        # A standalone CLI trace can race with the local Review server's bulk
+        # import on this same history DB. SQLite already waits for a busy writer,
+        # but an unlucky lock handoff may still fail. Retry the *whole atomic*
+        # trace + FTS transaction, never a half-written FTS row. An enclosing
+        # batch owns its transaction and must not retry or break its rollback.
+        for attempt in range(3):
+            try:
+                with self._transaction() as conn, closing(conn.cursor()) as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO traces (id, agent, host, domain, status, task, workspace_path, created_at, payload)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            agent = excluded.agent,
+                            host = excluded.host,
+                            domain = excluded.domain,
+                            status = excluded.status,
+                            task = excluded.task,
+                            workspace_path = excluded.workspace_path,
+                            created_at = excluded.created_at,
+                            payload = excluded.payload
+                        """,
+                        (
+                            trace.id,
+                            trace.agent,
+                            trace.host,
+                            trace.domain,
+                            trace.status,
+                            trace.task,
+                            trace.workspace_path,
+                            trace.created_at.isoformat(),
+                            payload,
+                        ),
+                    )
+                    self._update_trace_fts(cur, trace)
+                break
+            except sqlite3.OperationalError as exc:
+                if (
+                    attempt == 2
+                    or self._connection is not None
+                    or ("locked" not in str(exc).lower() and "busy" not in str(exc).lower())
+                ):
+                    raise
+                time.sleep(0.15 * (attempt + 1))
 
         if write_json:
             self._write_trace_json(trace)

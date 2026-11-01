@@ -185,6 +185,138 @@ def test_build_ask_context_never_replays_denied_or_derived_content(monkeypatch: 
     assert requested and all("src/secret.py" not in paths for paths in requested)
 
 
+def test_ask_source_budget_never_advertises_unseen_lines_or_partial_source() -> None:
+    revision = SimpleNamespace(id="rev-bound", revision_number=1, tree_fingerprint="tree", source_fingerprint="source")
+    original = "\n".join(f"line_{index:02d} = {index}" for index in range(1, 9))
+    request_path = "src/checkout.py"
+
+    def exact_sources(_store, _revision, *, paths, side):
+        return {path: original for path in paths if path == request_path}
+
+    # A 27-character budget falls inside line three of this source.
+    from unittest.mock import patch
+
+    with patch.object(ask, "exact_revision_sources", exact_sources), patch.object(ask, "_MAX_SOURCE_CHARS", 27):
+        context = ask.build_ask_context(
+            store=object(),
+            revision=revision,
+            packet={"files": [{"path": request_path}]},
+            journal={},
+            evidence=(),
+            previous_messages=(),
+            question="explain changed code",
+            selected_path=request_path,
+            start_line=1,
+            end_line=8,
+        )
+    [shown] = context["source"]
+    source_lines = original.splitlines()
+    shown_lines = shown["text"].splitlines()
+    assert shown["start_line"] == 1
+    assert shown["end_line"] == shown["start_line"] + len(shown_lines) - 1
+    assert shown["text"] == "\n".join(source_lines[: len(shown_lines)])
+    assert len(shown["text"]) <= 27
+    assert len(shown_lines) == 2
+
+
+def test_ask_selected_source_outside_budget_is_not_reported_as_grounded() -> None:
+    revision = SimpleNamespace(id="rev-bound", revision_number=1, tree_fingerprint="tree", source_fingerprint="source")
+    from unittest.mock import patch
+
+    with (
+        patch.object(ask, "exact_revision_sources", lambda _s, _r, *, paths, side: {path: "X" * 100 for path in paths}),
+        patch.object(ask, "_MAX_SOURCE_CHARS", 20),
+    ):
+        context = ask.build_ask_context(
+            store=object(),
+            revision=revision,
+            packet={"files": [{"path": "src/long.py"}]},
+            journal={},
+            evidence=(),
+            previous_messages=(),
+            question="explain",
+            selected_path="src/long.py",
+            start_line=1,
+            end_line=1,
+        )
+    assert context["source"] == []
+    assert context["grounding"]["selected_source_available"] is False
+    assert "budget" in context["grounding"]["selected_source_reason"]
+
+
+def test_ask_exact_selected_source_wins_over_many_mentions_and_surface_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eight ancillary files must not evict an explicit source selection from Ask grounding."""
+    revision = SimpleNamespace(
+        id="rev-selected", revision_number=1, tree_fingerprint="tree", source_fingerprint="source"
+    )
+    selected = "src/important.py"
+    mentions = [f"src/incidental_{index}.py" for index in range(9)]
+    seen: list[tuple[str, tuple[str, ...]]] = []
+
+    def exact_sources(_store, _revision, *, paths, side):
+        seen.append((side, tuple(paths)))
+        return {path: f"{side}: {path}\nreturn False\n" for path in paths}
+
+    monkeypatch.setattr(ask, "exact_revision_sources", exact_sources)
+    for surface_context in ({}, {"snapshot_paths": mentions[:4]}):
+        context = ask.build_ask_context(
+            store=object(),
+            revision=revision,
+            packet={"files": [{"path": path} for path in [selected, *mentions]]},
+            journal={},
+            evidence=(),
+            previous_messages=(),
+            question="Explain this selected source, not the incidental files",
+            mentioned_paths=mentions,
+            selected_path=selected,
+            side="old",
+            start_line=1,
+            end_line=1,
+            selection=ask.AskContextSelection(
+                kind="source",
+                path=selected,
+                side="old",
+                start_line=1,
+                end_line=1,
+                surface_context=surface_context,
+            ),
+        )
+        assert context["source"][0]["path"] == selected
+        assert context["source"][0]["side"] == "old"
+        assert context["grounding"]["selected_source_available"] is True
+        assert seen[-1] == ("old", (selected,))
+
+
+def test_ask_source_priority_never_reads_policy_denied_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    revision = SimpleNamespace(
+        id="rev-selected", revision_number=1, tree_fingerprint="tree", source_fingerprint="source"
+    )
+    seen: list[tuple[str, ...]] = []
+
+    def exact_sources(_store, _revision, *, paths, side):
+        seen.append(tuple(paths))
+        return {path: "public\n" for path in paths}
+
+    monkeypatch.setattr(ask, "exact_revision_sources", exact_sources)
+    context = ask.build_ask_context(
+        store=object(),
+        revision=revision,
+        packet={"files": [{"path": "src/secret.py"}, {"path": "src/public.py"}]},
+        journal={},
+        evidence=(),
+        previous_messages=(),
+        question="explain source",
+        selected_path="src/secret.py",
+        allowed_paths={"src/public.py"},
+        restricted_context=True,
+    )
+    assert all("src/secret.py" not in paths for paths in seen)
+    assert context["grounding"]["selected_source_available"] is False
+    assert all(row["path"] != "src/secret.py" for row in context["source"])
+
+
 def test_answer_ask_redacts_server_snapshot_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     project_root = tmp_path / "private" / "review-snapshot"
     project_root.mkdir(parents=True)

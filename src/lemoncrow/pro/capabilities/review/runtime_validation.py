@@ -582,6 +582,77 @@ def normalize_surface_run(
     }
 
 
+def automatic_runtime_surface_choices(
+    plan: Any,
+    surfaces: Sequence[ReviewSurface],
+    config: ReviewSurfaceConfig,
+    *,
+    review_id: str,
+    revision_id: str,
+    limit: int = 3,
+) -> tuple[ReviewSurface, ...]:
+    """Select bounded trusted-base checks already authorized for this Snapshot.
+
+    Called only from a durable Snapshot event. Never amends the run plan,
+    generates commands, or executes a runner. A check must be a required plan
+    entry or explicitly opted into automatic execution by the *trusted-base
+    surface config*. Discovered surface metadata is descriptive, never a grant.
+    The hosted submitter independently enforces source trust, grant, worker
+    locus, disposable sandbox and durable idempotency before enqueue.
+    """
+    from lemoncrow.pro.capabilities.review.planned_execution import surface_entry_id
+
+    if (
+        plan is None
+        or plan.review_id != review_id
+        or plan.revision_id != revision_id
+        or bool(plan.policy_error)
+        or type(limit) is not int
+        or not 1 <= limit <= 3
+    ):
+        return ()
+    chosen: list[ReviewSurface] = []
+    seen: set[tuple[str, str]] = set()
+    for surface in sorted(surfaces, key=lambda item: (item.provider, item.id)):
+        identity = (surface.provider, surface.id)
+        if identity in seen or "execute" not in surface.capabilities:
+            continue
+        seen.add(identity)
+        if not surface.runtime or config.runtime(surface.runtime) is None:
+            continue
+        # Discovery is not execution authority. A plugin's reported metadata
+        # may describe a configured surface but cannot opt itself into Auto.
+        source_id = surface.metadata.get("surface_id")
+        if not isinstance(source_id, str) or not source_id:
+            continue
+        configured = [
+            row
+            for row in config.surfaces
+            if row.id == source_id and row.provider == surface.provider and row.string("runtime") == surface.runtime
+        ]
+        if len(configured) != 1:
+            continue
+        entry = plan.entry(surface_entry_id(surface))
+        if (
+            entry is None
+            or entry.status != "run"
+            # A manual pick can have status=run for this Review without
+            # authorizing an unrelated Snapshot-event background dispatch.
+            # Policy-required manual defaults are normalized to push by the
+            # effective planner when automatic execution is intended.
+            or entry.when not in {"open", "push"}
+            or not entry.available
+            or entry.external
+            or entry.executor not in {"managed", "worker"}
+            or not (entry.required or configured[0].values.get("auto_run") is True)
+        ):
+            continue
+        chosen.append(surface)
+        if len(chosen) == limit:
+            break
+    return tuple(chosen)
+
+
 def validation_source_ref(request: ValidationRequest, *, execution_intent: str = "", fresh_ref: str = "") -> str:
     # Keep the semantic identity authoritative while exposing the trusted
     # scenario namespace so existing Review evidence UIs can associate a
@@ -618,6 +689,79 @@ def execution_verification(record: Mapping[str, Any]) -> str:
     return json.dumps(VerificationEnvironment.from_wire(verification).to_wire(), sort_keys=True, separators=(",", ":"))
 
 
+def validate_queue_completion_receipt(
+    receipt: Mapping[str, Any] | object,
+    request: ValidationRequest,
+    *,
+    job_id: str = "",
+) -> dict[str, Any]:
+    """Validate an immutable hosted queue association, not process attestation.
+
+    The trusted hosted bridge must independently read the fenced completion
+    from the organization-scoped queue. A self-contained receipt digest is
+    corruption/replay protection, not a worker signature or a trust upgrade.
+    """
+    import math
+
+    fields = {
+        "kind",
+        "org_id",
+        "repo_id",
+        "review_id",
+        "revision_id",
+        "request_identity",
+        "job_id",
+        "attempt",
+        "contract_digest",
+        "result_digest",
+        "queue_started_at",
+        "queue_completed_at",
+        "time_basis",
+        "receipt_id",
+    }
+    if not isinstance(receipt, Mapping) or set(receipt) != fields:
+        raise ValueError("hosted runtime completion requires an exact durable queue receipt")
+    payload = dict(receipt)
+    if (
+        payload["kind"] != "runtime-validation-queue-completion/v1"
+        or payload["time_basis"] != "durable_queue_lifecycle"
+        or payload["review_id"] != request.review_id
+        or payload["revision_id"] != request.revision_id
+        or payload["request_identity"] != request.identity
+        or not isinstance(payload["org_id"], str)
+        or not payload["org_id"]
+        or not isinstance(payload["repo_id"], str)
+        or not payload["repo_id"]
+        or not isinstance(payload["job_id"], str)
+        or not payload["job_id"]
+        or (job_id and payload["job_id"] != job_id)
+        or type(payload["attempt"]) is not int
+        or payload["attempt"] < 1
+    ):
+        raise ValueError("hosted runtime completion receipt does not bind the exact job and Snapshot")
+    for field in ("contract_digest", "result_digest"):
+        value = payload[field]
+        if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+            raise ValueError("hosted runtime completion receipt has an invalid digest")
+    start, end = payload["queue_started_at"], payload["queue_completed_at"]
+    if (
+        any(not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) for v in (start, end))
+        or start <= 0
+        or end < start
+    ):
+        raise ValueError("hosted runtime completion receipt has no valid queue lifecycle")
+    claimed_id = payload.pop("receipt_id")
+    actual_id = (
+        "queue-receipt:"
+        + hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+    )
+    if claimed_id != actual_id:
+        raise ValueError("hosted runtime completion receipt digest mismatch")
+    return {**payload, "receipt_id": actual_id}
+
+
 def _read_validation_record(store: Any, evidence: ReviewEvidence, request: ValidationRequest) -> dict[str, Any]:
     if evidence.review_id != request.review_id or evidence.revision_id != request.revision_id:
         raise ValueError("runtime validation evidence belongs to another Review/Snapshot")
@@ -638,6 +782,14 @@ def _read_validation_record(store: Any, evidence: ReviewEvidence, request: Valid
         raise ValueError("runtime validation evidence artifact is not valid JSON") from exc
     if not isinstance(record, dict) or record.get("identity") != request.identity:
         raise ValueError("runtime validation evidence artifact has a different semantic identity")
+    if "queue_completion_receipt" in record:
+        receipt = validate_queue_completion_receipt(record["queue_completion_receipt"], request)
+        if evidence.source != "external" or evidence.source_ref != validation_source_ref(
+            request,
+            execution_intent=evidence.execution_intent,
+            fresh_ref=receipt["job_id"],
+        ):
+            raise ValueError("runtime validation evidence has a different hosted queue association")
     return record
 
 
@@ -657,6 +809,7 @@ def persist_validation_record(
     provider_revision: str = "",
     attestation_scope: str | None = None,
     fresh_ref: str = "",
+    queue_completion_receipt: Mapping[str, Any] | object | None = None,
 ) -> ReviewEvidence:
     """Persist one normalized result using the existing ReviewEvidence authority.
 
@@ -672,16 +825,25 @@ def persist_validation_record(
         raise ValueError("runtime validation record identity does not match its request")
     executor = parse_executor_class(executor_class)
     record = stamp_execution_record(record, executor)
+    if queue_completion_receipt is not None:
+        if source != "external" or execution_intent not in {"current", "explicit_historical"}:
+            raise ValueError("durable queue receipts are only valid on hosted external evidence")
+        receipt = validate_queue_completion_receipt(queue_completion_receipt, request)
+        if fresh_ref and fresh_ref != receipt["job_id"]:
+            raise ValueError("hosted evidence fresh run differs from the completed queue job")
+        fresh_ref = receipt["job_id"]
+        record["queue_completion_receipt"] = receipt
     source_ref = validation_source_ref(request, execution_intent=execution_intent, fresh_ref=fresh_ref)
     existing: ReviewEvidence | None = store.get_evidence_by_source(request.review_id, source, source_ref)
     if existing is not None:
-        _read_validation_record(store, existing, request)
+        stored_record = _read_validation_record(store, existing, request)
+        if queue_completion_receipt is not None and _canonical(stored_record) != _canonical(record):
+            raise ValueError("hosted runtime completion replay conflicts with immutable ReviewEvidence")
         if expected_current_revision_id:
             current = store.latest_revision(request.review_id)
             if current is None or current.id != expected_current_revision_id:
                 raise ValueError("runtime validation Snapshot was superseded before evidence publication")
         return existing
-
     payload = _canonical(dict(record))
     evidence_id = new_evidence_id()
     rel, digest, size = store.write_evidence_artifact(request.review_id, request.revision_id, evidence_id, payload)
@@ -970,6 +1132,7 @@ __all__ = [
     "ReproductionProposal",
     "ValidationRequest",
     "ValidationScenario",
+    "automatic_runtime_surface_choices",
     "browser_policy_digest",
     "build_browser_validation_request",
     "build_surface_validation_request",

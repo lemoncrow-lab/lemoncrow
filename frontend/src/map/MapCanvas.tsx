@@ -159,14 +159,14 @@ const MapCard = memo(function MapCard({
         {...common}
         className="rm-card"
         style={style}
-        aria-label={`${nodeName(node)}, ${node.status === "impacted" ? "affected by the change" : changed ? "also changed" : "surrounding code"}`}
+        aria-label={`${nodeName(node)}, ${node.status === "impacted" ? "unchanged source linked to the change" : changed ? "also changed" : "surrounding code"}`}
         title={node.path}
       >
         {changed ? <ChangeBadge node={node} small /> : <FileTypeIcon path={node.path} />}
         <span className="rm-card-name">{nodeName(node)}</span>
         <span className="rm-trailing">
           <SessionMarks node={node} />
-          {node.status === "impacted" && <span className="rm-affected">affected</span>}
+          {node.status === "impacted" && <span className="rm-affected" title="Static relationship only; not proof of runtime impact">linked</span>}
           {card.sharedBy
             ? <span title={`Linked to ${card.sharedBy} changed files. Hover to see its links.`}>{card.sharedBy} files</span>
             : node.status === "context" && weight > 1 && <span title="Link sites">×{weight}</span>}

@@ -644,6 +644,21 @@ def overlay(impact: ImpactMap, changes: Sequence[HeadChange]) -> Overlay:
             dynamic.add(row.path)
         if parsed.doc_refs:
             docs[row.path] = parsed.doc_refs
+    # Adding a pytest conftest or Python package initializer changes how *unchanged*
+    # test/modules load. The trusted-base graph cannot have edges to files that did
+    # not exist at the base, so augment those edges without re-reading base source.
+    # Otherwise a new fixture or package side effect yields an unsafe `none`.
+    added_conftests = {path for path in added if PurePosixPath(path).name == "conftest.py"}
+    added_inits = {path for path in added if PurePosixPath(path).name == "__init__.py"}
+    if added_conftests or added_inits:
+        for path in present:
+            if _suffix(path) not in PY_SUFFIXES:
+                continue
+            loaded = [item for item in resolver.package_inits(path) if item in added_inits]
+            if added_conftests and (is_test_entry(path) or _TEST_DIR.search(path)):
+                loaded.extend(item for item in resolver.ancestor_conftests(path) if item in added_conftests)
+            if loaded:
+                edges[path] = tuple(dict.fromkeys((*edges.get(path, ()), *loaded)))
     for path in sorted(added):
         # A new module may satisfy an import the base could not resolve.
         if impact.unresolved_overflow:

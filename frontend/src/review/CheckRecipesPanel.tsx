@@ -406,6 +406,13 @@ export default function CheckRecipesPanel({
       && action.resulting_revision_id === snapshot.revision_id
       && action.subjects.some((subject) => subject.kind === "approved_autofix"))
     : null;
+  // A single click may authorize at most three distinct, already-admitted
+  // entries. Multiple recipes can share one plan entry; never dispatch twice.
+  const eligibleRechecks = [...new Map(
+    pendingRechecks
+      .filter((item) => item.can_run_now && item.run_plan_status === "run" && item.manual_authorization_required)
+      .map((item) => [item.entry_id, item] as const),
+  ).values()].slice(0, 3);
 
   async function act(work: () => Promise<string>) {
     setBusy(true);
@@ -433,6 +440,31 @@ export default function CheckRecipesPanel({
       return `${entry}: ${VERDICT_LABEL[verdict] ?? verdict} (${response.executions} run, ${response.reused} reused${
         economy.length > 0 ? `, ${economy.join(", ")}` : ""
       })`;
+    });
+  }
+
+  function reverifyPending() {
+    if (busy || !editable || !attributedCorrection || !preceding || eligibleRechecks.length === 0) return;
+    void act(async () => {
+      let completed = 0;
+      try {
+        for (const item of eligibleRechecks) {
+          // The server independently checks current Snapshot, plan admission,
+          // trusted-base recipe digest and compute budget for *each* call.
+          const result = await postCheckRecipesRun(
+            reviewId, snapshot.revision_id, item.entry_id, false, preceding,
+          );
+          if (result.revision_id !== snapshot.revision_id) {
+            throw new Error("the check returned a different Snapshot; remaining checks were not run");
+          }
+          completed += 1;
+        }
+      } catch (reason) {
+        if (completed > 0) await load();
+        const detail = reason instanceof Error ? reason.message : "execution was refused";
+        throw new Error(`Stopped after ${completed}/${eligibleRechecks.length} checks: ${detail}`);
+      }
+      return `Reverified ${completed} trusted check${completed === 1 ? "" : "s"} on this Snapshot`;
     });
   }
 
@@ -484,8 +516,18 @@ export default function CheckRecipesPanel({
             <p className="text-muted-foreground">
               Exact authoring-session Snapshot recorded for {attributedCorrection.subjects[0]?.title ?? "the correction"}.
               {` ${pendingRechecks.length} previously failing trusted check${pendingRechecks.length === 1 ? "" : "s"} need a new result.`}
-              {" "}Use Reverify fresh below; execution is manual and remains subject to the run plan and budget.
+              {" "}Every run still requires the current plan, trusted recipe and budget admission.
             </p>
+            {editable && eligibleRechecks.length > 0 && (
+              <UiButton type="button" size="compact" variant="outline" disabled={busy} onClick={reverifyPending}>
+                {`Reverify ${eligibleRechecks.length} trusted check${eligibleRechecks.length === 1 ? "" : "s"}`}
+              </UiButton>
+            )}
+            {pendingRechecks.length > eligibleRechecks.length && (
+              <p className="text-muted-foreground">
+                At most three distinct admitted entries per click; blocked or excess checks require individual review.
+              </p>
+            )}
           </section>
         )}
         {(snapshot.recommended_checks?.recommendations.length ?? 0) > 0 && (
@@ -522,7 +564,21 @@ export default function CheckRecipesPanel({
             {snapshot.observed_regressions!.rows.map((row) => (
               <div key={`${row.recipe_id}:${row.subject}`} className="flex min-w-0 flex-wrap gap-x-2 text-micro">
                 <span className="min-w-0 break-all font-mono text-foreground">{row.subject}</span>
-                <span className="text-muted-foreground">{row.recipe_id} · {row.independent_execution ? "worker observed" : "author machine observed"}</span>
+                <span className="text-muted-foreground">{row.recipe_id} · {row.independent_execution
+                  ? "independently verified execution"
+                  : row.executor_class === "author_machine"
+                    ? "author-machine reported"
+                    : "worker-reported; independent process proof unavailable"}</span>
+                {(snapshot.finding_regression_citations?.rows ?? []).filter((citation) =>
+                  citation.recipe_id === row.recipe_id && citation.subject === row.subject
+                    && citation.differential_evidence_id === row.differential_evidence_id,
+                ).map((citation) => (
+                  <span key={`${citation.annotation_id}:${citation.subject}`} className="basis-full text-muted-foreground"
+                    data-testid="check-finding-citation" title={citation.limitation}>
+                    {citation.source === "ai_review" ? "AI finding" : "Review annotation"} {citation.annotation_id} cites this test;
+                    this does not independently confirm the defect.
+                  </span>
+                ))}
                 <UiButton size="xs" variant="outline" type="button"
                   aria-label={`Inspect evidence for ${row.subject}`}
                   onClick={() => void inspectProof(row.differential_evidence_id, snapshot.revision_id)}>

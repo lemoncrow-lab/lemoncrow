@@ -1,14 +1,14 @@
 <!-- lemoncrow:summary v1 -->
 <sub>Re-review: comment `@lemoncrow review`</sub>
 
-<h2>Confidence Score: 3/5</h2>
+<h2>Review incomplete: the model provider rejected the key</h2>
+
+**Partially reviewed: 0 of 3 risk signals examined before it stopped** · Human review required: touches payments code
 
 ---
 
 **[Medium impact]** Retry the checkout call
 <sub>payments code, concurrency or shared state · 3 files, 80 changed lines · from the change itself, not a model</sub>
-
-**Review incomplete: the model provider rejected the key**
 
 <sub>Reviewed 80 changed lines in 3 files · 0 new · 3 risk signals not investigated yet · incomplete</sub>
 

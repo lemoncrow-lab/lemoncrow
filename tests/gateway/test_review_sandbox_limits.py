@@ -17,6 +17,7 @@ from lemoncrow.pro.capabilities.review import sandbox_limits, web_preview
 from lemoncrow.pro.capabilities.review.sandbox_limits import (
     MEMORY_ENV,
     SandboxCapacityBusy,
+    SandboxExecutionCancelled,
     limit_note,
     limit_prefix,
     run_limited,
@@ -292,6 +293,37 @@ def test_bounded_review_capture_times_out_chatty_child_and_releases_slot(slots) 
     assert time.monotonic() - started < 3
     with sandbox_slot(0.1):
         pass
+
+
+def test_bounded_offline_build_cancellation_kills_live_process_group_and_releases_slot(slots) -> None:
+    slots(1)
+    revoked = threading.Event()
+
+    def revoke() -> None:
+        time.sleep(0.3)
+        revoked.set()
+
+    revoker = threading.Thread(target=revoke)
+    revoker.start()
+    started = time.monotonic()
+    try:
+        program = (
+            "import subprocess,sys,time;"
+            "subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)']);"
+            "sys.stdout.write('starting');sys.stdout.flush();time.sleep(20)"
+        )
+        with pytest.raises(SandboxExecutionCancelled, match="cancelled during execution"):
+            run_limited_bounded(
+                [sys.executable, "-c", program],
+                timeout=12,
+                max_output_bytes=128,
+                should_cancel=revoked.is_set,
+            )
+        assert time.monotonic() - started < 4
+        with sandbox_slot(0.1):
+            pass
+    finally:
+        revoker.join(timeout=2)
 
 
 def test_bounded_review_capture_reaps_descendants_holding_pipes_after_parent_exit(slots) -> None:  # type: ignore[no-untyped-def]

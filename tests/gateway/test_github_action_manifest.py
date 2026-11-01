@@ -144,20 +144,37 @@ def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> Non
     assert gate["id"] == "gate" and "ci_env.py" in gate["run"]
     assert (ROOT / "src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py").is_file()
     # Every step waits for the gate. The scanner's install also waits for `security-scan: auto` and nothing else does;
-    # the cache's restore needs a key. The last step is the one that runs `always()`, gate permitting.
+    # the cache's restore needs a key. uv and the install also serve the proof-of-work refresh, which is the one step
+    # that runs on `refresh` alone (no checkout, no review). The last step runs `always()`, gate permitting.
     gated = "steps.gate.outputs.run == 'true'"
-    *middle, settle = rest
+    refreshing = "steps.gate.outputs.refresh == 'true'"
+    *middle, upload, refresh, settle = rest
+    # The Change Story SVG is uploaded whatever the review step did, gate permitting; a run that drew none uploads nothing.
+    assert upload["name"] == "Upload the Change Story" and upload["if"] == f"always() && {gated}"
+    assert upload["uses"].startswith("actions/upload-artifact@") and upload["with"]["if-no-files-found"] == "ignore"
+    review = next(step for step in middle if step["name"] == "Review the pull request")
+    assert review["env"]["LEMONCROW_REVIEW_CHANGE_STORY_SVG"] == upload["with"]["path"]
+    assert refresh["name"] == "Refresh the proof of work" and refresh["if"] == refreshing
+    assert "proof_refresh" in refresh["run"] and "KEY" not in str(refresh["env"])
     assert middle and all(step["if"].startswith(gated) for step in middle)
     for step in middle:
         extra = step["if"][len(gated) :]
         assert extra == "" or re.fullmatch(
-            r" && (inputs\.security-scan == 'auto'|steps\.cache_pin\.outputs\.key != '')", extra
+            rf" && (inputs\.security-scan == 'auto'|steps\.cache_pin\.outputs\.key != '')| \|\| {re.escape(refreshing)}",
+            extra,
         ), step["name"]
+    assert [step["name"] for step in middle if refreshing in step["if"]] == ["Set up uv", "Install LemonCrow"]
     assert settle["name"] == "Settle the check" and settle["if"] == f"always() && {gated}"
+    # The last step names the step that failed, from the outcome GitHub records for each.
+    assert {settle["env"][name] for name, _ in ci_env.STEP_OUTCOMES} == {
+        "${{ steps.checkout.outcome }}",
+        "${{ steps.install.outcome }}",
+        "${{ steps.review.outcome }}",
+    }
     read = set(re.findall(r"steps\.gate\.outputs\.(\w+)", ACTION.read_text(encoding="utf-8")))
-    assert read == {"run", "extra"}
+    assert read == {"run", "extra", "refresh"}
     source = Path(ci_env.__file__).read_text(encoding="utf-8")
-    assert all(f'f"{name}=' in source for name in read)
+    assert all(f'"{name}=' in source for name in read)
 
 
 def test_the_gate_can_post_a_skipped_status_with_the_same_token_the_review_uses() -> None:
@@ -199,7 +216,6 @@ def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> 
         "--fail-on",
         "--review-drafts",
         "--no-on-push",
-        "--max-usd-per-pr",
         "--max-runs-per-pr",
         "--diagram",
     ):
@@ -207,6 +223,31 @@ def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> 
     assert review["env"]["DIAGRAM"] == "${{ inputs.diagram }}"
     # An empty input falls back to the default instead of failing the option parser.
     assert '--diagram "${DIAGRAM:-auto}"' in review["run"]
+    # The cost cap is read by the reviewer from the environment, so `none` and empty (the $3.00 default) need no flag.
+    assert review["env"]["LEMONCROW_REVIEW_MAX_USD"] == "${{ inputs.max-usd-per-pr }}"
+    assert "--max-usd-per-pr" not in review["run"]
+
+
+def test_the_cost_cap_default_and_its_words_are_the_same_in_the_code_the_input_and_the_guide() -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot import spend
+
+    default = f"${spend.DEFAULT_MAX_USD_PER_PR:.2f}"
+    described = " ".join(manifest()["inputs"]["max-usd-per-pr"]["description"].split())
+    guide = " ".join(GUIDE.read_text(encoding="utf-8").split())
+    words = spend.unpriced_words()
+    for text in (described, guide):
+        assert default == "$3.00" and default in text and "`none`" in text and words in text
+    assert "of $3.00 for this PR" in guide and "There is no automatic overage" in guide
+
+
+def test_the_proof_of_work_refresh_is_an_optional_documented_workflow_with_no_key() -> None:
+    (block,) = [text for text in fenced("yaml") if "workflow_run:" in text and "lemoncrow-lab/lemoncrow@" in text]
+    document = yaml.safe_load(block)
+    (step,) = document["jobs"]["refresh"]["steps"]
+    assert step == {"uses": f"lemoncrow-lab/lemoncrow@{init_action.PIN_PLACEHOLDER}"} and init_action.PIN_LINE in block
+    assert trigger_of(document)["workflow_run"]["types"] == ["completed"]
+    assert "write" not in str({k: v for k, v in document["permissions"].items() if k != "pull-requests"})
+    assert "## Proof of work after CI" in GUIDE.read_text(encoding="utf-8")
 
 
 def test_the_action_ships_in_the_public_mirror() -> None:
@@ -225,8 +266,13 @@ def test_the_documented_workflow_is_the_minimal_one_with_one_step_and_one_decisi
     workflow = documented_workflow()
     assert block == init_action.sample(), "the guide leads with the very file `lc review init-action` writes"
     # Twelve lines of workflow and three of permissions: each permission is one line with a comment saying what uses it.
-    assert len(block.strip().splitlines()) <= 15
-    assert workflow["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert len(block.strip().splitlines()) <= 16
+    assert workflow["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "statuses": "write",
+        "checks": "read",
+    }
     trigger = trigger_of(workflow)
     assert list(trigger) == ["pull_request"]
     # `ready_for_review` is there so a draft's `skipped: draft pull request` status does not stand once it is ready.
@@ -251,7 +297,8 @@ def test_the_job_check_and_the_status_have_different_names_and_the_guide_says_wh
     assert manifest()["name"] == "LemonCrow Review", "the Action's own name is not a check"
     guide = GUIDE.read_text(encoding="utf-8")
     assert "## The check to require" in guide
-    assert "There is exactly one status to require in branch protection: **`LemonCrow Review`**" in guide
+    assert "The status to require in branch protection is **`LemonCrow Review`**" in guide
+    assert "a second status on the same commit, **`LemonCrow / human review`**" in guide
     assert f"`{shown} (pull_request)`" in guide
     # The status is the bot's commit status context; nothing else posts one under that name.
     from lemoncrow.pro.capabilities.review.pr_bot.github import STATUS_CONTEXT
@@ -276,7 +323,7 @@ def test_the_samples_start_advisory_and_say_how_to_opt_into_p0() -> None:
         init_action.PIN_LINE in documented_block()
         and f"lemoncrow-lab/lemoncrow@{init_action.PIN_PLACEHOLDER}" in readme
     )
-    p0 = init_action.render_workflow(fail_on="p0")
+    p0 = init_action.render_workflow(fail_on="p0", pin=init_action.Pin(problem="offline in tests"))
     assert yaml.safe_load(p0)["jobs"]["review"]["steps"][0]["with"]["fail-on"] == "p0"
 
 
@@ -285,6 +332,7 @@ def test_a_killed_job_cannot_leave_the_check_pending_forever() -> None:
 
     settle = steps(manifest())[-1]
     assert settle["name"] == "Settle the check" and settle["if"].startswith("always() && ")
+    assert "RUN_ID" not in str(settle["env"]), "the step outcomes come from GitHub, nothing else"
     assert "continue-on-error" not in settle and "ci_env.py" in settle["run"] and settle["run"].endswith(" settle")
     # The workflow the guide leads with has no cleanup step: a single `uses:` is the whole job.
     assert len(documented_workflow()["jobs"]["review"]["steps"]) == 1
@@ -447,7 +495,12 @@ def test_the_guide_documents_the_review_command_and_the_help_text_lists_it() -> 
     ):
         assert phrase in guide, phrase
     # The sample asks for no new permission, and the Action's own words agree with the guide.
-    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert documented_workflow()["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "statuses": "write",
+        "checks": "read",
+    }
     assert (
         "@lemoncrow review" in manifest()["description"]
         and "@lemoncrow review" in manifest()["inputs"]["depth"]["description"]
@@ -478,7 +531,12 @@ def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_
     ):
         assert phrase in guide, phrase
     # Reading reactions and resolutions, replying in a thread and rewriting the summary need nothing new.
-    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert documented_workflow()["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "statuses": "write",
+        "checks": "read",
+    }
     # The suggested YAML in the guide is a valid rules block for the repository's own loader.
     (example,) = [text for text in fenced("yaml") if text.startswith('rules:\n  - stable_key: "learned-')]
     parsed = yaml.safe_load(example)
@@ -549,7 +607,14 @@ def test_the_guide_documents_the_reference_layout_the_score_the_overview_the_bad
     for phrase in (
         "It reads the same way on every review, top to bottom:",
         "`Re-review: comment `@lemoncrow review``",
-        "**`Confidence Score: N/5`** as a heading, and a rule under it.",
+        "**The verdict in words, as the heading**",
+        "`No issues found` when nothing is open",
+        "**`Proof of work`**",
+        "`Reported by CI on `abc1234`, not run by LemonCrow`",
+        "`CI results not readable: the workflow needs `checks: read``",
+        "`independent`, `same family` or `unknown`",
+        "exact `Co-authored-by` trailers",
+        "The comment does not show a score",
         "**`### Findings`**, numbered, P0 first, then P1",
         "**`### Summary`**: one intro sentence and three or four bullets",
         "**`### Diagram`**, open",
@@ -581,7 +646,12 @@ def test_the_guide_documents_the_reference_layout_the_score_the_overview_the_bad
     ):
         assert phrase in guide, phrase
     # The sample asks for no new permission: the reactions on the pull request are an opt-in the guide explains.
-    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert documented_workflow()["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "statuses": "write",
+        "checks": "read",
+    }
 
 
 def test_the_noise_inputs_reach_the_reviewer_through_the_environment_and_the_guide_explains_them() -> None:
@@ -796,7 +866,11 @@ def test_every_failure_the_guide_promises_is_in_its_table() -> None:
     table = guide.split("### When something is wrong")[1].split("### Inputs")[0]
     for phrase in (
         "Anthropic rejected the API key (HTTP 401)",
-        "No model key: pass anthropic-api-key or openai-api-key",
+        ci_env.NO_KEY_STATUS,
+        "config error in .lemoncrow/review.yaml",
+        "stopped at the cost cap",
+        "Unsupported event push: LemonCrow Review runs on pull_request",
+        "Could not install LemonCrow on the runner",
         "`pull-requests: write` or `statuses: write`",
         "permissions: { contents: read, pull-requests: write, statuses: write }",
         "`fail-on` is `p0` or `p1`",
@@ -957,14 +1031,14 @@ def permission_blocks() -> list[tuple[str, str]]:
 def test_every_workflow_in_the_docs_grants_the_least_that_works_and_says_what_uses_each_permission() -> None:
     blocks = permission_blocks()
     assert [where for where, _ in blocks].count("guide") == 2 and [where for where, _ in blocks].count("readme") == 1
-    expected = {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    expected = {"contents": "read", "pull-requests": "write", "statuses": "write", "checks": "read"}
     for where, block in blocks:
         assert yaml.safe_load(block)["permissions"] == expected, where
         lines = block.split("\npermissions:\n", 1)[1].split("\njobs:", 1)[0].splitlines()
-        assert len(lines) == 3, where
+        assert len(lines) == 4, where
         for line in lines:
             # One line per permission, with a comment saying what uses it.
-            assert re.fullmatch(r"  (contents|pull-requests|statuses): (read|write) +# \S.{8,}", line), line
+            assert re.fullmatch(r"  (contents|pull-requests|statuses|checks): (read|write) +# \S.{8,}", line), line
     assert init_action.sample() == blocks[0][1]
     # The optional permissions are not granted, and each is said to be optional with what is lost without it.
     guide = GUIDE.read_text(encoding="utf-8")

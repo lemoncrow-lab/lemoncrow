@@ -143,3 +143,37 @@ impact selector will still require most or all components. The savings become
 substantial for later incremental releases where the Git diff is small.
 The policy does not reinterpret unreleased intermediate commits as published
 release baselines.
+
+
+## Fast candidate verification (not a release)
+
+Running all release components after **every fix** is unnecessarily expensive. Use
+`make release-quick tag=v0.8.0` for candidate iteration instead. It calls
+`scripts.release_quick`, which selects 25 **existing** components of
+`scripts.release_gate` and its dependency closure. Those components execute
+normally in a clean, disposable checkout, using fresh PostgreSQL/Redis where
+needed; no check is mocked, automatically skipped, or given a relaxed limit.
+
+The fast profile covers locked environments, static checks, the public server
+and both frontend unit suites, hosted artifact smoke, status/support evidence,
+Gate I, credit-gate regression tests, PostgreSQL rolling upgrade and PITR,
+network-egress checks, and real candidate installation/compiled verification.
+It intentionally does **not** rerun the roughly 10k-case root suite, 5k-case
+enterprise suite, complete Chromium E2E, hosted concurrency/load/failover
+matrix, live GitHub canary, fresh Runtime credit measurement, or all G9
+performance SLOs.
+
+The resulting `reports/release/release-quick.json` is explicitly partial,
+**never releasable**, and cannot be used by `release_record stamp`. The quick
+command accepts exit code 2 from the underlying release gate only when the
+report names the exact candidate SHA, proves a clean start/end tree, and shows
+all 25 selected components passing. Missing or changed components, a dirty
+tree, cleanup errors, or a missing report fail the quick command.
+
+Recommended workflow: iterate with `release-quick`; run focused E2E tests
+for the Review surfaces you changed; then **once** the candidate is stable run
+`LEMONCROW_FULL_SUITE=1 make release-qualify tag=v0.8.0`. Only that
+complete, fully releasable report may stamp/tag a release. Run comprehensive
+suites in CI on each merge or overnight so missing coverage is surfaced well
+before release preparation. Do not represent a quick green result as a
+qualified v0.8.0 release.

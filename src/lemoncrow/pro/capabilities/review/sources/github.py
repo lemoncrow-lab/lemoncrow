@@ -112,6 +112,9 @@ class PullRequestRef:
     def api_path(self) -> str:
         return f"repos/{self.slug}/pulls/{self.number}"
 
+    def commit_url(self, sha: str) -> str:
+        return f"https://{self.host}/{self.slug}/commit/{sha}"
+
 
 def parse_pr_source_ref(source_ref: str) -> PullRequestRef | None:
     match = _SOURCE_REF.match(source_ref.strip())

@@ -24,6 +24,7 @@ from lemoncrow.pro.capabilities.review.intelligence_drivers import (
     CliExecutionCancelled,
     ExecutionOrigin,
     _execute_cli_structured,
+    schema_output_instruction,
     tool_profile_for,
 )
 from lemoncrow.pro.capabilities.review.model_identity import ModelIdentity, observed_from
@@ -426,6 +427,23 @@ def _mapping_result(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
+def _schema_answer(value: Any, schema: Mapping[str, Any]) -> dict[str, Any]:
+    """A model API's answer as a mapping that holds every top-level field *schema* requires, or an error.
+
+    These routes ask for JSON mode, which fixes the syntax but not the keys. An answer missing a required field is
+    malformed: read as-is it is indistinguishable from a clean "nothing found", so it fails like an unparseable one.
+    """
+
+    result = _mapping_result(value)
+    required = schema.get("required")
+    missing = sorted(str(key) for key in required if key not in result) if isinstance(required, list) else []
+    if missing:
+        raise InternalLLMError(
+            "Review Intelligence model answer does not follow the output schema: missing " + ", ".join(missing)
+        )
+    return result
+
+
 def execute_structured(
     *,
     system: str,
@@ -539,7 +557,12 @@ def execute_structured(
             ),
             observed_models=tuple(observed),
         )
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    # A model API reads only these messages (JSON mode fixes the syntax, not the keys): without the schema in them a
+    # model guesses field names, and an answer with none of the required ones must not read as a clean review.
+    messages = [
+        {"role": "system", "content": system + "\n\n" + schema_output_instruction(output_schema)},
+        {"role": "user", "content": prompt},
+    ]
     if on_raw_delta is not None:
         if provider_stream is not None:
             value = provider_stream(
@@ -562,7 +585,7 @@ def execute_structured(
         if _cancelled(cancellation):
             raise IntelligenceCancelled("Review Intelligence run was cancelled")
         return StructuredExecution(
-            result=_mapping_result(value),
+            result=_schema_answer(value, output_schema),
             driver=resolved.driver,
             model=resolved.model,
             usage=ModelCallUsage(calls=1),
@@ -603,7 +626,7 @@ def execute_structured(
     if _cancelled(cancellation):
         raise IntelligenceCancelled("Review Intelligence run was cancelled")
     return StructuredExecution(
-        result=_mapping_result(value),
+        result=_schema_answer(value, output_schema),
         driver=resolved.driver,
         model=resolved.model,
         usage=usage,

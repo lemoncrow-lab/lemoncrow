@@ -782,6 +782,21 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._tls.wrap_socket(raw, server_hostname=self.host)
 
 
+def _registry_diagnostic_target(url: str) -> str:
+    """Show only a bounded registry origin, never signed paths or query tokens."""
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            return "<unidentifiable registry>"
+        hostname = parts.hostname[:180]
+        if not re.fullmatch(r"[a-zA-Z0-9.:-]+", hostname):
+            return "<unidentifiable registry>"
+        port = parts.port
+        return f"{parts.scheme}://{hostname}{':' + str(port) if port is not None else ''}"
+    except ValueError:
+        return "<unidentifiable registry>"
+
+
 class RegistryFetcher:
     """The fetch stage's only network client: allowlisted registries, nothing else.
 
@@ -791,9 +806,16 @@ class RegistryFetcher:
     followed.
     """
 
-    def __init__(self, policy: HermeticPolicy, *, timeout: float = FETCH_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        policy: HermeticPolicy,
+        *,
+        timeout: float = FETCH_TIMEOUT_SECONDS,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> None:
         self.policy = policy
         self.timeout = timeout
+        self.should_cancel = should_cancel
 
     def _addresses(self, rule: RegistryRule, host: str, port: int) -> tuple[str, ...]:
         try:
@@ -825,7 +847,9 @@ class RegistryFetcher:
         for _hop in range(MAX_REDIRECTS + 1):
             rule = self.policy.registry_for(current)
             if rule is None:
-                raise HermeticRefused(f"fetch target is not an allowlisted registry: {current}")
+                raise HermeticRefused(
+                    f"fetch target is not an allowlisted registry: {_registry_diagnostic_target(current)}"
+                )
             parts = urlsplit(current)
             host = parts.hostname or ""
             addresses = self._addresses(rule, host, rule.effective_port)
@@ -835,34 +859,88 @@ class RegistryFetcher:
                 else _PinnedHTTPConnection(host, rule.effective_port, addresses, self.timeout)
             )
             target = parts.path + (f"?{parts.query}" if parts.query else "")
+            # Only the leased-worker path watches revocation. A blocked
+            # registry socket must not keep a cancelled assignment running
+            # until its full request timeout. Shut down the pinned socket from
+            # the trusted host; never pass the callback to the remote server.
+            revoked = threading.Event()
+            # HTTP/1.0 can detach the socket from HTTPConnection when the
+            # response is created. Keep its reference so shutdown interrupts
+            # a stalled HTTPResponse.read even after connection.sock is None.
+            active_socket: list[socket.socket | None] = [None]
+            finished = threading.Event()
+            watcher: threading.Thread | None = None
+            if self.should_cancel is not None:
+
+                def watch_registry(
+                    *,
+                    done: threading.Event = finished,
+                    cancelled: threading.Event = revoked,
+                    conn: http.client.HTTPConnection = connection,
+                    sock_ref: list[socket.socket | None] = active_socket,
+                ) -> None:
+                    while not done.wait(0.1):
+                        if self.should_cancel is not None and self.should_cancel():
+                            cancelled.set()
+                            sock = sock_ref[0] or conn.sock
+                            if sock is not None:
+                                try:
+                                    sock.shutdown(socket.SHUT_RDWR)
+                                except OSError:
+                                    pass
+                            conn.close()
+                            return
+
+                watcher = threading.Thread(target=watch_registry, daemon=True)
+                watcher.start()
             try:
+                if self.should_cancel is not None and self.should_cancel():
+                    raise HermeticUnavailable("registry fetch cancelled by revoked authority")
                 connection.request(
                     "GET",
                     target or "/",
                     headers={"User-Agent": "lemoncrow-hermetic-fetch/1", "Accept": accept},
                 )
+                active_socket[0] = connection.sock
+                if revoked.is_set():
+                    raise HermeticUnavailable("registry fetch cancelled by revoked authority")
                 response = connection.getresponse()
                 if response.status in {301, 302, 303, 307, 308}:
                     location = response.getheader("Location") or ""
                     response.read(64 * 1024)
                     if not location:
-                        raise HermeticRefused(f"registry redirect without Location from {current}")
+                        raise HermeticRefused(
+                            f"registry redirect without Location from {_registry_diagnostic_target(current)}"
+                        )
                     current = urljoin(current, location)
                     continue
                 if response.status != 200:
-                    raise HermeticUnavailable(f"registry answered HTTP {response.status} for {current}")
+                    raise HermeticUnavailable(
+                        f"registry answered HTTP {response.status} for {_registry_diagnostic_target(current)}"
+                    )
                 declared = response.getheader("Content-Length")
                 if declared and declared.isdigit() and int(declared) > max_bytes:
-                    raise HermeticRefused(f"tarball exceeds {max_bytes} bytes: {current}")
+                    raise HermeticRefused(f"tarball exceeds {max_bytes} bytes: {_registry_diagnostic_target(current)}")
                 payload = response.read(max_bytes + 1)
+                if revoked.is_set() or (self.should_cancel is not None and self.should_cancel()):
+                    raise HermeticUnavailable("registry fetch cancelled by revoked authority")
                 if len(payload) > max_bytes:
-                    raise HermeticRefused(f"tarball exceeds {max_bytes} bytes: {current}")
+                    raise HermeticRefused(f"tarball exceeds {max_bytes} bytes: {_registry_diagnostic_target(current)}")
                 return payload, str(response.getheader("Content-Type") or ""), current
             except (OSError, http.client.HTTPException) as exc:
-                raise HermeticUnavailable(f"registry fetch failed for {current}: {exc}") from exc
+                if revoked.is_set() or (self.should_cancel is not None and self.should_cancel()):
+                    raise HermeticUnavailable("registry fetch cancelled by revoked authority") from exc
+                raise HermeticUnavailable(
+                    f"registry fetch failed for {_registry_diagnostic_target(current)} ({type(exc).__name__})"
+                ) from exc
             finally:
+                finished.set()
                 connection.close()
-        raise HermeticRefused(f"registry redirected more than {MAX_REDIRECTS} times: {url}")
+                if watcher is not None:
+                    watcher.join(timeout=1.0)
+        raise HermeticRefused(
+            f"registry redirected more than {MAX_REDIRECTS} times: {_registry_diagnostic_target(url)}"
+        )
 
 
 def _verify_integrity(payload: bytes, integrity: str) -> None:
@@ -1189,6 +1267,7 @@ def provision_npm_dependencies(
     policy: HermeticPolicy,
     cache: DependencyCache,
     fetcher: RegistryFetcher | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ProvisionedTree:
     """Fetch (registry-only) then build (offline) the reviewed lockfile's dependency tree.
 
@@ -1207,7 +1286,7 @@ def provision_npm_dependencies(
         )
         return ProvisionedTree(existing, plan, hit)
 
-    client = fetcher or RegistryFetcher(policy)
+    client = fetcher or RegistryFetcher(policy, should_cancel=should_cancel)
     missing: list[PlannedPackage] = []
     digests: dict[str, str] = {}
     for pkg in plan.packages:
@@ -1224,7 +1303,11 @@ def provision_npm_dependencies(
 
     def fetch_one(pkg: PlannedPackage) -> tuple[str, str]:
         nonlocal fetched_bytes
+        if should_cancel is not None and should_cancel():
+            raise HermeticUnavailable("dependency fetch cancelled by revoked authority")
         payload = client.fetch(pkg.url)
+        if should_cancel is not None and should_cancel():
+            raise HermeticUnavailable("dependency fetch cancelled by revoked authority")
         _verify_integrity(payload, pkg.integrity)
         with byte_guard:
             fetched_bytes += len(payload)
@@ -1252,6 +1335,8 @@ def provision_npm_dependencies(
         cache="miss" if missing else "hit",
     )
 
+    if should_cancel is not None and should_cancel():
+        raise HermeticUnavailable("dependency build cancelled by revoked authority")
     build_started = time.monotonic()
     with _tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
         existing = cache.tree(plan.digest)
@@ -1259,7 +1344,7 @@ def provision_npm_dependencies(
             return ProvisionedTree(existing, plan, (fetch_stage, StageOutcome("build", "passed", cache="hit")))
         staging, final = cache.new_tree_dir(plan.digest)
         try:
-            report = _run_offline_install(plan, digests, cache, staging)
+            report = _run_offline_install(plan, digests, cache, staging, should_cancel=should_cancel)
             (staging / "node_modules").mkdir(exist_ok=True)
             (staging / "tree.json").write_text(
                 json.dumps({"plan_digest": plan.digest, "namespace": cache.namespace, "created_at": time.time()}),
@@ -1289,8 +1374,15 @@ def _run_offline_install(
     digests: Mapping[str, str],
     cache: DependencyCache,
     staging: Path,
+    *,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Mapping[str, Any]:
-    from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, run_limited
+    from lemoncrow.pro.capabilities.review.sandbox_limits import (
+        SandboxCapacityBusy,
+        SandboxExecutionCancelled,
+        run_limited,
+        run_limited_bounded,
+    )
 
     plan_file = staging.parent / f"{staging.name}.plan.json"
     plan_file.write_text(
@@ -1331,15 +1423,29 @@ def _run_offline_install(
         )
     )
     try:
-        proc = run_limited(
-            command,
-            timeout=INSTALL_TIMEOUT_SECONDS,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=False,
-            env={"PATH": _SANDBOX_PATH},
-        )
+        if should_cancel is None:
+            # Keep the original author-machine capture and installer diagnostics.
+            proc = run_limited(
+                command,
+                timeout=INSTALL_TIMEOUT_SECONDS,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                env={"PATH": _SANDBOX_PATH},
+            )
+        else:
+            # Signed leased workers need cooperative process-group cancellation
+            # and bounded output even while the offline installer is running.
+            proc = run_limited_bounded(
+                command,
+                timeout=INSTALL_TIMEOUT_SECONDS,
+                max_output_bytes=65536,
+                should_cancel=should_cancel,
+                env={"PATH": _SANDBOX_PATH},
+            )
+    except SandboxExecutionCancelled as exc:
+        raise HermeticUnavailable("offline dependency build cancelled by revoked authority") from exc
     except SandboxCapacityBusy as exc:
         raise HermeticUnavailable(str(exc)) from exc
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1352,7 +1458,11 @@ def _run_offline_install(
     except ValueError:
         report = {}
     if proc.returncode != 0 or not report.get("ok"):
-        error = str(report.get("error") or (proc.stdout or "").strip()[-2000:] or f"exit {proc.returncode}")
+        error = str(
+            report.get("error")
+            or ((proc.stdout or "") + (proc.stderr or "")).strip()[-2000:]
+            or f"exit {proc.returncode}"
+        )
         if "lookalike" in error or "escapes" in error or "unsafe" in error:
             raise HermeticRefused(f"offline dependency build refused: {error}")
         raise HermeticUnavailable(f"offline dependency build failed: {error}")
@@ -1441,6 +1551,7 @@ def provision_dependencies(
     cache: DependencyCache,
     sandbox_project: str,
     fetcher: RegistryFetcher | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ProvisionedDependencies:
     """Provision every lockfile-declared dependency set of *project* hermetically.
 
@@ -1456,6 +1567,15 @@ def provision_dependencies(
         python_project_state,
     )
 
+    def require_active() -> None:
+        # The worker's authoritative assignment lease is checked in the
+        # trusted host only. Never pass a PostgreSQL credential to reviewed
+        # source code or to package build subprocesses. These checkpoints do
+        # not interrupt an individual blocking registry request/build stage.
+        if should_cancel is not None and should_cancel():
+            raise HermeticUnavailable("dependency provisioning cancelled by revoked execution authority")
+
+    require_active()
     unsupported = unsupported_lockfiles(project)
     if unsupported:
         raise HermeticRefused(
@@ -1473,20 +1593,25 @@ def provision_dependencies(
     ecosystems: list[str] = []
     base = sandbox_project.rstrip("/") or "/"
     if npm_state == "locked":
-        tree = provision_npm_dependencies(project, policy=policy, cache=cache, fetcher=fetcher)
+        require_active()
+        tree = provision_npm_dependencies(
+            project, policy=policy, cache=cache, fetcher=fetcher, should_cancel=should_cancel
+        )
         stages.extend(tree.stages)
         mounts.append((tree.node_modules, f"{base}/node_modules"))
         prefix.append(f"{base}/node_modules/.bin")
         ecosystems.append("npm")
     if python_state:
+        require_active()
         python = provision_python_dependencies(
-            project, policy=policy, cache=cache, sandbox_project=base, fetcher=fetcher
+            project, policy=policy, cache=cache, sandbox_project=base, fetcher=fetcher, should_cancel=should_cancel
         )
         stages.extend(python.stages)
         mounts.append((python.root, PYTHON_ENV_MOUNT))
         prefix.append(f"{PYTHON_VENV}/bin")
         env.extend((("VIRTUAL_ENV", PYTHON_VENV), ("PYTHONDONTWRITEBYTECODE", "1")))
         ecosystems.append("pypi")
+    require_active()
     return ProvisionedDependencies(
         stages=tuple(stages),
         mounts=tuple(mounts),

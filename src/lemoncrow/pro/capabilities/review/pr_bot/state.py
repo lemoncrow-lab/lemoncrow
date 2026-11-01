@@ -63,6 +63,13 @@ DIAGRAM_STATE: Final[re.Pattern[str]] = re.compile(r"^[0-9]{1,3}:(?:none|[0-9a-f
 #: What the noise controls made the summary show (``settings.NoisePolicy.view_code``): ``<threshold>:<inline|summary>``,
 #: absent for the defaults. Anything else is no record.
 VIEW_STATE: Final[re.Pattern[str]] = re.compile(r"^(?:critical|high|medium|suggestions):(?:inline|summary)$")
+#: What the last ``LemonCrow Proof`` run showed (``proof.report.Summary.record``): the head it ran on (12 hex), the
+#: reproductions supported, contradicted, inconclusive and could-not-run, the added tests failing on base of those run,
+#: then the plan's digest (8 hex) and the check run's id when known. Anything else is no record.
+PROOF_STATE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<head>[0-9a-f]{12}):s(?P<s>\d{1,4}):c(?P<c>\d{1,4}):i(?P<i>\d{1,4}):n(?P<n>\d{1,4})"
+    r":rb(?P<fails>\d{1,4})/(?P<total>\d{1,4}):p(?P<plan>[0-9a-f]{8})(?::k(?P<check>\d{1,20}))?$"
+)
 
 #: Findings and reviewed units the state may carry. Past them the state says so.
 # lc-debt: the state rides in one 65,536-character comment, so at most 60 findings and 700 reviewed units are
@@ -201,6 +208,14 @@ class ReviewState:
     #: The subject line of the reviewed commit, for the footer's ``Last reviewed commit:`` link (untrusted text: it is
     #: neutralised when it is shown). ``""``: not known, and the link says the short hash.
     head_title: str = ""
+    #: The workflow run that wrote this review (``GITHUB_RUN_ID``), so the proof-of-work refresh after CI finishes leaves the
+    #: review's own job out of the checks it lists, as the review did. ``""``: not known (a local run).
+    review_run: str = ""
+    #: What the last ``LemonCrow Proof`` run showed (``PROOF_STATE``), written by ``lc review proof report`` after its
+    #: check run; the summary shows it only while its head is the reviewed head. ``""``: no proof ran.
+    proof: str = ""
+    #: What the proof plans' model calls cost on this pull request, counted toward its budget (:attr:`spent`).
+    proof_usage: Usage = field(default_factory=Usage)
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
@@ -213,9 +228,9 @@ class ReviewState:
 
     @property
     def spent(self) -> Usage:
-        """Everything this pull request has cost so far, reviews and chat answers. ``max-usd-per-pr`` caps its cost."""
+        """Everything this pull request has cost so far: reviews, chat answers and proof plans. ``max-usd-per-pr`` caps it."""
 
-        return self.usage_total.plus(self.chat_usage)
+        return self.usage_total.plus(self.chat_usage).plus(self.proof_usage)
 
 
 def verdict_counts(findings: tuple[BotFinding, ...] | list[BotFinding]) -> dict[str, int]:
@@ -275,6 +290,9 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         **({"overview_for": state.overview_for} if state.overview_for else {}),
         **({"confidence": state.confidence} if state.confidence else {}),
         **({"head_title": state.head_title} if state.head_title else {}),
+        **({"review_run": state.review_run} if state.review_run else {}),
+        **({"proof": state.proof} if state.proof else {}),
+        **({"proof_usage": state.proof_usage.to_wire()} if state.proof_usage.calls else {}),
     }
 
 
@@ -371,6 +389,9 @@ def parse_state(body: str) -> ReviewState | None:
         overview_for=decided if isinstance(decided, str) and OVERVIEW_FOR.match(decided) else "",
         confidence=score if isinstance(score, int) and not isinstance(score, bool) and 1 <= score <= 5 else 0,
         head_title=" ".join(titled.split())[:MAX_HEAD_TITLE] if isinstance(titled, str) else "",
+        review_run=run if isinstance(run := raw.get("review_run"), str) and run.isdigit() and len(run) <= 20 else "",
+        proof=proved if isinstance(proved := raw.get("proof"), str) and PROOF_STATE.match(proved) else "",
+        proof_usage=Usage.from_wire(raw.get("proof_usage")),
     )
 
 

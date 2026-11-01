@@ -69,7 +69,7 @@ def test_after_the_allowed_reviews_a_push_is_not_reviewed_and_the_summary_says_s
     assert report.verdict.headline == headline
     assert report.status == ("success", f"{headline}; this push was not reviewed")
     body = summary(world)
-    assert any(line.startswith(f"**{headline}**") for line in body.split("\n"))
+    assert any(line.startswith(f"<h2>{headline}") for line in body.split("\n"))
     assert "This push was not reviewed" in body and "max-runs-per-pr" in body
     # The status is on the new head, the findings of the last review stand, nothing new is posted or replied to.
     last = world.github.last_status()
@@ -145,18 +145,58 @@ def test_a_dollar_cap_is_enforced_from_the_cumulative_cost_in_the_state(
     assert world.model.calls == []
 
 
-def test_a_dollar_cap_cannot_hold_a_cost_nobody_knows_so_it_says_so_and_the_run_cap_still_works(world: World) -> None:
-    world.model.model = "an-unpriced-model-xyz"
+def test_the_cap_is_held_during_a_run_and_a_crossing_ends_it_as_a_partial_review_that_names_what_it_reached(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1.5: before every model call, spent so far plus the next call's estimate is checked against the cap."""
+
+    one_call_per_file(monkeypatch)
+    world.model.input_tokens = 4_000_000  # $0.60 a call
     world.origin.push(FIRST_PUSH)
-    first = world.review(max_usd_per_pr=0.0001)
-    assert first.state is not None and first.state.usage_total.cost_usd is None
-    world.origin.push({"src/plain.py": "VALUE = 3\n"})
-    second = world.review(max_usd_per_pr=0.0001)
-    assert second.verdict is not None and second.verdict.state != "budget", "an unknown cost is never counted as spent"
-    assert any("max-usd-per-pr is not enforced" in note for note in second.notes)
-    world.origin.push({"src/plain.py": "VALUE = 4\n"})
-    third = world.review(max_runs_per_pr=2, max_usd_per_pr=0.0001)
-    assert third.verdict is not None and third.verdict.state == "budget"
+    report = world.review(max_usd_per_pr=1.00, fail_on="p0")
+
+    asked = len(world.model.calls)
+    assert 0 < asked < 3, "some files were reviewed and the call that would pass the cap was never made"
+    assert report.state is not None and report.state.usage_total.cost_usd is not None
+    assert report.state.usage_total.cost_usd <= 1.00 + 0.61, "at most the calls in flight pass the cap"
+    assert report.verdict is not None and report.verdict.state == "partial"
+    assert "stopped at the cost cap" in report.verdict.headline
+    # Never a failed job, even under a gate: the owner set the cap.
+    assert report.status is not None and report.status[0] == "success" and report.exit_code == 0
+    body = summary(world)
+    assert "Stopped at the cost cap." in body and "Reviewed: " in body and "Not reviewed: " in body
+    assert "of $1.00 for this PR" in body and " this run · " in body
+    # What was not reached is pending: the next run with budget left picks it up.
+    assert report.state.complete is False
+
+
+def test_the_default_cap_is_three_dollars_and_none_turns_it_off(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot import spend
+
+    assert spend.DEFAULT_MAX_USD_PER_PR == 3.00
+    assert spend.resolve_max_usd(None, {}) == 3.00 and spend.resolve_max_usd("", {}) == 3.00
+    assert spend.resolve_max_usd(None, {"LEMONCROW_REVIEW_MAX_USD": "none"}) is None
+    assert spend.resolve_max_usd(None, {"LEMONCROW_REVIEW_MAX_USD": "$5"}) == 5.0
+    with pytest.raises(ValueError, match="or `none` for no cap"):
+        spend.resolve_max_usd(None, {"LEMONCROW_REVIEW_MAX_USD": "lots"})
+
+    one_call_per_file(monkeypatch)
+    world.model.input_tokens = 12_000_000  # $1.80 a call: two of them pass the default
+    world.origin.push(FIRST_PUSH)
+    capped = world.review()
+    assert capped.verdict is not None and "stopped at the cost cap" in capped.verdict.headline
+    assert "of $3.00 for this PR" in summary(world)
+
+    monkeypatch.setenv("LEMONCROW_REVIEW_MAX_USD", "none")
+    world.model.reset()
+    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "another push")
+    free = world.review()
+    assert free.verdict is not None and "cost cap" not in free.verdict.headline
+    assert "no cap (max-usd-per-pr: none)" in summary(world)
+
+    monkeypatch.setenv("LEMONCROW_REVIEW_MAX_USD", "-2")
+    with pytest.raises(PrReviewError, match="max-usd-per-pr must be a number"):
+        world.review()
 
 
 class ClaudeCliModel(FakeModel):
@@ -183,7 +223,7 @@ def test_a_dollar_cap_holds_on_a_route_whose_cli_reports_its_cost(world: World) 
     first = world.review(max_usd_per_pr=0.10)
     assert world.model.calls and first.state is not None and first.state.usage_total.cost_usd is not None
     spent = first.state.usage_total.cost_usd
-    asked = len(world.model.calls) + len(world.model.overviews)  # the overview call is billed too
+    asked = len(world.model.calls) + len(world.model.overviews) + len(world.model.dedupes)  # each call is billed
     assert spent == pytest.approx(0.04 * asked) and spent > 0.05
     assert f"est. {money(spent)}" in summary(world), "the summary's usage line shows the cost"
     assert not any("max-usd-per-pr is not enforced" in note for note in first.notes)
@@ -195,19 +235,31 @@ def test_a_dollar_cap_holds_on_a_route_whose_cli_reports_its_cost(world: World) 
     assert world.model.calls == []
 
 
-def test_a_cli_that_reports_no_cost_shows_none_and_the_dollar_cap_says_it_is_not_enforced(world: World) -> None:
+def test_a_route_that_reports_no_cost_is_never_uncapped_it_is_held_by_model_calls(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot import spend
+
+    monkeypatch.setattr(spend, "UNPRICED_CALLS_PER_PR", 2)
+    one_call_per_file(monkeypatch)
     world.monkeypatch.setenv("LEMONCROW_OPENAI_MODEL", "sonnet")
     world.model = ClaudeCliModel()
     world.model.cli_cost = None  # a route whose CLI reports tokens but no cost (Codex, OpenCode)
     world.origin.push(FIRST_PUSH)
     first = world.review(max_usd_per_pr=0.10)
-    assert world.model.calls and first.state is not None, "the model was asked"
-    assert first.state.usage_total.cost_usd is None and first.state.usage_total.input_tokens is not None
+    assert len(world.model.calls) + len(world.model.overviews) == 2, "held to the call cap, not to an invented price"
+    assert first.state is not None and first.state.usage_total.cost_usd is None
     assert " est. $" not in summary(world), "no cost line rather than an invented price"
+    words = "cost not reported by this route; capped at 2 model calls"
+    assert words in summary(world) and first.status is not None and words in first.status[1]
+    assert len(first.status[1]) <= 140 and first.status[0] == "success" and first.exit_code == 0
+
+    world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 3\n"})
     second = world.review(max_usd_per_pr=0.10)
-    assert second.verdict is not None and second.verdict.state != "budget"
-    assert any("max-usd-per-pr is not enforced" in note for note in second.notes)
+    assert second.verdict is not None and second.verdict.state == "budget" and world.model.calls == []
+    assert "2 of 2 model calls used (cost not reported by this route)" in second.verdict.headline
+    assert second.status is not None and words in second.status[1]
 
 
 def test_budget_reached_reads_only_the_state() -> None:
@@ -222,6 +274,8 @@ def test_budget_reached_reads_only_the_state() -> None:
     assert budget_reached(options, both) == "4 reviews used of 3 allowed and $2.00 spent of $1.00 allowed"
     unknown = ReviewState(head_sha="a" * 40, reviews=1, usage_total=Usage(3, None, None, None))
     assert budget_reached(options, unknown) == ""
+    spent_calls = ReviewState(head_sha="a" * 40, reviews=1, usage_total=Usage(60, None, None, None))
+    assert budget_reached(options, spent_calls) == "60 of 60 model calls used (cost not reported by this route)"
     assert budget_reached(RunOptions(pr="7", repo_root=Path(".")), runs) == ""
 
 
@@ -245,7 +299,7 @@ def test_an_open_p0_from_the_last_review_still_fails_the_check_when_the_budget_i
     assert report.status == ("failure", "1 must-fix before merge")
     assert report.exit_code == 1, "fail-on makes the job fail exactly when the status fails, a spent budget included"
     # The headline is the P0, which is still open; the strip under it says why nothing newer was looked at.
-    assert any(line.startswith("**1 must-fix before merge**") for line in summary(world).split("\n"))
+    assert any(line.startswith("<h2>1 must-fix before merge") for line in summary(world).split("\n"))
     assert "This push was not reviewed" in summary(world)
 
 
@@ -296,3 +350,21 @@ def test_the_cli_takes_both_limits_and_rejects_nonsense(world: World, monkeypatc
     assert invoke("--max-usd-per-pr", "lots").exit_code != 0
     help_text = CliRunner().invoke(cli, ["review", "--help"]).output
     assert "--max-usd-per-pr" in help_text and "--max-runs-per-pr" in help_text
+
+
+def test_max_usd_per_pr_none_lifts_the_cap_and_the_help_names_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    import click
+
+    from lemoncrow.pro.capabilities.review.local_cli.main import MaxUsd
+    from lemoncrow.pro.capabilities.review.pr_bot import spend
+
+    monkeypatch.setenv(spend.MAX_USD_ENV, "")  # restored after the test, whatever the option writes
+    assert MaxUsd().convert("2.5", None, None) == 2.5
+    assert MaxUsd().convert("None", None, None) is None
+    assert spend.resolve_max_usd(None, os.environ) is None, "the review reads no cap, not the $3.00 default"
+    with pytest.raises(click.BadParameter):
+        MaxUsd().convert("0", None, None)
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    assert "`none` for no cap" in text and "Default: $3.00 per pull request" in text

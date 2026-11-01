@@ -31,6 +31,7 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     DependencyCache,
     HermeticPolicy,
     HermeticRefused,
+    HermeticUnavailable,
     RecordingSinks,
     RegistryFetcher,
     RegistryRule,
@@ -360,6 +361,78 @@ def test_plan_refuses_anything_but_an_exact_allowlisted_registry_tarball(
     )
     with pytest.raises(HermeticRefused, match=message):
         plan_npm_install(project, _policy(registry))
+
+
+def test_registry_failures_never_expose_query_grants_or_path_credentials(registry: _Server) -> None:
+    """Reviewer-visible NOT_RUN explanations must not echo arbitrary registry secrets."""
+    private = "synthetic-query-private-token-canary"
+    path = f"/signed-{private}/package.tgz?access_token={private}"
+    policy = HermeticPolicy(registries=(RegistryRule("localhost", "http", registry.port, private_network=True),))
+    fetcher = RegistryFetcher(policy, timeout=2)
+    url = registry.url(path)
+    with pytest.raises(HermeticUnavailable, match="HTTP 404") as status:
+        fetcher.fetch(url)
+    assert private not in str(status.value)
+    assert f"localhost:{registry.port}" in str(status.value)
+    registry.files[path] = b"ab"
+    with pytest.raises(HermeticRefused, match="tarball exceeds") as size:
+        fetcher.fetch(url, max_bytes=1)
+    assert private not in str(size.value)
+    refused = RegistryFetcher(HermeticPolicy(registries=()))
+    with pytest.raises(HermeticRefused, match="not an allowlisted registry") as denied:
+        refused.fetch(f"https://unused.invalid/signed-{private}?token={private}")
+    assert private not in str(denied.value)
+
+
+def test_registry_fetch_cancellation_interrupts_blocked_real_http_body() -> None:
+    """An accepted worker must not await the full registry timeout after lease loss."""
+    sent_headers = threading.Event()
+    release = threading.Event()
+    revoked = threading.Event()
+
+    class StalledBody(BaseHTTPRequestHandler):
+        def log_message(self, *_args: Any) -> None:
+            pass
+
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "100000")
+            self.end_headers()
+            self.wfile.write(b"x" * 10)
+            self.wfile.flush()
+            sent_headers.set()
+            release.wait(timeout=12)
+            try:
+                self.wfile.write(b"y" * 99990)
+            except (OSError, ValueError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), StalledBody)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        policy = HermeticPolicy(
+            registries=(RegistryRule("localhost", "http", server.server_port, private_network=True),)
+        )
+        fetcher = RegistryFetcher(policy, timeout=15, should_cancel=revoked.is_set)
+
+        def revoke() -> None:
+            assert sent_headers.wait(timeout=4)
+            revoked.set()
+
+        canceller = threading.Thread(target=revoke)
+        canceller.start()
+        started = time.monotonic()
+        with pytest.raises(HermeticUnavailable, match="cancelled by revoked authority"):
+            fetcher.fetch(f"http://localhost:{server.server_port}/package.tgz")
+        assert time.monotonic() - started < 4
+        canceller.join(timeout=2)
+        assert not canceller.is_alive()
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
 
 
 def test_plan_refuses_weak_or_missing_integrity_and_workspace_links(tmp_path: Path, registry: _Server) -> None:

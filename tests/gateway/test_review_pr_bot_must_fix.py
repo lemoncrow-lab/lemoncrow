@@ -160,7 +160,7 @@ def test_an_authors_feedback_on_their_own_p0_is_recorded_and_answered_and_change
     assert "dismissed by feedback" not in body, "nothing was dismissed"
     assert "Suggested rules from feedback" not in body, "a dismissal that did not happen is not offered as a rule"
     assert "a must-fix (P0) it covers stays open" in body and "`alice`" in body
-    assert any(line.startswith("**1 must-fix before merge**") for line in body.split("\n"))
+    assert any(line.startswith("<h2>1 must-fix before merge") for line in body.split("\n"))
     assert report.published["declined"] == 1
 
     # Saying it again, or on a later push, does not get the same answer twice, and the P0 is still there.

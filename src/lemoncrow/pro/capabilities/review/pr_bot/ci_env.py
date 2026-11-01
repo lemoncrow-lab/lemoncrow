@@ -68,6 +68,13 @@ NO_KEY_FIX = (
     "Action: `with: {anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}}` (or `openai-api-key`). A key set as an "
     "environment variable on the step also works."
 )
+#: The ``error`` status a pull request gets when the run has no model key; names the secret to add.
+NO_KEY_STATUS = (
+    "No model key: add an ANTHROPIC_API_KEY or OPENAI_API_KEY secret and pass it as anthropic-api-key or openai-api-key"
+)
+#: Events the review runs on. ``workflow_run`` is the optional proof-of-work refresh (it names its pull request), and
+#: ``pull_request_review`` the optional human-review refresh.
+SUPPORTED_EVENTS = frozenset({"pull_request", "workflow_dispatch", "workflow_run", "pull_request_review"})
 #: Backends a user may already have chosen with ``LEMONCROW_LLM_BACKEND``.
 _KNOWN_BACKENDS = frozenset({"openai", "openai_compatible", "litellm", "ollama", "claude", "codex", "opencode"})
 #: The model variable each API backend reads once the backend is chosen.
@@ -207,6 +214,10 @@ class Gate:
     #: For a failure that stops the run before any review: the description of the ``error`` ``LemonCrow Review`` status
     #: posted for it, so a required check shows why instead of waiting. Empty: no status.
     error_status: str = ""
+    #: The commit the status goes on when the event carries no pull request head (an unsupported event): ``GITHUB_SHA``.
+    sha: str = ""
+    #: A ``workflow_run`` event: no review, only the proof-of-work refresh (:mod:`proof_refresh`), with no model call.
+    refresh: bool = False
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -256,6 +267,7 @@ def decide(
     """Whether this workflow run should review a pull request, from the CI environment alone."""
 
     name = str(env.get("GITHUB_EVENT_NAME") or "")
+    payload = load_event(env) if event is None else event
     if name == "pull_request_target":
         return Gate(
             False,
@@ -263,10 +275,36 @@ def decide(
             "on behalf of code from the pull request. Use the pull_request event.",
             "error",
             1,
+            error_status="Unsupported event pull_request_target: use the pull_request event",
         )
-    payload = load_event(env) if event is None else event
+    if name == "workflow_run":
+        # The optional second workflow ("Proof of work after CI"): CI finished, so the summary's proof-of-work block is
+        # brought up to date. No key is needed and nothing is reviewed.
+        return Gate(
+            False, "CI finished: refreshing the proof of work in the review summary; no model is called.", refresh=True
+        )
+    if name == "pull_request_review":
+        # The optional human-review workflow ("The check to require"): an approval was given or dismissed, so the
+        # `LemonCrow / human review` status is set again. No key, no checkout, nothing reviewed.
+        return Gate(
+            False,
+            "A pull request review was submitted or dismissed: updating the LemonCrow / human review status; "
+            "no model is called.",
+            refresh=True,
+        )
     pull = _mapping(payload.get("pull_request"))
     if not (pr_number or event_pull_number(payload)):
+        if name and name not in SUPPORTED_EVENTS:
+            # A push, schedule or release run has no pull request to review; say so on the commit it ran for, so a
+            # required check on that commit is answered instead of waiting.
+            return Gate(
+                False,
+                f"LemonCrow Review runs on pull_request (and workflow_dispatch with a pull request number); "
+                f"this run's event is {name}, so there is nothing to review.",
+                "warning",
+                error_status=f"Unsupported event {name}: LemonCrow Review runs on pull_request"[:140],
+                sha=str(env.get("GITHUB_SHA") or "").strip(),
+            )
         return Gate(False, "No pull request in this event; nothing to review.")
     forked = name == "pull_request" and bool(pull) and _is_fork(pull)
     if forked:
@@ -303,7 +341,7 @@ def decide(
             f"No model key. {NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider variables.)",
             "error",
             1,
-            error_status="No model key: pass anthropic-api-key or openai-api-key to the LemonCrow Action",
+            error_status=NO_KEY_STATUS,
         )
     return Gate(True)
 
@@ -636,6 +674,34 @@ def _api_headers(token: str) -> dict[str, str]:
 
 #: What a status left `pending` by a job that died says once the Action settles it.
 UNFINISHED = "The review job failed or was cancelled before it finished. Re-run it."
+#: The step a failed run died in, as ``action.yml`` hands each one's ``steps.<id>.outcome`` to the last step, and what the
+#: status says for it. The first failed one in this order wins; a cancelled one (by hand, by a newer run of a
+#: concurrency group, or by ``timeout-minutes``) is :data:`CANCELLED`.
+STEP_OUTCOMES = (
+    (
+        "LEMONCROW_OUTCOME_CHECKOUT",
+        "Could not check out the pull request; nothing was reviewed. See the workflow log, then re-run.",
+    ),
+    (
+        "LEMONCROW_OUTCOME_INSTALL",
+        "Could not install LemonCrow on the runner; nothing was reviewed. See the workflow log, then re-run.",
+    ),
+    ("LEMONCROW_OUTCOME_REVIEW", "The review crashed before it finished; see the workflow log, then re-run."),
+)
+#: A job GitHub cancelled (by hand, a newer push with a concurrency group, or ``timeout-minutes``).
+CANCELLED = "The review job was cancelled or timed out before it finished. Re-run it."
+
+
+def unfinished_reason(env: Mapping[str, str]) -> str:
+    """What the settled status says: the step that failed, a cancellation, or :data:`UNFINISHED` when neither is known."""
+
+    outcomes = [(str(env.get(name) or "").strip(), words) for name, words in STEP_OUTCOMES]
+    for outcome, words in outcomes:
+        if outcome == "failure":
+            return words
+    if any(outcome == "cancelled" for outcome, _ in outcomes):
+        return CANCELLED
+    return UNFINISHED
 
 
 def settle_pending_status(
@@ -683,7 +749,9 @@ def settle_pending_status(
         return f"Could not check whether the '{STATUS_CONTEXT}' status was left pending (HTTP {exc.code})."
     except (OSError, ValueError) as exc:
         return f"Could not check whether the '{STATUS_CONTEXT}' status was left pending ({type(exc).__name__})."
-    problem = post_status(env, "error", UNFINISHED, event={"pull_request": {"head": {"sha": sha}}}, send=send)
+    problem = post_status(
+        env, "error", unfinished_reason(env), event={"pull_request": {"head": {"sha": sha}}}, send=send
+    )
     return problem or f"The '{STATUS_CONTEXT}' status was left pending by a run that did not finish; set it to error."
 
 
@@ -711,11 +779,20 @@ def post_error_status(
     event: Mapping[str, object] | None = None,
     send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
 ) -> str:
-    """Post ``error`` for a run the gate stopped because it is misconfigured; return ``""`` or why nothing was posted."""
+    """Post ``error`` for a run the gate stopped because it is misconfigured; return ``""`` or why nothing was posted.
+
+    An unsupported event carries no pull request head, so its status goes on the commit the run was for (``gate.sha``).
+    """
 
     if not gate.error_status:
         return ""
+    if gate.sha and event is None:
+        event = {"pull_request": {"head": {"sha": gate.sha}}}
     return post_status(env, "error", gate.error_status, writable=gate.writable, event=event, send=send)
+
+
+#: The ``pending`` status the gate posts when a review goes ahead, so a required check shows a run from its first second.
+STARTING = "Starting the review…"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -747,16 +824,22 @@ def main(argv: list[str] | None = None) -> int:
         unposted = post_skip_status(env, gate)
         if unposted:
             print(f"::notice title=LemonCrow Review::{unposted}")
-    if not gate.run and gate.exit_code != 0:
+    if not gate.run and gate.error_status:
         unposted = post_error_status(env, gate)
         if unposted:
             print(f"::warning title=LemonCrow Review::{unposted}")
+    if gate.run and str(env.get("GITHUB_EVENT_NAME") or "") not in CHAT_EVENTS:
+        # Best effort and silent: the review posts its own pending status once it knows the head; this one covers the
+        # install, and the settle step turns it into an error naming the step if the job dies first.
+        post_status(env, "pending", STARTING)
     output = str(env.get("GITHUB_OUTPUT") or "").strip()
     if output:
         route = resolve_model_route(env, str(env.get(PROVIDER_ENV) or "auto")) if gate.run else None
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"run={'true' if gate.run else 'false'}\n")
             handle.write(f"extra={_EXTRA_FOR_BACKEND.get(route.backend, '') if route is not None else ''}\n")
+            if gate.refresh:
+                handle.write("refresh=true\n")
     return gate.exit_code
 
 

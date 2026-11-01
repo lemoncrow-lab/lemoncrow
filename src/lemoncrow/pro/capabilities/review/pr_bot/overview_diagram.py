@@ -14,6 +14,11 @@ Everything that is Mermaid is written here:
 A file is drawn as a box, a symbol as a rounded box and an actor as a stadium; a ``flowchart`` has arrows, a ``sequence``
 has the messages in the order the edges are listed. The caption under the block says what the picture is: the model's
 reading of the diff, with nodes that are all real names, and arrows nobody checked against the code.
+
+**Exactness (P3.4).** Every edge here is ``inferred``: the model proposed it and no comparison checked it. So every
+edge is drawn dotted (``-.->`` in a flowchart, ``-->>`` in a sequence), the way the Architecture Delta diagram draws
+context that is not a fact of the commit, and the caption says so. A solid arrow in a LemonCrow diagram is always a
+Snapshot fact.
 """
 
 from __future__ import annotations
@@ -22,14 +27,18 @@ from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import Final
 
+from lemoncrow.pro.capabilities.review.pr_bot import change_story
 from lemoncrow.pro.capabilities.review.pr_bot import diagram as delta_diagram
 from lemoncrow.pro.capabilities.review.pr_bot.overview import MAX_LABEL, DiagramSpec, Node
 from lemoncrow.pro.capabilities.review.pr_bot.render import fence_for
 
 CAPTION: Final[str] = (
     "<sub>Sketched by the model from the diff. Every box is a changed file, a changed symbol or a generic actor; the "
-    "arrows are its reading of the change and are not checked against the code.</sub>"
+    "dashed arrows are its reading of the change: inferred, not checked against the code.</sub>"
 )
+#: Every edge the model proposed is inferred: dotted, never the solid arrow of a Snapshot fact.
+FLOW_ARROW: Final[str] = "-.->"
+SEQUENCE_ARROW: Final[str] = "-->>"
 #: Mermaid's node shapes by what the node names.
 _SHAPES: Final[dict[str, tuple[str, str]]] = {"file": ("[", "]"), "symbol": ("(", ")"), "actor": ("([", "])")}
 
@@ -53,7 +62,7 @@ def mermaid(spec: DiagramSpec) -> str:
         lines = [delta_diagram.SEQUENCE_INIT, "sequenceDiagram"]
         lines += [f"    participant {ids[node.id]} as {node_text(node, spec.nodes)}" for node in spec.nodes]
         lines += [
-            f"    {ids[edge.source]}->>{ids[edge.target]}: {delta_diagram._label(edge.label, MAX_LABEL)}"
+            f"    {ids[edge.source]}{SEQUENCE_ARROW}{ids[edge.target]}: {delta_diagram._label(edge.label, MAX_LABEL)}"
             for edge in spec.edges
         ]
         return "\n".join(lines)
@@ -63,31 +72,35 @@ def mermaid(spec: DiagramSpec) -> str:
         lines.append(f'    {ids[node.id]}{left}"{node_text(node, spec.nodes)}"{right}')
     for edge in spec.edges:
         label = f'|"{delta_diagram._label(edge.label, MAX_LABEL)}"|' if edge.label else ""
-        lines.append(f"    {ids[edge.source]} -->{label} {ids[edge.target]}")
+        lines.append(f"    {ids[edge.source]} {FLOW_ARROW}{label} {ids[edge.target]}")
     return "\n".join(lines)
 
 
-def draw(spec: DiagramSpec) -> delta_diagram.Diagram:
+def draw(
+    spec: DiagramSpec,
+    *,
+    story: change_story.ChangeStory | None = None,
+    links: change_story.SourceLinks | None = None,
+) -> delta_diagram.Diagram:
     """The ``### Diagram`` section for *spec*, as the same :class:`diagram.Diagram` the Architecture Delta path makes, so
     the summary treats both alike (the state records its digest, and it is the first thing dropped at the size limit).
+
+    *story* is the Change Story of the Snapshot's delta, walked under the caption exactly as under a delta diagram (and
+    given its findings by :func:`diagram.with_findings`); the walk is the delta's facts, never the model's sketch.
     """
 
     block = mermaid(spec)
     fence = fence_for(block)
-    section = "\n".join(
-        [
-            delta_diagram.SECTION_OPEN,
-            "",
-            f"{fence}mermaid",
-            block,
-            fence,
-            "",
-            CAPTION,
-            "",
-            delta_diagram.SECTION_CLOSE,
-        ]
+    preamble = "\n".join([delta_diagram.SECTION_OPEN, "", f"{fence}mermaid", block, fence, "", CAPTION])
+    section = delta_diagram._assemble(preamble, story, links)
+    return delta_diagram.Diagram(
+        section=section,
+        state=delta_diagram.digest_of(section),
+        kind=spec.kind,
+        story=story,
+        preamble=preamble,
+        links=links,
     )
-    return delta_diagram.Diagram(section=section, state=delta_diagram.digest_of(section), kind=spec.kind)
 
 
-__all__ = ["CAPTION", "draw", "mermaid", "node_text"]
+__all__ = ["CAPTION", "FLOW_ARROW", "SEQUENCE_ARROW", "draw", "mermaid", "node_text"]

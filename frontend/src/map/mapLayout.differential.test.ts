@@ -195,4 +195,36 @@ describe("map engine differential layout", () => {
       expect(digest(buildMapModel(input, options))).toMatchSnapshot();
     });
   }
+
+  it("keeps a 401-file change navigable without inventing relationships", () => {
+    // An actual 401-changed-file graph is intentionally larger than the
+    // 72-file differential fixtures. The source graph, not a guessed edge,
+    // defines what the reviewer may inspect. No network or model is involved.
+    const input = architecture(17, 401, 31, 90);
+    const started = performance.now();
+    const model = buildMapModel(input, BASE);
+    const elapsedMs = performance.now() - started;
+    const originalEdges = new Set(input.graph.edges.map((edge) => edge.id));
+    expect(input.graph.nodes.filter((node) => node.status === "changed" || node.status === "new")).toHaveLength(401);
+    const visibleChanged = model.cards.filter((card) => card.node.status === "changed" || card.node.status === "new").length;
+    const subjectGroups = model.groups.filter((group) => group.lane === "subject");
+    const hiddenChanged = subjectGroups.reduce((sum, group) => sum + group.hidden, 0);
+    expect(visibleChanged + hiddenChanged).toBe(401);
+    // Folding is intentional, but every hidden changed file must belong to a
+    // discoverable and expandable group, never silently disappear from Map.
+    expect(subjectGroups.filter((group) => group.hidden > 0).every((group) => group.folded || group.moreY !== null)).toBe(true);
+    const expanded = buildMapModel(input, {
+      ...BASE,
+      expanded: new Set(subjectGroups.filter((group) => group.hidden > 0).map((group) => group.key)),
+    });
+    expect(expanded.cards.filter((card) => card.node.status === "changed" || card.node.status === "new")).toHaveLength(401);
+    expect(model.edges.every((edge) => originalEdges.has(edge.id))).toBe(true);
+    expect(expanded.edges.every((edge) => originalEdges.has(edge.id))).toBe(true);
+    expect(model.cards.every((card) => Number.isFinite(card.x) && Number.isFinite(card.y)
+      && Number.isFinite(card.w) && Number.isFinite(card.h))).toBe(true);
+    expect(Number.isFinite(model.width) && Number.isFinite(model.height)).toBe(true);
+    // A generous non-regression ceiling for pure layout, not a browser FPS
+    // or customer first-render SLO. Browser responsiveness is qualified apart.
+    expect(elapsedMs).toBeLessThan(5000);
+  });
 });

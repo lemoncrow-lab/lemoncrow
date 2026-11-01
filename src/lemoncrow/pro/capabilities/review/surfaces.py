@@ -13,7 +13,7 @@ renderer that produces old/new Snapshot artifacts for that descriptor lives in
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path, PurePosixPath
@@ -249,6 +249,9 @@ class SurfaceContext:
     # Trusted-base hermetic execution policy and the dispatcher's executor
     # class. Never derived from head content.
     execution: HermeticContext | None = None
+    # A trusted controller-only cancellation oracle for an exact leased job.
+    # This callback never crosses the worker wire or enters reviewed code.
+    cancellation: Callable[[], bool] | None = None
 
 
 @dataclass(frozen=True)

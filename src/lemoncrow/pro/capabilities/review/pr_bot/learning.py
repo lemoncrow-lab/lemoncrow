@@ -38,7 +38,8 @@ from typing import Final
 
 from lemoncrow.pro.capabilities.review.pr_bot import suppression as sup
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, FeedbackThread, Remote, ThreadComment
+from lemoncrow.pro.capabilities.review.pr_bot.github import FeedbackThread, Remote, ThreadComment
+from lemoncrow.pro.capabilities.review.pr_bot.host import ReviewHost
 from lemoncrow.pro.capabilities.review.pr_bot.render import declined_reply, learned_reply, must_fix_notice
 from lemoncrow.pro.capabilities.review.rule_suggestions import (
     RuleSuggestion,
@@ -389,7 +390,7 @@ def confirmations(
     return owed
 
 
-def post_confirmations(github: BotGitHub, owed: Sequence[Confirmation], slug: str) -> int:
+def post_confirmations(github: ReviewHost, owed: Sequence[Confirmation], slug: str) -> int:
     """Tell each owed thread what was learned, with the rule it could become. Returns how many were posted."""
 
     posted = 0
@@ -443,7 +444,7 @@ def refusals(
     return owed
 
 
-def post_refusals(github: BotGitHub, owed: Sequence[Refusal]) -> int:
+def post_refusals(github: ReviewHost, owed: Sequence[Refusal]) -> int:
     """Tell each owed thread that its must-fix stays, and why. Returns how many were posted."""
 
     for item in owed:

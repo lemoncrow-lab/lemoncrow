@@ -488,3 +488,22 @@ def test_a_run_needs_an_exact_snapshot(tmp_path: Path) -> None:
         json={"entry": "side_effects.runtime", "pick": True},
     )
     assert missing.status_code == 400 and runner.calls == []
+
+
+def test_incomplete_runtime_observation_blocks_live_readiness_even_without_runtime_deltas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review.behavior import BehaviorProduction
+    from lemoncrow.pro.capabilities.review.runtime_observation import RuntimeObservationProducer
+
+    def incomplete(_self: RuntimeObservationProducer, _context: Any) -> BehaviorProduction:
+        return BehaviorProduction(degraded=("runtime observation incomplete: unit has truncated base; re-run",))
+
+    monkeypatch.setattr(RuntimeObservationProducer, "produce", incomplete)
+    review = _review(tmp_path, base=_files(), head={"app.py": APP_HEAD})
+    response = review.client.get(f"/api/reviews/{review.review_id}/readiness", headers=HEADERS)
+    assert response.status_code == 200, response.text
+    condition = next(row for row in response.json()["conditions"] if row["id"] == "behavior-changes-judged")
+    assert condition["state"] == "unknown"
+    assert condition["reason"] == "incomplete_runtime_observation"
+    assert "re-run" in condition["detail"]

@@ -133,6 +133,20 @@ describe("ReviewTour guided review", () => {
     expect(screen.getByTestId("review-tour")).toHaveAttribute("data-guided-cohort", "db");
   });
 
+  it("resets the Tour immediately when the Snapshot changes despite an equal step count", () => {
+    const shared = props();
+    const view = render(<ReviewTour {...shared} />);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "Persistence" })).toBeInTheDocument();
+    // The new Snapshot deliberately has the same number of Tour steps. The
+    // previously selected cohort must not appear for one stale render.
+    view.rerender(<ReviewTour {...shared} revisionId="rev-2" />);
+    expect(screen.getByRole("heading", { name: "API contract" })).toBeInTheDocument();
+    expect(screen.getByTestId("review-tour")).toHaveAttribute("data-guided-cohort", "api");
+    expect(window.sessionStorage.getItem("lc.review.guided.position.r-1.rev-2")).toBe("api");
+    view.unmount();
+  });
+
   it("degrades to deterministic content when AI is unavailable", () => {
     render(<ReviewTour {...props({ tour: tour("unavailable") })} />);
 

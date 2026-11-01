@@ -1,14 +1,14 @@
 <!-- lemoncrow:summary v1 -->
 <sub>Re-review: comment `@lemoncrow review`</sub>
 
-<h2>Confidence Score: 3/5</h2>
+<h2>Review budget reached: 3 of 3 reviews used · 1 should-fix</h2>
+
+**Nothing reviewed on this push** · Human review required: touches payments code
 
 ---
 
 **[Medium impact]** Adds retries and a token check to the checkout client
 <sub>payments code, concurrency or shared state · 3 files, 80 changed lines · from the change itself, not a model</sub>
-
-**Review budget reached: 3 of 3 reviews used** · 1 should-fix
 
 <sub>This push was not reviewed; the findings below are from the last review, of aaaaaaa. Raise max-usd-per-pr or max-runs-per-pr to continue.</sub>
 
@@ -33,11 +33,11 @@ flowchart TD
     n1["client.py"]
     n2("authorize")
     n3(["External API"])
-    n1 -->|"checks token"| n2
-    n1 -->|"retries call"| n3
+    n1 -.->|"checks token"| n2
+    n1 -.->|"retries call"| n3
 ```
 
-<sub>Sketched by the model from the diff. Every box is a changed file, a changed symbol or a generic actor; the arrows are its reading of the change and are not checked against the code.</sub>
+<sub>Sketched by the model from the diff. Every box is a changed file, a changed symbol or a generic actor; the dashed arrows are its reading of the change: inferred, not checked against the code.</sub>
 
 <!-- /lemoncrow:diagram -->
 

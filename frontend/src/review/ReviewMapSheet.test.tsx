@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,11 +8,14 @@ import type { ReviewMapPayload } from "./types";
 const api = vi.hoisted(() => ({
   fetchHistoricalReviewMap: vi.fn(),
   explainHistoricalReviewArchitecture: vi.fn(),
+  fetchHistoricalAnnotations: vi.fn(async () => ({ annotations: [] })),
+  fetchHistoricalTargets: vi.fn(async () => ({ targets: [] })),
 }));
 
 vi.mock("./reviewApi", () => api);
 
 import ReviewMapSheet from "./ReviewMapSheet";
+import ReviewMapInspector from "./ReviewMapInspector";
 import { REVIEW_MAP_OVERVIEW, reviewMapLocationFromSelection } from "./reviewMapLocation";
 
 const SNAPSHOT: ReviewMapPayload["snapshot"] = {
@@ -321,6 +325,30 @@ const ARCHITECTURE_DELTA: ReviewMapPayload = {
 };
 ARCHITECTURE_DELTA.architecture_delta!.graph = ARCHITECTURE_DELTA.graph;
 
+describe("Map source-relationship truth and missing-impact limits", () => {
+  const props = {
+    overview: null, selected: null, onSelectNode: vi.fn(), onSelectEdge: vi.fn(), onClear: vi.fn(),
+    onFocusFile: vi.fn(), onOpenSymbol: vi.fn(), onOpenSelection: vi.fn(), onAskSelection: vi.fn(),
+  };
+
+  it("does not infer no impact when available static relationships are empty", () => {
+    render(<ReviewMapInspector {...props} payload={{
+      ...ARCHITECTURE,
+      graph: { ...ARCHITECTURE.graph, nodes: [SECURITY], edges: [], stats: { changed_files: 1, new_files: 0, impacted_files: 0, filtered_relationships: 0 } },
+    }} selectedEdge={null} />);
+    expect(screen.getByText(/No unchanged file is shown by the available relationships/)).toBeInTheDocument();
+    expect(screen.getByText(/not an observed runtime execution path/)).toBeInTheDocument();
+    expect(screen.queryByText(/No unchanged file was found to be reached/)).toBeNull();
+  });
+
+  it("identifies current-index call links as non-Snapshot, non-runtime evidence", () => {
+    render(<ReviewMapInspector {...props} payload={ARCHITECTURE} selectedEdge={ARCHITECTURE.graph.edges[1]} />);
+    expect(screen.getByText(/current index \(may differ from Snapshot\)/)).toBeInTheDocument();
+    expect(screen.getByText(/not runtime proof/)).toBeInTheDocument();
+    expect(screen.queryByText(/Snapshot fact/)).toBeNull();
+  });
+});
+
 const FILE_LEVEL: ReviewMapPayload = {
   ...ARCHITECTURE,
   level: "file",
@@ -433,6 +461,52 @@ describe("ReviewMapSheet", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   });
 
+  it("drops old Snapshot nodes during render when switching revisions, before fetch can resolve", async () => {
+    const never = new Promise<ReviewMapPayload>(() => undefined);
+    api.fetchHistoricalReviewMap.mockImplementation(async (_id: string, revision: number) => revision === 4 ? ARCHITECTURE : never);
+    const seenOnRefresh: boolean[] = [];
+    function Probe({ revision }: { revision: number }) {
+      useLayoutEffect(() => {
+        if (revision === 5) seenOnRefresh.push(Boolean(document.body.textContent?.includes("auth/security.py")));
+      }, [revision]);
+      return <ReviewMapSheet reviewId="review-1" revisionNumber={revision} historical={false}
+        onClose={vi.fn()} onOpenSelection={vi.fn()} onAskSelection={vi.fn()} />;
+    }
+    const view = render(<Probe revision={4} />);
+    await card("security.py");
+    view.rerender(<Probe revision={5} />);
+    expect(seenOnRefresh).toEqual([false]);
+    expect(screen.queryByText("auth/security.py")).toBeNull();
+    expect(screen.queryByRole("button", { name: "security.py, changed file" })).toBeNull();
+  });
+
+  it("explains folded changed files in a real 401-file Map and lets the reviewer expand them", async () => {
+    const nodes = Array.from({ length: 401 }, (_, index) => ({
+      ...SECURITY,
+      id: `file:large-${index}`,
+      label: `large-${index}.py`,
+      path: `src/group-${Math.floor(index / 11)}/large-${index}.py`,
+      module: `src/group-${Math.floor(index / 11)}`,
+      target_ids: [`target-${index}`],
+      selection: selection(`file:large-${index}`, "architecture", { path: `src/group-${Math.floor(index / 11)}/large-${index}.py` }),
+    }));
+    api.fetchHistoricalReviewMap.mockResolvedValue({
+      ...ARCHITECTURE,
+      graph: { ...ARCHITECTURE.graph, focus: null, nodes, edges: [], stats: {
+        changed_files: 401, new_files: 0, impacted_files: 0, filtered_relationships: 0,
+      } },
+    });
+    renderSheet();
+    const summary = await screen.findByTestId("map-folded-summary");
+    expect(summary).toHaveTextContent(/Showing \d+ of 401 mapped changed files/);
+    const before = summary.textContent ?? "";
+    const folds = screen.getAllByRole("button", { name: /Show \d+ changed files in src\/group-/ });
+    expect(folds.length).toBeGreaterThan(0);
+    await userEvent.click(folds[0]);
+    expect(summary).not.toHaveTextContent(before);
+    expect(summary).toHaveTextContent(/folded into expandable groups/);
+  });
+
   it("opens on the change: changed files in the middle, dependents and dependencies around them, and where to start", async () => {
     renderSheet();
     // A view of the Review shell, not a modal.
@@ -443,7 +517,7 @@ describe("ReviewMapSheet", () => {
     expect(within(canvas).getByText("Used by")).toBeTruthy();
     expect(within(canvas).getByText("Uses")).toBeTruthy();
     expect(await card("security.py")).toBeTruthy();
-    expect(within(canvas).getByRole("button", { name: "routes.py, affected by the change" })).toBeTruthy();
+    expect(within(canvas).getByRole("button", { name: "routes.py, unchanged source linked to the change" })).toBeTruthy();
     expect(within(canvas).getByRole("button", { name: "cache.py, surrounding code" })).toBeTruthy();
     expect(screen.getByText(/Snapshot 4 · 2 files changed · 1 affected outside the change/)).toBeTruthy();
 
@@ -568,7 +642,7 @@ describe("ReviewMapSheet", () => {
     await userEvent.click(await card("security.py"));
     await userEvent.click(within(inspector()).getByRole("button", { name: "Inspect affects link with routes.py" }));
     const panel = inspector();
-    expect(within(panel).getByRole("heading", { name: "security.py changed in a way that reaches routes.py" })).toBeTruthy();
+    expect(within(panel).getByRole("heading", { name: "Snapshot evidence links security.py with unchanged routes.py" })).toBeTruthy();
     expect(within(panel).getByText("Why connected")).toBeTruthy();
     expect(within(panel).getByText("src/api/routes.py:88")).toBeTruthy();
     expect(within(panel).getByText("authorize(request)")).toBeTruthy();
@@ -705,6 +779,28 @@ describe("ReviewMapSheet", () => {
 
     fireEvent.keyDown(view, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("walks through the change from the Map header, keeps the step in its location, and jumps to source", async () => {
+    const onLocationChange = vi.fn();
+    const { onClose, onOpenSelection } = renderSheet({ location: REVIEW_MAP_OVERVIEW, onLocationChange });
+    await card("security.py");
+    await userEvent.click(screen.getByRole("button", { name: "Walk through the change" }));
+    const story = await screen.findByTestId("change-story");
+    expect(within(story).getByTestId("change-story-step")).toHaveTextContent("security.py");
+    await waitFor(() => expect(onLocationChange).toHaveBeenLastCalledWith(expect.objectContaining({ level: "architecture", story: "file:security" }), expect.any(String)));
+    expect(onLocationChange).toHaveBeenCalledWith(expect.objectContaining({ story: expect.any(String) }), "push");
+    // Only local Review reads back the overlays.
+    expect(api.fetchHistoricalAnnotations).toHaveBeenCalledWith("review-1", 4);
+    expect(api.explainHistoricalReviewArchitecture).not.toHaveBeenCalled();
+
+    await userEvent.click(within(story).getByRole("button", { name: "Open source" }));
+    expect(onOpenSelection).toHaveBeenLastCalledWith(expect.objectContaining({ node_id: "file:security" }));
+
+    fireEvent.keyDown(story, { key: "Escape" });
+    expect(screen.queryByTestId("change-story")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onLocationChange.mock.lastCall![0].story).toBeUndefined();
   });
 
   it("mirrors the drill-down into its location and walks it back from outside", async () => {

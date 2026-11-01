@@ -1180,6 +1180,9 @@ class ObservationDiff:
     changes: tuple[EffectChange, ...] = ()
     unchanged: int = 0
     query_count: tuple[int, int] = (0, 0)
+    # A truncated observation cannot support an exact query-count comparison.
+    # Absent in v1 persisted diffs: unknown, not automatically comparable.
+    query_count_comparable: bool = False
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -1189,6 +1192,7 @@ class ObservationDiff:
             "changes": [item.to_wire() for item in self.changes],
             "unchanged": self.unchanged,
             "query_count": {"base": self.query_count[0], "head": self.query_count[1]},
+            "query_count_comparable": self.query_count_comparable,
         }
 
 
@@ -1200,11 +1204,12 @@ def diff_observations(
     head_environment: str,
     differences: Sequence[str] = (),
 ) -> ObservationDiff:
-    """Only differences, and only under the same environment fingerprint.
+    """Observed presence differences under the same environment fingerprint.
 
-    A removal is never claimed from a truncated head (the effect may simply
-    not have been recorded). Count changes matter for database queries only
-    (``N+1``); other categories compare presence.
+    Truncation prevents an absence claim on the truncated side: a truncated
+    base cannot prove additions and a truncated head cannot prove removals.
+    Truncation on either side also prevents exact count/outcome comparisons;
+    recorded counts remain available as raw observations, not proof of change.
     """
 
     if "unobserved" in {base.tier, head.tier}:
@@ -1232,26 +1237,37 @@ def diff_observations(
     for key in sorted(set(base_map) | set(head_map)):
         before, after = base_map.get(key), head_map.get(key)
         if before is None and after is not None:
+            if base.truncated:
+                continue
             changes.append(EffectChange(after.category, after.identity, "added", None, after))
         elif after is None and before is not None:
             if head.truncated:
                 continue
             changes.append(EffectChange(before.category, before.identity, "removed", before, None))
         elif before is not None and after is not None:
+            # A partial trace can undercount queries or miss a stronger network
+            # outcome, so it cannot establish a comparative change.
+            if base.truncated or head.truncated:
+                continue
             changed = (before.category == "db_query" and before.count != after.count) or before.outcome != after.outcome
             if changed:
                 changes.append(EffectChange(after.category, after.identity, "changed", before, after))
             else:
                 unchanged += 1
     reasons: list[str] = []
-    if base.truncated or head.truncated:
-        reasons.append("observation was truncated on at least one side; removals are not claimed")
+    if base.truncated:
+        reasons.append("base observation was truncated; additions and count/outcome changes are not claimed")
+    if head.truncated:
+        reasons.append(
+            "head observation was truncated; removals are not claimed; count/outcome changes are not claimed"
+        )
     return ObservationDiff(
         comparable=True,
         reasons=tuple(reasons),
         changes=tuple(changes),
         unchanged=unchanged,
         query_count=(base.query_count, head.query_count),
+        query_count_comparable=not (base.truncated or head.truncated),
     )
 
 
@@ -1305,9 +1321,9 @@ def change_summary(change: EffectChange) -> str:
             "blocked": "; blocked by the sandbox and recorded",
             "intercepted": "; intercepted by a recording sink, not delivered",
         }.get(change.head.outcome, "")
-        return f"New {label} on head: {change.identity}{extra}."
+        return f"Observed on head, not observed in base run: {label} {change.identity}{extra}."
     if change.change == "removed":
-        return f"The base did this; head no longer does: {change.identity}."
+        return f"Observed on base, not observed in head run: {change.identity}."
     if change.category == "db_query" and change.base is not None and change.head is not None:
         return f"Query count changed from {change.base.count} to {change.head.count}: {change.identity}."
     before = change.base.outcome if change.base is not None else ""
@@ -1379,6 +1395,7 @@ class RuntimeObservationProducer:
             deltas.extend(production.deltas)
             executed.extend(production.executed)
             unchanged += production.unchanged
+            degraded.extend(production.degraded)
         return BehaviorProduction(
             deltas=tuple(deltas), executed=tuple(executed), unchanged=unchanged, degraded=tuple(degraded)
         )
@@ -1397,7 +1414,12 @@ class RuntimeObservationProducer:
         )
         diff = _mapping(record.get("diff"))
         if diff.get("comparable") is not True:
-            return BehaviorProduction(executed=executed)  # not comparable: no delta, never a regression
+            return BehaviorProduction(
+                executed=executed,
+                degraded=(
+                    f"runtime observation incomplete: {recipe_id} has non-comparable runs; re-run the same recipe/environment",
+                ),
+            )
         environment = str(_mapping(record.get("environment")).get("head") or "")
         executor_raw = str(record.get("executor_class") or "")
         executor = cast(ExecutorClass, executor_raw if executor_raw in _EXECUTORS else "")
@@ -1429,7 +1451,14 @@ class RuntimeObservationProducer:
             target_ids=(RUNTIME_OBSERVATION_ENTRY,),
         )
         deltas: list[BehaviorDelta] = []
-        changes = diff.get("changes")
+        # v1 diff records lacked direction-aware truncation/complete-count
+        # evidence. If such a record reported truncation, even its precomputed
+        # 'added' edges may be artifacts of missing base observations. Treat
+        # the comparison as unproven rather than resurrecting a false claim.
+        legacy_truncated = "query_count_comparable" not in diff and any(
+            "truncat" in str(reason).lower() for reason in diff.get("reasons", ())
+        )
+        changes = [] if legacy_truncated else diff.get("changes")
         for raw in changes if isinstance(changes, list) else []:
             change = _change_from_wire(_mapping(raw))
             if change is None:
@@ -1460,7 +1489,7 @@ class RuntimeObservationProducer:
             )
         query = _mapping(diff.get("query_count"))
         before, after = int(query.get("base") or 0), int(query.get("head") or 0)
-        if before != after:
+        if before != after and diff.get("query_count_comparable") is True:
             deltas.append(
                 replace(
                     template,
@@ -1482,8 +1511,18 @@ class RuntimeObservationProducer:
                     ),
                 )
             )
+        incomplete = diff.get("query_count_comparable") is not True
         return BehaviorProduction(
-            deltas=tuple(deltas), executed=executed, unchanged=max(0, int(diff.get("unchanged") or 0))
+            deltas=tuple(deltas),
+            executed=executed,
+            unchanged=max(0, int(diff.get("unchanged") or 0)),
+            degraded=(
+                (
+                    f"runtime observation incomplete: {recipe_id} has truncated or legacy comparison evidence; re-run to verify",
+                )
+                if incomplete
+                else ()
+            ),
         )
 
 

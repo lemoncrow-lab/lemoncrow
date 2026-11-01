@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
+from lemoncrow.pro.capabilities.review.behavior import BEHAVIOR_CONTRACT_VERSION
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.runtime_validation import (
@@ -255,7 +256,9 @@ def test_behavior_targets_round_trip_projection_queue_judgment_and_readiness(tmp
 
     projection = workspace.get("/projection").json()
     behavior = projection["behavior"]
-    assert behavior["contract_version"] == 1 and behavior["revision_id"] == workspace.revision.id
+    assert (
+        behavior["contract_version"] == BEHAVIOR_CONTRACT_VERSION and behavior["revision_id"] == workspace.revision.id
+    )
     kinds = sorted(row["kind"] for row in behavior["targets"])
     assert kinds == ["api_response", "test_outcome", "visual"]
     # The digest travels only with the evidence: never in the projection list.
@@ -358,6 +361,39 @@ def test_behavior_judgment_carries_to_a_new_snapshot_only_on_an_identical_finger
     assert reopened["behavior_key"] == key
     assert reopened["state"] == "changed_since_review" and reopened["changed_since_mark"] is True
     assert reopened["priority"]["outstanding"] is True
+
+
+def test_behavior_v1_mark_reopens_without_overwriting_its_audit_history(tmp_path: Path) -> None:
+    """A previously recorded v1 judgment is not a valid current v2 approval."""
+    from dataclasses import replace
+
+    workspace = _workspace(tmp_path)
+    _api_run(workspace, side="old", status_code=200, body={"orders": [1]})
+    _api_run(workspace, side="new", status_code=200, body={"orders": [1, 2]})
+    [target] = workspace.get("/behavior").json()["behavior"]["targets"]
+    key = target["behavior_key"]
+    evidence = _target(workspace, key)["evidence"]["digest"]
+    assert _judge(workspace, {"behavior_key": key, "state": "reviewed", "evidence_digest": evidence}).status_code == 200
+    recorded = next(mark for mark in workspace.store.list_marks(workspace.review_id) if mark.unit_key == key)
+    previous = replace(recorded, content_fingerprint="v1:retained-for-audit")
+    workspace.store.set_mark(previous)
+    reopened = _restarted(workspace)
+    [current] = reopened.get("/behavior").json()["behavior"]["targets"]
+    assert current["behavior_key"] == key and current["state"] == "changed_since_review"
+    assert current["priority"]["outstanding"] is True
+    assert (
+        next(mark for mark in reopened.store.list_marks(reopened.review_id) if mark.unit_key == key).content_fingerprint
+        == previous.content_fingerprint
+    )
+    assert (
+        _judge(
+            reopened, {"behavior_key": key, "state": "reviewed", "evidence_digest": "v1:old-displayed-proof"}
+        ).status_code
+        == 409
+    )
+    assert _judge(reopened, {"behavior_key": key, "state": "reviewed", "evidence_digest": evidence}).status_code == 200
+    [after] = reopened.get("/behavior").json()["behavior"]["targets"]
+    assert after["state"] == "reviewed"
 
 
 def _restarted(workspace: Workspace) -> Workspace:

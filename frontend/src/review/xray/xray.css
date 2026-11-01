@@ -1,0 +1,228 @@
+/* Behavioral X-Ray: a focused path in the Change Story's stage. */
+
+.xr-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  font-size: var(--fs-caption);
+}
+
+.xr-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-bottom: 1px solid rgb(var(--border) / 0.8);
+  padding: 8px 16px;
+}
+
+.xr-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px;
+  border: 1px dashed rgb(var(--border));
+  border-radius: 6px;
+  padding: 12px;
+  color: rgb(var(--muted-foreground));
+}
+
+.xr-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+}
+@media (min-width: 768px) {
+  .xr-body { flex-direction: row; overflow: hidden; }
+}
+
+.xr-path-column {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px 16px;
+}
+@media (min-width: 768px) {
+  .xr-path-column { overflow-y: auto; }
+}
+
+.xr-order { margin: 0; color: rgb(var(--subtle-foreground)); }
+.xr-order[data-observed="0"] { color: rgb(var(--p1)); }
+.xr-diff, .xr-truncated { margin: 0; color: rgb(var(--muted-foreground)); }
+
+.xr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: rgb(var(--muted-foreground));
+}
+.xr-legend li { display: inline-flex; align-items: center; gap: 4px; }
+
+.xr-heading {
+  margin: 6px 0 0;
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgb(var(--muted-foreground));
+}
+
+/* Change is carried by the glyph and its shape, then by colour. */
+.xr-glyph {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--border));
+  border-radius: 3px;
+  font-family: var(--workbench-code-font, monospace);
+  font-size: var(--fs-micro);
+  line-height: 1;
+  color: rgb(var(--subtle-foreground));
+}
+.xr-glyph[data-tone="added"] { border-width: 2px; border-color: rgb(var(--ok)); color: rgb(var(--ok)); }
+.xr-glyph[data-tone="removed"] { border-style: dashed; border-color: rgb(var(--p0)); color: rgb(var(--p0)); }
+.xr-glyph[data-tone="changed"] { border-style: double; border-width: 3px; border-color: rgb(var(--p1)); color: rgb(var(--p1)); }
+.xr-glyph[data-tone="unknown"] { border-style: dotted; }
+
+.xr-line {
+  display: inline-block;
+  width: 18px;
+  border-top: 2px solid rgb(var(--subtle-foreground));
+}
+.xr-line[data-order="reachable"] { border-top-style: dashed; border-top-color: rgb(var(--muted-foreground)); }
+
+.xr-handoff-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed rgb(var(--p1));
+  border-radius: 3px;
+  padding: 0 3px;
+  color: rgb(var(--p1));
+  line-height: 1.2;
+}
+
+.xr-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.xr-step { min-width: 0; }
+.xr-step-button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  padding: 3px 6px;
+  text-align: left;
+  color: rgb(var(--subtle-foreground));
+}
+.xr-step-button:hover { background: rgb(var(--accent)); }
+.xr-step-button[aria-current="step"] { background: rgb(var(--accent)); color: rgb(var(--foreground)); border-left-color: rgb(var(--foreground) / 0.7); }
+.xr-step-button:focus-visible { outline: 2px solid rgb(var(--ring)); outline-offset: -2px; }
+
+/* The link into a step: solid when observed, dashed when only possible/reachable. */
+.xr-link {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  border-left: 2px solid rgb(var(--subtle-foreground));
+  padding-left: 4px;
+}
+.xr-link[data-order="reachable"] { border-left-style: dashed; border-left-color: rgb(var(--muted-foreground)); }
+
+.xr-step-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--workbench-code-font, monospace);
+}
+.xr-step[data-tone="removed"] .xr-step-title { text-decoration: line-through; text-decoration-color: rgb(var(--p0) / 0.7); }
+.xr-step[data-link-tone="removed"] .xr-step-title { text-decoration: line-through dashed; }
+.xr-step-role, .xr-step-order { flex-shrink: 0; color: rgb(var(--muted-foreground)); }
+.xr-step-order { font-family: var(--workbench-code-font, monospace); font-size: var(--fs-micro); }
+.xr-step[data-order="observed"] .xr-step-order { color: rgb(var(--ok)); }
+
+.xr-exit {
+  margin: 1px 0 4px 28px;
+  font-size: var(--fs-micro);
+  color: rgb(var(--muted-foreground));
+}
+.xr-exit[data-exit="handoff"] { color: rgb(var(--p1)); }
+.xr-exit[data-exit="handoff"]::before { content: "⇢ "; }
+.xr-exit[data-exit="boundary"]::before { content: "▣ "; }
+.xr-exit[data-exit="end"]::before, .xr-exit[data-exit="joins"]::before { content: "└ "; }
+.xr-exit[data-exit="depth"]::before { content: "… "; }
+
+.xr-degraded {
+  margin: 0;
+  padding-left: 16px;
+  color: rgb(var(--p1));
+}
+
+.xr-not-measured {
+  border: 1px dashed rgb(var(--border));
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: rgb(var(--muted-foreground));
+}
+.xr-not-measured summary { cursor: pointer; }
+.xr-not-measured summary:focus-visible { outline: 2px solid rgb(var(--ring)); outline-offset: 2px; border-radius: 4px; }
+.xr-not-measured ul { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 2px; padding: 0; list-style: none; }
+.xr-not-measured li { display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
+.xr-needs { font-family: var(--workbench-code-font, monospace); font-size: var(--fs-micro); }
+
+.xr-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid rgb(var(--border) / 0.7);
+  padding: 10px 16px 16px;
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .xr-detail { width: 320px; flex-shrink: 0; overflow-y: auto; border-top: 0; border-left: 1px solid rgb(var(--border) / 0.7); }
+}
+.xr-detail-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-left: 2px solid rgb(var(--border));
+  padding-left: 10px;
+}
+.xr-detail-link[data-order="reachable"] { border-left-style: dashed; }
+
+/* Only a link observed in order on this Snapshot moves, once, in its observed order. */
+.xr-step[data-motion="observed"] .xr-link {
+  animation: xr-observed 520ms ease-out both;
+  animation-delay: inherit;
+}
+@keyframes xr-observed {
+  from { opacity: 0.2; transform: translateX(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xr-step .xr-link { animation: none !important; }
+}

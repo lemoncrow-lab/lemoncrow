@@ -227,8 +227,11 @@ fi
 
 # Install global skills (global only)
 if ! $WORKSPACE_SET; then
-    bash "${SCRIPT_DIR}/build_host_skills.sh" --host antigravity 2>/dev/null || true
-    SKILLS_STAGING="${LEMONCROW_REPO}/integrations/antigravity/skills"
+    # Stage skills outside the tracked checkout: installing must never rewrite
+    # the source files the release gate is attesting.
+    SKILLS_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-antigravity-skills.XXXXXX")"
+    trap 'rm -rf "$SKILLS_STAGING"' EXIT
+    bash "${SCRIPT_DIR}/build_host_skills.sh" --host antigravity --dest "$SKILLS_STAGING" 2>/dev/null || true
     if [[ -d "$SKILLS_STAGING" ]] && compgen -G "${SKILLS_STAGING}/*/SKILL.md" > /dev/null 2>&1; then
         if $DRY_RUN; then
             echo "  [dry-run] install skills -> $AGY_SKILLS_DIR"

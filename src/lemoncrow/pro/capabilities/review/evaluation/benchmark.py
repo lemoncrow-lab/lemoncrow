@@ -47,6 +47,14 @@ from lemoncrow.pro.capabilities.review.evaluation.baseline_reviews import (
     fetch_pull_comments,
     load_comments,
 )
+from lemoncrow.pro.capabilities.review.evaluation.diy_review import (
+    DEFAULT_MAX_DIFF_CHARS,
+    DIY_SCHEMA,
+    DiyPrompt,
+    parse_findings,
+    scripted_answer,
+    user_message,
+)
 from lemoncrow.pro.capabilities.review.evaluation.fixtures import (
     CallKey,
     CaseFixtures,
@@ -75,6 +83,10 @@ from lemoncrow.pro.capabilities.review.intelligence_runtime import (
 
 SCHEMA: Final[int] = 1
 DEPTHS: Final[tuple[str, ...]] = ("quick", "auto", "thorough", "deep")
+#: The reviewers a run can include: the product, and one plain prompt over the diff (``diy_review``).
+REVIEWERS: Final[tuple[str, ...]] = ("lemoncrow", "diy")
+MAX_REPEAT: Final[int] = 20
+_CLI_DRIVERS: Final[frozenset[str]] = frozenset({"claude", "codex", "opencode"})
 Mode = Literal["live", "replay", "fake"]
 #: ``review.effort`` in the trusted base's policy, for the one depth the Action has no input for.
 _QUICK_POLICY: Final[str] = "review:\n  effort: quick\n"
@@ -130,6 +142,12 @@ class BenchmarkOptions:
     reviewer_logins: tuple[str, ...] = ()
     fetch_baseline: bool = False
     provider: str = "auto"
+    #: Which reviewers to run: ``lemoncrow`` (at every depth) and/or ``diy`` (one prompt over the unified diff).
+    reviewers: tuple[str, ...] = ("lemoncrow",)
+    #: Reviews of each pull request by each reviewer, to measure how stable the findings are between reruns.
+    repeat: int = 1
+    diy_prompt: DiyPrompt | None = None
+    diy_max_diff_chars: int = DEFAULT_MAX_DIFF_CHARS
 
     def __post_init__(self) -> None:
         unknown = [depth for depth in self.depths if depth not in DEPTHS]
@@ -137,6 +155,20 @@ class BenchmarkOptions:
             raise BenchmarkError(f"depth must be one or more of {', '.join(DEPTHS)}")
         if len(set(self.depths)) != len(self.depths):
             raise BenchmarkError("a depth is listed twice")
+        if not self.reviewers or any(name not in REVIEWERS for name in self.reviewers):
+            raise BenchmarkError(f"reviewer must be one or more of {', '.join(REVIEWERS)}")
+        if len(set(self.reviewers)) != len(self.reviewers):
+            raise BenchmarkError("a reviewer is listed twice")
+        if not 1 <= self.repeat <= MAX_REPEAT:
+            raise BenchmarkError(f"--repeat must be between 1 and {MAX_REPEAT}")
+        if "diy" in self.reviewers and self.diy_prompt is None:
+            raise BenchmarkError("the diy reviewer needs its prompt: pass --diy-prompt (the file under evals/review/)")
+        if self.diy_max_diff_chars < 1000:
+            raise BenchmarkError("--diy-max-diff-chars must be at least 1000")
+        if self.repeat > 1 and self.record_dir is not None and self.mode != "replay":
+            raise BenchmarkError(
+                "--repeat with --record-dir would answer every rerun from the first recording; record with --repeat 1"
+            )
         if self.max_usd is not None and self.max_usd <= 0:
             raise BenchmarkError("--max-usd must be positive")
         if self.max_calls is not None and self.max_calls < 1:
@@ -159,6 +191,10 @@ class BenchmarkOptions:
             "input_usd_per_mtok": self.input_usd_per_mtok,
             "output_usd_per_mtok": self.output_usd_per_mtok,
             "recording": self.record_dir is not None,
+            "reviewers": list(self.reviewers),
+            "repeat": self.repeat,
+            "diy_max_diff_chars": self.diy_max_diff_chars,
+            "diy_prompt": self.diy_prompt.to_wire(with_text=False) if self.diy_prompt is not None else None,
         }
 
 
@@ -293,7 +329,8 @@ class RunMeter:
         self.refused = ""
 
     def __call__(self, **kwargs: Any) -> StructuredExecution:
-        stage = stage_for(kwargs.get("output_schema") or {})
+        schema = kwargs.get("output_schema") or {}
+        stage = "diy_review" if schema == DIY_SCHEMA else stage_for(schema)
         try:
             self._ledger.reserve()
         except BudgetStop as exc:
@@ -352,7 +389,8 @@ class ScriptedExecutor:
         self.prompts: list[dict[str, Any]] = []
 
     def __call__(self, **kwargs: Any) -> StructuredExecution:
-        stage = stage_for(kwargs.get("output_schema") or {})
+        schema = kwargs.get("output_schema") or {}
+        stage = "diy_review" if schema == DIY_SCHEMA else stage_for(schema)
         prompt_text = str(kwargs.get("prompt") or "")
         try:
             prompt = json.loads(prompt_text)
@@ -360,8 +398,10 @@ class ScriptedExecutor:
             prompt = {}
         with self._lock:
             self.prompts.append(prompt if isinstance(prompt, dict) else {})
-        if stage == "hypothesis_generation":
-            result: dict[str, Any] = self._hypotheses(prompt)
+        if stage == "diy_review":
+            result: dict[str, Any] = scripted_answer(prompt_text)
+        elif stage == "hypothesis_generation":
+            result = self._hypotheses(prompt)
         elif stage == "finding_investigation":
             result = self._investigation(prompt)
         elif stage == "finding_dedupe":
@@ -574,6 +614,7 @@ class Workspace:
         self.repo = workdir / pr.id / "repo"
         self._policy: dict[tuple[str, str, str], tuple[str, str]] = {}
         self._pushes: dict[str, str | PushUnavailable] = {}
+        self._diffs: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {}
         self.push_methods: dict[str, str] = {}
 
     def prepare(self) -> None:
@@ -596,6 +637,27 @@ class Workspace:
             env=git_environment(),
         )
         return completed.returncode == 0
+
+    def diff(self, base: str, head: str) -> tuple[str, tuple[str, ...]]:
+        """``(the plain unified diff, the paths it touches)`` of ``base..head``: what a homemade review Action would send."""
+
+        key = (base, head)
+        if key not in self._diffs:
+            text = git(
+                self.repo,
+                "-c",
+                "core.quotepath=off",
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "-U3",
+                base,
+                head,
+                raw=True,
+            )
+            names = git(self.repo, "-c", "core.quotepath=off", "diff", "--name-only", base, head)
+            self._diffs[key] = (text, tuple(sorted(name for name in names.splitlines() if name)))
+        return self._diffs[key]
 
     def fetch(self, *shas: str, depth: int = 1) -> None:
         missing = [sha for sha in dict.fromkeys(shas) if not self.has(sha)]
@@ -763,6 +825,8 @@ class RunRecord:
     states: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     model: str = ""
+    #: Reviewer-specific facts that belong in the raw data (the DIY run's prompt digest and diff size).
+    extra: dict[str, Any] = field(default_factory=dict)
     #: Not serialised: what the next push is compared against.
     ai: Any = None
 
@@ -816,6 +880,7 @@ class RunRecord:
             "changed_lines": self.changed_lines,
             "states": dict(self.states),
             "errors": list(self.errors),
+            **({"extra": dict(self.extra)} if self.extra else {}),
         }
 
 
@@ -933,6 +998,87 @@ def run_review(
     if ai.ran:
         record.findings = _finding_rows(ai, head)
     record.ai = ai
+    return record
+
+
+def run_diy_review(
+    pr: RealPr,
+    workspace: Workspace,
+    *,
+    options: BenchmarkOptions,
+    route: tuple[str, str],
+    meter: RunMeter,
+    base: str,
+    head: str,
+) -> RunRecord:
+    """The DIY baseline: one model call, one plain prompt, the unified diff. Never raises on a model failure.
+
+    A diff past ``options.diy_max_diff_chars`` is cut at a line end and the cut is recorded (``extra.diff_truncated``) and
+    named in ``reason``; the review is still scored, as the homemade Action it stands for would have been.
+    """
+
+    prompt = options.diy_prompt
+    assert prompt is not None  # BenchmarkOptions refuses the diy reviewer without it
+    record = RunRecord(kind="review", pr_id=pr.id, depth="diy", head_sha=head)
+    try:
+        diff, paths = workspace.diff(base, head)
+    except BenchmarkError as exc:
+        record.status, record.reason = "error", f"diff failed: {exc}"[:400]
+        record.errors.append(record.reason)
+        return record
+    message, truncated = user_message(diff, max_chars=options.diy_max_diff_chars)
+    record.pr_paths = paths
+    record.extra = {
+        "prompt": prompt.to_wire(with_text=False),
+        "diff_chars": len(diff),
+        "diff_truncated": truncated,
+    }
+    if truncated:
+        record.reason = f"the diff was cut to {options.diy_max_diff_chars} of {len(diff)} characters"
+    driver, model = route
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="lemoncrow-bench-diy-") as scratch:
+        try:
+            execution = meter(
+                system=prompt.text,
+                prompt=message,
+                output_schema=DIY_SCHEMA,
+                driver=driver,
+                model=model,
+                # A CLI route insists on a project root; the model gets an empty one, so it sees the prompt and nothing else.
+                project_root=Path(scratch) if driver in _CLI_DRIVERS else None,
+                origin="machine",
+                source_kind="review",
+            )
+        except BudgetStop as exc:
+            record.status, record.reason, record.stopped_by_budget = "skipped", str(exc), True
+            return record
+        except Exception as exc:
+            record.wall_seconds = time.monotonic() - started
+            record.status, record.reason = "error", f"{type(exc).__name__}: {exc}"[:400]
+            record.errors.append(record.reason)
+            record.calls = list(meter.calls)
+            return record
+    record.wall_seconds = time.monotonic() - started
+    record.calls = list(meter.calls)
+    record.model = execution.model
+    record.status, record.complete = "ran", True
+    record.findings = [
+        FindingRow(
+            id=f"diy-{index:03d}",
+            severity=item.severity,
+            category="diy_review",
+            path=item.path,
+            start_line=item.line,
+            end_line=item.line,
+            anchor_line=item.line,
+            title=item.title,
+            explanation=item.description,
+            consequence="",
+            targets=(),
+        )
+        for index, item in enumerate(parse_findings(execution.result), start=1)
+    ]
     return record
 
 
@@ -1080,7 +1226,10 @@ def live_route(options: BenchmarkOptions) -> dict[str, str]:
 @dataclass(slots=True)
 class PrResult:
     pr: RealPr
+    #: The first review at each depth. ``attempts`` holds every rerun (``--repeat``), the first one included, and
+    #: the DIY baseline's under the key ``diy``.
     reviews: dict[str, RunRecord] = field(default_factory=dict)
+    attempts: dict[str, list[RunRecord]] = field(default_factory=dict)
     pushes: dict[str, dict[str, dict[str, RunRecord | str]]] = field(default_factory=dict)
     comments: list[BaselineComment] = field(default_factory=list)
     baseline_note: str = ""
@@ -1227,29 +1376,54 @@ def run_benchmark(
             workspaces[pr.id] = workspace
             executors[pr.id] = make_executor(options, pr, scripted=scripted)
 
-        # Phase 1: a full review of every pull request, depth by depth.
-        for depth in options.depths:
-            for result in results:
+        # Phase 1: a full review of every pull request by each reviewer, round by round (a round is one review per
+        # pull request per depth, then the DIY baseline), so a ceiling that stops the run leaves every reviewer with
+        # its first round before any rerun is paid for.
+        diy_route = (str(facts["driver"]), str(facts["model"]))
+        for round_index in range(options.repeat):
+            tag = f" (run {round_index + 1} of {options.repeat})" if options.repeat > 1 else ""
+            for depth in options.depths if "lemoncrow" in options.reviewers else ():
+                for result in results:
+                    pr = result.pr
+                    if result.skipped or pr.id not in workspaces:
+                        continue
+                    if ledger.stopped:
+                        run = _skipped(pr, depth, "review", pr.head_sha, ledger.stopped)
+                    else:
+                        emit(f"{pr.id}: reviewing at {depth}{tag}")
+                        inner, _finish, _replay = executors[pr.id]
+                        run = run_review(
+                            pr,
+                            workspaces[pr.id],
+                            kind="review",
+                            depth=depth,
+                            base=pr.base_sha,
+                            head=pr.head_sha,
+                            executor=inner,
+                            meter=RunMeter(inner, ledger, pricer),
+                            with_impact=options.with_impact,
+                        )
+                    result.attempts.setdefault(depth, []).append(run)
+                    if round_index == 0:
+                        result.reviews[depth] = run
+            for result in results if "diy" in options.reviewers else ():
                 pr = result.pr
                 if result.skipped or pr.id not in workspaces:
                     continue
                 if ledger.stopped:
-                    result.reviews[depth] = _skipped(pr, depth, "review", pr.head_sha, ledger.stopped)
-                    continue
-                emit(f"{pr.id}: reviewing at {depth}")
-                inner, _finish, _replay = executors[pr.id]
-                meter = RunMeter(inner, ledger, pricer)
-                result.reviews[depth] = run_review(
-                    pr,
-                    workspaces[pr.id],
-                    kind="review",
-                    depth=depth,
-                    base=pr.base_sha,
-                    head=pr.head_sha,
-                    executor=inner,
-                    meter=meter,
-                    with_impact=options.with_impact,
-                )
+                    diy = _skipped(pr, "diy", "review", pr.head_sha, ledger.stopped)
+                else:
+                    emit(f"{pr.id}: DIY review{tag}")
+                    diy = run_diy_review(
+                        pr,
+                        workspaces[pr.id],
+                        options=options,
+                        route=diy_route,
+                        meter=RunMeter(executors[pr.id][0], ledger, pricer),
+                        base=pr.base_sha,
+                        head=pr.head_sha,
+                    )
+                result.attempts.setdefault("diy", []).append(diy)
 
         # Phase 2: a simulated follow-up push, once with carry-forward and once without.
         if options.pushes:
@@ -1353,6 +1527,8 @@ __all__ = [
     "CALLS_AT_MOST",
     "DEPTHS",
     "FAKE_USD_PER_MTOK",
+    "MAX_REPEAT",
+    "REVIEWERS",
     "SCHEMA",
     "BenchmarkError",
     "BenchmarkOptions",
@@ -1375,6 +1551,7 @@ __all__ = [
     "make_executor",
     "push_states",
     "run_benchmark",
+    "run_diy_review",
     "run_review",
     "scoped_env",
     "score_run",

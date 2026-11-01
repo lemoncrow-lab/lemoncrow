@@ -22,8 +22,16 @@ If the delta ever carries entities or inheritance edges, the place to teach this
 caller (:func:`draw`); nothing here guesses ahead of the data.
 
 **Encoding** (readable on GitHub's light and dark themes, because every node carries its own fill and text colour):
-added is solid green with a ``+``, removed is dashed red with a minus sign, changed is bold amber, and a file that is only
-the other end of a changed relationship is grey.
+added is green with a ``+``, removed is red with a minus sign, changed is bold amber, and a file that is only the other
+end of a changed relationship is grey. The line says how exact a relationship is (P3.4): solid for a fact of this commit
+(``snapshot``, or ``observed`` in a recorded run), dashed for ``inferred`` or ``current_index`` context, which also
+carries the word in its label. Unchanged relationships between two files already drawn are thin grey context; they
+never add a file, and never make a diagram worth drawing.
+
+**Change Story.** Under the legend, the same delta is walked step by step (:mod:`change_story`, the Reader's ordering
+ported): entry point, changed files, affected callers, each linked to its file at the head and labelled with its
+exactness, at most :data:`change_story.MAX_LISTED` steps. The same steps are drawn as an SVG for the workflow to upload
+(:mod:`change_story_svg`); the comment keeps Mermaid, because GitHub strips an inline ``<svg>`` from comments.
 
 **Limits.** No diagram unless a relationship was added or removed (a change in how many times a file refers to
 another is not worth a picture alone). At most :data:`MAX_NODES` nodes and :data:`MAX_EDGES` edges: past that, files
@@ -45,10 +53,11 @@ import subprocess
 import unicodedata
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
+from lemoncrow.pro.capabilities.review.pr_bot import change_story, change_story_svg
 from lemoncrow.pro.capabilities.review.pr_bot.overview import trivial
 from lemoncrow.pro.capabilities.review.pr_bot.render import fence_for, plural
 from lemoncrow.pro.capabilities.review.pr_bot.state import DIAGRAM_STATE
@@ -60,7 +69,7 @@ if TYPE_CHECKING:
 #: The Action input ``diagram`` and the CLI's ``--diagram``: ``auto`` draws it when it is worth drawing; ``off`` never.
 DIAGRAM_MODES: Final[tuple[str, ...]] = ("auto", "off")
 #: Bumped when the drawing changes, so a comment drawn by an older version is drawn again, not reused.
-DIAGRAM_VERSION: Final[int] = 2
+DIAGRAM_VERSION: Final[int] = 3
 #: The ``### Diagram`` section of the summary, open by default: a heading, the Mermaid block and a caption. A hidden
 #: marker ends it, so :func:`reuse` can find the whole section in a comment it wrote.
 SECTION_OPEN: Final[str] = "### Diagram"
@@ -91,6 +100,11 @@ DEFAULT_MAX_SOURCE_FILES: Final[int] = 2_000
 MAX_FILES_ENV: Final[str] = "LEMONCROW_REVIEW_DIAGRAM_MAX_FILES"
 
 CHANGED: Final[tuple[str, ...]] = ("added", "removed", "changed")
+#: Relationships drawn only as context between files already in the picture.
+CONTEXT: Final[tuple[str, ...]] = ("unchanged", "context_only", "unknown")
+#: Exactness drawn dashed: not a fact of the commit under review.
+DASHED: Final[frozenset[str]] = frozenset({"inferred", "current_index"})
+EXACTNESS: Final[tuple[str, ...]] = ("snapshot", "observed", "current_index", "inferred")
 #: Languages the repository map reads no references from: a pull request that changes only these draws nothing.
 _NOT_CODE: Final[frozenset[str]] = frozenset({"json", "toml", "yaml", "html", "css", "markdown"})
 
@@ -102,17 +116,23 @@ _SAFE: Final[frozenset[str]] = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL
 # the stroke is a mid-tone that holds against both. Edges are styled by `linkStyle` with the same hues.
 _CLASS_DEFS: Final[Mapping[str, str]] = {
     "added": "classDef added fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#1f2328",
-    "removed": "classDef removed fill:#ffebe9,stroke:#e5534b,stroke-width:2px,stroke-dasharray:6 4,color:#1f2328",
+    "removed": "classDef removed fill:#ffebe9,stroke:#e5534b,stroke-width:3px,color:#1f2328",
     "changed": "classDef changed fill:#fff8c5,stroke:#bf8700,stroke-width:4px,color:#1f2328",
     "context": "classDef context fill:#eaeef2,stroke:#8c959f,stroke-width:1px,color:#1f2328",
 }
 _LINK_STYLES: Final[Mapping[str, str]] = {
     "added": "stroke:#2da44e,stroke-width:2px",
-    "removed": "stroke:#e5534b,stroke-width:2px,stroke-dasharray:6 4",
+    "removed": "stroke:#e5534b,stroke-width:2px",
     "changed": "stroke:#bf8700,stroke-width:4px",
+    "context": "stroke:#8c959f,stroke-width:1px",
 }
-#: solid for added, dotted for removed, thick for changed.
-_ARROWS: Final[Mapping[str, str]] = {"added": "-->", "removed": "-.->", "changed": "==>"}
+_DASH: Final[str] = ",stroke-dasharray:6 4"
+#: The word an edge's label ends with when its line alone would not say it: anything but a Snapshot fact.
+_EXACTNESS_TAG: Final[Mapping[str, str]] = {
+    "observed": " \N{MIDDLE DOT} observed",
+    "current_index": " \N{MIDDLE DOT} current index",
+    "inferred": " \N{MIDDLE DOT} inferred",
+}
 #: U+2212 MINUS SIGN, not a hyphen: it must not read as part of a name.
 MINUS: Final[str] = "\N{MINUS SIGN}"
 #: A sign goes straight against the name, with no space: Mermaid 11 reads a label that starts with ``+`` and a space as a
@@ -121,8 +141,9 @@ _SIGNS: Final[Mapping[str, str]] = {"added": "+", "removed": MINUS}
 _PRIORITY: Final[Mapping[str, int]] = {"added": 0, "removed": 1, "changed": 2}
 
 LEGEND: Final[str] = (
-    f"<sub>**+** added (solid) \N{MIDDLE DOT} **{MINUS}** removed (dashed) \N{MIDDLE DOT} bold changed \N{MIDDLE DOT} "
-    "grey unchanged \N{MIDDLE DOT} "
+    f"<sub>**+** added (green) \N{MIDDLE DOT} **{MINUS}** removed (red) \N{MIDDLE DOT} bold changed \N{MIDDLE DOT} "
+    "grey unchanged \N{MIDDLE DOT} solid: in this commit \N{MIDDLE DOT} "
+    "dashed: inferred or from the current index, not this commit \N{MIDDLE DOT} "
     "an arrow points from the file that refers to another to the file it refers to</sub>"
 )
 
@@ -144,11 +165,13 @@ class Relationship:
 
     source: str
     target: str
-    status: str  # added | removed | changed
+    status: str  # added | removed | changed; for context: unchanged | context_only | unknown
     kind: str
     before: int
     after: int
     symbols: tuple[str, ...]
+    #: snapshot | observed | current_index | inferred. Every changed relationship is a Snapshot fact (or observed).
+    exactness: str = "snapshot"
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +181,8 @@ class Facts:
     relationships: tuple[Relationship, ...]
     file_status: Mapping[str, str]  # path -> added | removed | changed | context
     file_dir: Mapping[str, str]  # path -> its directory ("" for the root)
+    #: The relationships the comparison did not change, or could not compare: drawn only between files already drawn.
+    context: tuple[Relationship, ...] = ()
 
 
 def _rows(value: object) -> list[Mapping[str, Any]]:
@@ -178,25 +203,40 @@ def facts_from(delta: Mapping[str, Any]) -> Facts:
     graph = delta.get("graph")
     if delta.get("status") == "unavailable" or not isinstance(graph, Mapping):
         return Facts((), {}, {})
+    flow = delta.get("flow")
+    observed = {
+        str(step.get("edge_id") or "")
+        for step in (_rows(flow.get("steps")) if isinstance(flow, Mapping) else [])
+        if step.get("grounding") == "observed" and step.get("trace")
+    }
     found: list[Relationship] = []
+    context: list[Relationship] = []
     for edge in _rows(graph.get("edges")):
         status = str(edge.get("delta_status") or "")
         source, target = str(edge.get("source_path") or ""), str(edge.get("target_path") or "")
-        if str(edge.get("exactness") or "") != "snapshot" or status not in CHANGED or not source or not target:
+        exactness = str(edge.get("exactness") or "")
+        if not source or not target or source == target or exactness not in EXACTNESS:
             continue
+        if exactness == "snapshot" and str(edge.get("id") or "") in observed:
+            exactness = "observed"
         named = [str(item.get("name") or "") for item in _rows(edge.get("symbols"))]
-        found.append(
-            Relationship(
-                source,
-                target,
-                status,
-                str(edge.get("kind") or "references"),
-                _count(edge.get("base_weight")),
-                _count(edge.get("snapshot_weight")),
-                tuple(name for name in named if name),
-            )
+        row = Relationship(
+            source,
+            target,
+            status,
+            str(edge.get("kind") or "references"),
+            _count(edge.get("base_weight")),
+            _count(edge.get("snapshot_weight")),
+            tuple(name for name in named if name),
+            exactness,
         )
+        # Only the comparison says a relationship changed: a changed row that is not a Snapshot fact is not one.
+        if status in CHANGED and exactness in {"snapshot", "observed"}:
+            found.append(row)
+        elif status in CONTEXT or status in CHANGED:
+            context.append(replace(row, status=status if status in CONTEXT else "unknown"))
     found.sort(key=lambda row: (_PRIORITY[row.status], row.source, row.target, row.kind))
+    context.sort(key=lambda row: (row.exactness != "snapshot", row.source, row.target, row.kind))
     status_of: dict[str, str] = {}
     dir_of: dict[str, str] = {}
     for node in _rows(graph.get("nodes")):
@@ -206,7 +246,7 @@ def facts_from(delta: Mapping[str, Any]) -> Facts:
         change = str(node.get("delta_status") or "")
         status_of[path] = change if change in CHANGED else "context"
         dir_of[path] = str(node.get("component") if node.get("component") is not None else _dir(path))
-    return Facts(tuple(found), status_of, dir_of)
+    return Facts(tuple(found), status_of, dir_of, tuple(context))
 
 
 def _dir(path: str) -> str:
@@ -281,6 +321,23 @@ class _Link:
     status: str
     label: str  # escaped
     weight: int
+    exactness: str = "snapshot"
+
+    @property
+    def tone(self) -> str:
+        return self.status if self.status in CHANGED else "context"
+
+    @property
+    def dashed(self) -> bool:
+        return self.exactness in DASHED
+
+    @property
+    def arrow(self) -> str:
+        """Dotted for what is not a fact of this commit, thick for a changed count, else a plain arrow."""
+
+        if self.dashed:
+            return "-.->"
+        return "==>" if self.status == "changed" else "-->"
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,10 +353,30 @@ def _file_status(facts: Facts, path: str) -> str:
 
 
 def _edge_label(row: Relationship) -> str:
+    tag = _esc(_EXACTNESS_TAG.get(row.exactness, ""))
     if row.status == "changed":
-        return f"refs {row.before} → {row.after}"
+        return f"refs {row.before} → {row.after}{tag}"
+    if row.status in CONTEXT:
+        unknown = _esc(" \N{MIDDLE DOT} change unknown") if row.status == "unknown" else ""
+        return f"{_esc(row.kind)}{unknown}{tag}"  # the exactness tag ends the label, as on every edge
     symbols = ", ".join(_label(name, MAX_SYMBOL_CHARS) for name in row.symbols[:MAX_SYMBOLS])
-    return f"{_SIGNS[row.status]}{symbols or _esc(row.kind)}"
+    return f"{_SIGNS[row.status]}{symbols or _esc(row.kind)}{tag}"
+
+
+def _context_links(facts: Facts, paths: set[str], drawn: Sequence[Relationship], room: int) -> list[_Link]:
+    """Context relationships between two files already drawn, Snapshot facts first, while *room* lasts; never one
+    between files a changed relationship already joins."""
+
+    joined = {frozenset((row.source, row.target)) for row in drawn}
+    out: list[_Link] = []
+    for row in facts.context:
+        if len(out) >= room:
+            break
+        pair = frozenset((row.source, row.target))
+        if row.source in paths and row.target in paths and pair not in joined:
+            joined.add(pair)
+            out.append(_Link(row.source, row.target, row.status, _edge_label(row), 1, row.exactness))
+    return out
 
 
 def _file_layout(rows: Sequence[Relationship], facts: Facts) -> Layout:
@@ -316,8 +393,9 @@ def _file_layout(rows: Sequence[Relationship], facts: Facts) -> Layout:
         )
         for path in paths
     )
-    links = tuple(_Link(row.source, row.target, row.status, _edge_label(row), 1) for row in shown)
-    return Layout(nodes, links, len(rows) - len(shown), False)
+    links = [_Link(row.source, row.target, row.status, _edge_label(row), 1, row.exactness) for row in shown]
+    links += _context_links(facts, set(paths), shown, MAX_EDGES - len(links))
+    return Layout(nodes, tuple(links), len(rows) - len(shown), False)
 
 
 def _group_name(directory: str, depth: int) -> str:
@@ -402,7 +480,7 @@ def _busiest_layout(rows: Sequence[Relationship], facts: Facts) -> Layout:
     layout = _file_layout(
         sorted(taken, key=lambda row: (_PRIORITY[row.status], row.source, row.target, row.kind)), facts
     )
-    return Layout(layout.nodes, layout.links, len(rows) - len(layout.links), False)
+    return Layout(layout.nodes, layout.links, len(rows) - len(taken), False)
 
 
 def layout_for(facts: Facts) -> Layout:
@@ -439,13 +517,15 @@ def render_flowchart(layout: Layout) -> str:
         lines.append("    end")
     lines += [f"    {_node(ids[node.key], node)}" for node in layout.nodes if not node.group]
     lines += [f"    style {box} fill:transparent,stroke:#8c959f" for box in boxes.values()]
-    by_status: dict[str, list[int]] = {}
+    by_style: dict[tuple[str, bool], list[int]] = {}
     for index, link in enumerate(layout.links):
-        lines.append(f'    {ids[link.source]} {_ARROWS[link.status]}|"{link.label}"| {ids[link.target]}')
-        by_status.setdefault(link.status, []).append(index)
-    for status in CHANGED:
-        if status in by_status:
-            lines.append(f"    linkStyle {','.join(map(str, by_status[status]))} {_LINK_STYLES[status]}")
+        lines.append(f'    {ids[link.source]} {link.arrow}|"{link.label}"| {ids[link.target]}')
+        by_style.setdefault((link.tone, link.dashed), []).append(index)
+    for tone in _LINK_STYLES:
+        for dashed in (False, True):
+            if indexes := by_style.get((tone, dashed)):
+                style = _LINK_STYLES[tone] + (_DASH if dashed else "")
+                lines.append(f"    linkStyle {','.join(map(str, indexes))} {style}")
     return "\n".join(lines)
 
 
@@ -470,14 +550,46 @@ class Diagram:
     kind: str = ""
     hidden: int = 0
     reused: bool = False
+    #: The walk drawn under the diagram, when this run computed it (``None`` when the section was reused), and what the
+    #: section says before it, so :func:`with_findings` can say it again with the findings attached.
+    story: change_story.ChangeStory | None = None
+    preamble: str = ""
+    links: change_story.SourceLinks | None = None
 
 
 def digest_of(section: str) -> str:
     return f"{DIAGRAM_VERSION}:{hashlib.sha256(section.encode()).hexdigest()[:16]}"
 
 
-def draw(delta: Mapping[str, Any]) -> Diagram | None:
-    """The diagram section for *delta*, or ``None`` when the pull request is trivial: no relationship added or removed."""
+def _assemble(preamble: str, story: change_story.ChangeStory | None, links: change_story.SourceLinks | None) -> str:
+    walk = change_story.walkthrough(story, links=links) if story is not None else ""
+    return "\n".join([preamble, *(["", walk] if walk else []), "", SECTION_CLOSE])
+
+
+def story_of(
+    delta: Mapping[str, Any], findings: Sequence[change_story.FindingRef] | None = None
+) -> change_story.ChangeStory | None:
+    """The Change Story of *delta*'s graph and flow; ``None`` when the comparison is unavailable."""
+
+    graph = delta.get("graph")
+    if delta.get("status") == "unavailable" or not isinstance(graph, Mapping):
+        return None
+    flow = delta.get("flow")
+    return change_story.build_change_story(graph, flow=flow if isinstance(flow, Mapping) else None, findings=findings)
+
+
+def draw(
+    delta: Mapping[str, Any],
+    *,
+    links: change_story.SourceLinks | None = None,
+    findings: Sequence[change_story.FindingRef] | None = None,
+) -> Diagram | None:
+    """The diagram section for *delta*, or ``None`` when the pull request is trivial: no relationship added or removed.
+
+    Under the block and its legend the section walks the change (:func:`change_story.walkthrough`): *links* makes each
+    step a link to its file, and *findings* (open P0/P1, :func:`change_story.findings_from_bot`) are counted on the steps
+    their anchors prove. Without *findings* no step mentions one: an absence would prove nothing.
+    """
 
     facts = facts_from(delta)
     if sum(row.status != "changed" for row in facts.relationships) < MIN_STRUCTURAL:
@@ -495,12 +607,17 @@ def draw(delta: Mapping[str, Any]) -> Diagram | None:
         notes.append("files are grouped by directory")
     text = "; ".join(notes)
     footnote = f"<sub>{text[:1].upper()}{text[1:]}.</sub>" if notes else ""
-    section = "\n".join(
+    basis = (
+        "solid arrows are what it established, and dashed ones are context it did not compare"
+        if any(link.dashed for link in layout.links)
+        else "nothing here is inferred"
+    )
+    preamble = "\n".join(
         [
             SECTION_OPEN,
             "",
             f"Relationships between {plural(touched, 'file')}: {said}. From the Snapshot's architecture delta, "
-            "which compares the base and the head; nothing here is inferred.",
+            f"which compares the base and the head; {basis}.",
             "",
             f"{fence}mermaid",
             block,
@@ -508,11 +625,44 @@ def draw(delta: Mapping[str, Any]) -> Diagram | None:
             "",
             LEGEND,
             *(["", footnote] if footnote else []),
-            "",
-            SECTION_CLOSE,
         ]
     )
-    return Diagram(section=section, state=digest_of(section), kind=KIND, hidden=layout.hidden)
+    story = story_of(delta, findings)
+    section = _assemble(preamble, story, links)
+    return Diagram(
+        section=section,
+        state=digest_of(section),
+        kind=KIND,
+        hidden=layout.hidden,
+        story=story,
+        preamble=preamble,
+        links=links,
+    )
+
+
+def with_findings(
+    drawn: Diagram,
+    findings: Sequence[Any],
+    *,
+    links: change_story.SourceLinks | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Diagram:
+    """*drawn* with its Change Story saying which steps carry open P0/P1 *findings* (the bot's :class:`BotFinding`, or
+    :class:`change_story.FindingRef`), once the run knows them; *links* replaces the source links when given.
+
+    The walk is not recomputed (it needs no delta), the section and its digest are. A section reused from the comment
+    has no story to redo and is returned as it is, with the finding counts of the run that drew it.
+    """
+
+    if drawn.story is None or not drawn.preamble:
+        return drawn
+    refs = [row for row in findings if isinstance(row, change_story.FindingRef)]
+    refs += change_story.findings_from_bot(row for row in findings if not isinstance(row, change_story.FindingRef))
+    story = change_story.attach_findings(drawn.story, refs)
+    chosen = links if links is not None else drawn.links
+    section = _assemble(drawn.preamble, story, chosen)
+    change_story_svg.write_artifact(story, environ)
+    return replace(drawn, section=section, state=digest_of(section), story=story, links=chosen)
 
 
 def reuse(body: str, state: str) -> str:
@@ -541,8 +691,14 @@ def resolve(
     head_sha: str,
     merge_base_sha: str,
     compute: Callable[[], tuple[Mapping[str, Any] | None, str]],
+    links: change_story.SourceLinks | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> Diagram:
     """The diagram for this run.
+
+    *links* are where the Change Story's steps link to; without them a GitHub Actions run links to its own repository
+    (:func:`change_story.links_from_env`) and any other run links nowhere. A story computed this run is also written as
+    an SVG when the workflow asks for one (:func:`change_story_svg.write_artifact`).
 
     ``off`` draws nothing and computes nothing. On the head and merge base the last run drew, the delta cannot have
     changed (it compares two immutable trees), so the block it recorded is reused when the comment still holds it, and
@@ -567,7 +723,12 @@ def resolve(
     if delta is None:
         # An empty reason is "nothing to draw by construction" (the pull request changes no code): deterministic, so recorded.
         return Diagram(note=why) if why else Diagram(state=none_state())
-    drawn = draw(delta)
+    env = os.environ if environ is None else environ
+    if links is None:
+        links = change_story.links_from_env(env, head_sha=head_sha, base_sha=merge_base_sha)
+    drawn = draw(delta, links=links)
+    if drawn is not None and drawn.story is not None:
+        change_story_svg.write_artifact(drawn.story, env)
     if drawn is None:
         status = delta.get("status")
         if status == "unavailable":
@@ -671,4 +832,6 @@ __all__ = [
     "render_flowchart",
     "resolve",
     "reuse",
+    "story_of",
+    "with_findings",
 ]

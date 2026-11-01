@@ -86,6 +86,18 @@ def _stable_id(prefix: str, *parts: object) -> str:
     return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:20]}"
 
 
+def _safe_index_path(path: str) -> bool:
+    """Current-index paths must be repository-relative, never foreign/absolute."""
+    return bool(
+        path
+        and not PurePosixPath(path).is_absolute()
+        and ".." not in PurePosixPath(path).parts
+        and "\\" not in path
+        and not re.match(r"^[A-Za-z]:", path)
+        and not any(char in path for char in ("\x00", "\r", "\n"))
+    )
+
+
 def _component_for_path(path: str) -> str:
     # A file's component is its folder: the Review Map groups by folder, and a
     # partition tuned to one repository's layout means nothing in another.
@@ -813,7 +825,17 @@ class _FileGraph:
             source_path = str(relation.get("source_path") or "")
             target_path = str(relation.get("target_path") or "")
             kind = _normalized_relation_kind(relation.get("kind"))
+            # Only a frozen ReviewPacket impact finding may assert an `impacts`
+            # edge. The mutable index supplies navigation relationships, never
+            # Snapshot evidence; accepting its arbitrary relation names would
+            # both invent impact edges and inflate an existing exact edge.
+            if kind not in {"calls", "imports", "references"}:
+                self.filtered["untrusted_relation_kind"] += 1
+                continue
             if not source_path or not target_path or source_path == target_path:
+                continue
+            if not _safe_index_path(source_path) or not _safe_index_path(target_path):
+                self.filtered["unsafe_index_path"] += 1
                 continue
             reason = _implausible_relation(source_path, target_path, kind, self.categories)
             if reason:
@@ -824,10 +846,13 @@ class _FileGraph:
                 continue
             edge["weight"] += max(1, _integer(relation.get("weight"), 1))
             for evidence in _mapping_rows(relation.get("evidence")):
+                evidence_path = str(evidence.get("path") or source_path)
+                if not _safe_index_path(evidence_path):
+                    continue
                 symbol = str(evidence.get("symbol") or "")
                 row = {
                     "kind": kind,
-                    "path": str(evidence.get("path") or source_path),
+                    "path": evidence_path,
                     "line": _integer(evidence.get("line"), 0),
                     "symbol": symbol,
                     "snippet": "",
@@ -863,7 +888,7 @@ class _FileGraph:
                 continue
             matched_path = str(match.get("path") or "")
             current_id = str(match.get("id") or "")
-            if matched_path and current_id:
+            if matched_path and current_id and _safe_index_path(matched_path):
                 self.ensure_file(matched_path)["current_symbol_ids"].add(current_id)
             neighborhood = neighborhoods.get(snapshot_id)
             if not isinstance(neighborhood, Mapping):
@@ -872,7 +897,7 @@ class _FileGraph:
             for node in _mapping_rows(neighborhood.get("nodes")):
                 node_id = str(node.get("id") or "")
                 node_path = str(node.get("path") or "")
-                if not node_id or not node_path:
+                if not node_id or not _safe_index_path(node_path):
                     continue
                 current_paths[node_id] = node_path
                 if node_path in self.files or relation_fallback:

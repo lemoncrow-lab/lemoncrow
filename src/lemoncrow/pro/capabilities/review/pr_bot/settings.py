@@ -135,6 +135,9 @@ class FileSettings:
     rule_severity: Mapping[str, str] = field(default_factory=dict)
     #: Problems found while reading, said out loud rather than dropped.
     notes: tuple[str, ...] = ()
+    #: Why the file as a whole cannot be read (not YAML, not a mapping); ``""`` when it can. A run with this set is a
+    #: config error: the review that follows applies none of the file, so the status says so instead of passing.
+    error: str = ""
 
 
 def parse_file_settings(content: str, *, source: str = _CONFIG) -> FileSettings:
@@ -144,8 +147,18 @@ def parse_file_settings(content: str, *, source: str = _CONFIG) -> FileSettings:
         return FileSettings()
     try:
         raw = yaml.safe_load(content)
-    except yaml.YAMLError:
-        return FileSettings(notes=(f"{source} could not be parsed, so its noise settings were not applied",))
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f" (line {mark.line + 1})" if mark is not None else ""
+        return FileSettings(
+            notes=(f"{source} could not be parsed, so its noise settings were not applied",),
+            error=f"it is not valid YAML{where}",
+        )
+    if raw is not None and not isinstance(raw, Mapping):
+        return FileSettings(
+            notes=(f"{source} must be a mapping (key: value), so its settings were not applied",),
+            error=f"it must be a mapping (key: value), not a {type(raw).__name__}",
+        )
     section = raw.get("review") if isinstance(raw, Mapping) else None
     if not isinstance(section, Mapping):
         return FileSettings()
@@ -230,6 +243,8 @@ class NoisePolicy:
     #: ``{rule ref: severity}`` for the rules the file gave a severity.
     rule_severity: Mapping[str, str] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
+    #: Why ``.lemoncrow/review.yaml`` could not be read at all (:attr:`FileSettings.error`); ``""`` when it could.
+    config_error: str = ""
 
     # ----- what a finding of each severity gets ---------------------------- #
 
@@ -358,6 +373,7 @@ def resolve_policy(
         ignore=parsed.ignore,
         rule_severity=by_ref,
         notes=tuple(dict.fromkeys(notes)),
+        config_error=parsed.error,
     )
 
 

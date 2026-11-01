@@ -19,6 +19,7 @@ comment from a person's login is exactly the confusion this path exists to avoid
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -30,6 +31,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lemoncrow.pro.capabilities.review.pr_bot import (
+    authorship,
+    change_story,
     ci_env,
     diagram,
     impact,
@@ -39,8 +42,11 @@ from lemoncrow.pro.capabilities.review.pr_bot import (
     overview,
     overview_diagram,
     pr_intent,
+    proof_of_work,
+    provenance,
     reactions,
     security,
+    spend,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.findings import FAIL_ON as FAIL_ON
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
@@ -53,18 +59,28 @@ from lemoncrow.pro.capabilities.review.pr_bot.github import (
     is_denied,
     with_backoff,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.gitlab import NO_KEY_FIX as GITLAB_NO_KEY_FIX
+from lemoncrow.pro.capabilities.review.pr_bot.gitlab import NO_KEY_STATUS as GITLAB_NO_KEY_STATUS
+from lemoncrow.pro.capabilities.review.pr_bot.gitlab import BotGitLab, decide_gitlab
+from lemoncrow.pro.capabilities.review.pr_bot.host import ReviewHost, is_gitlab
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
+    HUMAN_REVIEW_CONTEXT,
+    STATUS_CONTEXT,
     Receipt,
     RunFacts,
     SummaryView,
     Verdict,
+    approved_on,
     check_status,
+    human_review_status,
     inline_comment,
     money,
     plural,
+    proof_lines,
     render_summary,
     short,
+    stale_line,
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoiseInputs, NoisePolicy
@@ -74,9 +90,19 @@ from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
     GitHubCliError,
     PullRequestRef,
+    gh_json,
     pull_request_ref,
     resolve_pull_request,
     run_gh,
+)
+from lemoncrow.pro.capabilities.review.sources.gitlab import (
+    TOKEN_ENV,
+    GitLabApi,
+    MergeRequestRef,
+    Transport,
+    merge_request_ref,
+    resolve_merge_request,
+    urllib_transport,
 )
 
 if TYPE_CHECKING:
@@ -84,7 +110,13 @@ if TYPE_CHECKING:
 
 
 class PrReviewError(RuntimeError):
-    """The review could not run, for a reason the person running it can act on."""
+    """The review could not run, for a reason the person running it can act on.
+
+    ``posted`` is set once a ``LemonCrow Review`` status has been tried for it, so the outermost handler does not post a
+    second one (:func:`run_pr_review`).
+    """
+
+    posted: bool = False
 
 
 #: The permissions block the sample workflow uses: the one line that fixes every missing-permission message below.
@@ -92,17 +124,42 @@ PERMISSIONS_FIX = "permissions: { contents: read, pull-requests: write, statuses
 
 
 class PrPermissionError(PrReviewError):
-    """The workflow's token may not do something the review must: the message names the permission and the fix."""
+    """The workflow's token may not do something the review must: the message names the permission and the fix.
 
-    def __init__(self, missing: Sequence[str]) -> None:
+    On GitLab (*gitlab*) the names are the same (``pull-requests: write`` for notes, ``statuses: write`` for the status)
+    but the fix is the project access token's role, which the message says instead.
+    """
+
+    def __init__(self, missing: Sequence[str], *, gitlab: bool = False) -> None:
         self.missing = tuple(dict.fromkeys(missing))
-        super().__init__(permission_message(self.missing))
+        self.gitlab = gitlab
+        super().__init__(permission_message(self.missing, gitlab=gitlab))
 
 
 denied = is_denied
 
 
-def permission_message(missing: Sequence[str]) -> str:
+def missing_status(missing: Sequence[str], *, gitlab: bool = False) -> str:
+    """The status description for a token that was refused a write."""
+
+    if gitlab:
+        return "Token needs the Developer role and the api scope; see the job log."
+    return f"Token is missing {' and '.join(missing) or 'a permission'}; see the workflow log."
+
+
+def permission_message(missing: Sequence[str], *, gitlab: bool = False) -> str:
+    if gitlab:
+        what = " and ".join(
+            {"pull-requests: write": "post notes", "statuses: write": "set the `LemonCrow Review` status"}.get(
+                name, f"use {name}"
+            )
+            for name in missing
+        )
+        head = f"GitLab refused to let the token in {TOKEN_ENV} {what or 'make a request the review needs'}"
+        return (
+            f"{head}: its role on the project is below Developer or it lacks the `api` scope. Give the project access "
+            "token the Developer role (or above) and the `api` scope, and re-run (docs/setup/gitlab-ci.md, 'Token')."
+        )
     if missing:
         names = " and ".join(f"`{name}`" for name in missing)
         what = " and ".join(
@@ -146,8 +203,10 @@ class RunOptions:
     dry_run: bool = False
     provider: str = "auto"
     with_impact: bool = True
-    #: Optional ceilings on one pull request's cumulative review spend, read from the usage the summary's state
-    #: carries. ``None`` is unlimited.
+    #: Ceilings on one pull request's cumulative review spend, read from the usage the summary's state carries and held
+    #: during the run (:mod:`spend`). ``max_usd_per_pr`` ``None`` is resolved by :func:`run_pr_review` from
+    #: ``LEMONCROW_REVIEW_MAX_USD`` (a number, or ``none`` for no cap), else the default of $3.00; after that, ``None``
+    #: is no cap. ``max_runs_per_pr`` ``None`` is unlimited.
     max_usd_per_pr: float | None = None
     max_runs_per_pr: int | None = None
     #: Chat's "recheck": review only these targets and nothing else (an empty set: no model call at all). ``None``
@@ -194,6 +253,9 @@ class RunReport:
     noop: bool = False
     #: What the security scan did (``security.SecurityScan.to_wire``); empty when the run did no review.
     security: dict[str, Any] = field(default_factory=dict)
+    #: What CI reported on the reviewed head, and the reviewer's and declared author's families; ``None``: not read.
+    ci: proof_of_work.CiReport | None = None
+    independence: authorship.Independence | None = None
 
     def to_wire(self) -> dict[str, Any]:
         """The machine-readable result (``--json``): the same fields the summary's hidden block carries."""
@@ -213,7 +275,7 @@ class RunReport:
                     "p0": self.verdict.p0,
                     "p1": self.verdict.p1,
                     "p2": self.verdict.p2,
-                    # The score the summary shows, from the same facts as the headline and the status.
+                    # The score, as data: from the same facts as the headline and the status (the comment leads in words).
                     "confidence": self.verdict.confidence,
                     # Open findings below the repository's threshold: tracked, counted here, in no other count. Absent
                     # when there are none, so a result without the noise controls reads exactly as it always did.
@@ -231,6 +293,8 @@ class RunReport:
             "noop": self.noop,
             "notes": list(self.notes),
             "security": dict(self.security),
+            **({"proof_of_work": self.ci.to_wire()} if self.ci is not None else {}),
+            **({"independence": self.independence.to_wire()} if self.independence is not None else {}),
             # A dry run is a preview: it carries the exact comments it would have posted.
             **({"comments": self._comments_wire()} if self.published.get("dry_run") else {}),
         }
@@ -262,10 +326,134 @@ def run_pr_review(
     env: Mapping[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    gitlab_transport: Transport = urllib_transport,
+) -> RunReport:
+    """One review (see the module docstring). A refusal raised before the review started still ends in a status.
+
+    In the Action every way out leaves a ``LemonCrow Review`` status on the head that names why, so a required check
+    never waits: a :class:`PrReviewError` raised before the pending status (a bad input, no model route, a pull request
+    that cannot be read) posts an ``error`` status here, worded from the error, and is raised as before.
+
+    In a GitLab CI job (``GITLAB_CI=true``) the host is the job's merge request (:class:`BotGitLab`), reached over
+    *gitlab_transport*; *runner* (``gh``) is not used.
+    """
+
+    environ = os.environ if env is None else env
+    try:
+        return _run_pr_review(
+            options,
+            runner=runner,
+            structured_executor=structured_executor,
+            environ=environ,
+            progress=progress,
+            sleep=sleep,
+            gitlab_transport=gitlab_transport,
+        )
+    except PrReviewError as exc:
+        if not exc.posted:
+            exc.posted = True
+            if is_gitlab(environ):
+                _post_gitlab_refusal(options, environ, gitlab_transport, exc)
+            else:
+                _post_refusal(options, environ, runner, exc)
+        raise
+
+
+def refusal_status(exc: PrReviewError, environ: Mapping[str, str]) -> str:
+    """The status description for a run refused before it reviewed anything: the reason, short and with no secret."""
+
+    message = " ".join(str(exc).split())
+    if isinstance(exc, PrPermissionError):
+        return missing_status(exc.missing, gitlab=exc.gitlab)
+    if message.startswith("no model route"):
+        return GITLAB_NO_KEY_STATUS if is_gitlab(environ) else ci_env.NO_KEY_STATUS
+    return model_failure.scrub(f"Review not run: {message}", model_failure.key_values(environ))[:140]
+
+
+def _post_refusal(options: RunOptions, environ: Mapping[str, str], runner: GhRunner | None, exc: PrReviewError) -> None:
+    """Best effort: post ``error`` on the pull request's head for *exc*. Only a publishing run in Actions posts; a
+    comment event has no check to answer. Never raises; the error itself is what the job reports."""
+
+    if not options.publish or options.dry_run or environ.get("GITHUB_ACTIONS") != "true":
+        return
+    if str(environ.get("GITHUB_EVENT_NAME") or "") in ci_env.CHAT_EVENTS:
+        return
+    repository = str(environ.get("GITHUB_REPOSITORY") or "").strip()
+    payload = ci_env.load_event(environ)
+    head = payload.get("pull_request")
+    sha = str(head.get("head", {}).get("sha") or "") if isinstance(head, dict) else ""
+    run = runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root))
+    bare = re.fullmatch(r"#?(\d+)", options.pr.strip())
+    try:
+        if not sha and repository and bare:  # a dispatched run names its pull request by number
+            sha = str(gh_json(run, ["api", f"repos/{repository}/pulls/{bare[1]}"]).get("head", {}).get("sha") or "")
+        if not (repository and sha):
+            return
+        body: dict[str, str] = {
+            "state": "error",
+            "context": STATUS_CONTEXT,
+            "description": refusal_status(exc, environ)[:140],
+        }
+        link = run_url(environ)
+        if link:
+            body["target_url"] = link
+        gh_json(
+            run,
+            ["api", "--method", "POST", f"repos/{repository}/statuses/{sha}", "--input", "-"],
+            json.dumps(body, ensure_ascii=False),
+        )
+    except (GitHubCliError, ValueError, AttributeError, OSError):
+        return
+
+
+def _gitlab_host(
+    environ: Mapping[str, str], spec: str, transport: Transport, *, wrap: Callable[[GhRunner], GhRunner] | None = None
+) -> BotGitLab:
+    """The bot on this GitLab job's merge request. Raises ``ValueError`` when the job's variables do not name one."""
+
+    return BotGitLab(merge_request_ref(environ, spec), GitLabApi.from_env(environ, transport=transport, wrap=wrap))
+
+
+def _in_pipeline(bot: BotGitLab, environ: Mapping[str, str], head: str) -> None:
+    """Post the status into this job's pipeline (``CI_PIPELINE_ID``) only when the pipeline ran on the reviewed head.
+
+    A merged-results pipeline runs on a merge commit, not on the head: GitLab then picks the head's own pipeline.
+    """
+
+    same = bool(head) and str(environ.get("CI_COMMIT_SHA") or "").strip() == head
+    bot.pipeline_id = str(environ.get("CI_PIPELINE_ID") or "").strip() if same else ""
+
+
+def _post_gitlab_refusal(
+    options: RunOptions, environ: Mapping[str, str], transport: Transport, exc: PrReviewError
+) -> None:
+    """:func:`_post_refusal` on GitLab: ``error`` on the merge request's head, through :meth:`BotGitLab.set_status`."""
+
+    if not options.publish or options.dry_run or not str(environ.get(TOKEN_ENV) or "").strip():
+        return
+    try:
+        bot = _gitlab_host(environ, options.pr, transport)
+        head = bot.pull_facts().head_sha
+        if not head:
+            return
+        _in_pipeline(bot, environ, head)
+        bot.set_status(head, "error", refusal_status(exc, environ)[:140], run_url(environ))
+    except (GitHubCliError, ValueError, OSError):
+        return
+
+
+def _run_pr_review(
+    options: RunOptions,
+    *,
+    runner: GhRunner | None,
+    structured_executor: Callable[..., Any] | None,
+    environ: Mapping[str, str],
+    progress: Callable[[str], None] | None,
+    sleep: Callable[[float], None],
+    gitlab_transport: Transport = urllib_transport,
 ) -> RunReport:
     from lemoncrow.pro.capabilities.review.pr_bot import engine
 
-    environ = os.environ if env is None else env
     say = progress or (lambda _message: None)
     options = replace(options, feedback_from=ci_env.chat_associations(environ))
     if options.noise is None:
@@ -285,21 +473,34 @@ def run_pr_review(
         options.max_runs_per_pr is not None and options.max_runs_per_pr < 1
     ):
         raise PrReviewError(
-            "max-usd-per-pr must be above 0 and max-runs-per-pr at least 1; leave them empty for no limit"
+            "max-usd-per-pr must be above 0 (or `none` for no cap) and max-runs-per-pr at least 1 (empty for no limit)"
         )
-    if options.publish and not options.dry_run and environ.get("GITHUB_ACTIONS") != "true":
+    if options.max_usd_per_pr is None:
+        try:
+            options = replace(options, max_usd_per_pr=spend.resolve_max_usd(None, environ))
+        except ValueError as exc:
+            raise PrReviewError(str(exc)) from exc
+    on_gitlab = is_gitlab(environ)
+    if options.publish and not options.dry_run and environ.get("GITHUB_ACTIONS") != "true" and not on_gitlab:
         raise PrReviewError(
-            "--publish-bot posts as the identity of the token in use and runs only in GitHub Actions, where that is "
-            "the workflow's bot token. Locally, use --ai to read the findings, or add --dry-run to see the comments."
+            "--publish-bot posts as the identity of the token in use and runs only in GitHub Actions or a GitLab CI "
+            "job, where that is the bot's token. Locally, use --ai to read the findings, or add --dry-run to see the "
+            "comments."
         )
-    # Every GitHub call of the run goes through one wrapper that waits out a rate limit a few times (and only that).
+    # Every host call of the run goes through one wrapper that waits out a rate limit a few times (and only that).
     run = with_backoff(runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root)), sleep=sleep)
     # Gate on the event alone first: a fork, a draft or a refused event costs no network call. A URL or
     # OWNER/REPO#N names its pull request by itself, so only a bare number needs the event to carry one.
     bare = re.fullmatch(r"#?(\d+)", options.pr.strip())
     # A comment event is the other mode of this Action (chat); it has its own gate and never sets a commit status.
-    chatting = str(environ.get("GITHUB_EVENT_NAME") or "") in ci_env.CHAT_EVENTS
-    if chatting:
+    # GitLab CI has no comment event: a GitLab job only reviews.
+    chatting = not on_gitlab and str(environ.get("GITHUB_EVENT_NAME") or "") in ci_env.CHAT_EVENTS
+    chat: ci_env.ChatEvent | None = None
+    if on_gitlab:
+        gate = decide_gitlab(
+            environ, review_drafts=options.review_drafts, provider=options.provider, require_credentials=False
+        )
+    elif chatting:
         payload = ci_env.load_event(environ)
         gate = ci_env.decide_chat(environ, provider=options.provider, event=payload, require_credentials=False)
         chat = ci_env.chat_event(str(environ.get("GITHUB_EVENT_NAME")), payload)
@@ -310,7 +511,6 @@ def run_pr_review(
                 level="warning",
             )
     else:
-        chat = None
         gate = ci_env.decide(
             environ,
             review_drafts=options.review_drafts,
@@ -321,18 +521,28 @@ def run_pr_review(
         )
     if not gate.run or (chatting and chat is None):
         return _skip(options.pr, gate.reason, level=gate.level, exit_code=gate.exit_code)
+    github: ReviewHost
+    ref: PullRequestRef
     try:
-        ref = pull_request_ref(options.repo_root, options.pr, runner=run)
+        if on_gitlab:
+            gitlab_bot = _gitlab_host(
+                environ, options.pr, gitlab_transport, wrap=lambda send: with_backoff(send, sleep=sleep)
+            )
+            ref, github = gitlab_bot.pr, gitlab_bot
+        else:
+            ref = pull_request_ref(options.repo_root, options.pr, runner=run)
+            github = BotGitHub(ref, run)
     except (GitHubCliError, ValueError) as exc:
         raise PrReviewError(str(exc)) from exc
     name = f"{ref.slug}#{ref.number}"
-    github = BotGitHub(ref, run)
     try:
         facts = github.pull_facts()
     except GitHubCliError as exc:
         raise PrReviewError(str(exc)) from exc
+    if isinstance(github, BotGitLab):
+        _in_pipeline(github, environ, facts.head_sha)
     writes = options.publish and not options.dry_run
-    if chat is not None:
+    if chat is not None and isinstance(github, BotGitHub):
         try:
             answered = _chat(options, chat, ref, github, facts, run, structured_executor, environ, say)
         except PrReviewError as exc:
@@ -362,6 +572,11 @@ def run_pr_review(
     problem, why = _model_route(options, environ)
     if problem == "disabled":
         return skipped(f"AI review is turned off ({why}); nothing was reviewed.", "AI review is turned off")
+    if problem and on_gitlab:
+        raise PrReviewError(
+            f"no model route is configured. {GITLAB_NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider "
+            f"variables.) {why}"
+        )
     if problem:
         raise PrReviewError(
             "no model route is configured: pass `anthropic-api-key` or `openai-api-key` to the Action, or set "
@@ -384,9 +599,16 @@ def run_pr_review(
             what = "merged" if facts.merged else (facts.state or "not open")
             report.notes.insert(0, f"{name} is {what}; reviewing it anyway. Nothing will be posted.")
         if report.skipped and writes:
-            # The pending status must not be left hanging on a run that decided not to review.
+            # The pending status must not be left hanging on a run that decided not to review. A policy that cannot be
+            # read is a config error, not a skip: the check says so in red.
+            invalid = "Review policy invalid" in report.reason
             _best_effort(
-                lambda: github.set_status(facts.head_sha, "success", report.reason, link),
+                lambda: github.set_status(
+                    facts.head_sha,
+                    "error" if invalid else "success",
+                    f"Config error in .lemoncrow/review.yaml: {report.reason}" if invalid else report.reason,
+                    link,
+                ),
                 report.notes,
                 "set the status",
             )
@@ -398,9 +620,11 @@ def run_pr_review(
         if writes:
             signal.finish(False)
             if isinstance(exc, PrPermissionError):
-                description = f"Token is missing {' and '.join(exc.missing) or 'a permission'}; see the workflow log."
+                description = missing_status(exc.missing, gitlab=exc.gitlab)
+            elif isinstance(exc, PrReviewError):
+                description = refusal_status(exc, environ)
             else:
-                description = "Review failed; see the workflow log."
+                description = f"Review crashed ({type(exc).__name__}); see the workflow log, then re-run."
             _best_effort(
                 lambda: github.set_status(facts.head_sha, "error", description, link),
                 [],
@@ -410,9 +634,10 @@ def run_pr_review(
         if isinstance(exc, PrReviewError):
             failed = exc
         elif isinstance(exc, (GitHubCliError, engine.AiStageError, ValueError)):
-            failed = PrPermissionError(()) if denied(exc) else PrReviewError(str(exc))
+            failed = PrPermissionError((), gitlab=on_gitlab) if denied(exc) else PrReviewError(str(exc))
         if failed is None:
             raise
+        failed.posted = writes
         announce("error", str(failed), environ)
         if failed is exc:
             raise
@@ -433,8 +658,11 @@ def gate_exit(fail_on: str, status: tuple[str, str]) -> int:
 
 
 def run_url(environ: Mapping[str, str]) -> str:
-    """The workflow run's page, for a status to link to; empty outside GitHub Actions."""
+    """The workflow run's page (the job's, ``CI_JOB_URL``, on GitLab), for a status to link to; empty outside CI."""
 
+    if is_gitlab(environ):
+        job = str(environ.get("CI_JOB_URL") or "").strip()
+        return job if job.startswith("https://") else ""
     server, repository, run_id = (
         str(environ.get(name) or "").rstrip("/") for name in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID")
     )
@@ -445,18 +673,23 @@ def announce(level: str, message: str, environ: Mapping[str, str]) -> None:
     """Print a workflow annotation (``::error title=LemonCrow Review::...``) on the Actions runner; nothing elsewhere.
 
     The run page lists annotations at its top, even for a green job; a line in the log is easy to miss. The message is
-    one line with the characters a workflow command reserves escaped, and no credential in it.
+    one line with the characters a workflow command reserves escaped, and no credential in it. A GitLab job log has
+    no annotations: there it is a plain ``LemonCrow Review error: ...`` line.
     """
 
-    if str(environ.get("GITHUB_ACTIONS") or "") != "true":
+    gitlab = is_gitlab(environ)
+    if str(environ.get("GITHUB_ACTIONS") or "") != "true" and not gitlab:
         return
     clean = model_failure.scrub(" ".join(message.split()), model_failure.key_values(environ))
+    if gitlab:
+        print(f"LemonCrow Review {level if level in {'notice', 'warning', 'error'} else 'notice'}: {clean}", flush=True)
+        return
     data = clean.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     command = level if level in {"notice", "warning", "error"} else "notice"
     print(f"::{command} title=LemonCrow Review::{data}", flush=True)
 
 
-def _preflight(github: BotGitHub, sha: str, link: str) -> None:
+def _preflight(github: ReviewHost, sha: str, link: str) -> None:
     """Before a model is asked anything: can this token write what the review will write?
 
     A token that cannot comment would run the whole review, pay for it, and post nothing, so the two writes are tried
@@ -477,7 +710,13 @@ def _preflight(github: BotGitHub, sha: str, link: str) -> None:
         if denied(exc):
             missing.append("statuses: write")
     if missing:
-        raise PrPermissionError(missing)
+        raise PrPermissionError(missing, gitlab=isinstance(github, BotGitLab))
+
+
+def _run_id(environ: Mapping[str, str]) -> str:
+    """This run's id: the job's (``CI_JOB_ID``) on GitLab, the workflow run's (``GITHUB_RUN_ID``) on GitHub."""
+
+    return str(environ.get("CI_JOB_ID" if is_gitlab(environ) else "GITHUB_RUN_ID") or "").strip()
 
 
 def _model_route(options: RunOptions, environ: Mapping[str, str]) -> tuple[str, str]:
@@ -574,7 +813,7 @@ def _note_failure(notes: list[str], what: str, exc: GitHubCliError) -> None:
 def _review(
     options: RunOptions,
     ref: PullRequestRef,
-    github: BotGitHub,
+    github: ReviewHost,
     run: GhRunner,
     structured_executor: Callable[..., Any] | None,
     say: Callable[[str], None],
@@ -587,12 +826,17 @@ def _review(
     name = f"{ref.slug}#{ref.number}"
     existing, previous = github.summary()
     say("Fetching the pull request")
-    pull = resolve_pull_request(options.repo_root, options.pr, runner=run)
+    if isinstance(github, BotGitLab) and isinstance(ref, MergeRequestRef):
+        pull = resolve_merge_request(options.repo_root, ref, github.api)
+    else:
+        pull = resolve_pull_request(options.repo_root, options.pr, runner=run)
     head = pull.head_sha
     spent = budget_reached(options, previous)
     if previous is not None and spent and not (previous.head_sha == head and previous.complete):
-        return _over_budget(options, ref, github, existing, previous, head, spent, writes)
-    unpriced = options.max_usd_per_pr is not None and previous is not None and previous.spent.cost_usd is None
+        return _over_budget(options, ref, github, existing, previous, head, spent, writes, run=run, facts=facts)
+    cap = options.max_usd_per_pr
+    # The cap is held before every model call of this run, not only before the run (:mod:`spend`).
+    guard = spend.SpendGuard(cap, prior=previous.spent if previous is not None else None) if cap is not None else None
     narrow = options.only_targets is not None and previous is not None
     # A narrow run (chat's recheck) looks at a few targets under the depth the rest were reviewed at.
     depth = previous.depth if narrow and previous is not None and previous.depth in engine.DEPTHS else options.depth
@@ -613,6 +857,7 @@ def _review(
             intent_loader=(lambda stage: pr_intent.gather(github, facts, stage)) if facts is not None else None,
             # A narrow run (chat's recheck) is not another look at the whole change: the overview stays as it was.
             overview=None if narrow else _overview_request(pull, facts, previous),
+            spend=guard,
         )
         # G17: read inside the scratch store, which is gone after this block. Never a reason to fail the review.
         drawn = diagram.Diagram()
@@ -663,10 +908,10 @@ def _review(
     if scan.unavailable:
         report.notes.append(f"security scan unavailable: {scan.reason}")
     report.notes.extend(f"security scan: {note}" for note in scan.notes)
-    if unpriced:
+    if guard is not None and guard.by_calls:
         report.notes.append(
-            "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
-            "reported none and the local price table does not know the model); max-runs-per-pr needs no price"
+            f"max-usd-per-pr: {spend.unpriced_words(guard.call_cap)} (the provider reported no cost and the local "
+            "price table does not know the model)"
         )
     failure = model_failure.classify(
         ai.errors,
@@ -772,6 +1017,13 @@ def _review(
         report.noop = False
 
     tracked, dropped = cap_findings(findings)
+    # The Change Story under the diagram says which of its steps carry an open P0/P1, now that the run knows them; the SVG
+    # artifact (when the workflow asks for one) is written with them.
+    drawn = diagram.with_findings(
+        drawn,
+        tracked,
+        links=change_story.SourceLinks(_repo_url(ref, head), head, pull.merge_base_sha),
+    )
     # A run asked only to apply an instruction (`only_targets` empty) re-examines nothing: it is not another review.
     refresh = options.only_targets is not None and not options.only_targets
     # A re-run that has only a different diagram or a different threshold to say rewrites the comment, and says what the
@@ -783,11 +1035,13 @@ def _review(
     total = ai.usage if previous is None else previous.usage_total.plus(ai.usage)
     # Chat answers given while this review ran are in the summary now and not in `previous`: carry them, so a review
     # never erases the count the budget reads. The re-read is as late as it can be, just before the state is built.
-    chats, chat_usage = (previous.chats, previous.chat_usage) if previous is not None else (0, Usage())
+    # The proof job's record and plan spend are carried the same way (``lc review proof report`` writes them).
+    carried = previous if previous is not None else ReviewState(head_sha=head)
     if writes and previous is not None:
         again = _best_effort_value(github.summary, report.notes, "re-read the summary")
         if again is not None and again[1] is not None:
-            chats, chat_usage = again[1].chats, again[1].chat_usage
+            carried = again[1]
+    chats, chat_usage = carried.chats, carried.chat_usage
     state = ReviewState(
         head_sha=head,
         base_sha=pull.base_sha,
@@ -806,10 +1060,13 @@ def _review(
         usage_total=total,
         chats=chats,
         chat_usage=chat_usage,
+        proof=carried.proof,
+        proof_usage=carried.proof_usage,
         suppressions=learned.suppressions,
         diagram=drawn.state,
         impact=ai.impact,
         view=noise.view_code(),
+        review_run=_run_id(os.environ) if writes else "",
         # A narrow run kept the overview it started from; any other run's overview is the one it has for this change.
         overview=ai.overview if not narrow or previous is None else previous.overview,
         overview_for=ai.overview_for if not narrow or previous is None else previous.overview_for,
@@ -817,22 +1074,47 @@ def _review(
         or (previous.head_title if previous is not None and previous.head_sha == head else ""),
     )
     reason = failure.headline if failure is not None else (ai.reason if not ai.complete else "")
+    # A review.yaml that cannot be read at all applied none of its settings, and the content policy it holds fails closed
+    # (no file may be shown to the model): that is a config error to fix on the base branch, never a passing review.
+    broken = noise.config_error if failure is None else ""
+    if broken:
+        reason = f"config error in .lemoncrow/review.yaml: {broken}; fix it on the base branch"
+        report.annotations.append(
+            (
+                "error",
+                f"Config error in .lemoncrow/review.yaml on the base branch: {broken}. Nothing in it was applied.",
+            )
+        )
     uninvestigated = max(ai.candidates - ai.investigated, 0) + max(ai.general - ai.general_investigated, 0)
     unit = "changed area" if ai.general else "risk signal"
+    # A run the cost cap stopped part way is a partial review that names what it reached, never a failed one: the cap is
+    # the owner's choice. A model failure in the same run still reads as one.
+    stopped, stop_banner = "", ""
+    if ai.stopped and guard is not None and failure is None:
+        reviewed, pending = _reach(ai)
+        stopped = f"{len(reviewed)} of {len(reviewed) + len(pending)} files, stopped at the cost cap"
+        stop_banner = spend.stop_banner(guard, reviewed=reviewed, pending=pending)
+        report.notes.append(f"stopped at the cost cap: {ai.stopped}")
+    # Proof of work and independence: read after the review, so CI has had as long as possible. Neither can fail it.
+    ci = github.ci_results(head, exclude_run=_run_id(os.environ))
+    authors, commits = _declared_authors(github, run, ref.slug, head)
+    report.independence = authorship.assess(ai.model, authors, commits=commits)
+    report.ci = ci
     # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
     # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
     below = noise.held_back(tracked)
     view = verdict(
         [finding for finding in tracked if finding not in below],
-        complete=ai.complete,
+        complete=ai.complete and not broken,
         reason=reason,
         signals=ai.candidates + ai.general,
         uninvestigated=uninvestigated,
         held=len(below),
         deferred_files=len(ai.deferred_files),
         total_files=ai.total_files,
-        model_failed=failure is not None,
+        model_failed=failure is not None or bool(broken),
         unit=unit,
+        stopped=stopped,
     )
     summary_view = SummaryView(
         state=state,
@@ -846,7 +1128,7 @@ def _review(
             fixed=len(_state_is(tracked, "fixed")),
             stale=len(_state_is(tracked, "stale")),
             unreported=len(_state_is(tracked, "unreported")),
-            complete=ai.complete,
+            complete=ai.complete or bool(stopped),
             uninvestigated=uninvestigated,
             unit=unit,
             suppressed=len(_state_is(tracked, "suppressed")),
@@ -863,16 +1145,21 @@ def _review(
             rules=ai.rules,
             unchanged=ai.unchanged,
             imported=ai.imported,
-            extra=notices.receipt_extra(intent=ai.intent, ignored=ai.ignored, globs=noise.ignore),
+            extra=notices.receipt_extra(intent=ai.intent, ignored=ai.ignored, globs=noise.ignore, safety=ai.safety),
             security=scan.receipt(**security.shown_counts(scan, cited)),
             security_unavailable=scan.unavailable,
         ),
         pull_number=ref.number,
         repository=ref.slug,
         head_sha=head,
-        commit_url=f"https://{ref.host}/{ref.slug}/commit/{head}",
+        commit_url=ref.commit_url(head),
         title=facts.title if facts is not None else pull.title,
-        chat=_chat_enabled(options.repo_root),
+        chat=False if isinstance(github, BotGitLab) else _chat_enabled(options.repo_root),
+        gitlab=isinstance(github, BotGitLab),
+        ci=ci,
+        tests_claimed=proof_of_work.claims_tests_pass(facts.body) if facts is not None else False,
+        independence=report.independence,
+        stale=stale_line(head, tracked, github.approvals()),
         incomplete_reason=reason,
         model_label=ai.model,
         depth_label=options.depth.capitalize(),
@@ -882,13 +1169,23 @@ def _review(
         diagram=drawn.section,
         risks=impact.risk_rows(ai.signals, tracked, held={finding.id for finding in below}),
         noise=noise,
-        banner=notices.large_pr_banner(total=ai.total_files, limit=noise.max_files, deferred=ai.deferred_files),
+        banner="\n\n".join(
+            part
+            for part in (
+                stop_banner,
+                notices.large_pr_banner(total=ai.total_files, limit=noise.max_files, deferred=ai.deferred_files),
+            )
+            if part
+        ),
+        stopped=stopped,
+        spend=spend.receipt_line(state, cap),
         notes=notices.settings_line(
             ignored=ai.ignored,
             globs=noise.ignore,
             inline=noise.inline,
             notes=noise.notes,
             intent_skipped=ai.intent.skipped if ai.intent is not None else (),
+            safety=ai.safety,
         ),
     )
     body, posted_state = render_summary(summary_view)
@@ -903,10 +1200,15 @@ def _review(
             (posted_state.diagram, posted_state.impact, posted_state.overview)
             != (previous.diagram, previous.impact, previous.overview)
             or reshown
+            # CI moved on since the comment was written (a check finished): the proof of work is rewritten, at no cost.
+            or (
+                existing is not None
+                and "\n".join(proof_lines(ci, claimed=summary_view.tests_claimed)) not in existing.body
+            )
         )
     ):
         report.noop = False
-    status = check_status(view, fail_on=options.fail_on)
+    status = spend.with_suffix(check_status(view, fail_on=options.fail_on), spend.status_suffix(posted_state, cap))
     report.findings = tuple(tracked)
     report.state = posted_state
     report.summary = body
@@ -931,19 +1233,20 @@ def _review(
             "set the commit status",
         )
         report.published["status"] = {"state": status[0], "description": status[1]}
+        approved = approved_on(head, github.approvals(trusted=True))
+        weighed = impact.Impact.from_state(posted_state.impact)
+        _human_review(github, head, human_review_status(weighed, approved_by=approved), link, report)
         if report.notes.denied:
             # The preflight passed and a write was refused anyway: say so, and do not leave a green check behind a
             # review nobody can read on the pull request.
             missing = sorted(report.notes.denied)
-            report.annotations.append(("error", permission_message(missing)))
+            on_gitlab = isinstance(github, BotGitLab)
+            report.annotations.append(("error", permission_message(missing, gitlab=on_gitlab)))
             report.exit_code = 1
             if "statuses: write" not in report.notes.denied:
                 _best_effort(
                     lambda: github.set_status(
-                        head,
-                        "error",
-                        f"Token is missing {' and '.join(missing)}; see the workflow log.",
-                        run_url(os.environ),
+                        head, "error", missing_status(missing, gitlab=on_gitlab), run_url(os.environ)
                     ),
                     [],
                     "set the status",
@@ -979,13 +1282,18 @@ def _diagram(
     compute: Callable[[], tuple[Mapping[str, Any] | None, str]],
 ) -> diagram.Diagram:
     """The ``### Diagram`` of this run: the one the model proposed and :mod:`overview` validated, drawn by LemonCrow; when
-    it gave none, the deterministic one from the Architecture Delta (:mod:`diagram`). ``off`` draws neither."""
+    it gave none, the deterministic one from the Architecture Delta (:mod:`diagram`). ``off`` draws neither.
+
+    Under a proposed diagram the Change Story is still the delta's: the walk is computed from it (when it can be), so
+    the walkthrough and its finding counts read the same whichever picture is drawn above them."""
 
     if mode == "off":
         return diagram.Diagram()
     proposed = ai.overview.diagram if ai.overview is not None else None
     if proposed is not None:
-        return overview_diagram.draw(proposed)
+        delta, _why = compute()
+        story = diagram.story_of(delta) if delta is not None else None
+        return overview_diagram.draw(proposed, story=story)
     return diagram.resolve(
         mode,
         previous=previous,
@@ -994,6 +1302,35 @@ def _diagram(
         merge_base_sha=merge_base_sha,
         compute=compute,
     )
+
+
+def _repo_url(ref: PullRequestRef, head: str) -> str:
+    """The web root a file link is built on: ``https://github.com/o/r``, or ``<server>/<group>/<project>/-`` on GitLab
+    (whose file pages are ``.../-/blob/<sha>/<path>``)."""
+
+    return ref.commit_url(head).rsplit("/commit/", 1)[0]
+
+
+def _declared_authors(
+    github: ReviewHost, run: GhRunner, slug: str, head: str
+) -> tuple[tuple[authorship.DeclaredAuthor, ...] | None, int]:
+    """The agents the pull request's commits declare (trailers, Entire checkpoints, Agent Trace records) and how many
+    commits it has; ``(None, 0)`` when the commits cannot be read. Provenance never fails the review: a source that
+    cannot be read, or breaks, adds no author. On GitLab only the commit trailers are read (the files of Entire and
+    Agent Trace are read through GitHub's contents API)."""
+
+    commits = github.commits()
+    if commits is None:
+        return None, 0
+    extra: list[authorship.DeclaredAuthor] = []
+    if not isinstance(github, BotGitHub):
+        return authorship.declared_authors([message for _, message in commits]), len(commits)
+    try:
+        files = provenance.GitHubFiles(run, slug)
+        extra = provenance.declared_extra(commits, head=head, read_file=files.read_file, list_dir=files.list_dir)
+    except Exception:
+        extra = []
+    return authorship.declared_authors([message for _, message in commits], extra=extra), len(commits)
 
 
 def _commit_title(repo_root: Path, sha: str) -> str:
@@ -1033,13 +1370,30 @@ def _bare_model(model: str) -> str:
     return model.rsplit("/", 1)[-1]
 
 
+def _reach(ai: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(files reviewed, files not reviewed)`` of the code this run set out to look at: a file is reviewed when every
+    target of it the run was asked about was reached by a model call (or needed none)."""
+
+    covered = set(ai.covered)
+    paths: dict[str, bool] = {}
+    for target_id in ai.rereviewed:
+        where = ai.locations.get(target_id)
+        path = where.path if where is not None and where.path else ""
+        if path:
+            paths[path] = paths.get(path, True) and target_id in covered
+    reviewed = tuple(sorted(path for path, done in paths.items() if done))
+    pending = tuple(sorted(path for path, done in paths.items() if not done))
+    return reviewed, pending
+
+
 def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
     """Why this pull request's review budget is spent (``3 of 3 reviews used``), or ``""``.
 
     Read from the state the last summary carries: the reviews and chat answers so far and the cost of their model
     calls. A review
     cancelled before it wrote its summary left no trace, so its spend is not counted. A cost is known only when the
-    provider reported it or the local price table knows the model; an unknown cost cannot be held to a dollar cap.
+    provider reported it or the local price table knows the model; an unknown cost cannot be held to a dollar cap, so
+    the cap then holds the pull request to :data:`spend.UNPRICED_CALLS_PER_PR` model calls instead.
     """
 
     if previous is None:
@@ -1053,20 +1407,30 @@ def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
     cost = previous.spent.cost_usd
     if options.max_usd_per_pr is not None and cost is not None and cost >= options.max_usd_per_pr:
         reasons.append(f"{money(cost)} spent of {money(options.max_usd_per_pr)} allowed")
+    if options.max_usd_per_pr is not None and spend.unpriced(previous):
+        calls, limit = previous.spent.calls, spend.UNPRICED_CALLS_PER_PR
+        if calls >= limit:
+            reasons.append(f"{calls} of {limit} model calls used (cost not reported by this route)")
     return " and ".join(reasons)
 
 
 def _over_budget(
     options: RunOptions,
     ref: PullRequestRef,
-    github: BotGitHub,
+    github: ReviewHost,
     existing: Remote | None,
     previous: ReviewState,
     head: str,
     spent: str,
     writes: bool,
+    *,
+    run: GhRunner,
+    facts: PullFacts | None = None,
 ) -> RunReport:
     """Say the budget is reached instead of reviewing: no model call, no new comment, the findings stand.
+
+    What CI reports on the new head and who declares the commits cost no model call either, so the proof-of-work block
+    and the independence line are read as a review reads them (the reviewer is the last review's model).
 
     The summary keeps the last review's open findings and state (so a later run with a larger budget carries on
     from them) and the status goes on the new head as ``success``, a commit status having no neutral state, unless
@@ -1092,6 +1456,9 @@ def _over_budget(
     noise = NoisePolicy.from_view(previous.view)
     below = noise.held_back(kept)
     view = verdict([finding for finding in kept if finding not in below], complete=True, budget=spent, held=len(below))
+    ci = github.ci_results(head, exclude_run=_run_id(os.environ))
+    authors, commits = _declared_authors(github, run, ref.slug, head)
+    independence = authorship.assess(previous.model, authors, commits=commits)
     body, posted_state = render_summary(
         SummaryView(
             state=state,
@@ -1101,18 +1468,27 @@ def _over_budget(
             pull_number=ref.number,
             repository=ref.slug,
             head_sha=previous.head_sha,
-            commit_url=f"https://{ref.host}/{ref.slug}/commit/{previous.head_sha}",
+            commit_url=ref.commit_url(previous.head_sha),
             model_label=previous.model,
             depth_label=previous.depth.capitalize(),
             fail_on=options.fail_on,
             budget=spent,
             diagram=section,
             noise=noise,
-            chat=_chat_enabled(options.repo_root),
+            chat=False if isinstance(github, BotGitLab) else _chat_enabled(options.repo_root),
+            gitlab=isinstance(github, BotGitLab),
+            spend=spend.receipt_line(state, options.max_usd_per_pr),
+            ci=ci,
+            tests_claimed=proof_of_work.claims_tests_pass(facts.body) if facts is not None else False,
+            independence=independence,
+            stale=stale_line(head, kept, github.approvals()),
         )
     )
-    status = check_status(view, fail_on=options.fail_on)
+    status = spend.with_suffix(
+        check_status(view, fail_on=options.fail_on), spend.status_suffix(posted_state, options.max_usd_per_pr)
+    )
     report = RunReport(pr=name, head_sha=head, verdict=view, findings=kept, state=posted_state, summary=body)
+    report.ci, report.independence = ci, independence
     report.status = status
     report.exit_code = gate_exit(options.fail_on, status)
     report.notes.append(f"review budget reached ({spent}); nothing was reviewed")
@@ -1126,9 +1502,31 @@ def _over_budget(
             report.published["summary_url"] = written.url
         _best_effort(lambda: github.set_status(head, status[0], status[1], link), report.notes, "set the commit status")
         report.published["status"] = {"state": status[0], "description": status[1]}
+        # This push was not captured, so its risk is not assessed: the last review's reasons stand, or it waits for a person.
+        approved = approved_on(head, github.approvals(trusted=True))
+        weighed = impact.Impact.from_state(previous.impact)
+        tier = human_review_status(weighed, approved_by=approved, assessed=False)
+        _human_review(github, head, tier, link, report)
     elif options.dry_run:
         report.published["dry_run"] = True
     return report
+
+
+def _human_review(github: ReviewHost, head: str, tier: tuple[str, str], link: str, report: RunReport) -> None:
+    """The ``LemonCrow / human review`` status on *head*: best effort, like the review's own status.
+
+    Not on GitLab: an external status that stays ``pending`` keeps the merge request's pipeline pending, which blocks
+    "Pipelines must succeed" until a person does something GitLab cannot report back. The summary's line still says it.
+    """
+
+    if isinstance(github, BotGitLab):
+        return
+    _best_effort(
+        lambda: github.set_status(head, tier[0], tier[1], link or run_url(os.environ), context=HUMAN_REVIEW_CONTEXT),
+        report.notes,
+        "set the human review status",
+    )
+    report.published["human_review"] = {"state": tier[0], "description": tier[1]}
 
 
 def _state_is(findings: list[BotFinding], state: str) -> list[BotFinding]:
@@ -1174,7 +1572,7 @@ def _known_associations(
     return known
 
 
-def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]) -> list[BotFinding]:
+def _adopt(github: ReviewHost, findings: list[BotFinding], comments: list[Remote]) -> list[BotFinding]:
     """Give each finding the inline comment it already has on the pull request, found by its marker."""
 
     found = github.adopt_existing(
@@ -1202,7 +1600,7 @@ def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]
 
 
 def _post_inline(
-    github: BotGitHub, findings: list[BotFinding], wanted: list[BotFinding], head: str, report: RunReport
+    github: ReviewHost, findings: list[BotFinding], wanted: list[BotFinding], head: str, report: RunReport
 ) -> list[BotFinding]:
     outcome = _best_effort_value(
         lambda: github.post_inline(wanted, head, tracked={f.id for f in findings}),

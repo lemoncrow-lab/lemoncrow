@@ -114,12 +114,10 @@ export function BehaviorEvidenceBlock({ evidence }: { evidence: ReviewBehaviorEv
 
 function BehaviorRow({
   target,
-  revisionId,
   onLoadTarget,
   onJudge,
 }: {
   target: ReviewBehaviorTarget;
-  revisionId: string;
   onLoadTarget?: (behaviorKey: string) => Promise<ReviewBehaviorTarget>;
   onJudge?: (behaviorKey: string, state: BehaviorJudgmentState, evidenceDigest: string) => Promise<void>;
 }) {
@@ -129,13 +127,8 @@ function BehaviorRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const evidenceNode = useRef<HTMLDivElement | null>(null);
-  const identity = `${revisionId}:${target.fingerprint}:${target.title}:${target.summary}`;
-
-  // Another Snapshot or another observation: what was shown no longer applies.
-  useEffect(() => {
-    setDetail(null);
-    setDisplayedDigest("");
-  }, [identity]);
+  // BehaviorChanges mounts this row under its immutable evidence identity.
+  // It cannot carry a prior Snapshot's evidence or mark eligibility.
 
   // The digest becomes usable only once the block it digests is in the DOM.
   useEffect(() => {
@@ -150,7 +143,14 @@ function BehaviorRow({
     setBusy(true);
     setError("");
     try {
-      setDetail(await onLoadTarget(target.behavior_key));
+      const loaded = await onLoadTarget(target.behavior_key);
+      if (loaded.behavior_key !== target.behavior_key
+        || loaded.fingerprint !== target.fingerprint
+        || loaded.environment_fingerprint !== target.environment_fingerprint
+        || (target.evidence?.digest && loaded.evidence?.digest !== target.evidence.digest)) {
+        throw new Error("Behavior evidence changed or belongs to another target. Refresh the Review before judging.");
+      }
+      setDetail(loaded);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -308,12 +308,12 @@ export default function BehaviorChanges({
           {inferred.map((statement) => (
             <p key={statement.text} className="max-w-prose text-body leading-relaxed text-foreground">{statement.text}</p>
           ))}
-          <p className="text-micro text-muted-foreground">AI narrative · every statement cites the evidence it describes</p>
+          <p className="text-micro text-muted-foreground">AI interpretation · not a verified runtime observation. Check the underlying evidence before making a decision.</p>
         </div>
       )}
       {(canNarrate || narrateError) && (
         <div className="flex items-center gap-2 text-caption text-muted-foreground">
-          <span>Before/after narrative: the observed changes below.</span>
+          <span>Explain the before/after evidence below; an AI interpretation is not runtime proof.</span>
           {canNarrate && (
             <UiButton variant="ghost" size="compact" type="button" disabled={narrating} onClick={() => void narrate()}>
               {narrating ? "Explaining…" : "Explain before/after"}
@@ -324,9 +324,8 @@ export default function BehaviorChanges({
       )}
       {behavior.targets.map((target) => (
         <BehaviorRow
-          key={target.behavior_key}
+          key={`${revisionId}:${target.behavior_key}:${target.fingerprint}:${target.environment_fingerprint}:${target.evidence?.digest ?? ""}:${target.title}:${target.summary}`}
           target={target}
-          revisionId={revisionId}
           onLoadTarget={onLoadTarget}
           onJudge={onJudge}
         />

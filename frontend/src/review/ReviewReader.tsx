@@ -5,12 +5,14 @@ import { escapeDismissedTooltip } from "../components/ui/tooltip";
 import { focusReturnTarget } from "../lib/focus";
 import { classifyWriteFailure, isStaleSnapshotError } from "./staleSnapshot";
 import { readReviewPage, reviewPages } from "./reviewPagination";
+import { retainTargetsOnSameRevision } from "./reviewTargetHydration";
 import { lazyPanel } from "./lazyPanel";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from "react";
 import { useParams } from "react-router-dom";
 import "./reviewUi.css";
 
 import type { ContextDrawerTab } from "./ContextDrawer";
+import { revealBriefDecision } from "./investigate/revealDecision";
 import type { ReviewAskSelection } from "./ReviewAskDrawer";
 import { codeHref, currentReturnPath, RETURN_PARAM, returnPathFrom, type CodeTarget } from "../lib/codeLinks";
 import ReaderHeader from "./ReaderHeader";
@@ -1807,10 +1809,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       }
 
       setOverview(nextOverview);
-      setTargetList(nextTargets);
+      // A later compact startup read may finish after full hydration or a
+      // far-file target fetch. Keep those exact same-Snapshot targets instead
+      // of leaving the reviewer on a page with no target metadata.
+      const displayedTargets = retainTargetsOnSameRevision(targetListRef.current, nextTargets);
+      setTargetList((current) => retainTargetsOnSameRevision(current, nextTargets));
       setError("");
-      const first = firstActionable(nextTargets.targets);
-      setActiveTargetId((current) => current && nextTargets.targets.some((target: ReviewTarget) => target.target_id === current)
+      const first = firstActionable(displayedTargets.targets);
+      setActiveTargetId((current) => current && displayedTargets.targets.some((target: ReviewTarget) => target.target_id === current)
         ? current
         : first?.target_id ?? "");
 
@@ -3097,9 +3103,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   }, [reviewId, projection, loadProjection]);
 
   const loadBehaviorTarget = useCallback(async (behaviorKey: string) => {
-    if (!reviewId) throw new Error("No review is open.");
-    return (await fetchBehaviorTarget(reviewId, behaviorKey)).target;
-  }, [reviewId]);
+    if (!reviewId || !projection?.revision_id || projection.revision_id !== overviewRevisionId) {
+      throw new Error("Behavior evidence is unavailable until the current Snapshot is loaded.");
+    }
+    const result = await fetchBehaviorTarget(reviewId, behaviorKey);
+    if (result.revision_id !== projection.revision_id || result.target.behavior_key !== behaviorKey) {
+      throw new Error("Behavior evidence belongs to a different Snapshot or target. Refresh the Review before judging.");
+    }
+    return result.target;
+  }, [reviewId, projection?.revision_id, overviewRevisionId]);
 
   // The digest is the one of the evidence block the Brief rendered; the server refuses any other.
   const judgeBehavior = useCallback(async (behaviorKey: string, state: BehaviorJudgmentState, evidenceDigest: string) => {
@@ -3386,16 +3398,19 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     setQuery("");
     setDeltaFocus(false);
     revealImplementation();
-    // Target metadata and source are independent reads. Start both together so
-    // a far-file jump pays the slower one, not their sum. loadPath is
-    // Snapshot-bound and deduplicated, so scrollToTarget's later load is free.
-    void Promise.all([
-      fetchTargetsForPath(reviewId, path, targetList.order),
-      loadPath(reviewId, path),
-    ]).then(([slice]) => {
-      if (slice.revision_id !== overview.revision.id) return;
+    // Source and target metadata start together, but target metadata must not
+    // wait for a large diff. Waiting for both previously left a 401-file
+    // keyboard jump on a blank page with "No matching targets" while the
+    // unrelated source read was still pending.
+    const currentNavigation = startNavigation([path]);
+    void loadPath(reviewId, path);
+    void fetchTargetsForPath(reviewId, path, targetList.order).then((slice) => {
+      if (!currentNavigation()) return;
+      if (slice.revision_id !== overview.revision.id) {
+        throw new Error("The target belongs to another Snapshot. Refresh the Review to navigate safely.");
+      }
       const fetched = targetForPath(slice.targets, path);
-      if (!fetched) return;
+      if (!fetched) throw new Error("This file has no current Review target. Refresh the Review or choose another file.");
       setTargetList((current) => {
         if (!current || current.revision_id !== slice.revision_id) return current;
         const seen = new Set(current.targets.map((target) => target.target_id));
@@ -3410,8 +3425,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         };
       });
       window.requestAnimationFrame(() => void scrollToTarget(fetched, "instant"));
+    }).catch((reason: unknown) => {
+      if (currentNavigation()) {
+        setError(`Cannot open ${path}: ${String(reason instanceof Error ? reason.message : reason)}`);
+      }
     });
-  }, [loadPath, overview, reviewId, revealImplementation, scrollToTarget, stabilizeTargetOrder, targetList, targets, visibleTargets]);
+  }, [loadPath, overview, reviewId, revealImplementation, scrollToTarget, stabilizeTargetOrder, startNavigation, targetList, targets, visibleTargets]);
 
   const selectSurface = useCallback(async (surfaceKey: string) => {
     if (!reviewId) return;
@@ -4691,14 +4710,17 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const inPatch = target ?? (path ? targets.find((item) => item.path === path) : undefined);
     if (!inPatch && !path) return;
     // The panel opens under the map, so close the map first or the loading
-    // state would be hidden behind it. The Map location rides the backtrail,
-    // so Back returns to the map where the reviewer left it.
+    // state would be hidden behind it. Closing it through the view change (one
+    // URL write that drops the map location and the view) lands on
+    // Implementation; dropping only the map location would fall back to the
+    // Brief when the Map was opened from there. The Map location rides the
+    // backtrail, so Back returns to the map where the reviewer left it.
     withBacktrail(() => {
-      setMapLocation(null);
+      revealImplementation();
       if (inPatch) void scrollToTarget(inPatch);
       else void showRelatedSource(path, selection.line || 1);
     });
-  }, [reviewId, targets, scrollToTarget, setMapLocation, showRelatedSource, withBacktrail]);
+  }, [reviewId, targets, revealImplementation, scrollToTarget, showRelatedSource, withBacktrail]);
 
   // Map selections in the patch open the file's dedicated diff in a new tab,
   // landing on the mapped target, so the map keeps its place in this one.
@@ -5793,6 +5815,19 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         onJumpToCode={openCodeLocation}
         onSetAnnotationState={(id, state) => void setAnnotationState(id, state)}
         hiddenFindingIds={projection?.triage?.hidden_finding_ids}
+        // N06: the Investigate tab reads what the Reader already holds; Walk and Decide go through the backtrail.
+        investigate={briefCapable ? {
+          projection,
+          targets,
+          checks: historical ? undefined : overview.evidence,
+          revision: overview.revision,
+          loadMapGraph: architectureRelevant ? () => loadArchitectureDelta().then((delta) => delta?.graph ?? null) : undefined,
+          onWalk: (location) => withBacktrail(() => setMapLocation(location)),
+          onOpenTarget: openBriefTarget,
+          onOpenCodeLocation: openCodeLocation,
+          onOpenDecision: projection ? (key) => { withBacktrail(() => changeView("brief")); revealBriefDecision(key); } : undefined,
+          canRun: !readOnly && !historical,
+        } : undefined}
       />
     </Suspense>
   ) : null;
@@ -6364,8 +6399,9 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
               <ReviewerSuggestionsPanel reviewId={overview.session.id} revisionId={overview.revision.id} />
             </>
           )}
-          verificationExtras={projection?.behavior?.checklist ? (
+          verificationExtras={projection?.revision_id === overview?.revision.id && projection.behavior?.checklist ? (
             <ManualChecklist
+              key={projection.revision_id}
               checklist={projection.behavior.checklist}
               onRecord={historical || readOnly || revisionAdvanced || projection.historical ? undefined : recordManualCheck}
             />
@@ -6577,6 +6613,18 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                   askPanel={askCapable && askOpen ? drawer : null}
                   onCloseAsk={askCapable ? closeAsk : undefined}
                   onOpenInCode={runtimeCodeRoot ? openInCode : undefined}
+                  onOpenEvidence={(selection) => {
+                    // The run's record sits with the checks of the code it traced; with no target, readiness lists every run.
+                    const inFile = targets.filter((target) => target.path === selection.path);
+                    const line = selection.line ?? 0;
+                    const target = inFile.find((row) => line > 0 && row.start_line <= line && line <= row.end_line) ?? inFile[0];
+                    if (!target) {
+                      setReadinessOpen(true);
+                      return;
+                    }
+                    revealImplementation();
+                    openContext(target, "checks");
+                  }}
                   chapters={mapChapters}
                   onSelectionChange={(selection) => { mapSelectionRef.current = selection; }}
                   loadProjectHistory={projectHistoryAvailable ? loadProjectHistory : undefined}
@@ -6620,6 +6668,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                   <div className="min-h-0 flex-1 overflow-y-auto" data-review-scroll-root="brief">
                     <ReviewBrief
                       projection={projection}
+                      revision={overview?.revision ?? null}
                       loading={projectionState === "loading"}
                       error={projectionState === "failed" ? "The brief could not refresh; showing the last loaded plan." : ""}
                       targets={targets}
@@ -6629,6 +6678,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                         onToggleOutside: () => setRequestScopeFocus((current) => !current),
                       } : undefined}
                       onOpenTarget={openBriefTarget}
+                      onOpenCodeLocation={openCodeLocation}
+                      snapshotSuperseded={revisionAdvanced}
                       onOpenFiles={closeOverview}
                       onOpenTour={guidedReviewUseful(projection, targets) ? () => changeView("tour") : undefined}
                       onInspectEvidence={(targetId) => {
@@ -6639,6 +6690,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                         }
                         closeOverview();
                         openContext(target, "checks");
+                      }}
+                      onInvestigate={(targetId) => {
+                        const target = targets.find((item) => item.target_id === targetId);
+                        if (!target) return;
+                        withBacktrail(() => {
+                          revealImplementation();
+                          openContext(target, "investigate");
+                          void scrollToTarget(target);
+                        });
                       }}
                       onAsk={askCapable ? (targetId) => {
                         const target = targetId ? targets.find((item) => item.target_id === targetId) : undefined;

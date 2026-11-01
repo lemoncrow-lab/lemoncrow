@@ -282,7 +282,14 @@ function conversationAge(value: string): string {
   return days === 1 ? "Yesterday" : `${days}d`;
 }
 
-export default function ReviewAskDrawer({
+export default function ReviewAskDrawer(props: ReviewAskDrawerProps) {
+  // Never paint a previous Review's messages, attachments or handoff actions
+  // while opening another Review, even before the conversation fetch effect.
+  // A Snapshot change within the same Review is handled separately below.
+  return <ReviewAskDrawerForReview key={props.reviewId} {...props} />;
+}
+
+function ReviewAskDrawerForReview({
   reviewId,
   revisionNumber,
   baseRevisionNumber,
@@ -342,7 +349,27 @@ export default function ReviewAskDrawer({
   const mentionPickerRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const askAbortRef = useRef<AbortController | null>(null);
+  // Keep the immutable Review origin in a ref updated during render, not in a
+  // passive effect: a late provider frame can arrive between render and effect.
+  const revisionIdentity = `${reviewId}:${revisionId}:${revisionNumber}`;
+  const currentRevisionRef = useRef(revisionIdentity);
+  currentRevisionRef.current = revisionIdentity;
+  const previouslyMountedRevisionRef = useRef(revisionIdentity);
   const stoppedTurnsRef = useRef(0);
+
+  useEffect(() => {
+    if (previouslyMountedRevisionRef.current === revisionIdentity) return;
+    previouslyMountedRevisionRef.current = revisionIdentity;
+    if (transport) return;
+    const active = askAbortRef.current;
+    if (!active) return;
+    active.abort();
+    askAbortRef.current = null;
+    setAsking(false);
+    setPendingTurn((current) => current ? {
+      ...current, status: "failed", error: "The Snapshot changed while Ask was running. This answer was not applied; ask again on the current Snapshot.",
+    } : current);
+  }, [revisionIdentity, transport]);
 
   useEffect(() => () => {
     // The Review server records an Ask turn whether or not this client is still
@@ -701,9 +728,10 @@ export default function ReviewAskDrawer({
       ...(scope?.selected_text ? { selected_text: scope.selected_text } : {}),
     };
     const controller = new AbortController();
+    const startedRevision = currentRevisionRef.current;
     askAbortRef.current = controller;
     const onEvent = (event: ReviewAskStreamEvent) => {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || startedRevision !== currentRevisionRef.current) return;
       if (event.type === "accepted") {
         setPendingTurn((current) => current ? { ...current, status: "working" } : current);
       } else if (event.type === "working") {
@@ -717,14 +745,14 @@ export default function ReviewAskDrawer({
         ? transport.stream(input, onEvent, controller.signal)
         : streamReviewAsk(reviewId, input, onEvent, controller.signal));
       // A stopped turn already settled in stopAsk; a late reply must not revive it.
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || startedRevision !== currentRevisionRef.current) return;
       setMessages((current) => [...current, result.human, result.assistant]);
       const settledConversationId = result.conversation_id ?? activeConversationId;
       noteConversationTurn(settledConversationId, question);
       setLatest((current) => Math.max(current, result.latest_revision_number));
       setPendingTurn(null);
     } catch (reason) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || startedRevision !== currentRevisionRef.current) return;
       const detail = String(reason instanceof Error ? reason.message : reason);
       setPendingTurn((current) => current
         ? { ...current, status: "failed", error: detail }

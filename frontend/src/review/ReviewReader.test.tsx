@@ -2834,6 +2834,9 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     expect(api.fetchFile).toHaveBeenCalledWith("review-1", path);
     expect(stream.scrollToTarget).not.toHaveBeenCalledWith(expect.objectContaining({ path }), "instant");
 
+    // A slow source-read must not hold back the target list for this far-page
+    // selection. The reviewer can orient to the exact target while the patch
+    // itself is still loading, without a false "no matching targets" state.
     await act(async () => {
       targetSlice.resolve({
         ...full.targets,
@@ -2841,6 +2844,11 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
         outline: full.targets.outline.filter((row) => row.path === path),
         complete: false,
       });
+      await targetSlice.promise;
+    });
+    await waitFor(() => expect(screen.getByText("53 streamed targets")).toBeInTheDocument());
+    expect(stream.scrollToTarget).not.toHaveBeenCalledWith(expect.objectContaining({ path }), "instant");
+    await act(async () => {
       source.resolve({
         path,
         status: "modified",

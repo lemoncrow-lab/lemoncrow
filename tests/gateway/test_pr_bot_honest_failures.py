@@ -77,9 +77,9 @@ def test_each_failure_is_named_with_its_cause_and_its_fix(error: str, kind: str,
     for fragment in fragments:
         assert fragment in failure.annotation + failure.headline, fragment
     assert "\n" not in failure.headline and len(f"Review incomplete: {failure.headline}") <= 140
-    assert not any(
-        secret in failure.annotation for secret in ("sk-proj", "abcd")
-    ), "the provider's text is never repeated"
+    assert not any(secret in failure.annotation for secret in ("sk-proj", "abcd")), (
+        "the provider's text is never repeated"
+    )
 
 
 _TERMINAL_ERRORS = {
@@ -165,7 +165,7 @@ def test_a_rejected_key_sets_the_check_to_error_names_the_cause_and_leaves_the_j
 
     headline = "Review incomplete: OpenAI rejected the API key (HTTP 401); check the secret passed as `openai-api-key`"
     assert report.status == ("error", headline[:140]) and report.verdict is not None and report.verdict.failed
-    assert f"**{headline}**" in world.github.summary_comments()[0]["body"], "one plain line in the comment"
+    assert f"<h2>{headline}</h2>" in world.github.summary_comments()[0]["body"], "one plain line in the comment"
     assert report.exit_code == 0, "fail-on is none: the check and the annotation are the signal, the job stays green"
     ((level, message),) = report.annotations
     assert level == "error" and "Check the secret passed as `openai-api-key`" in message
@@ -246,9 +246,9 @@ def test_the_key_inputs_become_the_standard_variables_and_win_over_them() -> Non
             "OPENAI_API_KEY": "env",
         }
     )
-    assert (
-        merged["ANTHROPIC_API_KEY"] == KEY and merged["OPENAI_API_KEY"] == "env"
-    ), "an empty input leaves the variable"
+    assert merged["ANTHROPIC_API_KEY"] == KEY and merged["OPENAI_API_KEY"] == "env", (
+        "an empty input leaves the variable"
+    )
     route = ci_env.resolve_model_route(ci_env.key_environment({"INPUT_OPENAI_API_KEY": "sk-openai-123456"}))
     assert route is not None and route.provider == "openai"
     assert ci_env.resolve_model_route({}) is None
@@ -322,7 +322,12 @@ def test_no_key_is_a_red_job_with_both_ways_to_pass_one_and_an_error_status(
     assert (
         "anthropic-api-key" in out and "openai-api-key" in out and "environment variable on the step also works" in out
     )
-    assert posted == [("error", "No model key: pass anthropic-api-key or openai-api-key to the LemonCrow Action")]
+    assert posted == [
+        (
+            "error",
+            "No model key: add an ANTHROPIC_API_KEY or OPENAI_API_KEY secret and pass it as anthropic-api-key or openai-api-key",
+        )
+    ]
 
 
 def test_no_key_on_a_comment_posts_no_status(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ belong to a finding and to an incomplete review and a git hook reads them (see :
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -31,6 +32,26 @@ from lemoncrow.pro.capabilities.review.local_cli.ai import (
 from lemoncrow.pro.capabilities.review.local_cli.config import config_cmd
 from lemoncrow.pro.capabilities.review.local_cli.hook import hook_group
 from lemoncrow.pro.capabilities.review.local_cli.init_action import init_action_cmd
+from lemoncrow.pro.capabilities.review.pr_bot.spend import DEFAULT_MAX_USD_PER_PR, MAX_USD_ENV, NO_CAP
+
+
+class MaxUsd(click.ParamType["float | None"]):
+    """``--max-usd-per-pr``: dollars above 0, or ``none`` (``off``, ``unlimited``) for no cap.
+
+    ``none`` reaches the review the way the Action's input does, as :data:`MAX_USD_ENV`, and the option's value is
+    ``None``: a pull request review reads the variable, and a local review has no cap without a value anyway.
+    """
+
+    name = "usd"
+    _range = click.FloatRange(min=0, min_open=True)
+
+    def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> float | None:
+        if isinstance(value, str) and value.strip().lower() in NO_CAP:
+            # lc-debt: no cap travels through the environment; upgrade: RunOptions takes an explicit no-cap value.
+            os.environ[MAX_USD_ENV] = "none"
+            return None
+        return float(self._range.convert(value, param, ctx))
+
 
 #: ``lc review <name> ...`` subcommands this module runs.
 SUBCOMMANDS: dict[str, click.Command] = {
@@ -134,10 +155,13 @@ def _store_root() -> Path:
 @click.option(
     "--max-usd-per-pr",
     "max_usd_per_pr",
-    type=click.FloatRange(min=0, min_open=True),
+    type=MaxUsd(),
     default=None,
     metavar="USD",
-    help="Stop reviewing this working tree or range once its reviews have cost this much (needs a known cost).",
+    help=(
+        "Stop reviewing once the reviews have cost this much in total (needs a known cost); `none` for no cap. With "
+        f"--pr N the default is ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request; for a working tree or range, no cap."
+    ),
 )
 @click.option(
     "--max-runs-per-pr",

@@ -4259,15 +4259,24 @@ def register_review_api(
             ),
             "extension": tuple(extension.get("conditions", ()) or ()),
         }
-        _behavior_collected, behavior_now = _behavior_state(session, revision)
-        # Fail closed while the static inventory is still being computed off the
-        # request path: its behavior changes are not known yet.
+        behavior_collected, behavior_now = _behavior_state(session, revision)
+        # A v1 producer payload is rejected by the v2 collector. Its vanished
+        # targets must *not* make readiness pass or disappear: require a fresh
+        # run under the current contract before review/landing.
+        incompatible_contracts = sum(
+            "behavior delta refused: contract version" in note for note in behavior_collected.degraded
+        )
+        incomplete_observations = sum(
+            note.startswith("lemoncrow.runtime_observation:") for note in behavior_collected.degraded
+        )
         analyzing = _static_report(session, revision).status == "pending"
-        if behavior_now or analyzing:
+        if behavior_now or analyzing or incompatible_contracts or incomplete_observations:
             facts["behavior"] = BehaviorFacts(
                 open=sum(1 for item in behavior_now if item.priority.outstanding),
                 blocked=sum(1 for item in behavior_now if item.state == "needs_changes"),
                 analyzing=analyzing,
+                incompatible_contracts=incompatible_contracts,
+                incomplete_observations=incomplete_observations,
             )
         manual, _manual_items = _manual_checklist(session, revision, behavior_now)
         if manual is not None:
@@ -4327,6 +4336,8 @@ def register_review_api(
                     open=gated.open,
                     blocked=gated.blocked,
                     analyzing=behavior_facts.analyzing,
+                    incompatible_contracts=behavior_facts.incompatible_contracts,
+                    incomplete_observations=behavior_facts.incomplete_observations,
                     advisory=gated.advisory,
                     gate_h_mode=gated.mode,
                     would_be={
@@ -9226,6 +9237,62 @@ def register_review_api(
             ),
         )
 
+    def _public_runtime_validation_job(
+        job: Mapping[str, Any],
+        *,
+        completed_record: bool,
+    ) -> dict[str, Any]:
+        """Bound one hosted callback to safe, typed status metadata.
+
+        Worker output, tokens, grants, raw errors and unverified receipts
+        cannot cross to this Review API even in queued/superseded states.
+        """
+        projected: dict[str, Any] = {}
+        job_id = job.get("job_id")
+        if isinstance(job_id, str) and 0 < len(job_id) <= 128:
+            projected["job_id"] = job_id
+        state = job.get("state")
+        allowed_states = {
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "cancel_requested",
+            "unavailable",
+            "superseded",
+            "expired",
+        }
+        projected["state"] = state if isinstance(state, str) and state in allowed_states else "unavailable"
+        for key in ("attempt", "retry_count", "reclaim_count"):
+            value = job.get(key)
+            if type(value) is int and 0 <= value <= 1_000_000:
+                projected[key] = value
+        for key in ("cancel_requested", "historical", "superseded"):
+            if type(job.get(key)) is bool:
+                projected[key] = job[key]
+        intent = job.get("execution_intent")
+        if isinstance(intent, str) and intent in {"current", "explicit_historical"}:
+            projected["execution_intent"] = intent
+        publication_state = job.get("publication_state")
+        if isinstance(publication_state, str) and publication_state in {
+            "current",
+            "historical",
+            "superseded",
+            "published",
+            "pending",
+        }:
+            projected["publication_state"] = publication_state
+        if completed_record and job.get("superseded") is not True:
+            receipt = job.get("completion_receipt")
+            if isinstance(receipt, Mapping):
+                projected["completion_receipt"] = dict(receipt)
+        if job.get("superseded") is True:
+            projected["detail"] = "Runtime Validation Snapshot was superseded"
+        elif projected["state"] == "unavailable":
+            projected["detail"] = "Hosted Runtime Validation is unavailable under the current execution policy"
+        return projected
+
     def _runtime_validation_response(
         session: ReviewSession,
         revision: ReviewRevision,
@@ -9237,7 +9304,12 @@ def register_review_api(
         job: Mapping[str, Any] | None = None,
         execution_intent: str = "",
     ) -> dict[str, Any]:
-        resolved_intent = execution_intent or (str(job.get("execution_intent") or "") if job is not None else "")
+        supplied_intent = execution_intent or (job.get("execution_intent") if job is not None else "")
+        resolved_intent = (
+            supplied_intent
+            if isinstance(supplied_intent, str) and supplied_intent in {"current", "explicit_historical"}
+            else ""
+        )
         payload: dict[str, Any] = {
             "request": validation_request.to_wire(),
             "reused": reused,
@@ -9247,10 +9319,18 @@ def register_review_api(
         }
         if record is not None:
             payload["runtime_validation"] = dict(record)
+            if job is not None:
+                # Durable receipt identity can accompany a normalized,
+                # persisted record, never an unverified pending callback.
+                payload["runtime_validation"]["job"] = _public_runtime_validation_job(
+                    job,
+                    completed_record=True,
+                )
         elif job is not None:
+            projected_job = _public_runtime_validation_job(job, completed_record=False)
             payload["runtime_validation"] = {
-                "status": "SUPERSEDED" if job.get("superseded") else str(job.get("state") or "unknown").upper(),
-                "job": dict(job),
+                "status": "SUPERSEDED" if projected_job.get("superseded") else projected_job["state"].upper(),
+                "job": projected_job,
             }
         if evidence is not None:
             payload["evidence"] = _review_evidence_payload(
@@ -9277,6 +9357,7 @@ def register_review_api(
         projected_job["publication_state"] = "superseded"
         projected_job["detail"] = detail
         projected_job.pop("observation", None)
+        projected_job.pop("completion_receipt", None)
         return _runtime_validation_response(
             session,
             revision,
@@ -9385,9 +9466,15 @@ def register_review_api(
                         )
                     )
                 submission_state = str(submission.get("state") or "unavailable").lower()
+                if submission.get("superseded") is True:
+                    submission.pop("observation", None)
+                    submission.pop("completion_receipt", None)
                 observation = submission.get("observation")
                 if isinstance(observation, Mapping):
                     try:
+                        receipt = submission.get("completion_receipt")
+                        if not isinstance(receipt, Mapping) or not submission.get("job_id"):
+                            raise ValueError("hosted completion cannot publish without its durable queue receipt")
                         record = normalize_surface_run(validation_request, scenario, observation)
                         evidence = persist_validation_record(
                             store,
@@ -9401,6 +9488,8 @@ def register_review_api(
                             execution_intent=execution_intent,
                             # The server-side submitter (not the runner) states who executed it.
                             executor_class=str(submission.get("executor_class") or ""),
+                            queue_completion_receipt=receipt,
+                            fresh_ref=str(submission["job_id"]),
                         )
                     except ValueError as exc:
                         if execution_intent == "current" and "superseded" in str(exc).lower():
@@ -9422,6 +9511,7 @@ def register_review_api(
                         validation_request=validation_request,
                         record=record,
                         evidence=evidence,
+                        job=submission,
                         execution_intent=execution_intent,
                     )
                 if submission_state == "unavailable":
@@ -9430,7 +9520,7 @@ def register_review_api(
                         surface.provider,
                         side,
                         "unavailable",
-                        str(submission.get("detail") or "managed runtime validation is unavailable"),
+                        "managed runtime validation is unavailable under the current execution policy",
                         "hosted-job",
                         scenario.runtime_id,
                     )
@@ -9585,6 +9675,10 @@ def register_review_api(
             )
         )
         job_execution_intent = str(job.get("execution_intent") or "")
+        if job.get("superseded") is True:
+            # A stale callback cannot publish or expose completion proof.
+            job.pop("observation", None)
+            job.pop("completion_receipt", None)
         observation = job.get("observation")
         if isinstance(observation, Mapping):
             from lemoncrow.pro.capabilities.review.runtime_validation import (
@@ -9593,6 +9687,9 @@ def register_review_api(
             )
 
             try:
+                receipt = job.get("completion_receipt")
+                if not isinstance(receipt, Mapping) or not job.get("job_id"):
+                    raise ValueError("hosted completion cannot publish without its durable queue receipt")
                 record = normalize_surface_run(validation_request, scenario, observation)
                 evidence = await asyncio.to_thread(
                     persist_validation_record,
@@ -9605,6 +9702,8 @@ def register_review_api(
                     source="external",
                     expected_current_revision_id=revision.id if job_execution_intent == "current" else "",
                     execution_intent=job_execution_intent,
+                    queue_completion_receipt=receipt,
+                    fresh_ref=str(job["job_id"]),
                 )
             except ValueError as exc:
                 if job_execution_intent == "current" and "superseded" in str(exc).lower():
@@ -11460,6 +11559,10 @@ def register_review_api(
             counted_evidence=lambda item: _counted_evidence(session, item),
         )
         payload["summary"] = build_brief_summary(payload, plan_checks)
+        from lemoncrow.pro.capabilities.review.consumer_inventory import consumer_inventory
+
+        # Known callers/consumers per changed target and impact-pass readiness, from this Snapshot's packet.
+        payload["context"] = consumer_inventory(read_packet_json(store, revision), ordered)
         progress(4, "Grouping review material")
         payload["material"] = review_material_projection(
             ordered,
@@ -19777,16 +19880,109 @@ def register_review_api(
             return {"status": "not_found"}
         return _schedule_premerge_safely(session, revision)
 
+    def _schedule_auto_runtime_validation(session: ReviewSession, revision: ReviewRevision) -> dict[str, Any]:
+        """Enqueue at most three trusted, explicitly planned Snapshot checks.
+
+        Only the hosted durable Snapshot-event callback invokes this method.
+        Unlike manual Runtime Validation it never amends the plan or requests
+        scoped untrusted-source execution approval; workers re-check plan,
+        source authority and Snapshot currentness at claim and execution.
+        """
+        if runtime_validation_submitter is None:
+            return {"status": "not_configured"}
+        latest = store.latest_revision(session.id)
+        if session.status != "open" or latest is None or latest.id != revision.id:
+            return {"status": "superseded", "revision_id": revision.id}
+        from lemoncrow.pro.capabilities.review.runtime_validation import automatic_runtime_surface_choices
+
+        plan = run_plans.current(
+            session,
+            revision,
+            ai_candidates=lambda: _ai_candidate_count(session, revision),
+            persist=True,
+        )
+        if plan.policy_error:
+            return {"status": "not_planned", "revision_id": revision.id, "detail": "trusted-base policy invalid"}
+        try:
+            _base_revision, registry, _runners, context = _surface_runtime(
+                session.id,
+                revision.id,
+                side="old",
+                immutable_execution=True,
+            )
+            surfaces, _issues = _discover_surfaces(registry, context)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "trusted runtime discovery failed for Snapshot %s",
+                revision.id,
+                exc_info=True,
+            )
+            return {"status": "unavailable", "revision_id": revision.id, "detail": type(exc).__name__}
+        selected = automatic_runtime_surface_choices(
+            plan,
+            surfaces,
+            context.config,
+            review_id=session.id,
+            revision_id=revision.id,
+        )
+        if not selected:
+            return {"status": "not_planned", "revision_id": revision.id, "run_plan_digest": plan.digest}
+        jobs: list[dict[str, str]] = []
+        for surface in selected:
+            latest = store.latest_revision(session.id)
+            if latest is None or latest.id != revision.id:
+                return {"status": "superseded", "revision_id": revision.id, "jobs": jobs}
+            try:
+                _surface, _scenario, request, _execution = _runtime_validation_selection(
+                    session,
+                    revision,
+                    provider=surface.provider,
+                    surface_id=surface.id,
+                    side="new",
+                )
+                # The callback's omitted fifth argument means approval=False.
+                # No automatic job can mint or borrow an untrusted-source grant.
+                submission = dict(runtime_validation_submitter(session, revision, request, "current"))
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "automatic Runtime Validation was refused for Snapshot %s",
+                    revision.id,
+                    exc_info=True,
+                )
+                jobs.append({"scenario_id": surface.id, "state": "unavailable", "detail": type(exc).__name__})
+                continue
+            jobs.append(
+                {
+                    "scenario_id": surface.id,
+                    "state": str(submission.get("state") or "unavailable")[:32],
+                    "job_id": str(submission.get("job_id") or "")[:128],
+                }
+            )
+        return {
+            "status": (
+                "submitted"
+                if any(row["state"] in {"queued", "running", "succeeded"} for row in jobs)
+                else "unavailable"
+            ),
+            "revision_id": revision.id,
+            "run_plan_digest": plan.digest,
+            "jobs": jobs,
+        }
+
     def _schedule_auto_work(session: ReviewSession, revision: ReviewRevision) -> Mapping[str, Any]:
-        """Hosted Auto origination: AI review, then the planned pre-merge checks."""
+        """Hosted Snapshot-event origination under the existing effective run plan."""
 
         premerge = _schedule_premerge_safely(session, revision)
+        runtime = _schedule_auto_runtime_validation(session, revision)
         result = dict(_schedule_auto_ai_review(session, revision))
         if premerge.get("status") != "not_configured":
             result["premerge"] = premerge
+        if runtime.get("status") != "not_configured":
+            result["runtime_validation"] = runtime
         return result
 
     app.state.review_auto_scheduler = _schedule_auto_work
+    app.state.review_runtime_auto_scheduler = _schedule_auto_runtime_validation
     app.state.review_premerge_scheduler = _schedule_premerge_by_id
 
     def _premerge_manual_run(

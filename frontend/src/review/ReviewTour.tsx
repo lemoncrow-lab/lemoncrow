@@ -54,7 +54,14 @@ function statusText(status: ReviewSynthesisStatus | undefined): string {
   }
 }
 
-export default function ReviewTour({
+export default function ReviewTour(props: ReviewTourProps) {
+  // Tour navigation and pending synthesis belong to one immutable Snapshot.
+  // A parent refresh must not paint the previous Snapshot's step, even for a
+  // frame before passive effects run or when the new tour has equal length.
+  return <ReviewTourForSnapshot key={`${props.reviewId}:${props.revisionId}`} {...props} />;
+}
+
+function ReviewTourForSnapshot({
   reviewId,
   revisionId,
   tour,

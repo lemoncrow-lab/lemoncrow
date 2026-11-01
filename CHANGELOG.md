@@ -6,6 +6,69 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+0.8.1 was prepared but never published; this release is the first to carry its changes, listed under
+[0.8.1] below.
+
+### Added
+
+- **The pull request summary leads with the verdict.** The first lines say what to do (merge, fix first, or a person
+  must look), how much was reviewed (`reviewed N of M files` on a partial review) and whether human review is
+  required, in words. A clean review reads as a normal result, not an empty one. `Confidence Score: N/5` moved to
+  `--json`.
+- **Proof of work and independence in the summary.** The summary lists the CI check runs and statuses reported for
+  the exact head commit, labelled "reported by CI, not run by LemonCrow", and flags a "tests pass" claim in the
+  description that no check backs. An independence line names the reviewer's model family, the author's when it is
+  known exactly, and says `independent`, `same family` or `unknown`.
+- **`LemonCrow / human review` status.** A second commit status, from fixed signals in the change and never the
+  model: `pending` with what it touches (auth, permissions and secrets, data and migrations, payments, a public API, a
+  path your policy marks critical, a matched rule), otherwise `success`. An approval of exactly the current head by
+  an owner, member or collaborator turns it `success`; an optional `pull_request_review` workflow shows that
+  approval without waiting for the next push.
+- **A default per-pull-request budget on every model route.** `max-usd-per-pr` defaults to $3.00 and is enforced on
+  every route; a route that reports no cost is held to a call count instead. Every Action exit, including a key
+  failure, a budget stop and a fork skip, posts a `LemonCrow Review` status that names the reason.
+- **`lc review proof`.** For each open P0/P1 finding it asks the model for one minimal failing test, runs it on the
+  head and the base commits, and reports `supported`, `contradicted`, `inconclusive` or `could_not_run`. It also runs
+  the pull request's own new tests on the base ("red-on-base"). Results post as a `LemonCrow Proof` check run with a
+  reply on each finding's thread. Linux runners only. See [Proof](docs/setup/proof.md).
+- **`lc review qa run`.** Replays a saved browser scenario from `.lemoncrow/review.yaml` in headless Chromium
+  against a trusted preview of one commit, with one outcome per run, and can post a `LemonCrow QA` check run. No
+  model is involved. See [Web QA](docs/setup/web-qa.md).
+- **`lc review watch-deploy`.** Reads Sentry (issues first seen in the release) and Prometheus (one error-rate
+  query, before against after) for a deployed SHA, links what it finds to the pull request's files, and can comment
+  on that pull request. Read-only; silence is `not_observed` or `no_new_signal`, never "healthy". See
+  [Production watch](docs/setup/production-watch.md).
+- **Change Story.** A step-by-step walkthrough of how the change flows, in the Review Map and Brief, animating only
+  Snapshot-verified edges, and as an SVG in the pull request summary. Diagram edges are drawn by exactness: solid for
+  Snapshot-verified or observed, dashed for the current index or inferred.
+- **The investigation cycle in the Review Brief.** Blind spots (what the review could not see, over a typed
+  investigation context), a Behavioral X-Ray from any Change Story step, an Assumption Explorer, a What-if impact
+  explorer, "Challenge this claim" (claim, source, checks, a reproduction candidate, then the observed result,
+  run only through an existing execution path with your consent), and an Investigate tab that ties them together.
+- **Author provenance from Entire and Agent Trace.** `Entire-Checkpoint` / `Entire-Attribution` trailers and Agent
+  Trace records are read as exact provenance of which agent wrote what.
+- **GitLab merge request bot (early access).** `lemoncrow review --publish-bot` in a GitLab merge request pipeline
+  posts one summary note, one discussion per finding and a `LemonCrow Review` external status. The template installs
+  LemonCrow from the public repository at `LEMONCROW_REF`. See [GitLab CI](docs/setup/gitlab-ci.md).
+- **Benchmark harness with a DIY baseline.** `lemoncrow dev eval review benchmark --reviewer lemoncrow,diy`
+  reviews the golden-comment corpus with LemonCrow and with a plain "review this diff" prompt on the same model,
+  repeats each run, and reports raw per-PR true and false positives, confidence intervals, rerun stability and
+  cost per PR. See [Review benchmark](docs/reference/review-benchmark.md).
+
+### Security
+
+- Model prompts are redacted of secrets; text in the pull request body, linked issues and code comments that tries
+  to instruct the reviewer is flagged and never changes a verdict, posts a link or runs a tool; links in model
+  output are defanged.
+- An agent-CLI reviewer reads a snapshot with secrets masked.
+
+### Fixed
+
+- Model-API routes are given the output schema, and an answer missing a required field fails instead of passing as
+  empty. Ollama gets the schema as its `format` and a named cause when it returns no answer.
+- The GitLab template installed LemonCrow from PyPI, where it is not published; it now installs the public
+  repository at a pinned release from its lockfile.
+
 ## [0.8.1] - 2026-10-27
 
 ### Added

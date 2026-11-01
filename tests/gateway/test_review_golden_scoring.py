@@ -53,6 +53,24 @@ from tests.gateway.golden_support import make_key, write_corpus
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_benchmark_reviewer_source_refuses_path_escape_symlink_and_oversize(tmp_path: Path) -> None:
+    # A frozen public PR corpus never authorizes arbitrary files on the
+    # operator machine as competitor review evidence.
+    with pytest.raises(ValueError, match="file id"):
+        load_reviewer_comments(tmp_path, ["../../private"])
+    source = tmp_path / "outside.json"
+    source.write_text('{"comments":[{"text":"secret"}]}', encoding="utf-8")
+    (tmp_path / "linked-01.json").symlink_to(source)
+    linked = load_reviewer_comments(tmp_path, ["linked-01"])["linked-01"]
+    assert not linked.reviewed and linked.comments == ()
+    (tmp_path / "large-01.json").write_bytes(b" " * (4 * 1024 * 1024 + 1))
+    large = load_reviewer_comments(tmp_path, ["large-01"])["large-01"]
+    assert not large.reviewed and large.comments == ()
+    (tmp_path / "safe-01.json").write_text('{"comments":[{"id":"c1","text":"confirmed issue"}]}')
+    valid = load_reviewer_comments(tmp_path, ["safe-01"])["safe-01"]
+    assert valid.reviewed and valid.comments[0].text == "confirmed issue"
+
+
 def golden(*items: tuple[str, str]) -> list[GoldenComment]:
     return [GoldenComment(f"G{i}", text, severity) for i, (text, severity) in enumerate(items, start=1)]
 
@@ -147,9 +165,44 @@ def test_a_comment_that_matches_only_a_low_golden_comment_is_neither_a_true_nor_
     assert result.goldens[1].status == "excluded" and result.goldens[1].by == ""
 
 
-def test_a_comment_that_matches_a_low_and_a_taken_counted_golden_comment_is_neutral() -> None:
-    result = resolve(pairs(("C1", "G1"), ("C2", "G1"), ("C2", "G2")), ids(2), golden(("a", "High"), ("typo", "Low")))
-    assert [v.outcome for v in result.comments] == ["tp", "neutral"]
+def test_a_comment_matching_a_taken_counted_issue_and_excluded_low_is_still_duplicate_false_positive() -> None:
+    goldens = golden(("security regression", "High"), ("minor typo", "Low"))
+    for candidate_pairs in (
+        pairs(("C1", "G1"), ("C2", "G1"), ("C2", "G2")),
+        pairs(("C2", "G2"), ("C2", "G1"), ("C1", "G1")),
+    ):
+        result = resolve(candidate_pairs, ids(2), goldens)
+        assert [v.outcome for v in result.comments] == ["tp", "fp"]
+        assert result.comments[1].duplicate_of == "G1"
+        assert (result.tp, result.fp, result.fn, result.neutral_comments, result.neutral_goldens) == (1, 1, 0, 0, 1)
+        assert (result.lenient_tp, result.lenient_fp) == (2, 0)
+
+
+def test_excluded_low_is_neutral_only_if_the_comment_has_no_counted_candidate() -> None:
+    result = resolve(
+        pairs(("C1", "G1"), ("C2", "G1"), ("C2", "G2"), ("C3", "G2")),
+        ids(3),
+        golden(("counted defect", "Critical"), ("low detail", "Low")),
+    )
+    assert [v.outcome for v in result.comments] == ["tp", "fp", "neutral"]
+    assert (result.tp, result.fp, result.fn, result.neutral_comments) == (1, 1, 0, 1)
+
+
+def test_mixed_severity_duplicates_count_against_precision_through_the_judge_path() -> None:
+    judge = FakeJudge({"main": ["G1"], "again": ["G1", "G2"]})
+    score = score_pr(
+        "review-1",
+        "repository",
+        "python",
+        submission("main issue", "reported again with incidental low detail"),
+        golden(("broken auth", "High"), ("minor typo", "Low")),
+        judge,
+    )
+    assert score.resolution is not None
+    assert (score.resolution.tp, score.resolution.fp, score.resolution.fn) == (1, 1, 0)
+    assert score.resolution.neutral_comments == 0
+    assert [v.outcome for v in score.resolution.comments] == ["tp", "fp"]
+    assert metrics(score.resolution.tp, score.resolution.fp, score.resolution.fn)["precision"] == 0.5
 
 
 def test_a_pair_naming_an_unknown_comment_or_golden_is_ignored() -> None:
@@ -249,6 +302,7 @@ def test_the_report_sums_counts_over_pull_requests_by_language_and_leaves_unscor
     }
     scores = score_corpus(corpus, key, submissions, judge)
     report = build_report(corpus, scores, judge, name="t", reviewer={"label": "fake", "description": "a fake"})
+    assert report["scoring_policy_version"] == 2
     overall = report["overall"]["strict"]
     # alpha-01: G1 and G2 caught, "noise one" is a false positive, "a nit" matches the Low G3 (neutral); beta-01: caught.
     assert (overall["tp"], overall["fp"], overall["fn"]) == (3, 1, 0)
@@ -268,6 +322,7 @@ def test_the_report_sums_counts_over_pull_requests_by_language_and_leaves_unscor
         "claude-b",
     ]  # one model per entry, however the CLI listed them
     markdown = render_markdown(report)
+    assert "Scoring policy: v2" in markdown
     assert "| **All** | 2 | 3 | 1 | 0 |" in markdown and "alpha-02" in markdown and "not scored" in markdown
     json.dumps(report)  # plain data
 

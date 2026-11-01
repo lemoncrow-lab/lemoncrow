@@ -3,19 +3,25 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from lemoncrow.pro.capabilities.review.browser_checks import BrowserPolicy, BrowserScenario
 from lemoncrow.pro.capabilities.review.runtime_validation import (
+    _read_validation_record,
+    automatic_runtime_surface_choices,
     browser_policy_digest,
     build_browser_validation_request,
     build_surface_validation_request,
     execute_local_surface_validation,
     normalize_surface_run,
+    persist_validation_record,
     runtime_config_digest,
+    surface_validation_scenario,
     trusted_policy_digest,
     validate_artifact_reference,
+    validate_queue_completion_receipt,
     validate_reproduction_proposal,
 )
 from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
@@ -30,6 +36,7 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     ReviewSurface,
     ReviewSurfaceConfig,
     RuntimeConfigEntry,
+    SurfaceConfigEntry,
     SurfaceContext,
 )
 
@@ -151,6 +158,428 @@ def _stored_validation_context(
         capabilities=("source", "execute"),
     )
     return store, revision, context, trusted_config, surface
+
+
+def _durable_receipt(request, *, job_id: str = "queue-job-one", result_digest: str = "b" * 64):
+    import json
+
+    content = {
+        "kind": "runtime-validation-queue-completion/v1",
+        "org_id": "org-one",
+        "repo_id": "repo-one",
+        "review_id": request.review_id,
+        "revision_id": request.revision_id,
+        "request_identity": request.identity,
+        "job_id": job_id,
+        "attempt": 1,
+        "contract_digest": "a" * 64,
+        "result_digest": result_digest,
+        "queue_started_at": 123.0,
+        "queue_completed_at": 125.0,
+        "time_basis": "durable_queue_lifecycle",
+    }
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {**content, "receipt_id": f"queue-receipt:{digest}"}
+
+
+def test_hosted_completion_persists_exact_queue_job_and_replay(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import _verified_artifact
+
+    store, revision, _context, config, surface = _stored_validation_context(tmp_path)
+    runtime = config.runtimes[0]
+    request = build_surface_validation_request(
+        revision, surface, runtime, policy_digest=trusted_policy_digest("version: 1")
+    )
+    scenario = surface_validation_scenario(surface, runtime)
+    record = normalize_surface_run(
+        request,
+        scenario,
+        SurfaceRunResult(
+            surface.id, surface.provider, "new", "passed", "exit 0", runtime.runner, runtime.id, exit_code=0
+        ),
+    )
+    receipt = _durable_receipt(request)
+    kwargs = {"source": "external", "execution_intent": "current", "queue_completion_receipt": receipt}
+    first = persist_validation_record(store, revision, request, scenario, record, **kwargs)
+    assert _read_validation_record(store, first, request)["queue_completion_receipt"] == receipt
+    assert _verified_artifact(store, first) is not None
+    assert first.source_ref.endswith(":fresh:queue-job-one")
+    assert persist_validation_record(store, revision, request, scenario, record, **kwargs).id == first.id
+    # The store itself closes cross-replica read-then-insert races; a second
+    # writer cannot insert another row even if it passed the earlier lookup.
+    with pytest.raises(ValueError, match="already has immutable evidence"):
+        store.add_evidence(replace(first, id="ev-race-loser"))
+    assert len(store.list_evidence(request.review_id)) == 1
+
+    # Another fenced queue completion is a separate immutable attempt, not a rewrite.
+    receipt_two = _durable_receipt(request, job_id="queue-job-two", result_digest="c" * 64)
+    second = persist_validation_record(
+        store,
+        revision,
+        request,
+        scenario,
+        record,
+        source="external",
+        execution_intent="current",
+        queue_completion_receipt=receipt_two,
+    )
+    assert second.id != first.id
+    assert _read_validation_record(store, first, request)["queue_completion_receipt"] == receipt
+    assert len(store.list_evidence(request.review_id)) == 2
+
+    # Same queue job, different normalized result: conflicting replay, not reuse.
+    changed = {**record, "status": "FAIL", "status_reasons": ["changed"]}
+    with pytest.raises(ValueError, match="replay conflicts"):
+        persist_validation_record(store, revision, request, scenario, changed, **kwargs)
+
+
+def test_worker_report_and_queue_receipt_never_claim_independent_process_attestation(tmp_path: Path) -> None:
+    """A content digest and fenced queue lifecycle are not signed process proof."""
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
+    from lemoncrow.pro.capabilities.review.execution import (
+        ExecutionRecipe,
+        ExecutionSubject,
+        ExecutorClass,
+        StageOutcome,
+    )
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+
+    store, revision, _context, config, surface = _stored_validation_context(tmp_path)
+    runtime = config.runtimes[0]
+    request = build_surface_validation_request(
+        revision, surface, runtime, policy_digest=trusted_policy_digest("version: 1")
+    )
+    scenario = surface_validation_scenario(surface, runtime)
+    execution = build_execution_result(
+        subject=ExecutionSubject(
+            review_id=revision.review_id,
+            revision_id=revision.id,
+            side="new",
+            snapshot_identity=request.snapshot_identity,
+        ),
+        executor_class=ExecutorClass.CUSTOMER_WORKER,
+        policy=HermeticPolicy(),
+        recipe=ExecutionRecipe(command=("python3", "-m", "trusted_check")),
+        stages=(StageOutcome("run", "passed", exit_code=0),),
+        namespace="head_untrusted",
+        content_access="ai_denied",
+        image_digest="worker:sha256:reported",
+    )
+    normalized = normalize_surface_run(
+        request,
+        scenario,
+        SurfaceRunResult(
+            surface.id,
+            surface.provider,
+            "new",
+            "passed",
+            "exit 0",
+            runtime.runner,
+            runtime.id,
+            exit_code=0,
+            data={"execution": execution.to_wire()},
+        ),
+    )
+    plain = persist_validation_record(
+        store,
+        revision,
+        request,
+        scenario,
+        normalized,
+        source="external",
+        execution_intent="current",
+        executor_class=ExecutorClass.CUSTOMER_WORKER,
+    )
+    queued = persist_validation_record(
+        store,
+        revision,
+        request,
+        scenario,
+        normalized,
+        source="external",
+        execution_intent="current",
+        executor_class=ExecutorClass.CUSTOMER_WORKER,
+        queue_completion_receipt=_durable_receipt(request),
+    )
+    for evidence in (plain, queued):
+        receipt = execution_receipt(store, evidence)
+        assert receipt is not None
+        assert receipt["execution_provenance"] == "validated"
+        assert receipt["status"] == "PASS"
+        assert receipt["attempt_lifecycle"] == "observed_run"
+        assert receipt["executor_class"] == "customer_worker"
+        assert receipt["independent_execution"] is False
+        assert receipt["trust"] == "typed_observation"
+        # Metadata claiming to be signed is not a verifier of the actual
+        # process statement. Only the separate hosted signature gate can do so.
+        labeled = execution_receipt(store, replace(evidence, attestation_class="signed_attestation"))
+        assert labeled is not None and labeled["independent_execution"] is False
+    assert plain.id != queued.id
+
+
+def test_evaluation_receipt_reads_protected_artifact_bytes_before_exposing_inspection_role(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
+    from lemoncrow.pro.capabilities.review.execution import (
+        ExecutionRecipe,
+        ExecutionSubject,
+        ExecutorClass,
+        StageOutcome,
+    )
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+    from lemoncrow.pro.capabilities.review.run_evidence import protect_bytes
+
+    store, revision, _context, config, surface = _stored_validation_context(tmp_path)
+    runtime = config.runtimes[0]
+    request = build_surface_validation_request(
+        revision, surface, runtime, policy_digest=trusted_policy_digest("version: 1")
+    )
+    scenario = surface_validation_scenario(surface, runtime)
+    run_store = store.run_artifacts()
+    assert run_store is not None
+    artifact = run_store.put(
+        revision.review_id,
+        protect_bytes(b"test passed")[0],
+        role="stdout",
+        media_type="text/plain; charset=utf-8",
+    )
+    result = build_execution_result(
+        subject=ExecutionSubject(
+            review_id=revision.review_id,
+            revision_id=revision.id,
+            side="new",
+            snapshot_identity=request.snapshot_identity,
+        ),
+        executor_class=ExecutorClass.AUTHOR_MACHINE,
+        policy=HermeticPolicy(),
+        recipe=ExecutionRecipe(command=("python3", "-m", "trusted_check")),
+        stages=(StageOutcome("run", "passed", exit_code=0),),
+        namespace="head_untrusted",
+        content_access="ai_denied",
+        artifacts=(artifact,),
+        image_digest="host:sha256:example",
+    )
+    normalized = normalize_surface_run(
+        request,
+        scenario,
+        SurfaceRunResult(
+            surface.id,
+            surface.provider,
+            "new",
+            "passed",
+            "exit 0",
+            runtime.runner,
+            runtime.id,
+            exit_code=0,
+            data={"execution": result.to_wire()},
+        ),
+    )
+    evidence = persist_validation_record(store, revision, request, scenario, normalized)
+    receipt = execution_receipt(store, evidence)
+    assert receipt is not None
+    assert receipt["execution_provenance"] == "validated"
+    assert receipt["artifact_roles"] == ["stdout"]
+    assert receipt["unavailable_artifact_roles"] == []
+
+    (store.root / "review" / "run-artifacts" / revision.review_id / f"{artifact.digest}.bin").write_bytes(
+        b"tampered data"
+    )
+    after = execution_receipt(store, evidence)
+    assert after is not None
+    assert after["execution_provenance"] == "validated"
+    assert after["artifact_roles"] == []
+    assert after["unavailable_artifact_roles"] == ["stdout"]
+    assert "run-artifact:" not in str(after)
+
+
+def test_hosted_queue_receipt_rejects_corruption_and_cross_snapshot(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import _verified_artifact
+
+    store, revision, _context, config, surface = _stored_validation_context(tmp_path)
+    runtime = config.runtimes[0]
+    request = build_surface_validation_request(
+        revision, surface, runtime, policy_digest=trusted_policy_digest("version: 1")
+    )
+    scenario = surface_validation_scenario(surface, runtime)
+    record = normalize_surface_run(
+        request,
+        scenario,
+        SurfaceRunResult(
+            surface.id, surface.provider, "new", "failed", "exit 2", runtime.runner, runtime.id, exit_code=2
+        ),
+    )
+    receipt = _durable_receipt(request)
+    evidence = persist_validation_record(
+        store,
+        revision,
+        request,
+        scenario,
+        record,
+        source="external",
+        execution_intent="current",
+        queue_completion_receipt=receipt,
+    )
+    wrong_ref = replace(evidence, source_ref="runtime-validation:stolen")
+    with pytest.raises(ValueError, match="different hosted queue association"):
+        _read_validation_record(store, wrong_ref, request)
+    assert _verified_artifact(store, wrong_ref) is None
+    corrupted = {**receipt, "result_digest": "d" * 64}
+    with pytest.raises(ValueError, match="digest mismatch"):
+        validate_queue_completion_receipt(corrupted, request)
+    with pytest.raises(ValueError, match="digest mismatch"):
+        persist_validation_record(
+            store,
+            revision,
+            request,
+            scenario,
+            record,
+            source="external",
+            execution_intent="current",
+            queue_completion_receipt=corrupted,
+        )
+    with pytest.raises(ValueError, match="exact job and Snapshot"):
+        validate_queue_completion_receipt(receipt, replace(request, revision_id="rr-another"))
+    with pytest.raises(ValueError, match="exact job and Snapshot"):
+        validate_queue_completion_receipt(receipt, request, job_id="queue-job-foreign")
+    assert len(store.list_evidence(request.review_id)) == 1
+
+
+def test_automatic_snapshot_runtime_selection_is_trusted_bounded_and_policy_authorized() -> None:
+    required = _surface(id="required", metadata={"surface_id": "required"})
+    opted = _surface(id="opted", metadata={"surface_id": "opted", "auto_run": False})
+    manual = _surface(id="manual", metadata={"surface_id": "manual", "auto_run": True})
+    other_locus = _surface(id="other-locus", metadata={"surface_id": "other-locus"})
+    external = _surface(id="external", metadata={"surface_id": "external"})
+    unavailable = _surface(id="unavailable", metadata={"surface_id": "unavailable"})
+    no_runtime = _surface(id="no-runtime", runtime="missing", metadata={"surface_id": "no-runtime"})
+    no_execute = _surface(id="no-execute", capabilities=("source",), metadata={"surface_id": "no-execute"})
+    spoof = _surface(id="spoof", metadata={"surface_id": "unconfigured", "auto_run": True})
+    wrong_config = _surface(id="wrong-config", metadata={"surface_id": "wrong-config", "auto_run": True})
+    choices = (required, opted, manual, other_locus, external, unavailable, no_runtime, no_execute, spoof, wrong_config)
+    config = ReviewSurfaceConfig(
+        runtimes=(_runtime(),),
+        surfaces=tuple(
+            SurfaceConfigEntry(
+                id=surface.id,
+                provider="fixture",
+                values={
+                    "runtime": "different" if surface.id == "wrong-config" else surface.runtime,
+                    "auto_run": surface.id != "required",
+                },
+            )
+            for surface in choices
+            if surface.id != "spoof"
+        ),
+    )
+    from lemoncrow.pro.capabilities.review.planned_execution import surface_entry_id
+
+    entries = {
+        surface_entry_id(surface): SimpleNamespace(
+            id=surface_entry_id(surface),
+            status="run" if surface.id != "unavailable" else "limited_by_budget",
+            when="manual" if surface.id == "manual" else "push",
+            available=surface.id != "unavailable",
+            external=surface.id == "external",
+            executor="local" if surface.id == "other-locus" else "managed",
+            required=surface.id == "required",
+        )
+        for surface in choices
+    }
+    plan = SimpleNamespace(
+        review_id="review-one",
+        revision_id="rr-one",
+        policy_error="",
+        entry=lambda key: entries.get(key),
+    )
+    selected = automatic_runtime_surface_choices(
+        plan,
+        (*reversed(choices), opted),
+        config,
+        review_id="review-one",
+        revision_id="rr-one",
+    )
+    assert {surface.id for surface in selected} == {"required", "opted"}
+    assert len(selected) == 2
+    assert (
+        automatic_runtime_surface_choices(
+            plan,
+            choices,
+            config,
+            review_id="foreign",
+            revision_id="rr-one",
+        )
+        == ()
+    )
+    assert (
+        automatic_runtime_surface_choices(
+            plan,
+            choices,
+            config,
+            review_id="review-one",
+            revision_id="rr-old",
+        )
+        == ()
+    )
+    assert (
+        automatic_runtime_surface_choices(
+            SimpleNamespace(**{**vars(plan), "policy_error": "untrusted base"}),
+            choices,
+            config,
+            review_id="review-one",
+            revision_id="rr-one",
+        )
+        == ()
+    )
+    assert (
+        automatic_runtime_surface_choices(
+            plan,
+            choices,
+            config,
+            review_id="review-one",
+            revision_id="rr-one",
+            limit=100,
+        )
+        == ()
+    )
+
+
+def test_automatic_snapshot_runtime_selection_caps_three_and_requires_execution_opt_in() -> None:
+    from lemoncrow.pro.capabilities.review.planned_execution import surface_entry_id
+
+    surfaces = tuple(
+        _surface(id=f"check-{i}", metadata={"surface_id": f"check-{i}", "auto_run": False}) for i in range(7)
+    )
+    config = ReviewSurfaceConfig(
+        runtimes=(_runtime(),),
+        surfaces=tuple(
+            SurfaceConfigEntry(id=surface.id, provider="fixture", values={"runtime": "tests", "auto_run": True})
+            for surface in surfaces
+        ),
+    )
+    entries = {
+        surface_entry_id(surface): SimpleNamespace(
+            status="run",
+            when="push",
+            available=True,
+            external=False,
+            executor="worker",
+            required=False,
+        )
+        for surface in surfaces
+    }
+    plan = SimpleNamespace(
+        review_id="review-one",
+        revision_id="rr-one",
+        policy_error="",
+        entry=entries.get,
+    )
+    chosen = automatic_runtime_surface_choices(
+        plan,
+        tuple(reversed(surfaces)),
+        config,
+        review_id="review-one",
+        revision_id="rr-one",
+    )
+    assert [surface.id for surface in chosen] == ["check-0", "check-1", "check-2"]
 
 
 def test_semantic_identity_is_stable_and_ignores_materialization_paths() -> None:

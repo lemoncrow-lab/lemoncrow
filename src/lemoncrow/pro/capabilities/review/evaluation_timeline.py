@@ -20,6 +20,98 @@ from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDAT
 _TYPED = frozenset({"provider_ci", "lemoncrow_verification", "signed_attestation", "trusted_security_feed"})
 _STATUSES = frozenset({"PASS", "FAIL", "NOT_RUN", "UNKNOWN"})
 _MAX_ARTIFACT_BYTES = 256 * 1024
+# A summary read may verify a handful of protected artifacts, but must never
+# force arbitrarily large screenshot/video/blob reads into the Review process.
+_MAX_VERIFIED_RUN_BYTES = 8 * 1024 * 1024
+_MAX_VERIFIED_RUN_REFS = 32
+_RUN_ARTIFACT_ROLES = frozenset(
+    {"screenshot", "image", "video", "trace", "playwright_trace", "log", "stdout", "stderr", "report"}
+)
+
+
+def _available_run_artifact_roles(store: Any, evidence: Any, refs: Sequence[Any]) -> tuple[list[str], list[str]]:
+    """Verify protected bytes and metadata before advertising an inspectable role.
+
+    Historical execution proof can survive retention of large raw artifacts.
+    Missing/corrupt/oversized artifacts must not advertise an inspection action;
+    none of these checks upgrades the runner's process provenance.
+    """
+    declared = {ref.role for ref in refs if ref.role in _RUN_ARTIFACT_ROLES}
+    if not declared:
+        return [], []
+    try:
+        artifacts = store.run_artifacts()
+    except (OSError, ValueError, AttributeError):
+        artifacts = None
+    if artifacts is None or len(refs) > _MAX_VERIFIED_RUN_REFS:
+        return [], sorted(declared)
+    verified: set[str] = set()
+    invalid: set[str] = set()
+    remaining_bytes = _MAX_VERIFIED_RUN_BYTES
+    for ref in refs:
+        if ref.role not in declared:
+            continue
+        if (
+            ref.bytes <= 0
+            or ref.bytes > remaining_bytes
+            or len(ref.digest) != 64
+            or any(char not in "0123456789abcdef" for char in ref.digest)
+            or ref.ref != f"run-artifact:{evidence.review_id}:{ref.digest}"
+        ):
+            invalid.add(ref.role)
+            continue
+        try:
+            meta = artifacts.meta(evidence.review_id, ref.digest)
+            if (
+                not isinstance(meta, dict)
+                or meta.get("digest") != ref.digest
+                or meta.get("role") != ref.role
+                or meta.get("media_type") != ref.media_type
+                or type(meta.get("bytes")) is not int
+                or meta["bytes"] != ref.bytes
+            ):
+                invalid.add(ref.role)
+                continue
+            # Aggregate read budget for *this receipt*, not one budget per
+            # reference. Charge before reading, including corrupt/missing data.
+            remaining_bytes -= ref.bytes
+            payload = artifacts.read(evidence.review_id, ref.digest)
+        except (OSError, ValueError, KeyError, TypeError):
+            invalid.add(ref.role)
+            continue
+        if (
+            isinstance(payload, bytes)
+            and len(payload) == ref.bytes
+            and hashlib.sha256(payload).hexdigest() == ref.digest
+        ):
+            verified.add(ref.role)
+        else:
+            invalid.add(ref.role)
+    # The protected viewer may select any of multiple references for one role;
+    # do not advertise the role if any candidate is corrupt.
+    verified.difference_update(invalid)
+    return sorted(verified), sorted(declared - verified)
+
+
+def _attempt_receipt_id(evidence: Any, record: dict[str, Any]) -> str:
+    """Unique identity for *persisted evidence*, not a dispatcher/run lease.
+
+    A semantic request identity can recur across fresh reruns. The evidence id
+    and verified artifact digest distinguish those attempts without claiming a
+    worker-signed execution id or an observed start/end timestamp.
+    """
+    document = {
+        "kind": "runtime-attempt-receipt/v1",
+        "review_id": evidence.review_id,
+        "revision_id": evidence.revision_id,
+        "evidence_id": evidence.id,
+        "artifact_digest": evidence.content_hash,
+        "request_identity": record["identity"],
+    }
+    return (
+        "receipt:"
+        + hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    )
 
 
 def _verified_artifact(store: Any, evidence: Any) -> dict[str, Any] | None:
@@ -55,14 +147,36 @@ def _verified_artifact(store: Any, evidence: Any) -> dict[str, Any] | None:
     ).hexdigest()
     if value.get("identity") != actual_identity or embedded_identity != actual_identity:
         return None
-    # A stored verdict row and its immutable artifact must agree. Unknown or
-    # malformed records cannot resurrect an old PASS from row metadata.
+    # A queue receipt is immutable source metadata, not independent process
+    # proof. Corrupt/misbound queue associations cannot count in history.
+    if "queue_completion_receipt" in value:
+        try:
+            from lemoncrow.pro.capabilities.review.runtime_validation import (
+                ValidationRequest,
+                validate_queue_completion_receipt,
+                validation_source_ref,
+            )
+
+            validation_request = ValidationRequest(
+                **{key: val for key, val in request.items() if key not in {"identity", "target_ids"}},
+                target_ids=tuple(request["target_ids"]),
+            )
+            receipt = validate_queue_completion_receipt(value["queue_completion_receipt"], validation_request)
+            if evidence.source != "external" or evidence.source_ref != validation_source_ref(
+                validation_request,
+                execution_intent=evidence.execution_intent,
+                fresh_ref=receipt["job_id"],
+            ):
+                return None
+        except (TypeError, ValueError, KeyError):
+            return None
+    # A stored verdict row and its immutable artifact must agree.
     if evidence.verification_status and value.get("status") != evidence.verification_status:
         return None
     return value
 
 
-def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[str, Any]:
+def _typed_execution_provenance(store: Any, record: dict[str, Any], evidence: Any) -> dict[str, Any]:
     """Validate the runner's existing protected execution wire, expose metadata only.
 
     The evidence artifact is authenticated by the Review store hash. The inner
@@ -77,6 +191,7 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
         "recipe_digest": "",
         "stage_outcomes": [],
         "artifact_roles": [],
+        "unavailable_artifact_roles": [],
         "unverified_integrations": 0,
     }
     data = record.get("data")
@@ -148,7 +263,7 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
         return {**none, "execution_provenance": "rejected"}
     # The role allowlist avoids leaking user-controlled file paths, opaque
     # artifact keys and external URLs through the public Review summary.
-    roles = {"screenshot", "image", "video", "trace", "playwright_trace", "log", "stdout", "stderr", "report"}
+    available_roles, unavailable_roles = _available_run_artifact_roles(store, evidence, execution.artifacts)
     # Always show the run outcome, even if the worker reported many bounded
     # dependency stages. Select a failing dependency before a passing one.
     summaries = []
@@ -168,7 +283,8 @@ def _typed_execution_provenance(record: dict[str, Any], evidence: Any) -> dict[s
         "environment_fingerprint": execution.environment_fingerprint,
         "recipe_digest": execution.recipe.digest,
         "stage_outcomes": stage_summaries,
-        "artifact_roles": sorted({ref.role for ref in execution.artifacts if ref.role in roles}),
+        "artifact_roles": available_roles,
+        "unavailable_artifact_roles": unavailable_roles,
         "unverified_integrations": len(execution.verification.not_verified),
     }
 
@@ -188,7 +304,7 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
     checks = raw if isinstance(raw, list) else []
     codes = [row.get("actual") for row in checks if isinstance(row, dict) and row.get("name") == "process exit code"]
     exit_code = codes[0] if codes and isinstance(codes[0], int) and not isinstance(codes[0], bool) else None
-    provenance = _typed_execution_provenance(record, evidence)
+    provenance = _typed_execution_provenance(store, record, evidence)
     request = record["request"]
     recipe = str(request.get("scenario_id") or "")[:180]
     config_values = [
@@ -216,6 +332,15 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
     )
     return {
         "id": evidence.id,
+        "attempt_receipt_id": _attempt_receipt_id(evidence, record),
+        # Database evidence insertion time, NOT the worker's start/end time.
+        "attempt_recorded_at": str(evidence.created_at or "")[:40],
+        "attempt_lifecycle": (
+            "observed_run"
+            if provenance["execution_provenance"] == "validated"
+            and any(stage["stage"] == "run" for stage in provenance["stage_outcomes"])
+            else "rejected" if provenance["execution_provenance"] == "rejected" else "record_only"
+        ),
         "revision_id": evidence.revision_id,
         "source": evidence.source,
         "title": evidence.title[:180],
@@ -237,15 +362,19 @@ def execution_receipt(store: Any, evidence: Any) -> dict[str, Any] | None:
             else None
         ),
         "executor_class": evidence.executor_class if trusted else "unverified",
-        "independent_execution": trusted
-        and evidence.executor_class != "author_machine"
-        and provenance["execution_provenance"] == "validated",
+        # A valid typed runner digest (even with a fenced durable queue
+        # completion) validates record consistency, not independently signed
+        # process execution. The separately paired Ed25519 verifier is checked
+        # at the hosted publication boundary, not by this generic history
+        # reader. Never infer independent execution from executor class alone.
+        "independent_execution": False,
         "environment_fingerprint": provenance["environment_fingerprint"],
         "execution_provenance": provenance["execution_provenance"],
         "execution_identity": provenance["execution_identity"],
         "recipe_digest": provenance["recipe_digest"],
         "stage_outcomes": provenance["stage_outcomes"],
         "artifact_roles": provenance["artifact_roles"],
+        "unavailable_artifact_roles": provenance["unavailable_artifact_roles"],
         "unverified_integrations": provenance["unverified_integrations"],
         "artifact_digest": evidence.content_hash,
         "evidence_id": evidence.id,
@@ -295,6 +424,9 @@ def evaluation_timeline(
                 rows.append(
                     {
                         "id": item.id,
+                        "attempt_receipt_id": "",
+                        "attempt_recorded_at": "",
+                        "attempt_lifecycle": "rejected",
                         "revision_id": revision.id,
                         "title": item.title[:180],
                         "scenario": (item.stable_key or item.source_ref or item.id)[:180],
@@ -322,6 +454,9 @@ def evaluation_timeline(
             rows.append(
                 {
                     "id": item.id,
+                    "attempt_receipt_id": "",
+                    "attempt_recorded_at": "",
+                    "attempt_lifecycle": "record_only",
                     "revision_id": revision.id,
                     "title": item.title[:180],
                     "scenario": key[:180],

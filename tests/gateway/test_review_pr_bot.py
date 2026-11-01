@@ -40,6 +40,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     render_summary,
     usage_text,
     verdict,
+    verdict_title,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     MAX_FINDINGS,
@@ -466,10 +467,10 @@ def test_the_verdict_and_the_check_status_come_from_one_rule(
     status, description = check_status(result, fail_on=fail_on)
     assert status == expected
     assert description.startswith(headline) and len(description) <= 140
-    body, _ = render_summary(view(tuple(findings), facts=RunFacts(True, 1, 1, 0, 0, 0, 0, complete=complete)))
-    assert any(line.startswith(f"**{result.headline}**") for line in body.split("\n"))
-    # The score shown is read off the same verdict as the headline and the status.
-    assert f"<h2>Confidence Score: {result.confidence}/5</h2>" in body
+    body, posted = render_summary(view(tuple(findings), facts=RunFacts(True, 1, 1, 0, 0, 0, 0, complete=complete)))
+    assert f"<h2>{verdict_title(result)}</h2>" in body.split("\n")
+    # The score is data now (the state and --json), read off the same verdict as the heading and the status.
+    assert posted.confidence == result.confidence and "Confidence Score" not in body
 
 
 @pytest.mark.parametrize("fail_on", ["none", "p0"])
@@ -489,8 +490,8 @@ def test_a_review_that_left_risk_signals_unexamined_says_partially_reviewed(fail
             receipt=Receipt(("src/a.py",), targets=1, candidates=3, investigated=2, rules=()),
         )
     )
-    assert f"**{result.headline}**" in body.split("\n") and "No must-fix findings" not in body
-    assert "<h2>Confidence Score: 4/5</h2>" in body, "a partial review is at most 4"
+    assert "<h2>No must-fix in the part reviewed</h2>" in body.split("\n") and "No must-fix findings" not in body
+    assert any(line.startswith(f"**{result.headline}**") for line in body.split("\n")), "the coverage says partial"
 
 
 def test_a_p0_and_an_incomplete_review_outrank_a_partial_one() -> None:
@@ -519,7 +520,7 @@ def test_the_summary_is_marked_sorted_and_carries_its_state() -> None:
     body, state = render_summary(view(findings))
     lines = body.split("\n")
     assert lines[0] == state_module.SUMMARY_MARKER
-    assert "**1 must-fix before merge** · 2 should-fix" in lines
+    assert "<h2>1 must-fix before merge · 2 should-fix</h2>" in lines
     order = [line for line in lines if re.match(r"^\d+\. <img", line)]
     assert [re.search(r'alt="(P\d)"', line)[1] for line in order] == ["P0", "P1", "P1"]  # type: ignore[index]
     assert order[0].startswith(
@@ -534,7 +535,7 @@ def test_the_summary_is_marked_sorted_and_carries_its_state() -> None:
 def test_p2_findings_are_held_back_in_a_collapsed_block() -> None:
     one, _ = render_summary(view((finding("a", "p2", title="Nit"),)))
     assert "<details><summary>1 low-priority finding held back</summary>" in one
-    assert "**No must-fix findings** · 1 optional" in one
+    assert "<h2>No must-fix findings · 1 optional</h2>" in one
     many, _ = render_summary(view((finding("a", "p2"), finding("b", "p2"), finding("c", "p1"))))
     assert "<details><summary>2 low-priority findings held back</summary>" in many
     shown = many.split("<details>")[0]
@@ -543,7 +544,7 @@ def test_p2_findings_are_held_back_in_a_collapsed_block() -> None:
 
 def test_a_clean_review_carries_a_what_we_checked_receipt() -> None:
     body, _ = render_summary(view(()))
-    assert "**No must-fix findings**" in body
+    assert "<h2>No issues found</h2>" in body, "a clean review is a calm, normal result"
     assert "### What we checked" in body
     assert "Files: 2 files (`src/a.py`, `src/b.py`)" in body
     assert "Targets in this change: 4; risk signals: 3; investigated by the model: 2 (the depth limit)" in body

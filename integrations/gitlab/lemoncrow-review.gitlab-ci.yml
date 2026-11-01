@@ -1,0 +1,34 @@
+# LemonCrow Review for GitLab merge requests (docs/setup/gitlab-ci.md).
+#
+# Copy this job into your .gitlab-ci.yml. It needs two masked CI/CD variables (Settings > CI/CD > Variables):
+#   LEMONCROW_GITLAB_TOKEN  a project access token, role Developer, scope api (the job token cannot post notes)
+#   ANTHROPIC_API_KEY       or OPENAI_API_KEY (then set LEMONCROW_EXTRA to "cloud")
+#
+# It runs only in merge request pipelines of this project. A fork's merge request pipeline runs in the fork, without
+# these variables, and is skipped by the rule below. LemonCrow is not on PyPI: the job installs the public repository
+# at LEMONCROW_REF from its lockfile, into an environment outside the merge request's checkout; nothing from the merge
+# request is installed or executed.
+lemoncrow-review:
+  image: ghcr.io/astral-sh/uv:python3.13-bookworm
+  # No default image, before_script or cache from the rest of the pipeline: the job runs exactly what is below.
+  inherit:
+    default: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_MERGE_REQUEST_PROJECT_ID
+  # A newer push cancels a review of an older head (with "Auto-cancel redundant pipelines" on).
+  interruptible: true
+  variables:
+    GIT_DEPTH: "0"
+    DO_NOT_TRACK: "1"
+    # A release tag, or that release's commit SHA to pin the exact code that reviews.
+    LEMONCROW_REF: "v0.8.2"
+    LEMONCROW_EXTRA: ""
+  script:
+    - git init --quiet /tmp/lemoncrow
+    - git -C /tmp/lemoncrow fetch --quiet --depth 1 https://github.com/lemoncrow-lab/lemoncrow.git "$LEMONCROW_REF"
+    - git -C /tmp/lemoncrow checkout --quiet FETCH_HEAD
+    - uv sync --project /tmp/lemoncrow --frozen --no-dev --no-progress ${LEMONCROW_EXTRA:+--extra "$LEMONCROW_EXTRA"}
+    - >-
+      uv run --project /tmp/lemoncrow --no-sync
+      lemoncrow review --pr "$CI_MERGE_REQUEST_IID" --ai --publish-bot
+      --depth "${LEMONCROW_DEPTH:-auto}" --fail-on "${LEMONCROW_FAIL_ON:-none}"

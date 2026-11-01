@@ -50,6 +50,53 @@ def test_build_host_skills_generates_stable_bundle_by_default(tmp_path: Path) ->
     assert not expected_visible_skill_names() - {"lemoncrow"} & generated
 
 
+def test_staged_host_skills_never_regenerate_tracked_source(tmp_path: Path) -> None:
+    """A release install copies staged skills without writing to its Git checkout."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "uv-was-called"
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(f"#!/bin/sh\nprintf invoked > {marker}\nexit 1\n", encoding="utf-8")
+    fake_uv.chmod(0o755)
+    dest = tmp_path / "installed-skills"
+    subprocess.run(
+        ["bash", str(SCRIPTS / "build_host_skills.sh"), "--host", "antigravity", "--dest", str(dest)],
+        cwd=LEMONCROW_ROOT,
+        env={**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]},
+        check=True,
+    )
+    assert (dest / "lemoncrow" / "SKILL.md").is_file()
+    assert not marker.exists(), "the staged install must not run the in-repo context regenerator"
+
+
+def test_claude_installer_never_regenerates_source_contexts() -> None:
+    installer = (SCRIPTS / "install_claude.sh").read_text(encoding="utf-8")
+    assert "MODE_RENDERER" not in installer
+    assert "sync_agent_context.py" not in installer
+
+
+def test_default_host_skill_generation_never_regenerates_source(tmp_path: Path) -> None:
+    """Default bundle generation is read-only; refresh is an explicit Make target."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    marker = tmp_path / "uv-was-called"
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(f"#!/bin/sh\nprintf invoked > {marker}\nexit 1\n", encoding="utf-8")
+    fake_uv.chmod(0o755)
+    subprocess.run(
+        ["bash", str(SCRIPTS / "build_host_skills.sh"), "--host", "all"],
+        cwd=LEMONCROW_ROOT,
+        env={**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"]},
+        check=True,
+    )
+    assert not marker.exists(), "bundle projection must not invoke the source regenerator"
+    for host in ("claude", "codex", "antigravity"):
+        canonical = (
+            INTEGRATIONS / host / ("plugin/skills" if host in ("claude", "codex") else "skills") / "lemoncrow/SKILL.md"
+        )
+        assert canonical.is_file()
+
+
 def test_build_host_skills_include_skills_flag_opts_in_public_skills(tmp_path: Path) -> None:
     dest = tmp_path / "skills"
     subprocess.run(

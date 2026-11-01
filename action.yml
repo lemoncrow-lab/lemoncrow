@@ -60,10 +60,14 @@ inputs:
     default: none
   max-usd-per-pr:
     description: >-
-      Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number, e.g. 2.50),
-      read from the usage the summary comment carries. When it is reached the summary says so, nothing new is
-      reviewed and the status is a neutral success. Needs a known cost: the provider's, or a model in the local
-      price table. A run cancelled before it saved its summary is not counted. Empty means no limit.
+      The most a pull request's reviews and chat answers may cost in total, in US dollars (e.g. 2.50). Empty is the
+      default, $3.00; `none` turns the cap off. It is held before every model call, not only between runs: a run that
+      would cross it stops there and posts a partial review that names the files it reached and the ones it did not,
+      with a success status (never a failed job). There is no automatic overage. A route that reports no cost (an
+      agent CLI, a model the price table does not know) is capped at a number of model calls instead, and the summary
+      and the status say "cost not reported by this route; capped at 60 model calls". The footer shows what this run
+      and the pull request have cost against the cap, and how the cost was worked out. A run cancelled before it saved
+      its summary is not counted.
     default: ""
   max-runs-per-pr:
     description: >-
@@ -153,9 +157,12 @@ runs:
     # required "LemonCrow Review" check does not wait forever; if the token cannot write statuses it says so. A run
     # Dependabot triggers has a read-only token by default and the workflow's `permissions:` key raises it (GitHub's
     # documentation), so its skip can post; a fork's cannot, and a job GitHub itself skips never starts this action.
-    # No model key is an error (red job, an annotation naming the two inputs, an `error` status). The keys are masked
-    # here, before anything is printed.
-    # pull_request_target is refused: it would run with secrets on behalf of code from the pull request.
+    # No model key is an error (red job, an annotation naming the two inputs, an `error` status naming the secret). The
+    # keys are masked here, before anything is printed.
+    # pull_request_target is refused: it would run with secrets on behalf of code from the pull request. It, and any
+    # other event this Action does not review (a push, a schedule), get an `error` status naming the event.
+    # A run that goes ahead posts `pending` here, so a required check shows it from the start.
+    # workflow_run and pull_request_review are the refreshes (below): no review and no key.
     - name: Decide whether to review
       id: gate
       shell: bash
@@ -212,7 +219,7 @@ runs:
     # Pinned to the commit the v5 tag points at (v5.4.2), so organizations that require SHA-pinned actions allow it.
     # Its own cache is off on purpose: it would key on the caller's lockfiles, not on this action's.
     - name: Set up uv
-      if: steps.gate.outputs.run == 'true'
+      if: steps.gate.outputs.run == 'true' || steps.gate.outputs.refresh == 'true'
       uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
       with:
         version: "0.11.32"
@@ -222,7 +229,8 @@ runs:
     # installed from its lockfile into a private environment, so the code that reviews is the code you pinned.
     # The runner's own Python is used when it is a supported one: uv would otherwise download its own CPython (107 MB).
     - name: Install LemonCrow
-      if: steps.gate.outputs.run == 'true'
+      id: install
+      if: steps.gate.outputs.run == 'true' || steps.gate.outputs.refresh == 'true'
       shell: bash
       env:
         EXTRA: ${{ steps.gate.outputs.extra }}
@@ -248,6 +256,7 @@ runs:
       run: python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/opengrep_install.py" install
 
     - name: Review the pull request
+      id: review
       if: steps.gate.outputs.run == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
@@ -273,8 +282,11 @@ runs:
         LEMONCROW_REVIEW_STRICTNESS: ${{ inputs.strictness }}
         LEMONCROW_REVIEW_INLINE_COMMENTS: ${{ inputs.inline-comments }}
         LEMONCROW_REVIEW_MAX_FILES: ${{ inputs.max-files }}
-        MAX_USD: ${{ inputs.max-usd-per-pr }}
+        # Read by the reviewer itself, so `none` (no cap) and empty (the $3.00 default) need no flag of their own.
+        LEMONCROW_REVIEW_MAX_USD: ${{ inputs.max-usd-per-pr }}
         MAX_RUNS: ${{ inputs.max-runs-per-pr }}
+        # The Change Story as an SVG, for the next step to upload: GitHub strips an inline <svg> from comments.
+        LEMONCROW_REVIEW_CHANGE_STORY_SVG: ${{ runner.temp }}/lemoncrow-change-story.svg
         VENV: ${{ runner.temp }}/lemoncrow-venv
         # No runtime downloads the review does not need: LiteLLM's price table is read from its own package instead of
         # fetched from GitHub's main branch, and the tree-sitter parser bundle lands in the cached directory.
@@ -304,21 +316,49 @@ runs:
         fi
         mkdir -p "$XDG_CACHE_HOME"
         args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON" --diagram "${DIAGRAM:-auto}")
-        if [ -n "$MAX_USD" ]; then args+=(--max-usd-per-pr "$MAX_USD"); fi
         if [ -n "$MAX_RUNS" ]; then args+=(--max-runs-per-pr "$MAX_RUNS"); fi
         if [ "$LEMONCROW_REVIEW_DRAFTS" = "true" ]; then args+=(--review-drafts); fi
         if [ "$LEMONCROW_REVIEW_ON_PUSH" = "false" ]; then args+=(--no-on-push); fi
         "$VENV/bin/lemoncrow" "${args[@]}"
 
+    # The run's `lemoncrow-change-story` artifact: the walk under the summary's diagram, drawn as an SVG. The review writes
+    # it only when it walked a change; a run with nothing to draw uploads nothing, and that is not an error.
+    - name: Upload the Change Story
+      if: always() && steps.gate.outputs.run == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: lemoncrow-change-story
+        path: ${{ runner.temp }}/lemoncrow-change-story.svg
+        if-no-files-found: ignore
+        overwrite: true
+
+    # A `workflow_run` event (the optional "Proof of work after CI" workflow in docs/setup/github-action.md): no review,
+    # no checkout, no key. The proof-of-work block of the summary whose head is the commit CI finished on is brought up
+    # to date; nothing else in it changes, and a summary of another head is left alone. It never fails the job.
+    # A `pull_request_review` event (the optional human-review workflow, "The check to require") sets the
+    # `LemonCrow / human review` status again instead: `success` once a trusted person approved this exact head.
+    - name: Refresh the proof of work
+      if: steps.gate.outputs.refresh == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        VENV: ${{ runner.temp }}/lemoncrow-venv
+        DO_NOT_TRACK: "1"
+      run: "\"$VENV/bin/python\" -m lemoncrow.pro.capabilities.review.pr_bot.proof_refresh"
+
     # A composite action has no `post` step, so this is its last step with `if: always()`: it runs after a failure, a
-    # timeout or a cancellation too. The review sets the check to `pending` when it starts and replaces it when it ends; a
-    # job killed in between would leave a required check waiting for good. If the newest LemonCrow Review status of this
-    # run's head is still `pending`, it becomes `error` with a link to this run. It touches nothing else and never
-    # fails the job.
+    # timeout or a cancellation too. The gate sets the check to `pending` when a review goes ahead and the review
+    # replaces it when it ends; a job killed in between would leave a required check waiting for good. If the newest
+    # LemonCrow Review status of this run's head is still `pending`, it becomes `error` naming the step that failed (the
+    # checkout, the install, the review) or the cancellation, with a link to this run. It touches nothing else and
+    # never fails the job.
     - name: Settle the check
       if: always() && steps.gate.outputs.run == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
+        LEMONCROW_OUTCOME_CHECKOUT: ${{ steps.checkout.outcome }}
+        LEMONCROW_OUTCOME_INSTALL: ${{ steps.install.outcome }}
+        LEMONCROW_OUTCOME_REVIEW: ${{ steps.review.outcome }}
       run: python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py" settle

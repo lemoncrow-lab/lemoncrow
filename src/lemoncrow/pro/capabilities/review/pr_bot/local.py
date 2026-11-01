@@ -60,13 +60,17 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Verdict,
+    coverage_words,
+    human_review_words,
     plural,
     short,
     usage_text,
     verdict,
+    verdict_title,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, budget_reached
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoisePolicy
+from lemoncrow.pro.capabilities.review.pr_bot.spend import SpendGuard
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     MAX_DETAIL,
     MAX_STATE_BYTES,
@@ -691,6 +695,12 @@ def run_local_review(
                     depth=options.depth,
                     previous=previous,
                     structured_executor=structured_executor,
+                    # A local scope has no default cap; one that was asked for is held before every call, as in CI.
+                    spend=(
+                        SpendGuard(options.max_usd, prior=previous.spent if previous is not None else None)
+                        if options.max_usd is not None
+                        else None
+                    ),
                     # A person at the command gets the overview (one more model call); a git hook, which must stay
                     # cheap and fail open, does not.
                     overview=(
@@ -896,11 +906,11 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     view = report.verdict
     if view is not None:
         mark = {"must_fix": "red", "clean": "green"}.get(view.state, "yellow")
-        counts = f" · {view.counts}" if view.counts else ""
-        # The same top as the pull request comment: the score, the impact and what the change does, then the verdict.
-        lines.append(paint(f"Confidence Score: {view.confidence}/5", fg=mark, bold=True))
+        # The same top as the pull request comment: the verdict in words, the coverage and whether a person must look,
+        # then the impact and what the change does. A local review has no CI to report, so there is no proof of work.
+        lines.append(paint(plain(verdict_title(view)), fg=mark, bold=True))
+        lines.append(f"{_coverage_words(report)} · {human_review_words(_impact(report))}")
         lines.extend(_impact_lines(report, paint))
-        lines.append(paint(plain(view.headline) + counts, fg=mark, bold=True))
     if report.cached:
         lines.append("Nothing changed since the last review of this scope: its results are reused, with no model call.")
     lines.append("")
@@ -972,10 +982,29 @@ def _where(finding: BotFinding) -> str:
     return f"{path}:{finding.line}" + (f"-{finding.end_line}" if finding.end_line > finding.line else "")
 
 
+def _impact(report: LocalReport) -> impact.Impact | None:
+    return impact.Impact.from_state(report.state.impact) if report.state is not None else None
+
+
+def _coverage_words(report: LocalReport) -> str:
+    """The headline's coverage phrase, as the pull request comment words it (:func:`render.coverage_words`)."""
+
+    view = report.verdict
+    asked = report.candidates + report.general
+    return coverage_words(
+        changed_files=len(report.files),
+        complete=report.complete,
+        budget="spent" if view is not None and view.state == "budget" else "",
+        signals=asked,
+        uninvestigated=max(asked - report.investigated - report.general_investigated, 0),
+        unit="changed area" if report.general else "risk signal",
+    )
+
+
 def _impact_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
     """``[Medium impact] <what the change does>`` and the reasons the label rests on, as the pull request comment has them."""
 
-    weighed = impact.Impact.from_state(report.state.impact) if report.state is not None else None
+    weighed = _impact(report)
     described = report.state.overview.one_line if report.state is not None and report.state.overview else ""
     lead = f"[{weighed.label}]" if weighed is not None else ""
     lines = [f"{lead} {plain(described)}".strip()] if lead or described else []

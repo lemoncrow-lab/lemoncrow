@@ -799,6 +799,9 @@ def mark_feedback_addressed(
     annotations: list[Annotation] = []
     delivery_revision_by_annotation: dict[str, str] = {}
     delivered_version_by_annotation: dict[str, int] = {}
+    # Stage consumption until every annotation has been validated. A rejected
+    # batch must not consume an earlier delivery without an author response.
+    consume_by_annotation: dict[str, tuple[str, str]] = {}
     for annotation_id in requested:
         annotation = store.get_annotation(annotation_id)
         if annotation is None:
@@ -835,13 +838,10 @@ def mark_feedback_addressed(
                 f"(sent version {delivery.annotation_version}, current version {current_version})"
             )
         operation_id = str(getattr(delivery, "operation_id", "") or "")
-        if operation_id and hasattr(store, "update_delivery_target"):
-            store.update_delivery_target(
+        if operation_id:
+            consume_by_annotation[annotation.id] = (
                 operation_id,
-                target_ref,
-                state="consumed",
-                remote_ref=str(getattr(delivery, "remote_ref", "") or ""),
-                last_error="",
+                str(getattr(delivery, "remote_ref", "") or ""),
             )
         delivery_revision_by_annotation[annotation.id] = delivery.revision_id
         delivered_version_by_annotation[annotation.id] = current_version
@@ -874,6 +874,11 @@ def mark_feedback_addressed(
                 raise ValueError(f"annotation {annotation.id!r} changed after delivery; resend the feedback") from exc
             if row is None:  # pragma: no cover - validated immediately above
                 raise RuntimeError(f"annotation {annotation.id!r} disappeared while recording author response")
+            if annotation.id in consume_by_annotation and hasattr(store, "update_delivery_target"):
+                operation_id, remote_ref = consume_by_annotation[annotation.id]
+                store.update_delivery_target(
+                    operation_id, target_ref, state="consumed", remote_ref=remote_ref, last_error=""
+                )
             updated.append(row)
     return tuple(updated)
 

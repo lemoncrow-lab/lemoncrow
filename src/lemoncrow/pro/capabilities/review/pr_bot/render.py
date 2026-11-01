@@ -1,7 +1,7 @@
 """What the bot writes on the pull request: the summary comment, the inline comments, the agent prompt.
 
-Pure text. Tone is terse and specific: a verdict, then the findings, then the proof
-of work. One rule decides the verdict and the check status together (:func:`verdict`),
+Pure text. Tone is terse and specific: the verdict in words with its coverage, whether a person must look, what CI
+reported (labelled as CI's, not LemonCrow's) and who reviewed whom, then the findings. One rule decides the verdict and the check status together (:func:`verdict`),
 so the comment and the status can never disagree.
 
 Everything a model wrote goes through :func:`clean` first. A finding is text derived
@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final
 
-from lemoncrow.pro.capabilities.review.pr_bot import attribution, impact
+from lemoncrow.pro.capabilities.review.pr_bot import attribution, authorship, impact, proof_of_work
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
     SEVERITY_MEANING,
@@ -33,6 +33,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.state import (
     FINGERPRINT_MARKER,
     LEARNED_MARKER,
     MAX_DETAIL,
+    PROOF_STATE,
     SUMMARY_MARKER,
     ReviewState,
     Usage,
@@ -136,6 +137,9 @@ class Verdict:
     def confidence(self) -> int:
         """The confidence score, 1 to 5, read off the same facts as the headline, the status and ``fail-on``.
 
+        It is data for tools (``--json``'s ``verdict.confidence`` and the hidden state), not the summary's headline: the
+        comment and the terminal lead with the verdict, the coverage and the human-review need in words.
+
         An open P0 is **1**. Without one, three or more open P1 are **2** and one or two are **3**. With neither, open P2
         findings are **4** and nothing open is **5**. What the review could not look at lowers the ceiling, never raises
         the number: a partial review (risk signals left unexamined, a large pull request cut to its riskiest files) is at
@@ -180,6 +184,7 @@ def verdict(
     total_files: int = 0,
     model_failed: bool = False,
     unit: str = "risk signal",
+    stopped: str = "",
 ) -> Verdict:
     """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
 
@@ -192,6 +197,8 @@ def verdict(
     surfaced, and ``held`` only says how many were left out. ``deferred_files`` of ``total_files`` is a large pull
     request cut to its highest-risk files (``large_pr``): a partial review, whatever the risk signals say.
     ``model_failed`` marks an incomplete review whose cause is a failed model call: ``check_status`` then reports ``error``.
+    ``stopped`` is what a review the cost cap stopped part way covered (``spend``): a partial review, never a failed one,
+    because the owner set the cap.
     """
 
     counts = verdict_counts(list(findings))
@@ -200,19 +207,193 @@ def verdict(
         return Verdict("must_fix", f"{counts['p0']} must-fix before merge", counts["p0"], p1, p2, held)
     if budget:
         return Verdict("budget", f"Review budget reached: {budget}", 0, p1, p2, held)
+    if stopped:
+        return Verdict("partial", f"Partially reviewed: {stopped}", 0, p1, p2, held)
     if not complete:
         why = f": {reason}" if reason else ""
         return Verdict("incomplete", f"Review incomplete{why}", 0, p1, p2, held, failed=model_failed)
+    partly = partial_words(
+        deferred_files=deferred_files,
+        total_files=total_files,
+        signals=signals,
+        uninvestigated=uninvestigated,
+        unit=unit,
+    )
+    if partly:
+        return Verdict("partial", partly, 0, p1, p2, held)
+    return Verdict("clean", "No must-fix findings", 0, p1, p2, held)
+
+
+def partial_words(
+    *,
+    deferred_files: int = 0,
+    total_files: int = 0,
+    signals: int = 0,
+    uninvestigated: int = 0,
+    unit: str = "risk signal",
+) -> str:
+    """``Partially reviewed: 8 of 14 files, highest risk first`` / ``... 3 of 5 risk signals examined``, or ``""``.
+
+    The one place the words are made, for the verdict, the status and the coverage phrase of the summary's headline.
+    """
+
     if deferred_files > 0:
         total = max(total_files, deferred_files)
-        headline = f"Partially reviewed: {total - deferred_files} of {total} files, highest risk first"
-        return Verdict("partial", headline, 0, p1, p2, held)
+        return f"Partially reviewed: {total - deferred_files} of {total} files, highest risk first"
     if uninvestigated > 0:
         total = max(signals, uninvestigated)
         noun = unit if total == 1 else f"{unit}s"
-        headline = f"Partially reviewed: {total - uninvestigated} of {total} {noun} examined"
-        return Verdict("partial", headline, 0, p1, p2, held)
-    return Verdict("clean", "No must-fix findings", 0, p1, p2, held)
+        return f"Partially reviewed: {total - uninvestigated} of {total} {noun} examined"
+    return ""
+
+
+def coverage_words(
+    *,
+    changed_files: int,
+    first_review: bool = True,
+    complete: bool = True,
+    budget: str = "",
+    deferred_files: int = 0,
+    total_files: int = 0,
+    signals: int = 0,
+    uninvestigated: int = 0,
+    unit: str = "risk signal",
+    stopped: str = "",
+) -> str:
+    """How much of the change the review covered, in words; never empty, so every headline says it.
+
+    ``All 12 changed files reviewed``, ``Partially reviewed: 8 of 14 files, highest risk first``, ``Partially reviewed:
+    3 of 5 risk signals examined``, ``Nothing reviewed on this push`` (the budget is spent) or, for a review that stopped,
+    ``Coverage not confirmed: the review did not finish``.
+    """
+
+    if budget:
+        return "Nothing reviewed on this push"
+    if stopped:
+        return f"Partially reviewed: {stopped}"
+    partly = partial_words(
+        deferred_files=deferred_files,
+        total_files=total_files,
+        signals=signals,
+        uninvestigated=uninvestigated,
+        unit=unit,
+    )
+    if partly:
+        return partly if complete else f"{partly} before it stopped"
+    if not complete:
+        return "Coverage not confirmed: the review did not finish"
+    if not first_review:
+        if changed_files <= 0:
+            return "Nothing changed since the last review"
+        files = "the one file" if changed_files == 1 else f"all {changed_files} files"
+        return f"Re-reviewed {files} changed since the last review"
+    if changed_files <= 0:
+        return "No changed code to review"
+    return "The one changed file reviewed" if changed_files == 1 else f"All {changed_files} changed files reviewed"
+
+
+def verdict_title(view: Verdict) -> str:
+    """The verdict as the summary's heading: what to do, in words, with the counts after it.
+
+    A review with nothing open says ``No issues found``, plainly: a clean result is the normal one, not an alarm. A partial
+    review says what it found in the part it reviewed; the coverage phrase under it says how much that was.
+    """
+
+    if view.state == "clean":
+        title = "No must-fix findings" if (view.p1 or view.p2 or view.held) else "No issues found"
+    elif view.state == "partial":
+        title = "No must-fix in the part reviewed"
+    else:
+        title = view.headline
+    return title + (f" · {view.counts}" if view.counts else "")
+
+
+#: The impact reasons (:data:`impact.REASON_WORDS`) that call for a person's review whatever the findings: code where a
+#: quiet mistake is expensive (auth, permissions and secrets are the security signal; data migrations; payments; a public
+#: API; a path or rule the repository marks critical). Size and concurrency alone do not.
+HUMAN_REVIEW_REASONS: Final[tuple[str, ...]] = ("critical_path", "security", "payments", "persistence", "api", "rule")
+NO_HUMAN_REVIEW: Final[str] = "No extra human review flagged"
+
+
+def human_review_words(weighed: impact.Impact | None) -> str:
+    """``Human review required: touches security-sensitive code`` or :data:`NO_HUMAN_REVIEW`, from the impact rule only.
+
+    The reasons are the deterministic signals of :mod:`impact` (path, symbol and rule markers), never a model's opinion,
+    so the line claims no more than they show. Without an impact (nothing was captured) it says it was not assessed.
+    """
+
+    if weighed is None:
+        return "Human review: not assessed"
+    named = [impact.REASON_WORDS[reason] for reason in HUMAN_REVIEW_REASONS if reason in weighed.reasons]
+    if not named:
+        return NO_HUMAN_REVIEW
+    joined = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} and {named[-1]}"
+    return f"Human review required: touches {joined}"
+
+
+#: The commit status of the human-review tier (:func:`human_review_status`), beside ``LemonCrow Review``.
+HUMAN_REVIEW_CONTEXT: Final[str] = proof_of_work.HUMAN_CONTEXT
+NO_HIGH_RISK: Final[str] = "No high-risk area touched"
+
+
+NOT_ASSESSED: Final[str] = "Human review: not assessed on this push (review budget reached)"
+
+
+def human_review_status(
+    weighed: impact.Impact | None, *, approved_by: Sequence[str] = (), assessed: bool = True
+) -> tuple[str, str]:
+    """``(state, description)`` of the ``LemonCrow / human review`` status, from the same rule as the summary's line.
+
+    ``success`` when a trusted person approved this very head (*approved_by*, :func:`approved_on`): that approval is
+    the human review the tier asks for, so a repository can require the status. Otherwise ``pending`` with the reasons
+    when a person must look (:func:`human_review_words`), and when the change could not be assessed (*assessed* false
+    for a push the budget did not let LemonCrow review): the tier never claims "no high-risk area" it did not check.
+    Never ``failure``: a person, not LemonCrow, decides what the review needs. ``success`` otherwise.
+    """
+
+    if approved_by:
+        return "success", trimmed(f"Approved on this head by {', '.join(approved_by)}", 140)
+    words = human_review_words(weighed)
+    if weighed is None or words != NO_HUMAN_REVIEW:
+        return "pending", trimmed(words, 140)
+    if not assessed:
+        return "pending", NOT_ASSESSED
+    return "success", NO_HIGH_RISK
+
+
+def approved_on(head: str, approvals: Sequence[tuple[str, str]] | None) -> tuple[str, ...]:
+    """The logins whose standing approval is of exactly *head*, sorted; ``()`` when none or unreadable."""
+
+    return tuple(sorted({login for login, sha in approvals or () if head and sha == head and _LOGIN.match(login)}))
+
+
+_LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$")
+
+
+def stale_line(head: str, findings: Sequence[BotFinding], approvals: Sequence[tuple[str, str]] | None) -> str:
+    """``Not on this head (`def5678`): 2 open findings were last checked on `abc1234`; alice approved `abc1234`.``
+
+    What the summary shows that was decided on an older head than *head*: open findings last checked on another commit
+    (a push the budget did not let LemonCrow review) and people's approvals of an older commit (GitHub's reviews API,
+    ``commit_id``). ``""`` when everything is on *head*. Logins are shown bare, never as mentions.
+    """
+
+    # A finding's ``last_seen`` is the short sha (``reconcile``'s ``head``); an approval's is the full one.
+    older = [f for f in findings if f.is_open and f.last_seen and short(f.last_seen) != short(head)]
+    approved = [
+        (login, sha) for login, sha in approvals or () if sha and short(sha) != short(head) and _LOGIN.match(login)
+    ]
+    parts: list[str] = []
+    if older:
+        seen = sorted({short(finding.last_seen) for finding in older})
+        verb = "was" if len(older) == 1 else "were"
+        parts.append(
+            f"{plural(len(older), 'open finding')} {verb} last checked on {', '.join(f'`{s}`' for s in seen[:3])}"
+        )
+    if approved:
+        named = ", ".join(f"{login} approved `{short(sha)}`" for login, sha in approved[:5])
+        parts.append(named + (f" and {len(approved) - 5} more approved an older head" if len(approved) > 5 else ""))
+    return f"Not on this head (`{short(head)}`): {'; '.join(parts)}." if parts else ""
 
 
 def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
@@ -379,7 +560,7 @@ def comment_prompt(finding: BotFinding) -> str:
     return "\n".join(lines)
 
 
-def inline_comment(finding: BotFinding) -> str:
+def inline_comment(finding: BotFinding, *, suggestion_fence: str = "suggestion") -> str:
     """A finding as an inline review comment, in the order a reader takes it in.
 
     The badge and the bold title on the first line; the body (what fails, why, the consequence); the checked
@@ -387,8 +568,9 @@ def inline_comment(finding: BotFinding) -> str:
     to paste into an agent; the attribution trailer when the finding cites a rule or an excerpt; and a last small line
     that says what the badge means and where the comment came from. The hidden markers close it.
 
-    The suggestion is a GitHub ``suggestion`` fence, which replaces exactly the lines the comment covers
-    (:meth:`BotFinding.span`, which is the lines the suggestion was verified for). The model's code is posted as
+    The suggestion is a GitHub ``suggestion`` fence (GitLab passes its own info string as *suggestion_fence*), which
+    replaces exactly the lines the comment covers (:meth:`BotFinding.span`, which is the lines the suggestion was
+    verified for). The model's code is posted as
     it is: neutralising it would corrupt the edit, so a replacement that holds HTML comment delimiters is refused
     when it is parsed (``finding_replacement.parse_replacement``).
     """
@@ -400,7 +582,7 @@ def inline_comment(finding: BotFinding) -> str:
         lines += ["", f"**Consequence:** {clean(finding.consequence)}"]
     if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
-        lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
+        lines += ["", f"{fence}{suggestion_fence}", finding.suggestion.rstrip("\n"), fence]
     prompt = comment_prompt(finding)
     fence = fence_for(prompt)
     lines += [
@@ -561,11 +743,26 @@ class SummaryView:
     #: the settings left out or could not do; both built by ``notices``, empty for none.
     banner: str = ""
     notes: str = ""
-    #: The pull request's title: what the one-sentence description under the score falls back to when there is no overview.
+    #: The pull request's title: what the one-sentence description under the heading falls back to without an overview.
     title: str = ""
     #: Whether a comment can start a review, which is whether the workflow listens to comments (chat); ``None``: not known.
     #: It decides what the re-review line at the top says.
     chat: bool | None = None
+    #: A GitLab merge request: the re-review line names a push or a pipeline run, never a comment.
+    gitlab: bool = False
+    #: What CI reported on the reviewed head (:mod:`proof_of_work`); ``None``: not read (no pull request, or no review ran
+    #: this push), and then the proof-of-work block is left out.
+    ci: proof_of_work.CiReport | None = None
+    #: The description says the tests pass or CI is green (:func:`proof_of_work.claims_tests_pass`).
+    tests_claimed: bool = False
+    #: The reviewer's and the declared author's model families (:mod:`authorship`); ``None``: the line is left out.
+    independence: authorship.Independence | None = None
+    #: What a review the cost cap stopped part way covered (``3 of 7 files, stopped at the cost cap``); empty: not stopped.
+    stopped: str = ""
+    #: The footer's spend line (:func:`spend.receipt_line`): this run, this pull request, the cap and the cost basis.
+    spend: str = ""
+    #: What was decided on an older head than the one this run saw (:func:`stale_line`); empty: nothing.
+    stale: str = ""
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -826,6 +1023,8 @@ REREVIEW_RERUN: Final[str] = (
     "Re-review: re-run the workflow job (a comment `@lemoncrow review` does it once the workflow listens to comments, "
     "see the setup guide)"
 )
+#: A merge request has no comment commands: a new review is a push or another pipeline run.
+REREVIEW_GITLAB: Final[str] = "Re-review: push a commit, or run the merge request's pipeline again"
 #: The most characters of the pull request's title or the model's sentence on the impact line.
 MAX_ONE_LINE: Final[int] = 160
 
@@ -874,7 +1073,7 @@ def _surfaced(view: SummaryView) -> tuple[list[BotFinding], list[BotFinding]]:
 
 
 def summary_verdict(view: SummaryView) -> Verdict:
-    """The verdict the summary shows, which is the one its headline, its confidence score and the status are read from."""
+    """The verdict the summary shows, which is the one its heading, the stored confidence score and the status are read from."""
 
     opened, below = _surfaced(view)
     return verdict(
@@ -888,15 +1087,179 @@ def summary_verdict(view: SummaryView) -> Verdict:
         held=len(below),
         deferred_files=view.facts.deferred_files,
         total_files=view.facts.total_files,
+        stopped=view.stopped,
     )
+
+
+_PROOF_GROUPS: Final[tuple[tuple[str, str], ...]] = (
+    ("failed", "Failed"),
+    ("running", "Still running at review time"),
+    ("did_not_pass", "Did not pass (skipped, cancelled or neutral)"),
+    ("passed", "Passed"),
+)
+
+
+def _check_names(checks: Sequence[proof_of_work.CiCheck]) -> str:
+    shown, more = proof_of_work.names(checks)
+    listed = ", ".join(
+        f"`{trimmed(code(check.name), 60)}`" + (f" ({check.detail})" if check.detail else "") for check in shown
+    )
+    return listed + (f" and {more} more" if more else "")
+
+
+def proof_lines(ci: proof_of_work.CiReport | None, *, claimed: bool = False) -> list[str]:
+    """The open proof-of-work block: what CI reported on the reviewed head, labelled as CI's word; ``[]`` when not read.
+
+    Failed first, then still running, then did not pass (skipped, cancelled, neutral: never counted as a pass), then
+    passed. A refusal is said, not hidden. *claimed* (the description says the tests pass) adds a line when a check
+    failed on this head, or when no completed, passing check backs it. Check names are the repository's (or the pull
+    request's) own text, so each is a code span.
+    """
+
+    if ci is None:
+        return []
+    sha = short(ci.sha)
+    lines = [f"**Proof of work** · Reported by CI on `{sha}`, not run by LemonCrow", ""]
+    if not ci.readable:
+        lines.append(f"- {ci.reason}")
+        if claimed:
+            lines.append(f"- The description says tests pass; LemonCrow could not read CI on `{sha}` to back it.")
+        return lines
+    if not ci.checks:
+        lines.append(f"- No CI checks reported on `{sha}` at review time")
+    for outcome, words in _PROOF_GROUPS:
+        group = ci.of(outcome)
+        if group:
+            lines.append(f"- {words}: {len(group)} · {_check_names(group)}")
+    if ci.unread:
+        cap = proof_of_work.MAX_CHECK_PAGES * proof_of_work.PAGE
+        lines.append(f"- {plural(ci.unread, 'more check')} on this commit not read (LemonCrow reads at most {cap})")
+    if ci.statuses_unreadable:
+        lines.append("- Commit statuses not readable: the workflow needs `statuses: read`")
+    if claimed and (failed := ci.of("failed")):
+        lines.append(f"- The description says tests pass; {_check_names(failed)} failed on `{sha}`.")
+    elif claimed and not ci.has_pass:
+        lines.append(f"- The description says tests pass; no completed passing run is reported on `{sha}` yet.")
+    return lines
+
+
+#: The first words of the summary's one ``Proof`` line (:func:`proof_result_line`), which ``proof report`` replaces.
+PROOF_RESULT_PREFIX = "**Proof** on `"
+
+
+def proof_result_line(record: str, head_sha: str, *, repo_url: str) -> str:
+    """``**Proof** on `abc`: 1 supported, 0 contradicted, ...; new tests: 1 of 2 fail on base · [LemonCrow Proof](url)``.
+
+    ``""`` when *record* (``state.PROOF_STATE``) is none, or names another head than *head_sha*: a proof of an older
+    push says nothing about this one. The link is the check run when its id is known, else the commit's checks.
+    """
+
+    found = PROOF_STATE.match(record) if record else None
+    if found is None or not head_sha.startswith(found["head"]):
+        return ""
+    counts = (
+        f"{int(found['s'])} supported, {int(found['c'])} contradicted, {int(found['i'])} inconclusive, "
+        f"{int(found['n'])} could not run"
+    )
+    if int(found["total"]):
+        counts += f"; new tests: {int(found['fails'])} of {int(found['total'])} fail on base"
+    url = f"{repo_url}/runs/{found['check']}" if found["check"] else f"{repo_url}/commit/{head_sha}/checks"
+    return f"{PROOF_RESULT_PREFIX}{short(head_sha)}`: {counts} · [LemonCrow Proof]({url})"
+
+
+def with_proof_result(body: str, line: str) -> str:
+    """*body* with its ``Proof`` line replaced by *line*, or *line* added at the end of the first screen.
+
+    The first screen ends at the first rule; the line goes before the independence line, as :func:`_lead_lines` puts it.
+    *body* itself when it has no first screen (a cut comment).
+    """
+
+    lines = body.split("\n")
+    for index, text in enumerate(lines):
+        if text.startswith(PROOF_RESULT_PREFIX):
+            lines[index] = line
+            return "\n".join(lines)
+    rule = next((index for index, text in enumerate(lines) if text == "---"), -1)
+    if rule < 1:
+        return body
+    sub = next((index for index in range(rule) if lines[index].startswith("<sub>Independence:")), -1)
+    if sub >= 0:
+        lines[sub:sub] = [line, ""]
+    else:
+        lines[rule - 1 : rule - 1] = ["", line]
+    return "\n".join(lines)
+
+
+def _family_names(families: Sequence[str]) -> str:
+    return " and ".join(authorship.FAMILY_NAMES.get(family, family) for family in families)
+
+
+def independence_line(found: authorship.Independence | None) -> str:
+    """``Independence: reviewer Anthropic (`claude-x`) · author Codex (OpenAI, ...) · **independent**``, or ``""``.
+
+    Every word is fixed or a cleaned model id: the author part names only what a commit declares exactly
+    (:mod:`authorship`), and says ``unknown`` otherwise.
+    """
+
+    if found is None:
+        return ""
+    models = ", ".join(f"`{trimmed(code(model), 60)}`" for model in found.reviewer_models[:2])
+    if found.reviewer_families:
+        reviewer = _family_names(found.reviewer_families) + (f" ({models})" if models else "")
+    else:
+        reviewer = "family unknown" + (f" ({models})" if models else " (the route names no model)")
+    if found.authors is None:
+        author = "unknown (the commits could not be read)"
+    elif not found.authors:
+        author = "unknown (no coding agent declared in the commits)"
+    else:
+        author = ", ".join(
+            f"{item.agent} ({authorship.FAMILY_NAMES.get(item.family, item.family) or 'model not declared'}, "
+            f"{item.source}" + (f" in {item.commits} of {found.commits} commits" if found.commits else "") + ")"
+            for item in found.authors[:3]
+        )
+    return f"Independence: reviewer {reviewer} · author {author} · **{found.status}**"
+
+
+def _lead_lines(view: SummaryView, state: ReviewState, result: Verdict) -> list[str]:
+    """The first screen: the verdict heading; the coverage and whether a person must look; proof of work; independence."""
+
+    facts = view.facts
+    coverage = coverage_words(
+        changed_files=facts.changed_files,
+        first_review=facts.first_review,
+        complete=facts.complete,
+        budget=view.budget,
+        deferred_files=facts.deferred_files,
+        total_files=facts.total_files,
+        signals=view.receipt.candidates + view.receipt.general,
+        uninvestigated=facts.uninvestigated,
+        unit=facts.unit,
+        stopped=view.stopped,
+    )
+    human = human_review_words(impact.Impact.from_state(state.impact))
+    lines = [f"<h2>{verdict_title(result)}</h2>", "", f"**{coverage}** · {human}"]
+    if view.stale:
+        lines += ["", view.stale]
+    if proof := proof_lines(view.ci, claimed=view.tests_claimed):
+        lines += ["", *proof]
+    repo_url = view.commit_url.rsplit("/commit/", 1)[0] if "/commit/" in view.commit_url else ""
+    if repo_url and (line := proof_result_line(state.proof, view.head_sha, repo_url=repo_url)):
+        lines += ["", line]
+    if line := independence_line(view.independence):
+        lines += ["", f"<sub>{line}</sub>"]
+    return lines
 
 
 def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     """The readable part of the comment at one detail level (0 full; higher drops explanation text too).
 
-    Top to bottom: the marker and the re-review line; the confidence score and a rule; the impact line; the verdict
-    paragraph; ``Findings``; ``Summary``; ``Diagram``; the agent prompt; then the collapsed blocks (risks examined, what
-    was fixed, dismissed or learned) and, on a clean review, ``What we checked``; the footer last.
+    Top to bottom: the marker and the re-review line; the verdict in words as the heading (:func:`verdict_title`); the
+    coverage and whether a person must review it (:func:`coverage_words`, :func:`human_review_words`); the open
+    proof-of-work block (:func:`proof_lines`); the independence line; a rule; the impact line; the status strip;
+    ``Findings``; ``Summary``; ``Diagram``; the agent prompt; then the collapsed blocks (risks examined, what was fixed,
+    dismissed or learned) and, on a clean review, ``What we checked``; the footer last. The confidence score is not
+    shown: it is in the hidden state and ``--json`` (``verdict.confidence``) for tools.
     """
 
     findings = sorted(view.findings, key=sort_key)
@@ -909,8 +1272,6 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     shown = [finding for finding in opened if view.noise.tier(finding.severity) == "row"]
     held = [finding for finding in opened if view.noise.tier(finding.severity) == "listed"]
     result = summary_verdict(view)
-
-    head = f"**{result.headline}**" + (f" · {result.counts}" if result.counts else "")
     strip = (
         f"This push was not reviewed; the findings below are from the last review, of {short(view.head_sha)}. "
         "Raise max-usd-per-pr or max-runs-per-pr to continue."
@@ -919,20 +1280,11 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     )
     if view.receipt.security_unavailable and not view.budget:
         strip += " · security scan unavailable"
-    rereview = REREVIEW_RERUN if view.chat is False else REREVIEW_CHAT
-    lines = [
-        SUMMARY_MARKER,
-        f"<sub>{rereview}</sub>",
-        "",
-        f"<h2>Confidence Score: {result.confidence}/5</h2>",
-        "",
-        "---",
-        "",
-    ]
+    rereview = REREVIEW_GITLAB if view.gitlab else REREVIEW_RERUN if view.chat is False else REREVIEW_CHAT
+    lines = [SUMMARY_MARKER, f"<sub>{rereview}</sub>", "", *_lead_lines(view, state, result), "", "---", ""]
     if impact_lines := _impact_lines(view, state):
         lines += [*impact_lines, ""]
-    lines.append(head)
-    lines += ["", f"<sub>{strip}</sub>"]
+    lines.append(f"<sub>{strip}</sub>")
     if view.banner:
         lines += ["", view.banner]
     if view.notes:
@@ -1158,9 +1510,12 @@ def _link_text(text: str) -> str:
     return " ".join(clean(text).replace("[", "(").replace("]", ")").replace("`", "'").split())
 
 
-def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_sha: str, commit_url: str) -> str:
+def footer_text(
+    state: ReviewState, *, model_label: str, depth_label: str, head_sha: str, commit_url: str, spend: str = ""
+) -> str:
     """The summary's last lines, in one ``<sub>``: ``Reviews (N) · Last reviewed commit: [title](url) · Reviewed by
-    LemonCrow``, then the model, depth, model calls, tokens and estimated cost of this review and of all of them.
+    LemonCrow``, then the model, depth, model calls, tokens and estimated cost of this review and of all of them, then
+    *spend*: the spend receipt against the pull request's cap (``$0.41 this run · $1.12 of $3.00 for this PR``).
 
     The cost line is LemonCrow's own, so a team sees what each review costs. Everything in it is held by the state (the
     commit's subject too), so a chat answer can rewrite it in place.
@@ -1178,7 +1533,8 @@ def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_
         parts.append(f"all {state.reviews} reviews: {usage_text(state.usage_total)}")
     if state.chats:
         parts.append(f"{plural(state.chats, 'chat answer')}: {usage_text(state.chat_usage)}")
-    return f"{first}<br>{' · '.join(parts)}"
+    receipt = f"<br>{clean(spend)}" if spend else ""
+    return f"{first}<br>{' · '.join(parts)}{receipt}"
 
 
 def _footer(view: SummaryView) -> str:
@@ -1188,6 +1544,7 @@ def _footer(view: SummaryView) -> str:
         depth_label=view.depth_label,
         head_sha=view.head_sha,
         commit_url=view.commit_url,
+        spend=view.spend,
     )
 
 

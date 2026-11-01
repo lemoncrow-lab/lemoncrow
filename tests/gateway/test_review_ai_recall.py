@@ -256,14 +256,25 @@ def test_the_check_keeps_every_finding_it_names_no_repeat_of(world: Any) -> None
     assert len(report.findings) == 3 and len(world.model.dedupes) == 1
 
 
-def test_fewer_than_three_findings_cost_no_repeat_check(world: Any) -> None:
+def test_two_findings_are_checked_for_a_repeat(world: Any) -> None:
     from tests.gateway.pr_bot_support import AUTH_BUGGY, CACHE_BUGGY
 
     world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+    world.model.repeats = [(AUTH_TITLE, CACHE_TITLE)]
 
     report = world.review()
 
-    assert len(report.findings) == 2 and world.model.dedupes == []
+    assert len(report.findings) == 1 and len(world.model.dedupes) == 1
+
+
+def test_one_finding_costs_no_repeat_check(world: Any) -> None:
+    from tests.gateway.pr_bot_support import AUTH_BUGGY
+
+    world.origin.push({"src/auth.py": AUTH_BUGGY})
+
+    report = world.review()
+
+    assert len(report.findings) == 1 and world.model.dedupes == []
 
 
 def test_the_repeat_check_can_be_turned_off(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -192,6 +192,34 @@ def test_conftest_init_deletion_and_docs_follow_what_tests_load() -> None:
     assert nothing.mode == "none" and "no test under the repository reaches a changed file" in nothing.reason
 
 
+def test_new_nested_conftest_reaches_only_tests_in_its_pytest_scope() -> None:
+    """A new fixture provider must not silently yield a 'no affected tests' selection."""
+    files = dict(FILES)
+    files["tests/unit/test_unit.py"] = "from pkg.a import a\n"
+    files["tests/other/test_other.py"] = "from pkg.b import b\n"
+    chosen = _select({"tests/unit/conftest.py": "import pytest\n"}, impact=_map(files))
+    assert chosen.mode == "impact"
+    assert chosen.tests == ("tests/unit/test_unit.py",)
+    assert chosen.input_digest
+    assert (
+        chosen.input_digest
+        != _select({"tests/unit/conftest.py": "import pytest\n# fixture changed\n"}, impact=_map(files)).input_digest
+    )
+
+
+def test_new_package_initializer_reaches_importers_of_existing_namespace_modules() -> None:
+    """New __init__.py executes even when the previously-imported .py file has not changed."""
+    files = {path: content for path, content in FILES.items() if path != "src/pkg/__init__.py"}
+    chosen = _select({"src/pkg/__init__.py": "SIDE_EFFECT = True\n"}, impact=_map(files))
+    assert chosen.mode == "impact"
+    assert chosen.tests == ("tests/test_a.py", "tests/test_b.py", "tests/test_shared.py")
+    assert chosen.input_digest
+    assert (
+        chosen.input_digest
+        != _select({"src/pkg/__init__.py": "SIDE_EFFECT = False\n"}, impact=_map(files)).input_digest
+    )
+
+
 @pytest.mark.parametrize("language", ["python", "js"])
 def test_documentation_references_past_the_bound_count_as_reading_every_document(language: str) -> None:
     """RC12-B item 5: a cut doc-reference list is coverage unknown, never "reads none of these"."""

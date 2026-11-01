@@ -73,10 +73,35 @@ describe("BriefProjectContext", () => {
     expect(await screen.findByText(/No history matched these changes/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search landed project history" })).toBeInTheDocument();
     configured.unmount();
-    const failing = vi.fn(async () => { throw new Error("503"); });
-    const { container } = render(<BriefProjectContext load={failing} />);
+    let attempts = 0;
+    const failing = vi.fn(async () => {
+      if (++attempts === 1) throw new Error("503");
+      return context();
+    });
+    render(<BriefProjectContext load={failing} />);
     await waitFor(() => expect(failing).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    expect(await screen.findByTestId("brief-history-unavailable")).toHaveTextContent("does not mean no previous decisions or checks exist");
+    await userEvent.click(screen.getByRole("button", { name: "Retry history" }));
+    expect(await screen.findByText("Relevant history")).toBeInTheDocument();
+    expect(failing).toHaveBeenLastCalledWith("", "", true);
+  });
+
+  it("does not paint a previous Snapshot's landed claim during the next Snapshot's first render", async () => {
+    const oldLoad = async () => context({ entries: [entry({ summary: "Old canonical claim" })] });
+    const newLoad = () => new Promise<ReviewProjectContext | null>(() => undefined);
+    const staleFrames: boolean[] = [];
+    function Probe({ load }: { load: () => Promise<ReviewProjectContext | null> }) {
+      useLayoutEffect(() => {
+        if (load === newLoad) staleFrames.push(Boolean(document.body.textContent?.includes("Old canonical claim")));
+      }, [load]);
+      return <BriefProjectContext load={load} />;
+    }
+    const view = render(<Probe load={oldLoad} />);
+    expect(await screen.findByText("Old canonical claim")).toBeInTheDocument();
+    view.rerender(<Probe load={newLoad} />);
+    expect(staleFrames).toEqual([false]);
+    expect(screen.queryByText("Old canonical claim")).not.toBeInTheDocument();
+    view.unmount();
   });
 
   it("shows an actionable, force-refreshed sync state instead of silently hiding history", async () => {

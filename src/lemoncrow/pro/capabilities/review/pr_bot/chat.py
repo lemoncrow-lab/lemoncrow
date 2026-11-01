@@ -18,7 +18,8 @@ Rules this module keeps:
 * **Text out only.** One structured model call whose only output is ``answer``. No tool is offered, no command is run,
   no status is set and no review is submitted by an answer; an agent-CLI route (which runs tools) is refused. Whatever
   the comment or the pull request says, the worst an answer can be is wrong text, and that text is neutralised
-  (:func:`render.clean`) before it is posted.
+  (:func:`safety.defang`: no image, no link off this repository's host; then :func:`render.clean`) before it is posted.
+  Secrets in the prompt are masked first (:class:`safety.Redactor`).
 * **Everything else is data.** The comment, the thread, the finding's wording, the code and the pull request's title
   are untrusted input: they are tagged as data in the prompt, and the system prompt says no text in them can change
   the rules.
@@ -46,9 +47,10 @@ from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.model_context import ContextAuthority, tagged
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, engine, learning, reactions, suppression
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, engine, learning, reactions, spend, suppression
 from lemoncrow.pro.capabilities.review.pr_bot.findings import SEVERITY_BADGE, BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts, ReactionTarget, Remote, finding_id_of
+from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import clean_text
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     MAX_COMMENT,
     chat_reply,
@@ -61,6 +63,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     with_footer,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, RunReport
+from lemoncrow.pro.capabilities.review.pr_bot.safety import Redactor, Safety, addressed_to_ai, defang
 from lemoncrow.pro.capabilities.review.pr_bot.state import SUMMARY_MARKER, ReviewState, Usage, with_state
 from lemoncrow.pro.capabilities.review.rules import ModelRouteTrust
 from lemoncrow.pro.capabilities.review.sources.github import (
@@ -253,7 +256,7 @@ def thread_history(
         {
             "author": "LemonCrow" if row.by_bot else row.author,
             "bot": row.by_bot,
-            "text": _plain(row.body)[:MAX_HISTORY_CHARS],
+            "text": clean_text(_plain(row.body))[:MAX_HISTORY_CHARS],
         }
         for row in rows
     ]
@@ -372,7 +375,7 @@ def gather(
 
     blocks: dict[str, Any] = {
         "question": tagged(
-            ContextAuthority.REVIEW_DISCUSSION, {"text": command.text[:MAX_QUESTION]}, provenance="mention"
+            ContextAuthority.REVIEW_DISCUSSION, {"text": clean_text(command.text)[:MAX_QUESTION]}, provenance="mention"
         ),
         "pull_request": tagged(
             ContextAuthority.PR_METADATA,
@@ -545,6 +548,10 @@ def run_chat(
     name = f"{ref.slug}#{ref.number}"
     report = RunReport(pr=name, head_sha=facts.head_sha)
     writes = options.publish and not options.dry_run
+    if ci_env.is_bot(event):
+        # The gate refused it already (:func:`ci_env.decide_chat`); kept here too, since a bot answering a bot is a loop.
+        report.skipped, report.reason = True, f"comment {event.comment_id} is a bot's; bots are never answered."
+        return report
     if not facts.open:
         report.skipped, report.reason = True, f"{name} is {facts.state or 'not open'}; nothing to answer."
         return report
@@ -780,9 +787,15 @@ def _answer(
             route_trust=process_route_trust(driver),
         )
         say("Asking the model")
+        # Secrets in the code, the diff hunk or the thread are masked before the provider sees the prompt.
+        executor = Redactor().executor(structured_executor or execute_structured)
+        cap = options.max_usd_per_pr
+        if cap is not None:
+            # The answer is held to the pull request's cost cap like a review's calls: refused before it is asked.
+            executor = spend.SpendGuard(cap, prior=previous.spent).wrap(executor)
         try:
             with bound_intelligence_policy(review_intelligence_policy(context.policy)):
-                execution = (structured_executor or execute_structured)(
+                execution = executor(
                     system=CHAT_SYSTEM,
                     prompt=json.dumps(gathered.blocks, ensure_ascii=False, separators=(",", ":")),
                     output_schema=CHAT_SCHEMA,
@@ -793,6 +806,13 @@ def _answer(
                     source_kind="review",
                     timeout_s=CHAT_TIMEOUT_S,
                 )
+        except spend.SpendCapReached as exc:
+            why = str(exc).split(": ", 1)[-1]
+            return reply(
+                f"Review budget reached: {why}. I am not answering, and no model was called. Raise `max-usd-per-pr` "
+                "or set it to `none` to continue.",
+                "budget",
+            )
         except Exception as exc:  # a provider's error text can hold a key fragment: say what failed, not what it said
             report.notes.append(f"the model call failed ({type(exc).__name__}); see the workflow log")
             return reply(
@@ -801,13 +821,25 @@ def _answer(
                 "failed",
             )
     usage = replace(engine.call_usage(execution.model, execution.usage), context_tokens=gathered.context_tokens)
-    answer = str(execution.result.get("answer") or "").strip() or "I could not produce an answer to that."
+    # What the model wrote is posted as the bot: no image, and no link off this repository's host, survives.
+    answer = defang(str(execution.result.get("answer") or "").strip(), host=ref.host)
+    answer = answer or "I could not produce an answer to that."
+    spoken = [event.body, *(row["text"] for row in history if not row["bot"])]
+    note = Safety(("the thread",)).note if any(addressed_to_ai(text) for text in spoken) else ""
     if options.publish and not options.dry_run:
-        _record(github, previous, existing, usage, report)
-    return reply(answer, "answer", usage, trusted=False)
+        _record(github, previous, existing, usage, report, cap=options.max_usd_per_pr)
+    return reply(answer, "answer", usage, note=note, trusted=False)
 
 
-def _record(github: BotGitHub, previous: ReviewState, existing: Remote, usage: Usage, report: RunReport) -> None:
+def _record(
+    github: BotGitHub,
+    previous: ReviewState,
+    existing: Remote,
+    usage: Usage,
+    report: RunReport,
+    *,
+    cap: float | None = None,
+) -> None:
     """Count the answer in the summary's state (and its footer) so the budget sees it.
 
     The state is read again right before the write: a review that finished while the model was answering has already
@@ -826,6 +858,7 @@ def _record(github: BotGitHub, previous: ReviewState, existing: Remote, usage: U
             depth_label=state.depth.capitalize(),
             head_sha=state.head_sha,
             commit_url=f"https://{github.pr.host}/{github.pr.slug}/commit/{state.head_sha}",
+            spend=spend.receipt_line(state, cap),
         ),
     )
     if len(body) > MAX_COMMENT:

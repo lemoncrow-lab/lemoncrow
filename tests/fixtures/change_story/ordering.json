@@ -1,0 +1,1192 @@
+{
+  "about": "Shared Change Story ordering fixture. The same inputs are walked by frontend/src/review/changeStory/changeStoryModel.ts (vitest) and src/lemoncrow/pro/capabilities/review/pr_bot/change_story.py (pytest); both must produce 'expected'.",
+  "cases": [
+    {
+      "name": "cross_file_entry_changed_dependency_affected_tests_last",
+      "input": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "file:api/auth.py",
+              "label": "auth.py",
+              "kind": "file",
+              "path": "api/auth.py",
+              "line": 12,
+              "end_line": 12,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "api/auth.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:api/auth.py",
+                "path": "api/auth.py",
+                "line": 12,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:auth/session.py",
+              "label": "session.py",
+              "kind": "file",
+              "path": "auth/session.py",
+              "line": 3,
+              "end_line": 3,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "auth/session.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:auth/session.py",
+                "path": "auth/session.py",
+                "line": 3,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:db/store.py",
+              "label": "store.py",
+              "kind": "file",
+              "path": "db/store.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "impacted",
+              "delta_status": "unchanged",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "db/store.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:db/store.py",
+                "path": "db/store.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:web/views.py",
+              "label": "views.py",
+              "kind": "file",
+              "path": "web/views.py",
+              "line": 40,
+              "end_line": 40,
+              "status": "impacted",
+              "delta_status": "unchanged",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "web/views.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:web/views.py",
+                "path": "web/views.py",
+                "line": 40,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:cli/main.py",
+              "label": "main.py",
+              "kind": "file",
+              "path": "cli/main.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "context",
+              "delta_status": "context_only",
+              "exactness": "current_index",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "cli/main.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:cli/main.py",
+                "path": "cli/main.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "current_index"
+              }
+            },
+            {
+              "id": "file:tests/test_auth.py",
+              "label": "test_auth.py",
+              "kind": "file",
+              "path": "tests/test_auth.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "test",
+              "change": "",
+              "paths": [
+                "tests/test_auth.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:tests/test_auth.py",
+                "path": "tests/test_auth.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:core/config.py",
+              "label": "config.py",
+              "kind": "file",
+              "path": "core/config.py",
+              "line": 1,
+              "end_line": 1,
+              "status": "new",
+              "delta_status": "added",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "core/config.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:core/config.py",
+                "path": "core/config.py",
+                "line": 1,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:auth/legacy.py",
+              "label": "legacy.py",
+              "kind": "file",
+              "path": "auth/legacy.py",
+              "line": 7,
+              "end_line": 7,
+              "status": "changed",
+              "delta_status": "removed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "deleted",
+              "paths": [
+                "auth/legacy.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:auth/legacy.py",
+                "path": "auth/legacy.py",
+                "line": 7,
+                "side": "old",
+                "exactness": "snapshot"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "e1",
+              "source": "file:api/auth.py",
+              "target": "file:auth/session.py",
+              "source_path": "api/auth.py",
+              "target_path": "auth/session.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 2,
+              "evidence": [
+                {
+                  "path": "api/auth.py",
+                  "line": 5
+                }
+              ]
+            },
+            {
+              "id": "e2",
+              "source": "file:auth/session.py",
+              "target": "file:db/store.py",
+              "source_path": "auth/session.py",
+              "target_path": "db/store.py",
+              "kind": "references",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "e3",
+              "source": "file:web/views.py",
+              "target": "file:api/auth.py",
+              "source_path": "web/views.py",
+              "target_path": "api/auth.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "unchanged",
+              "weight": 3,
+              "evidence": []
+            },
+            {
+              "id": "e4",
+              "source": "file:cli/main.py",
+              "target": "file:auth/session.py",
+              "source_path": "cli/main.py",
+              "target_path": "auth/session.py",
+              "kind": "calls",
+              "exactness": "current_index",
+              "delta_status": "context_only",
+              "weight": 5,
+              "evidence": []
+            },
+            {
+              "id": "e5",
+              "source": "file:tests/test_auth.py",
+              "target": "file:api/auth.py",
+              "source_path": "tests/test_auth.py",
+              "target_path": "api/auth.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "unchanged",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "e6",
+              "source": "file:auth/session.py",
+              "target": "file:auth/legacy.py",
+              "source_path": "auth/session.py",
+              "target_path": "auth/legacy.py",
+              "kind": "references",
+              "exactness": "snapshot",
+              "delta_status": "removed",
+              "weight": 1,
+              "evidence": []
+            }
+          ]
+        },
+        "flow": {
+          "applicable": false,
+          "steps": []
+        },
+        "findings": [
+          {
+            "id": "f1",
+            "severity": "p1",
+            "title": "Finding f1",
+            "body": "",
+            "path": "auth/session.py",
+            "start_line": 3,
+            "end_line": 4,
+            "side": "new",
+            "state": "open",
+            "anchored": true,
+            "finding_disposition": ""
+          },
+          {
+            "id": "f2",
+            "severity": "p0",
+            "title": "Finding f2",
+            "body": "",
+            "path": "api/auth.py",
+            "start_line": 12,
+            "end_line": 12,
+            "side": "new",
+            "state": "open",
+            "anchored": true,
+            "finding_disposition": ""
+          },
+          {
+            "id": "f3",
+            "severity": "p2",
+            "title": "Finding f3",
+            "body": "",
+            "path": "api/auth.py",
+            "start_line": 12,
+            "end_line": 12,
+            "side": "new",
+            "state": "open",
+            "anchored": true,
+            "finding_disposition": ""
+          },
+          {
+            "id": "f4",
+            "severity": "p1",
+            "title": "Finding f4",
+            "body": "",
+            "path": "api/auth.py",
+            "start_line": 2,
+            "end_line": 2,
+            "side": "new",
+            "state": "open",
+            "anchored": true,
+            "finding_disposition": "dismissed"
+          },
+          {
+            "id": "f5",
+            "severity": "p1",
+            "title": "Finding f5",
+            "body": "",
+            "path": "api/auth.py",
+            "start_line": 4,
+            "end_line": 6,
+            "side": "new",
+            "state": "open",
+            "anchored": true,
+            "finding_disposition": ""
+          },
+          {
+            "id": "f6",
+            "severity": "p1",
+            "title": "Finding f6",
+            "body": "",
+            "path": "auth/session.py",
+            "start_line": 9,
+            "end_line": 9,
+            "side": "new",
+            "state": "resolved",
+            "anchored": true,
+            "finding_disposition": ""
+          },
+          {
+            "id": "f7",
+            "severity": "p0",
+            "title": "Finding f7",
+            "body": "",
+            "path": "auth/session.py",
+            "start_line": 1,
+            "end_line": 1,
+            "side": "new",
+            "state": "open",
+            "anchored": false,
+            "finding_disposition": ""
+          }
+        ]
+      },
+      "expected": {
+        "ordering": "dependencies",
+        "changedTotal": 5,
+        "omittedChanged": 0,
+        "affectedTotal": 2,
+        "omittedAffected": 0,
+        "findingsKnown": true,
+        "steps": [
+          {
+            "nodeId": "file:api/auth.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 12,
+            "via": null,
+            "findings": [
+              {
+                "id": "f2",
+                "on": "node"
+              },
+              {
+                "id": "f5",
+                "on": "node"
+              }
+            ]
+          },
+          {
+            "nodeId": "file:auth/session.py",
+            "role": "changed",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 3,
+            "via": {
+              "edgeId": "e1",
+              "fromId": "file:api/auth.py",
+              "toId": "file:auth/session.py",
+              "exactness": "snapshot",
+              "change": "added"
+            },
+            "findings": [
+              {
+                "id": "f1",
+                "on": "node"
+              },
+              {
+                "id": "f5",
+                "on": "relationship"
+              }
+            ]
+          },
+          {
+            "nodeId": "file:db/store.py",
+            "role": "dependency",
+            "change": "unchanged",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "e2",
+              "fromId": "file:auth/session.py",
+              "toId": "file:db/store.py",
+              "exactness": "snapshot",
+              "change": "added"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:auth/legacy.py",
+            "role": "changed",
+            "change": "removed",
+            "exactness": "snapshot",
+            "side": "base",
+            "line": 7,
+            "via": {
+              "edgeId": "e6",
+              "fromId": "file:auth/session.py",
+              "toId": "file:auth/legacy.py",
+              "exactness": "snapshot",
+              "change": "removed"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:core/config.py",
+            "role": "entry",
+            "change": "added",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 1,
+            "via": null,
+            "findings": []
+          },
+          {
+            "nodeId": "file:tests/test_auth.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": null,
+            "findings": []
+          },
+          {
+            "nodeId": "file:web/views.py",
+            "role": "affected",
+            "change": "unchanged",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 40,
+            "via": {
+              "edgeId": "e3",
+              "fromId": "file:web/views.py",
+              "toId": "file:api/auth.py",
+              "exactness": "snapshot",
+              "change": "unchanged"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:cli/main.py",
+            "role": "affected",
+            "change": "context_only",
+            "exactness": "current_index",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "e4",
+              "fromId": "file:cli/main.py",
+              "toId": "file:auth/session.py",
+              "exactness": "current_index",
+              "change": "context_only"
+            },
+            "findings": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "flow_order_with_an_observed_step_and_a_path_only_step",
+      "input": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "file:svc/a.py",
+              "label": "a.py",
+              "kind": "file",
+              "path": "svc/a.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "svc/a.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:svc/a.py",
+                "path": "svc/a.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:lib/b.py",
+              "label": "b.py",
+              "kind": "file",
+              "path": "lib/b.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "lib/b.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:lib/b.py",
+                "path": "lib/b.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:db/c.py",
+              "label": "c.py",
+              "kind": "file",
+              "path": "db/c.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 1,
+              "category": "",
+              "change": "",
+              "paths": [
+                "db/c.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:db/c.py",
+                "path": "db/c.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:api/d.py",
+              "label": "d.py",
+              "kind": "file",
+              "path": "api/d.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "api/d.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:api/d.py",
+                "path": "api/d.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "d-a",
+              "source": "file:api/d.py",
+              "target": "file:svc/a.py",
+              "source_path": "api/d.py",
+              "target_path": "svc/a.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "a-b",
+              "source": "file:svc/a.py",
+              "target": "file:lib/b.py",
+              "source_path": "svc/a.py",
+              "target_path": "lib/b.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "b-c",
+              "source": "file:lib/b.py",
+              "target": "file:db/c.py",
+              "source_path": "lib/b.py",
+              "target_path": "db/c.py",
+              "kind": "references",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            }
+          ]
+        },
+        "flow": {
+          "applicable": true,
+          "steps": [
+            {
+              "edge_id": "b-c",
+              "from": "lib/b.py",
+              "to": "db/c.py",
+              "grounding": "observed",
+              "trace": {
+                "side": "head",
+                "recipe": "pytest",
+                "caller_fn": "load",
+                "callee_fn": "query",
+                "evidence_ref": "run:1",
+                "record_id": "rec-1"
+              }
+            },
+            {
+              "edge_id": "a-b",
+              "from": "svc/a.py",
+              "to": "lib/b.py"
+            },
+            {
+              "edge_id": "missing",
+              "from": "api/d.py",
+              "to": "svc/a.py"
+            }
+          ]
+        },
+        "findings": []
+      },
+      "expected": {
+        "ordering": "flow",
+        "changedTotal": 4,
+        "omittedChanged": 0,
+        "affectedTotal": 0,
+        "omittedAffected": 0,
+        "findingsKnown": true,
+        "steps": [
+          {
+            "nodeId": "file:lib/b.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": null,
+            "findings": []
+          },
+          {
+            "nodeId": "file:db/c.py",
+            "role": "changed",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "b-c",
+              "fromId": "file:lib/b.py",
+              "toId": "file:db/c.py",
+              "exactness": "observed",
+              "change": "added"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:svc/a.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": null,
+            "findings": []
+          },
+          {
+            "nodeId": "file:api/d.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": null,
+            "findings": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "tie_breaks_cycle_impact_site_and_limits",
+      "input": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "file:m/q.py",
+              "label": "q.py",
+              "kind": "file",
+              "path": "m/q.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "m/q.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:m/q.py",
+                "path": "m/q.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:m/p.py",
+              "label": "p.py",
+              "kind": "file",
+              "path": "m/p.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 1,
+              "category": "",
+              "change": "",
+              "paths": [
+                "m/p.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:m/p.py",
+                "path": "m/p.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:m/r.py",
+              "label": "r.py",
+              "kind": "file",
+              "path": "m/r.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "m/r.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:m/r.py",
+                "path": "m/r.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:m/s.py",
+              "label": "s.py",
+              "kind": "file",
+              "path": "m/s.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "m/s.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:m/s.py",
+                "path": "m/s.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:c/u.py",
+              "label": "u.py",
+              "kind": "file",
+              "path": "c/u.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "c/u.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:c/u.py",
+                "path": "c/u.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:c/w.py",
+              "label": "w.py",
+              "kind": "file",
+              "path": "c/w.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "changed",
+              "delta_status": "changed",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "c/w.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:c/w.py",
+                "path": "c/w.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:site/k.py",
+              "label": "k.py",
+              "kind": "file",
+              "path": "site/k.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "impacted",
+              "delta_status": "unchanged",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "site/k.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:site/k.py",
+                "path": "site/k.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            },
+            {
+              "id": "file:site/m.py",
+              "label": "m.py",
+              "kind": "file",
+              "path": "site/m.py",
+              "line": 0,
+              "end_line": 0,
+              "status": "impacted",
+              "delta_status": "unchanged",
+              "exactness": "snapshot",
+              "rank": 0,
+              "category": "",
+              "change": "",
+              "paths": [
+                "site/m.py"
+              ],
+              "target_ids": [],
+              "boundaries": [],
+              "selection": {
+                "kind": "review_map_node",
+                "node_id": "file:site/m.py",
+                "path": "site/m.py",
+                "line": 0,
+                "side": "new",
+                "exactness": "snapshot"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "p-q",
+              "source": "file:m/p.py",
+              "target": "file:m/q.py",
+              "source_path": "m/p.py",
+              "target_path": "m/q.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "changed",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "p-r",
+              "source": "file:m/p.py",
+              "target": "file:m/r.py",
+              "source_path": "m/p.py",
+              "target_path": "m/r.py",
+              "kind": "calls",
+              "exactness": "current_index",
+              "delta_status": "context_only",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "p-s",
+              "source": "file:m/p.py",
+              "target": "file:m/s.py",
+              "source_path": "m/p.py",
+              "target_path": "m/s.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 3,
+              "evidence": []
+            },
+            {
+              "id": "u-w",
+              "source": "file:c/u.py",
+              "target": "file:c/w.py",
+              "source_path": "c/u.py",
+              "target_path": "c/w.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "w-u",
+              "source": "file:c/w.py",
+              "target": "file:c/u.py",
+              "source_path": "c/w.py",
+              "target_path": "c/u.py",
+              "kind": "imports",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "p-k",
+              "source": "file:m/p.py",
+              "target": "file:site/k.py",
+              "source_path": "m/p.py",
+              "target_path": "site/k.py",
+              "kind": "impacts",
+              "exactness": "snapshot",
+              "delta_status": "unchanged",
+              "weight": 4,
+              "evidence": []
+            },
+            {
+              "id": "m-q",
+              "source": "file:site/m.py",
+              "target": "file:m/q.py",
+              "source_path": "site/m.py",
+              "target_path": "m/q.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "unchanged",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "self",
+              "source": "file:m/q.py",
+              "target": "file:m/q.py",
+              "source_path": "m/q.py",
+              "target_path": "m/q.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            },
+            {
+              "id": "dangling",
+              "source": "file:m/q.py",
+              "target": "file:nowhere.py",
+              "source_path": "m/q.py",
+              "target_path": "nowhere.py",
+              "kind": "calls",
+              "exactness": "snapshot",
+              "delta_status": "added",
+              "weight": 1,
+              "evidence": []
+            }
+          ]
+        },
+        "flow": null,
+        "findings": null,
+        "maxChanged": 3,
+        "maxAffected": 1
+      },
+      "expected": {
+        "ordering": "dependencies",
+        "changedTotal": 6,
+        "omittedChanged": 3,
+        "affectedTotal": 2,
+        "omittedAffected": 1,
+        "findingsKnown": false,
+        "steps": [
+          {
+            "nodeId": "file:m/p.py",
+            "role": "entry",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": null,
+            "findings": []
+          },
+          {
+            "nodeId": "file:m/s.py",
+            "role": "changed",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "p-s",
+              "fromId": "file:m/p.py",
+              "toId": "file:m/s.py",
+              "exactness": "snapshot",
+              "change": "added"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:m/q.py",
+            "role": "changed",
+            "change": "changed",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "p-q",
+              "fromId": "file:m/p.py",
+              "toId": "file:m/q.py",
+              "exactness": "snapshot",
+              "change": "changed"
+            },
+            "findings": []
+          },
+          {
+            "nodeId": "file:site/k.py",
+            "role": "affected",
+            "change": "unchanged",
+            "exactness": "snapshot",
+            "side": "head",
+            "line": 0,
+            "via": {
+              "edgeId": "p-k",
+              "fromId": "file:site/k.py",
+              "toId": "file:m/p.py",
+              "exactness": "snapshot",
+              "change": "unchanged"
+            },
+            "findings": []
+          }
+        ]
+      }
+    }
+  ]
+}

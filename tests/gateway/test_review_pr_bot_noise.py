@@ -96,7 +96,7 @@ def test_without_any_setting_the_review_is_what_it_always_was(tmp_path: Path, mo
     body = summary_of(world)
     assert inline_titles(world) == [AUTH_TITLE]  # P1 inline, P2 only in the summary
     assert "<details><summary>1 low-priority finding held back</summary>" in body
-    assert "**No must-fix findings** · 1 should-fix · 1 optional" in body
+    assert "<h2>No must-fix findings · 1 should-fix · 1 optional</h2>" in body
     assert "held back below" not in body and "Large pull request" not in body
     assert "held_back" not in report.to_wire()["verdict"]  # absent when nothing is held back
     assert report.state is not None and report.state.view == ""  # a default summary leaves no new field in the state
@@ -122,7 +122,7 @@ def test_strictness_is_an_alias_for_the_finding_threshold(
     assert inline_titles(world) == sorted(inline)
     assert ("low-priority finding held back" in body) is listed
     assert ("1 finding held back below strictness 3" in body) is below
-    verdict_line = next(row for row in body.splitlines() if row.startswith(("**No must-fix", "**1 must-fix")))
+    verdict_line = next(row for row in body.splitlines() if row.startswith(("<h2>No must-fix", "<h2>1 must-fix")))
     assert ("1 held back" in verdict_line) is below  # counted in the headline, never silent
     if below:
         assert report.status is not None and "1 held back" in report.status[1]
@@ -168,7 +168,7 @@ def test_a_threshold_that_holds_back_a_p1_still_says_so(tmp_path: Path, monkeypa
     body = summary_of(world)
     assert world.github.inline() == []  # neither the P1 nor the P2 is posted
     assert report.verdict is not None and report.verdict.held == 2
-    assert "**No must-fix findings** · 2 held back" in body
+    assert "<h2>No must-fix findings · 2 held back</h2>" in body
     assert "2 findings held back below threshold critical" in body
 
 
@@ -554,8 +554,8 @@ def test_a_changed_threshold_rewrites_the_summary_of_an_unchanged_head(
     assert again.state is not None and again.state.view == "high:inline"
     assert again.state.reviews == first.state.reviews  # not another review
     assert (
-        "this review: 2 model calls" in body
-    )  # the cost of the review that was last made: one call for the 3 files, and the overview
+        "this review: 3 model calls" in body
+    )  # the cost of the review that was last made: one call for the 3 files, the repeat check and the overview
 
 
 def test_a_budget_notice_keeps_showing_what_the_last_review_showed(
@@ -603,7 +603,7 @@ def test_above_max_files_the_riskiest_files_are_reviewed_first_and_the_rest_are_
     assert any(row.startswith("**Partially reviewed: 2 of 5 files, highest risk first**") for row in body.splitlines())
     assert report.status is not None and report.status[0] == "success"
     assert report.status[1].startswith("Partially reviewed: 2 of 5 files, highest risk first")
-    assert "No must-fix findings" not in body.split("<h2>")[0] and "**No must-fix findings**" not in body
+    assert "No must-fix findings" not in body
     assert any("large pull request: 3 of 5 files left for a later run" in note for note in report.notes)
     assert report.verdict is not None and report.verdict.state == "partial"
 
@@ -624,7 +624,7 @@ def test_the_files_left_over_are_reviewed_on_the_next_run_and_nothing_is_skipped
     third = world.review()
     assert third.state is not None and len(third.state.reviewed_units) == 5  # every file has been reviewed
     body = summary_of(world)
-    assert "Large pull request" not in body and "**No must-fix findings**" in body
+    assert "Large pull request" not in body and "<h2>No must-fix findings" in body
     assert [f.title for f in third.findings if f.is_open] == [f.title for f in first.findings if f.is_open]
 
 
@@ -768,12 +768,12 @@ def test_the_threshold_the_impact_and_the_risks_examined_sit_together_in_one_sum
     world.review()
     lines = summary_of(world).split("\n")
     body = "\n".join(lines[: next(i for i, row in enumerate(lines) if row.startswith("<!-- lemoncrow:state"))])
-    verdict_line = next(row for row in lines if row.startswith("**No must-fix"))
+    verdict_line = next(row for row in lines if row.startswith("<h2>No must-fix"))
     assert "held back" in verdict_line and "1 should-fix" in verdict_line  # the held-back count rides the verdict line
     label = next(
         row for row in lines if row.startswith("**[") and " impact]**" in row
     )  # the deterministic impact label
-    assert lines.index(label) < lines.index(verdict_line), "above the verdict, under the score"
+    assert lines.index(verdict_line) < lines.index(label), "the verdict heading first, the impact label under it"
     assert body.index("<sub>Reviewed ") > body.index(label)
     # The findings come first, then what was held back, then the risks that were examined, then the diagram.
     assert body.index("held back below strictness 3") < body.index("<summary>Risks examined")

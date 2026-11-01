@@ -1459,7 +1459,9 @@ def test_the_landing_watch_withdraws_when_the_readiness_rules_changed_since_armi
         },
     )
     fake = _use(monkeypatch, _FakeGitHub(mergeStateStatus="CLEAN"))
-    monkeypatch.setattr(readiness_module, "READINESS_RULES_VERSION", 2)  # a LemonCrow upgrade
+    monkeypatch.setattr(
+        readiness_module, "READINESS_RULES_VERSION", readiness_module.READINESS_RULES_VERSION + 1
+    )  # a future upgrade
 
     # Wired to the Reader, the watch hands the intent to readiness revalidation
     # and merges nothing in this pass.

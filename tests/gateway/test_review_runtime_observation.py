@@ -176,6 +176,84 @@ def test_a_fingerprint_or_tier_mismatch_is_not_comparable_and_a_truncated_head_c
     assert "removals are not claimed" in truncated.reasons[0]
 
 
+def test_truncated_base_never_invents_an_added_effect_or_query_regression() -> None:
+    """Missing base observations are not evidence that the head introduced a behavior."""
+    base = _obs("base", truncated=True)
+    head = _obs("head", SELECT, WRITE)
+    diff = diff_observations(base, head, base_environment=ENV, head_environment=ENV)
+    assert diff.comparable is True
+    assert diff.changes == ()
+    assert diff.query_count == (0, 1)
+    assert diff.query_count_comparable is False
+    assert any("base" in reason and "truncated" in reason for reason in diff.reasons)
+    assert RuntimeObservationProducer().produce(_context(_record(diff))).deltas == ()
+
+
+def test_truncated_head_never_invents_removed_effect_or_query_regression() -> None:
+    base = _obs("base", SELECT, WRITE)
+    head = _obs("head", truncated=True)
+    diff = diff_observations(base, head, base_environment=ENV, head_environment=ENV)
+    assert diff.changes == ()
+    assert diff.query_count_comparable is False
+    assert RuntimeObservationProducer().produce(_context(_record(diff))).deltas == ()
+
+
+def test_runtime_absence_is_worded_as_not_observed_rather_than_not_happening() -> None:
+    from lemoncrow.pro.capabilities.review.runtime_observation import EffectChange, change_summary
+
+    summary = change_summary(EffectChange("file_write", WRITE.identity, "removed", WRITE, None))
+    assert "not observed" in summary and "no longer does" not in summary
+    added = change_summary(EffectChange("file_write", WRITE.identity, "added", None, WRITE))
+    assert "not observed" in added and "New file" not in added
+
+
+def test_unresolved_runtime_evidence_is_visible_and_blocks_readiness() -> None:
+    from lemoncrow.pro.capabilities.review.readiness import _behavior_condition
+
+    partial = diff_observations(
+        _obs("base", truncated=True),
+        _obs("head", WRITE),
+        base_environment=ENV,
+        head_environment=ENV,
+    )
+    production = RuntimeObservationProducer().produce(_context(_record(partial)))
+    assert production.deltas == ()
+    assert any("runtime observation incomplete" in note for note in production.degraded)
+    condition = _behavior_condition(0, 0, False, 0, incomplete_observations=len(production.degraded))
+    assert condition.state == "unknown"
+    assert condition.reason == "incomplete_runtime_observation"
+    assert "re-run" in condition.detail
+
+    incomparable = diff_observations(
+        _obs("base", WRITE),
+        _obs("head", SELECT),
+        base_environment=ENV,
+        head_environment=OTHER_ENV,
+    )
+    inconsistent = RuntimeObservationProducer().produce(_context(_record(incomparable)))
+    assert any("runtime observation incomplete" in note for note in inconsistent.degraded)
+
+
+def test_old_truncated_record_cannot_reintroduce_unproven_added_effects() -> None:
+    """Persisted v1 results predate the direction-aware truncation fix."""
+    base = _obs("base")
+    head = _obs("head", SELECT, WRITE)
+    diff = diff_observations(base, head, base_environment=ENV, head_environment=ENV)
+    record = _record(diff)
+    record["diff"].pop("query_count_comparable")
+    record["diff"]["reasons"] = ["observation was truncated on at least one side; removals are not claimed"]
+    assert RuntimeObservationProducer().produce(_context(record)).deltas == ()
+
+
+def test_truncated_common_effect_does_not_invent_changed_query_count() -> None:
+    base = _obs("base", SELECT, truncated=True)
+    head = _obs("head", ObservedEffect("db_query", SELECT.identity, count=8))
+    diff = diff_observations(base, head, base_environment=ENV, head_environment=ENV)
+    assert diff.changes == ()
+    assert diff.query_count_comparable is False
+    assert RuntimeObservationProducer().produce(_context(_record(diff))).deltas == ()
+
+
 def _record(diff: Any, *, comparable_env: str = ENV) -> dict[str, Any]:
     return {
         "v": 1,

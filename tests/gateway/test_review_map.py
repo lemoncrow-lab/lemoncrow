@@ -654,6 +654,110 @@ def test_architecture_drops_name_collision_relationships_and_places_context_in_l
     assert call["evidence"][0]["symbol"] == "slugify"
 
 
+def test_current_index_cannot_invent_or_strengthen_snapshot_impact_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The current index may navigate, not assert Snapshot impact or overwrite its evidence."""
+    packet = {
+        "files": [{"path": "src/auth/verify.py", "status": "modified"}],
+        "symbols": [],
+        "impact": [
+            {
+                "kind": "callsite",
+                "path": "src/api/checkout.py:L31",
+                "source_path": "src/auth/verify.py",
+                "old": "verify",
+                "snippet": "verify(user)",
+                "uncertainty": "",
+            }
+        ],
+        "order": [],
+    }
+    relations = [
+        _relation("src/auth/verify.py", "src/api/checkout.py", "impacts", 100),
+        _relation("src/auth/verify.py", "src/payments/phantom.py", "impacts", 100),
+        _relation("src/auth/verify.py", "src/payments/phantom.py", "unrecognized_relation", 100),
+        _relation("src/api/checkout.py", "src/auth/verify.py", "calls", 1, "verify"),
+    ]
+    monkeypatch.setattr(review_map, "_current_context", lambda **_kwargs: _context_with_relationships(relations))
+    graph = build_review_map(
+        review_id="review-map",
+        revision=_revision(),
+        packet=packet,
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+    )["graph"]
+    nodes = {node["id"]: node["path"] for node in graph["nodes"]}
+    assert "src/payments/phantom.py" not in nodes.values()
+    impacts = [edge for edge in graph["edges"] if edge["kind"] == "impacts"]
+    assert len(impacts) == 1
+    assert impacts[0]["exactness"] == "snapshot"
+    assert impacts[0]["weight"] == 1
+    assert impacts[0]["evidence"] == [
+        {
+            "kind": "callsite",
+            "path": "src/api/checkout.py",
+            "line": 31,
+            "symbol": "verify",
+            "snippet": "verify(user)",
+            "uncertainty": "",
+        }
+    ]
+    assert any(edge["kind"] == "calls" and edge["exactness"] == "current_index" for edge in graph["edges"])
+    assert graph["stats"]["filtered_reasons"]["untrusted_relation_kind"] == 3
+
+    # Drilling into a changed file cannot resurrect fabricated index impact.
+    focused = build_review_map(
+        review_id="review-map",
+        revision=_revision(),
+        packet=packet,
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+        level="file",
+        selected_node_id=review_map._stable_id("file", "src/auth/verify.py"),
+    )["graph"]
+    assert not any(node["path"] == "src/payments/phantom.py" for node in focused["nodes"])
+    assert len([edge for edge in focused["edges"] if edge["kind"] == "impacts"]) == 1
+
+
+def test_map_drops_out_of_repository_index_paths_and_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale/foreign index cannot make files outside this repository navigable."""
+    changed = "src/auth/verify.py"
+    packet = {"files": [{"path": changed, "status": "modified"}], "symbols": [], "impact": [], "order": []}
+    unsafe = ["../other-repo/private.py", "/etc/passwd", "C:\\secrets\\key.py", "src/../../private.py"]
+    relations = [_relation(path, changed, "calls", 9) for path in unsafe]
+    relations.append(
+        {
+            "source_path": "src/api/checkout.py",
+            "target_path": changed,
+            "kind": "calls",
+            "weight": 1,
+            "evidence": [{"path": "../../private.py", "line": 7, "symbol": "verify"}],
+        }
+    )
+    current = _context_with_relationships(relations)
+    current["matches"] = {"symbol:foreign": {"id": "foreign-symbol", "path": "../../foreign.py"}}
+    current["neighborhoods"] = {
+        "symbol:foreign": {
+            "nodes": [{"id": "foreign-symbol", "path": "../../foreign.py"}],
+            "edges": [],
+        }
+    }
+    monkeypatch.setattr(review_map, "_current_context", lambda **_kwargs: current)
+    graph = build_review_map(
+        review_id="review-map",
+        revision=_revision(),
+        packet=packet,
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+    )["graph"]
+    assert {node["path"] for node in graph["nodes"]} == {changed, "src/api/checkout.py"}
+    assert graph["stats"]["filtered_reasons"]["unsafe_index_path"] == len(unsafe)
+    assert len(graph["edges"]) == 1
+    assert graph["edges"][0]["evidence"] == []
+
+
 def test_architecture_keeps_surrounding_links_when_changed_files_link_densely(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

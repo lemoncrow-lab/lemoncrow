@@ -91,7 +91,7 @@ def test_a_first_review_posts_one_summary_and_inline_comments_for_p0_and_p1_only
 
     (summary,) = world.github.summary_comments()
     assert summary["body"].startswith("<!-- lemoncrow:summary v1 -->\n")
-    assert "**No must-fix findings** · 1 should-fix · 1 optional" in summary["body"].split("\n")
+    assert "<h2>No must-fix findings · 1 should-fix · 1 optional</h2>" in summary["body"].split("\n")
     assert "<details><summary>1 low-priority finding held back</summary>" in summary["body"]
     assert f"[lets a missing principal through](https://github.com/{SLUG}/pull/{NUMBER}#discussion_r" in summary["body"]
     state = posted_state(world)
@@ -112,7 +112,9 @@ def test_the_report_and_the_posted_state_agree(world: World) -> None:
     assert report.state is not None and state == report.state
     wire = report.to_wire()
     assert wire["head_sha"] == world.origin.head and wire["verdict"]["p1"] == 1 and wire["verdict"]["p2"] == 1
-    assert wire["usage"]["calls"] == 2, "one investigation (the three small files share it) and the overview"
+    assert (
+        wire["usage"]["calls"] == 3
+    ), "one investigation (the three small files share it), the repeat check of its two findings and the overview"
     assert wire["verdict"]["confidence"] == 3 and wire["status"]["state"] == "success"
     assert {row["id"] for row in wire["findings"]} == {finding.id for finding in state.findings}
     json.dumps(wire)  # serializable as is
@@ -189,7 +191,9 @@ def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_
     assert "<details><summary>1 finding fixed since last review</summary>" in body
     state = posted_state(world)
     assert state.head_sha == world.origin.head and state.reviews == 2
-    assert state.usage.calls == 2 and state.usage_total.calls == 4, "each review: one investigation and its overview"
+    # The first review: one investigation, the repeat check of its two findings and the overview; the second, which
+    # re-reviews one file, one investigation and its overview.
+    assert state.usage.calls == 2 and state.usage_total.calls == 5
 
 
 def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
@@ -255,7 +259,7 @@ def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world:
     broken = world.review()
     assert broken.state is not None and not broken.state.complete and broken.findings == ()
     body = world.github.summary_comments()[0]["body"]
-    assert "**Review incomplete: model calls failed; see the workflow log**" in body
+    assert "<h2>Review incomplete: model calls failed; see the workflow log</h2>" in body
     # A review that never happened is an error whatever fail-on says; the cause is in the description.
     status = world.github.last_status()
     assert (status["state"], status["description"]) == (
@@ -459,7 +463,7 @@ def test_a_p0_fails_the_status_only_when_fail_on_p0_is_set(ruled: World) -> None
     final = ruled.github.last_status()
     assert final["state"] == "success" and final["description"] == "1 must-fix before merge (advisory: fail-on is off)"
     body = ruled.github.summary_comments()[0]["body"]
-    assert any(line.startswith("**1 must-fix before merge**") for line in body.split("\n"))
+    assert any(line.startswith("<h2>1 must-fix before merge") for line in body.split("\n"))
 
     blocking = ruled.review(fail_on="p0")
     assert blocking.status == ("failure", "1 must-fix before merge")
@@ -702,7 +706,7 @@ def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
     # a full review either: the check says "Partially reviewed", never "No must-fix findings".
     assert report.status == ("success", headline)
     body = world.github.summary_comments()[0]["body"]
-    assert f"**{headline}**" in body.split("\n")
+    assert any(line.startswith(f"**{headline}** · ") for line in body.split("\n")), "the coverage line says partial"
     assert "1 risk signal not investigated yet" in body and "No must-fix findings" not in body
     pending, final = world.github.statuses
     assert (pending["state"], final["state"], final["description"]) == ("pending", "success", headline)

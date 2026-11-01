@@ -1,0 +1,50 @@
+/* What if (N03): a quiet, read-only hypothetical overlay inside the Brief. */
+
+.wi-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-caption);
+}
+
+.wi-note { margin: 0; color: rgb(var(--muted-foreground)); overflow-wrap: anywhere; }
+
+.wi-controls { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.wi-select { max-width: 100%; }
+
+/* Dashed frame: an overlay over the Snapshot, never the Snapshot itself. */
+.wi-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px dashed rgb(var(--border));
+  border-radius: 6px;
+}
+.wi-overlay-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.wi-overlay-title { min-width: 0; font-weight: 600; color: rgb(var(--foreground)); overflow-wrap: anywhere; }
+
+.wi-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.wi-row, .wi-gap { min-width: 0; border-top: 1px solid rgb(var(--border) / 0.6); padding-top: 6px; }
+.wi-row:first-child, .wi-gap:first-child { border-top: 0; padding-top: 0; }
+.wi-row-title {
+  font-family: var(--workbench-code-font, monospace);
+  color: rgb(var(--foreground));
+  overflow-wrap: anywhere;
+}
+.wi-row-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.wi-row-detail { color: rgb(var(--subtle-foreground)); overflow-wrap: anywhere; }
+.wi-candidate { font-style: italic; }
+.wi-row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+/* Simulated rows differ by border shape as well as colour. */
+.wi-tag[data-origin="simulated"] { border-style: dashed; }
+.wi-unknown { border-style: dashed; }
+
+.wi-unknowns { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wi-unknowns-title { font-weight: 600; color: rgb(var(--foreground)); }
+.wi-gap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.wi-gap-title { color: rgb(var(--foreground)); overflow-wrap: anywhere; }
+.wi-gap .wi-row-detail { flex-basis: 100%; }

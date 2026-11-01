@@ -39,6 +39,13 @@ class _RootRedactor:
 
 
 def _source_context(root: Path, path: str, line: int | None, end_line: int | None) -> tuple[str, str]:
+    if line is not None and line < 1:
+        raise ValueError("Ask source lines are one-based positive integers.")
+    if end_line is not None and (line is None or end_line < line):
+        raise ValueError("Ask selected line range is invalid.")
+    final_line = end_line or line
+    if line is not None and final_line is not None and final_line - line + 1 > _MAX_SOURCE_LINES:
+        raise ValueError("Ask selected line range contains too many lines for the source excerpt.")
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
         candidate = root / candidate
@@ -49,10 +56,13 @@ def _source_context(root: Path, path: str, line: int | None, end_line: int | Non
     if not source.is_file():
         raise ValueError("Ask requires a file in the selected project.")
     relative = source.relative_to(root).as_posix()
-    start = max(0, line - 81) if line is not None else 0
-    stop = min(start + _MAX_SOURCE_LINES, max(end_line or line, line) + 80) if line is not None else _MAX_SOURCE_LINES
+    # Reserve room for the entire selected range, trimming surrounding context
+    # rather than silently omitting the selected last line on a long selection.
+    start = max(0, line - 81, (final_line or 0) - _MAX_SOURCE_LINES) if line is not None else 0
+    stop = min(start + _MAX_SOURCE_LINES, (final_line or line or 0) + 80) if line is not None else _MAX_SOURCE_LINES
     selected: list[str] = []
     length = 0
+    last_included_line = 0
     with source.open("r", encoding="utf-8", errors="replace") as handle:
         for index, raw in enumerate(handle):
             if index >= stop:
@@ -66,8 +76,9 @@ def _source_context(root: Path, path: str, line: int | None, end_line: int | Non
                 break
             selected.append(row)
             length += len(row)
-    if line is not None and not selected:
-        raise ValueError("Selected line is outside this file.")
+            last_included_line = index + 1
+    if final_line is not None and last_included_line < final_line:
+        raise ValueError("Selected line is outside this file or the bounded source excerpt.")
     numbered = "\n".join(selected)
     return relative, numbered
 
@@ -99,6 +110,16 @@ def answer_code_ask(
     route = resolve_driver_model(backend or None, model or None)
     root = root.resolve()
     relative, source = _source_context(root, path, line, end_line)
+    if selected_text.strip():
+        # Only the requested lines are eligible to substantiate an "exact"
+        # selection. The surrounding 80 lines are navigation context, not proof
+        # that the caller selected those bytes at the specified location.
+        visible_rows = source.splitlines()
+        if line is not None:
+            visible_rows = [row for row in visible_rows if line <= int(row.partition(": ")[0]) <= (end_line or line)]
+        visible_source = "\n".join(row.partition(": ")[2] for row in visible_rows)
+        if selected_text.strip().replace("\r\n", "\n") not in visible_source:
+            raise ValueError("Selected code no longer matches the current file; refresh the selection before asking.")
     extra: list[dict[str, str]] = []
     for mentioned in dict.fromkeys(mentioned_paths):
         if mentioned == path or len(extra) >= 4:
@@ -161,7 +182,6 @@ def answer_code_ask(
         extractor.ensure_final(body)
     else:
         llm_response = chat_stream(messages, on_delta=redactor.feed, backend=route.driver, model=route.model or None)
-        body = llm_response if isinstance(llm_response, str) else str(llm_response.get("body") or "")
         body = llm_response if isinstance(llm_response, str) else str(llm_response.get("body") or "")
     redactor.finish()
     body = body.strip().replace(str(root), ".")

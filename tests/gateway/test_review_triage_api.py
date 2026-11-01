@@ -709,6 +709,94 @@ def test_executed_commands_have_snapshot_receipts_and_comparable_regression(tmp_
     assert all(row["revision_id"] == second for row in timeline["current"]["receipts"])
 
 
+def test_repeated_validation_attempts_keep_distinct_stable_evidence_receipt_ids(tmp_path: Path) -> None:
+    """Same evaluator and Snapshot can retry: each *stored* attempt has its own identity.
+
+    The receipt is derived from authenticated persisted evidence, NOT an invented
+    worker dispatch, lease or process start/end time.
+    """
+    import re
+
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+
+    review = _review(tmp_path)
+    revision = review.store.latest_revision(review.review_id)
+    assert revision is not None
+    request = ValidationRequest(
+        review_id=review.review_id,
+        revision_id=revision.id,
+        snapshot_identity="a" * 64,
+        scenario_kind="recipe",
+        scenario_id="retry-unit",
+        side="new",
+        viewport_key="",
+        runtime_id="python",
+        runtime_config_digest="b" * 64,
+        trusted_policy_digest="c" * 64,
+        scope_digest="d" * 64,
+    )
+    scenario = ValidationScenario(
+        id="retry-unit", title="Unit retries", provider="command", surface_id="test", runtime_id="python"
+    )
+    record = {
+        "identity": request.identity,
+        "request": request.to_wire(),
+        "snapshot_id": revision.id,
+        "status": "PASS",
+        "deterministic_checks": [{"name": "process exit code", "expected": 0, "actual": 0}],
+    }
+    first = persist_validation_record(
+        review.store,
+        revision,
+        request,
+        scenario,
+        record,
+        executor_class="author_machine",
+        expected_current_revision_id=revision.id,
+        fresh_ref="first",
+    )
+    replay = persist_validation_record(
+        review.store,
+        revision,
+        request,
+        scenario,
+        record,
+        executor_class="author_machine",
+        expected_current_revision_id=revision.id,
+        fresh_ref="first",
+    )
+    second = persist_validation_record(
+        review.store,
+        revision,
+        request,
+        scenario,
+        record,
+        executor_class="author_machine",
+        expected_current_revision_id=revision.id,
+        fresh_ref="second",
+    )
+    assert replay.id == first.id != second.id
+    timeline = _get(review, "evaluations")["current"]
+    attempts = [row for row in timeline["receipts"] if row["scenario"] == "retry-unit"]
+    assert len(attempts) == 2
+    assert {row["id"] for row in attempts} == {first.id, second.id}
+    ids = [row["attempt_receipt_id"] for row in attempts]
+    assert len(set(ids)) == 2
+    assert all(re.fullmatch(r"receipt:[0-9a-f]{64}", value) for value in ids)
+    assert all(row["attempt_lifecycle"] == "record_only" for row in attempts)
+    assert all(row["attempt_recorded_at"] for row in attempts)
+    assert [row["attempt_receipt_id"] for row in _get(review, "evaluations")["current"]["receipts"]] == ids
+    assert timeline["counts"]["pass"] == 1
+    assert [row.get("superseded_by_newer_result", False) for row in attempts] == [False, True]
+    assert all(
+        "started_at" not in row and "finished_at" not in row and "dispatcher_run_id" not in row for row in attempts
+    )
+
+
 def test_evaluation_configuration_change_prevents_false_comparison(tmp_path: Path) -> None:
     """Two actual Snapshots with differently configured evaluations never form a comparable trend."""
     from lemoncrow.pro.capabilities.review.runtime_validation import (
@@ -795,6 +883,8 @@ def test_missing_or_corrupt_execution_artifact_cannot_count_as_pass(tmp_path: Pa
     assert timeline["current"]["state"] == "unverified"
     assert timeline["current"]["receipts"][0]["status"] == "UNVERIFIED"
     assert timeline["current"]["receipts"][0]["trust"] == "reported_only"
+    assert timeline["current"]["receipts"][0]["attempt_receipt_id"] == ""
+    assert timeline["current"]["receipts"][0]["attempt_lifecycle"] == "rejected"
 
 
 def test_rejected_nested_execution_cannot_be_counted_as_verified(tmp_path: Path) -> None:

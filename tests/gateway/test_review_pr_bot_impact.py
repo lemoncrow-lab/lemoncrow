@@ -432,11 +432,12 @@ def test_a_plain_change_is_low_impact_and_the_summary_says_how_it_knows(world: W
         == "**Low impact** · 1 file, 2 changed lines <sub>(from the change itself, not a model)</sub>"
     )
     lines = summary(world).split("\n")
-    assert lines[3] == "<h2>Confidence Score: 5/5</h2>" and lines[5] == "---", "the score and a rule come first"
+    assert lines[3] == "<h2>No issues found</h2>", "the verdict in words comes first"
+    assert lines[5] == "**The one changed file reviewed** · No extra human review flagged"
+    rule = lines.index("---")
     assert (
-        lines[7] == "**[Low impact]** Widgets"
-    ), "the impact label, then one sentence (the title when no overview was made)"
-    assert lines[10].startswith("**No must-fix findings**"), "then the verdict"
+        lines[rule + 2] == "**[Low impact]** Widgets"
+    ), "after a rule, the impact label, then one sentence (the title when no overview was made)"
     assert report.to_wire()["impact"] == {
         "level": "low",
         "label": "Low impact",
@@ -661,7 +662,7 @@ def test_a_risk_whose_only_finding_is_held_back_does_not_read_as_a_plain_found(
     assert any(row.startswith("- **Found** — `src/cache.py:") for row in risks_block(plain))
 
     # At strictness 3 the verdict counts nothing and says one is held back; the list says the same, not "Found".
-    assert "**No must-fix findings** · 1 held back" in summary(strict).split("\n")
+    assert "<h2>No must-fix findings · 1 held back</h2>" in summary(strict).split("\n")
     block = risks_block(strict)
     assert block[0] == "<details><summary>Risks examined: 1 of 1 · 1 found (held back)</summary>"
     (row,) = [row for row in block if row.startswith("- **")]
@@ -677,7 +678,7 @@ def test_a_held_back_risk_is_listed_after_the_one_the_verdict_counts(
     world = build_world(tmp_path, monkeypatch, {**BASE, CONFIG: review_yaml(strictness=3)})
     world.origin.push(FIRST_PUSH)  # auth: a P1; cache: a P2, held back at strictness 3
     world.review()
-    assert "**No must-fix findings** · 1 should-fix · 1 held back" in summary(world).split("\n")
+    assert "<h2>No must-fix findings · 1 should-fix · 1 held back</h2>" in summary(world).split("\n")
     block = risks_block(world)
     assert block[0] == "<details><summary>Risks examined: 2 of 2 · 1 found · 1 found (held back)</summary>"
     rows = [row for row in block if row.startswith("- **")]

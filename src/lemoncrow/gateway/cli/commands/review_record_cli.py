@@ -22,6 +22,9 @@ from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
 from lemoncrow.gateway.cli.commands.review_observation_cli import observation_worker_group
+from lemoncrow.gateway.cli.commands.review_proof_cli import proof_group
+from lemoncrow.gateway.cli.commands.review_qa_cli import qa_group
+from lemoncrow.gateway.cli.commands.review_watch_deploy_cli import watch_deploy_cmd
 from lemoncrow.pro.capabilities.review.local_cli.config import config_cmd
 from lemoncrow.pro.capabilities.review.local_cli.hook import hook_group
 from lemoncrow.pro.capabilities.review.local_cli.init_action import init_action_cmd
@@ -209,6 +212,9 @@ REVIEW_SUBCOMMANDS: dict[str, click.Command] = {
     "hosted": hosted_group,
     "diagnostics": diagnostics_cmd,
     "observation-worker": observation_worker_group,
+    "qa": qa_group,
+    "proof": proof_group,
+    "watch-deploy": watch_deploy_cmd,
 }
 
 
@@ -283,6 +289,7 @@ class ReviewCommand(click.Command):
                         "observation-worker run|check",
                         "Run hosted production observation on this customer machine (check: dry run).",
                     ),
+                    ("qa run --url URL [--sha SHA]", "Replay saved browser scenarios against a preview in Chromium."),
                 ]
             )
 

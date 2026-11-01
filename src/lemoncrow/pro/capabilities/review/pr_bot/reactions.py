@@ -30,7 +30,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, ReactionTarget, is_denied
+from lemoncrow.pro.capabilities.review.pr_bot.github import ReactionTarget, is_denied
+from lemoncrow.pro.capabilities.review.pr_bot.host import ReviewHost
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
 
 EYES: Final[str] = "eyes"
@@ -46,7 +47,7 @@ class Signal:
     failure, for the job log.
     """
 
-    def __init__(self, github: BotGitHub, target: ReactionTarget) -> None:
+    def __init__(self, github: ReviewHost, target: ReactionTarget) -> None:
         self.github = github
         self.target = target
         self.state = ""

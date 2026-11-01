@@ -27,6 +27,21 @@ def _resolve_model(model: str | None) -> str:
     return "qwen3.6:27b"
 
 
+def _format(json_schema: dict[str, Any]) -> dict[str, Any] | str:
+    """Ollama's ``format``: the schema itself, so decoding is held to its keys and types; plain JSON mode without one."""
+
+    return json_schema or "json"
+
+
+def _no_answer(done_reason: str) -> str:
+    why = (
+        ": it reached its context limit before answering (a thinking model can spend all of it reasoning)"
+        if done_reason == "length"
+        else ""
+    )
+    return f"Ollama returned no answer (done_reason={done_reason or 'unknown'}){why}"
+
+
 def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) -> str:
     """Summarize text with a local Ollama model."""
     chosen_model = _resolve_model(model)
@@ -67,7 +82,7 @@ def chat(
             response = _ollama_module().chat(
                 model=chosen_model,
                 messages=messages,
-                format="json",
+                format=_format(json_schema),
                 options=options,
             )
     except TypeError as exc:
@@ -86,6 +101,9 @@ def chat(
     content = message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")
     if json_schema is None:
         return str(content)
+    if not str(content or "").strip():
+        done = response.get("done_reason") if isinstance(response, dict) else getattr(response, "done_reason", "")
+        raise OllamaUnavailable(_no_answer(str(done or "")))
     try:
         parsed = json.loads(str(content))
     except json.JSONDecodeError as exc:
@@ -109,7 +127,7 @@ def chat_stream(
         "stream": True,
     }
     if json_schema is not None:
-        kwargs["format"] = "json"
+        kwargs["format"] = _format(json_schema)
     try:
         response = _ollama_module().chat(**kwargs)
     except TypeError as exc:

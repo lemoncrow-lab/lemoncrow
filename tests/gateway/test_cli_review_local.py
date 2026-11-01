@@ -120,7 +120,7 @@ def test_a_change_with_no_code_to_review_and_no_rule_says_that_no_model_was_aske
     lab.write({"docs/guide.md": "# Guide\n\nUse clamp with care.\n"})
     result = lab.run()
     assert result.exit_code == 0, result.output
-    assert "No must-fix findings" in result.stdout
+    assert "No issues found" in result.stdout
     assert local.NO_MODEL_ASKED in result.stdout and "no model calls" in result.stdout
     assert lab.model.calls == []
     # Ordinary changed code with no keyword is looked at now, and a risk signal is investigated too.
@@ -380,7 +380,7 @@ def test_a_setting_that_cannot_be_applied_is_a_note_and_the_default_stands(
 def test_a_clean_change_exits_0(lab: Lab) -> None:
     lab.write({"src/plain.py": "VALUE = 2\n"})
     result = lab.run()
-    assert result.exit_code == 0 and "No must-fix findings" in result.stdout
+    assert result.exit_code == 0 and "No issues found" in result.stdout
     assert "Exit " not in result.stdout
 
 

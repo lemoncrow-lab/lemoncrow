@@ -2,7 +2,8 @@
 
 The workflow is the sample in ``docs/setup/github-action.md`` (see
 :mod:`lemoncrow.pro.capabilities.review.pr_bot.init_action`). The command writes one file, never overwrites a
-different one without ``--force``, and prints what the person still has to do: the secret and the pinned SHA.
+different one without ``--force``, pins the Action to the newest release's commit, and prints what the person still has to
+do: the secret, and the pin when the newest release could not be looked up.
 """
 
 from __future__ import annotations
@@ -44,8 +45,9 @@ def init_action_cmd(provider: str, fail_on: str, chat: bool, force: bool, repo_r
     """Write .github/workflows/lemoncrow-review.yml, the GitHub Action workflow from the setup guide.
 
     Review-only by default; --chat adds the comment triggers. The file is the guide's sample with your choices, so the
-    two cannot disagree. It leaves two things to you, and prints them: adding the model key as a secret and pinning
-    the Action to a commit SHA.
+    two cannot disagree. The Action is pinned for you to the commit of the newest LemonCrow release (looked up with git
+    ls-remote); offline, the placeholder stays and the next steps say what to put there. Adding the model key as a
+    secret is left to you, and printed.
     """
 
     from lemoncrow.pro.capabilities.review.pr_bot import init_action

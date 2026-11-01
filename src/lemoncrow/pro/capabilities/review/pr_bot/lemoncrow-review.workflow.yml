@@ -6,10 +6,11 @@ permissions:
   contents: read        # fetch the pull request's commits
   pull-requests: write  # the summary comment, inline findings, thread replies and resolves
   statuses: write       # the "LemonCrow Review" commit status
+  checks: read          # the CI results on the head commit, for the summary's proof of work
 jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

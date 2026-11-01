@@ -35,6 +35,19 @@ def guide_sample() -> str:
     return found.group(1) + "\n"
 
 
+@pytest.fixture(autouse=True)
+def offline(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """No test reaches GitHub: the tag listing is offline unless a test hands it one."""
+
+    def unreachable(url: str = init_action.RELEASE_REPO) -> str:
+        raise OSError("offline in tests")
+
+    monkeypatch.setattr(init_action, "ls_remote", unreachable)
+    init_action.resolve_pin.cache_clear()
+    yield
+    init_action.resolve_pin.cache_clear()
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     path = tmp_path / "repo"
@@ -122,7 +135,12 @@ def test_every_option_combination_finds_the_places_it_edits_and_is_a_valid_workf
     assert action["with"][key] == f"${{{{ secrets.{provider.upper()}_API_KEY }}}}"
     assert {name for name in action["with"] if name.endswith("api-key")} == {key}
     assert action["with"].get("fail-on", "none") == fail_on
-    assert document["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert document["permissions"] == {
+        "contents": "read",
+        "pull-requests": "write",
+        "statuses": "write",
+        "checks": "read",
+    }
     assert ("issue_comment" in document["on"]) is chat and ("if" in document["jobs"]["review"]) is chat
     assert "env" not in action, "the key is an input, not an environment variable on the step"
 
@@ -204,7 +222,7 @@ def test_it_writes_one_file_and_prints_the_next_steps(repo: Path) -> None:
 
 def test_the_pin_is_one_placeholder_line_in_the_readme_the_guide_and_the_sample() -> None:
     line = init_action.PIN_LINE
-    assert line == "lemoncrow-lab/lemoncrow@<sha>  # v0.8.1"
+    assert line == "lemoncrow-lab/lemoncrow@<sha>  # v0.8.2"
     for text in (
         init_action.sample(),
         GUIDE.read_text(encoding="utf-8"),
@@ -222,6 +240,65 @@ def test_the_pin_is_one_placeholder_line_in_the_readme_the_guide_and_the_sample(
         assert contradiction not in guide, contradiction
     assert init_action.RELEASES_URL in guide and init_action.GUIDE_PIN_URL.endswith("#pin-the-action")
     assert "\n## Pin the Action\n" in guide
+
+
+PEELED = "1" * 40
+LISTING = (
+    f"{'a' * 40}\trefs/tags/v0.9.0\n"
+    f"{'b' * 40}\trefs/tags/v0.10.0\n"  # annotated: its own object, then the commit it names
+    f"{PEELED}\trefs/tags/v0.10.0^{{}}\n"
+    f"{'c' * 40}\trefs/tags/v0.11.0-rc1\n"  # a prerelease is not a release
+    f"{'d' * 40}\trefs/tags/v0.2.0\n"
+    f"{'e' * 40}\trefs/tags/nightly\n"
+)
+
+
+def test_init_action_pins_the_commit_of_the_newest_release_tag(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[str] = []
+
+    def listing(url: str = init_action.RELEASE_REPO) -> str:
+        asked.append(url)
+        return LISTING
+
+    monkeypatch.setattr(init_action, "ls_remote", listing)
+    out = init(repo, "--chat").output
+    text = written(repo)
+    assert f"lemoncrow-lab/lemoncrow@{PEELED}  # v0.10.0\n" in text and init_action.PIN_PLACEHOLDER not in text
+    (action,) = workflow(text)["jobs"]["review"]["steps"]
+    assert action["uses"] == f"lemoncrow-lab/lemoncrow@{PEELED}"
+    assert asked == ["https://github.com/lemoncrow-lab/lemoncrow"], "one lookup for the file and the next steps"
+    assert f"2. Pinned to the newest release, v0.10.0 (commit {PEELED})" in out and "replace <sha>" not in out
+    # Only the pin line differs from the guide's sample.
+    plain = init_action.render_workflow(pin=init_action.Pin(problem="x"))
+    changed = [
+        pair
+        for pair in zip(plain.splitlines(), init_action.render_workflow().splitlines(), strict=True)
+        if pair[0] != pair[1]
+    ]
+    assert changed == [
+        (f"      - uses: {init_action.PIN_LINE}", f"      - uses: lemoncrow-lab/lemoncrow@{PEELED}  # v0.10.0")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("listing", "sha", "tag"),
+    [
+        (f"{'f' * 40}\trefs/tags/v1.2.3\n", "f" * 40, "v1.2.3"),  # a lightweight tag is the commit itself
+        (LISTING, PEELED, "v0.10.0"),
+        (f"{'f' * 40}\trefs/tags/nightly\nnot a row\n", "", ""),
+        ("", "", ""),
+    ],
+)
+def test_the_newest_release_is_the_highest_version_not_the_last_listed(listing: str, sha: str, tag: str) -> None:
+    found = init_action.newest_release(listing)
+    assert (found.sha, found.tag) == (sha, tag) and bool(found.problem) is not bool(sha)
+
+
+def test_when_the_lookup_fails_the_placeholder_stays_and_the_next_steps_say_what_to_fill_in(repo: Path) -> None:
+    out = init(repo).output
+    assert init_action.PIN_LINE in written(repo)
+    assert f"2. Pin the Action: replace <sha> in {WORKFLOW} with the release commit shown at" in out
+    assert "v0.8.2 after # with that release's tag" in out and "could not list the release tags" in out
 
 
 def test_the_next_steps_name_the_chosen_secret_and_leave_chat_out_when_it_is_off(repo: Path) -> None:

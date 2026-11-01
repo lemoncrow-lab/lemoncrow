@@ -291,6 +291,28 @@ def test_two_induced_defects_have_exact_observed_proof_without_clean_control_fal
     assert {row["subject"].rsplit("::", 1)[-1] for row in regressions} == {"test_add", "test_mul"}
     assert all(row["differential_evidence_id"] == unit["evidence_id"] for row in regressions)
     assert all(row["independent_execution"] is False for row in regressions)
+    # A real persisted reviewer annotation may cite this specific recipe and
+    # test; the API joins it to the authoritative current-Snapshot differential,
+    # without promoting a test observation to a confirmed AI defect.
+    from lemoncrow.pro.capabilities.review.session_models import Annotation, AnnotationAnchor
+
+    linked = next(row for row in regressions if row["subject"].endswith("::test_mul"))
+    annotation = review.store.add_annotation(
+        Annotation(
+            id="",
+            review_id=review.review_id,
+            revision_id=review.revision_id,
+            anchor=AnnotationAnchor(path="calc.py", side="new", start_line=1, end_line=1),
+            body="Check evidence for this suspected multiplication regression",
+            evidence=(f"check-recipe:{linked['recipe_id']}", f"test:{linked['subject']}"),
+        )
+    )
+    cited = _get(review)["finding_regression_citations"]
+    assert cited["schema_version"] == 1 and len(cited["rows"]) == 1
+    assert cited["rows"][0]["annotation_id"] == annotation.id
+    assert cited["rows"][0]["differential_evidence_id"] == unit["evidence_id"]
+    assert cited["rows"][0]["confirmed_defect"] is False
+    assert cited["rows"][0]["independent_execution"] is False
 
 
 @needs_bwrap

@@ -1,7 +1,7 @@
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Pin, PinOff, X } from "lucide-react";
 
 import type { CodeTarget } from "../lib/codeLinks";
@@ -28,8 +28,10 @@ import {
   emptyProvenance,
 } from "./ContextSections";
 import { annotationSource, partition } from "./annotationModel";
+import { lazyPanel } from "./lazyPanel";
 import { targetDisplayLabel } from "./readerModel";
 import { fetchTargetHistory } from "./reviewApi";
+import type { InvestigateHost } from "./investigate/Investigate";
 import type {
   Annotation,
   DegradedNote,
@@ -42,7 +44,10 @@ import type {
   ReviewTarget,
 } from "./types";
 
-export type ContextDrawerTab = "context" | "checks" | "discussion" | "activity";
+export type ContextDrawerTab = "context" | "investigate" | "checks" | "discussion" | "activity";
+
+// The investigation surfaces load only once the tab is opened.
+const Investigate = lazyPanel("Investigate", () => import("./investigate/Investigate"));
 
 interface ContextDrawerProps {
   reviewId: string;
@@ -76,12 +81,15 @@ interface ContextDrawerProps {
   onSetAnnotationState?(id: string, state: "open" | "resolved"): void;
   /** `projection.triage.hidden_finding_ids`: findings the finding threshold folds (imported ones by ref). */
   hiddenFindingIds?: readonly string[];
+  /** N06: what the Investigate tab reads; without it the tab is not offered. */
+  investigate?: InvestigateHost;
 }
 
-const ALL_TABS: ContextDrawerTab[] = ["context", "checks", "discussion", "activity"];
+const ALL_TABS: ContextDrawerTab[] = ["context", "investigate", "checks", "discussion", "activity"];
 
 function tabLabel(tab: ContextDrawerTab): string {
   if (tab === "context") return "Context";
+  if (tab === "investigate") return "Investigate";
   if (tab === "checks") return "Checks";
   if (tab === "discussion") return "Discussion";
   return "Activity";
@@ -137,6 +145,7 @@ export default function ContextDrawer({
   onJumpToCode,
   onSetAnnotationState,
   hiddenFindingIds,
+  investigate,
 }: ContextDrawerProps) {
   // Code Peek is a Runtime consumer: no entry point in a Review-only install,
   // nor while product discovery is still pending.
@@ -280,6 +289,8 @@ export default function ContextDrawer({
     if (item === "context") return (detail?.impact ?? []).length + authorNotes.length;
     if (item === "checks") return verification.filter((row) => row.status !== "PASS").length + currentEvidence.length;
     if (item === "discussion") return fileAnnotations.length;
+    // No count: a zero would read as "nothing to investigate".
+    if (item === "investigate") return 0;
     return agentSignalCount + history.length;
   };
 
@@ -323,7 +334,7 @@ export default function ContextDrawer({
         </div>
         <div className="flex min-w-0 items-end gap-1">
           <TabsList variant="underline" aria-label="Review context homes" className="flex min-w-0 flex-1 overflow-x-auto">
-            {ALL_TABS.map((item) => {
+            {ALL_TABS.filter((item) => item !== "investigate" || investigate).map((item) => {
               const count = tabCount(item);
               return (
                 <TabsTrigger key={item} value={item} variant="underline" className="gap-1 data-[state=active]:border-cyan-500">
@@ -405,6 +416,14 @@ export default function ContextDrawer({
             )}
           </div>
         )}
+
+        {tab === "investigate" && (investigate ? (
+          <Suspense fallback={<div className="text-caption text-muted-foreground" role="status">Loading Investigate…</div>}>
+            <Investigate {...investigate} target={target} onInspectEvidence={() => onTab("checks")} />
+          </Suspense>
+        ) : (
+          <div className="text-caption text-muted-foreground">Investigate is not available in this view.</div>
+        ))}
 
         {tab === "activity" && fileDevelopment && (
           <ContextDevelopment

@@ -141,6 +141,34 @@ def test_merge_projection_combines_authoritative_source_facts_with_historical_re
     assert next(row for row in projection.entries if row.knowledge_kind == "landed_review_decision").source_paths == ()
 
 
+@pytest.mark.parametrize(
+    ("action", "disposition", "wording"),
+    [
+        ("defer", "deferred", "deferred"),
+        ("request_change", "change_requested", "requested changes"),
+        ("reopen", "open", "reopened"),
+    ],
+)
+def test_final_nonaccepting_human_dispositions_are_historical_not_approval(
+    tmp_path: Path, action: str, disposition: str, wording: str
+) -> None:
+    store, session, revision = _capture(tmp_path / "db", _git_repo(tmp_path))
+    initial = store.append_decision_event(_event(session, revision, "accept", "accepted"), expected_prior_event_id="")
+    final = store.append_decision_event(
+        _event(session, revision, action, disposition), expected_prior_event_id=initial.id
+    )
+    facts = landed_review_facts(store, session.id, revision.id, counted_evidence=lambda _revision: ())
+    assert len(facts) == 1
+    assert wording in facts[0].body
+    assert f"outcome:decision-event:{final.id}" in facts[0].source_refs
+    assert f"outcome:decision-event:{initial.id}" not in facts[0].source_refs
+    assert "active acceptance or governing policy" in facts[0].body
+    assert facts[0].state == "historical"
+    projection = _landed(store, session.id, revision.id, counted_evidence=lambda _revision: ())
+    assert len(projection.entries) == 1
+    assert projection.entries[0].body == facts[0].body
+
+
 def test_reopened_or_model_disposition_does_not_turn_into_canonical_history(tmp_path: Path) -> None:
     store, session, revision = _capture(tmp_path / "db", _git_repo(tmp_path))
     first = store.append_decision_event(_event(session, revision, "accept", "accepted"), expected_prior_event_id="")
@@ -148,17 +176,15 @@ def test_reopened_or_model_disposition_does_not_turn_into_canonical_history(tmp_
         _event(session, revision, "reopen", "open"),
         expected_prior_event_id=first.id,
     )
-    assert (
-        landed_review_facts(
-            store,
-            session.id,
-            revision.id,
-            counted_evidence=lambda _revision: (),
-        )
-        == ()
+    reopened = landed_review_facts(
+        store,
+        session.id,
+        revision.id,
+        counted_evidence=lambda _revision: (),
     )
-    with pytest.raises(ValueError, match="no eligible"):
-        _landed(store, session.id, revision.id)
+    assert len(reopened) == 1
+    assert "reopened" in reopened[0].body and "accepted a recorded decision" not in reopened[0].body
+    assert reopened[0].state == "historical"
 
     model = replace(_event(session, revision, "accept", "accepted", key="model-guidance"), actor_type="agent")
     # The store may reject non-human actions directly; either way, it cannot be canonical knowledge.
@@ -166,7 +192,7 @@ def test_reopened_or_model_disposition_does_not_turn_into_canonical_history(tmp_
         store.append_decision_event(model, expected_prior_event_id="")
     except ValueError:
         pass
-    assert landed_review_facts(store, session.id, revision.id, counted_evidence=lambda _revision: ()) == ()
+    assert landed_review_facts(store, session.id, revision.id, counted_evidence=lambda _revision: ()) == reopened
 
 
 def test_unproven_merge_and_wrong_snapshot_cannot_publish_decision_history(tmp_path: Path) -> None:

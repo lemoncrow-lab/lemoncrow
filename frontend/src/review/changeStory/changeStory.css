@@ -1,0 +1,57 @@
+/* Change Story: motion and labels layered on the shared Map canvas (map/map.css). */
+
+.cs-stage { overflow: hidden; }
+
+/* The step's arriving link draws in once, Snapshot-exact or observed links only. */
+.cs-stage[data-motion="flow"] .rm-edge[data-state="active"] {
+  stroke-dasharray: 2400;
+  stroke-dashoffset: 0;
+  animation: cs-draw 640ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Inferred and current-index links never move: still, dashed, labelled in the legend. */
+.cs-stage[data-motion="static"] .rm-edge[data-state="active"] {
+  stroke-dasharray: 5 4;
+}
+
+/* Hovering another card or link lights links the step did not choose; draw those plainly. */
+.cs-stage:has(.rm-card:hover, .rm-hit:hover) .rm-edge[data-state="active"] {
+  animation: none;
+}
+.cs-stage[data-motion="static"]:has(.rm-card:hover, .rm-hit:hover) .rm-edge[data-state="active"]:not([data-kind="references"]) {
+  stroke-dasharray: none;
+}
+
+@keyframes cs-draw {
+  from { stroke-dashoffset: 2400; }
+  to { stroke-dashoffset: 0; }
+}
+
+.cs-legend,
+.cs-hidden-note {
+  position: absolute;
+  left: 12px;
+  z-index: 10;
+  max-width: calc(100% - 24px);
+  border: 1px solid rgb(var(--border));
+  border-radius: 6px;
+  background: rgb(var(--background) / 0.92);
+  padding: 2px 8px;
+  font-size: var(--fs-caption);
+  color: rgb(var(--muted-foreground));
+  pointer-events: none;
+}
+.cs-legend { bottom: 12px; max-width: calc(58% - 18px); }
+.cs-hidden-note { bottom: 12px; left: auto; right: 12px; max-width: calc(42% - 18px); text-align: right; }
+
+.cs-step { animation: cs-fade 180ms ease-out both; }
+
+@keyframes cs-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-stage .rm-edge,
+  .cs-step { animation: none !important; }
+}

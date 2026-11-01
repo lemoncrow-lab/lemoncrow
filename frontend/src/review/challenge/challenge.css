@@ -1,0 +1,92 @@
+/* Challenge This Claim (N04): one chain, read top to bottom, in a side sheet. */
+
+.ch-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px 16px;
+  font-size: var(--fs-caption);
+}
+
+.ch-stale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px dashed rgb(var(--border));
+  border-radius: 6px;
+  color: rgb(var(--foreground));
+  overflow-wrap: anywhere;
+}
+
+.ch-chain { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.ch-step { min-width: 0; border-top: 1px solid rgb(var(--border) / 0.7); padding-top: 10px; }
+.ch-step:first-child { border-top: 0; padding-top: 0; }
+.ch-step-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: rgb(var(--foreground));
+}
+.ch-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 999px;
+  font-family: var(--workbench-code-font, monospace);
+  font-size: 11px;
+  color: rgb(var(--muted-foreground));
+}
+.ch-step-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.ch-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ch-quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid rgb(var(--border));
+  color: rgb(var(--foreground));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ch-note { margin: 0; color: rgb(var(--subtle-foreground)); overflow-wrap: anywhere; }
+.ch-mono { font-family: var(--workbench-code-font, monospace); color: rgb(var(--foreground)); overflow-wrap: anywhere; }
+.ch-block { display: block; margin-top: 2px; }
+
+.ch-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.ch-row { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ch-row-inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.ch-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ch-row-label { font-weight: 600; color: rgb(var(--foreground)); }
+
+/* Inspect-only and the consent panel differ by border shape as well as wording. */
+.ch-inspect { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ch-consent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 6px;
+}
+.ch-facts { display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr); gap: 4px 10px; margin: 0; }
+.ch-facts dt { color: rgb(var(--muted-foreground)); }
+.ch-facts dd { margin: 0; min-width: 0; color: rgb(var(--foreground)); overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .ch-facts { grid-template-columns: minmax(0, 1fr); }
+  .ch-facts dd { margin-bottom: 4px; }
+}
+
+.ch-result { display: flex; flex-direction: column; gap: 4px; }
+.ch-result[data-stale="true"] { opacity: 0.75; }
+
+/* The held challenge in the Brief: one quiet line. */
+.ch-held { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; font-size: var(--fs-caption); }
+.ch-held-text { min-width: 0; flex: 1 1 12rem; color: rgb(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

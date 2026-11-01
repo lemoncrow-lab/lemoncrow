@@ -297,6 +297,20 @@ export interface ReviewRuntimeValidationJob {
   historical?: boolean;
   superseded?: boolean;
   publication_state?: "current" | "historical" | "superseded" | string;
+  /** Durable queue identity only, not a signed process-level attestation. */
+  completion_receipt?: {
+    kind: "runtime-validation-queue-completion/v1";
+    receipt_id: string;
+    review_id: string;
+    revision_id: string;
+    job_id: string;
+    attempt: number;
+    contract_digest: string;
+    result_digest: string;
+    queue_started_at: number;
+    queue_completed_at: number;
+    time_basis: "durable_queue_lifecycle";
+  };
   result_refs?: string[];
   evidence_refs?: string[];
 }
@@ -3603,12 +3617,17 @@ export interface ReviewEvaluationSnapshot {
     title: string;
     status: string;
     trust: "typed_observation" | "reported_only";
+    /** Hash-bound persisted evidence row, not a signed dispatcher run/lease id. */
+    attempt_receipt_id?: string;
+    /** Evidence insertion time only; not runner start or finish time. */
+    attempt_recorded_at?: string;
+    attempt_lifecycle?: "observed_run" | "record_only" | "rejected";
     raw_attempt: boolean;
     /** Earlier retry retained for audit, excluded from current Snapshot counts and comparisons. */
     superseded_by_newer_result?: boolean;
     exit_code: number | null;
     executor_class: string;
-    /** An independently dispatched worker/sandbox, not an author-machine attestation. */
+    /** True only when independently verified process proof is established, never from worker class or queue lifecycle alone. */
     independent_execution?: boolean;
     /** Validated, missing, or rejected signed execution metadata. */
     execution_provenance?: "validated" | "not_recorded" | "rejected";
@@ -3617,7 +3636,10 @@ export interface ReviewEvaluationSnapshot {
     environment_fingerprint: string;
     recipe_digest?: string;
     stage_outcomes?: { stage: "fetch" | "build" | "run"; status: string; exit_code: number | null }[];
+    /** Only roles whose protected bytes and metadata passed an integrity read. */
     artifact_roles?: string[];
+    /** Recorded roles that are missing, expired, too large, or failed integrity checks. */
+    unavailable_artifact_roles?: string[];
     unverified_integrations?: number;
     artifact_digest: string;
     evidence_id: string;
@@ -3706,6 +3728,61 @@ export interface ReviewProjection {
   behavior?: ReviewBehaviorSummary | null;
   /** Review-level priority, criticality, severity and evidence with an explanation (Phase 9). */
   triage?: ReviewTriage;
+  /** Known callers/consumers of changed targets and impact-pass readiness, from this Snapshot's packet (F7). */
+  context?: ReviewProjectionContext;
+}
+
+/** `snapshot`: recorded in this Snapshot's packet; `current_index`: from the working index, not this Snapshot. */
+export type ReviewConsumerExactness = "snapshot" | "current_index";
+
+export interface ReviewConsumerSite {
+  path: string;
+  /** 0 when the site is real but its line could not be located in this Snapshot. */
+  line: number;
+  /** The calling symbol, for a caller; empty for a detector consumer. */
+  symbol: string;
+  snippet: string;
+  kind: "caller" | "consumer";
+  impact_kind: "untouched_caller" | "contract_literal" | "removed_symbol" | "signature_change" | "decorator_contract" | string;
+  in_patch: boolean;
+  exactness: ReviewConsumerExactness | string;
+  /** Why this is a candidate rather than a fact; empty when it is a fact. */
+  uncertainty: string;
+  inspected_by_agent?: boolean | null;
+}
+
+export interface ReviewConsumerGroup {
+  key: string;
+  /** The changed file the sites are a consequence of; empty when no changed file owns them. */
+  path: string;
+  /** The changed symbol, when the sites came from one. */
+  symbol: string;
+  target_ids: string[];
+  /** `exact`: one target; `file`: every target in `path`; `review`: no changed file owns it. */
+  join: "exact" | "file" | "review";
+  /** Callers the index counted for the changed symbol; null when unknown. */
+  known_callers: number | null;
+  sites: ReviewConsumerSite[];
+  /** Sites past the per-group bound. */
+  omitted: number;
+  /** Index-counted callers the packet does not list (in changed files, namesakes, or past caps). */
+  unlisted_callers: number;
+}
+
+export interface ReviewImpactReadiness {
+  source: "snapshot_packet" | "unavailable";
+  impact_pass: "ran" | "not_run" | "unavailable";
+  index_status: "fresh" | "stale" | "absent" | "unknown";
+  /** Degradation names the impact pass recorded (e.g. `symbol_relations`, `ambiguous_symbol_counts`). */
+  degraded: string[];
+  caller_expansion: { max_symbols: number; callers_per_symbol: number };
+  sites_recorded: number;
+}
+
+export interface ReviewProjectionContext {
+  readiness: ReviewImpactReadiness;
+  consumers: ReviewConsumerGroup[];
+  consumers_omitted: number;
 }
 
 /** Which layer and file/commit (or actor) set a triage value. */

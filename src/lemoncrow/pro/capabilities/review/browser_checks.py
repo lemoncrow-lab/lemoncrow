@@ -50,6 +50,64 @@ _MAX_RUNTIME_ERRORS = 50
 _MAX_OBSERVATIONS = 20
 
 
+#: Saved step actions ``lc review qa run`` replays, in the order written.
+BROWSER_STEP_ACTIONS = ("goto", "click", "fill", "expect_text", "expect_visible", "expect_url", "screenshot")
+_SECRET_REF = re.compile(r"\$\{secrets\.([A-Za-z_][A-Za-z0-9_]{0,63})\}")
+_SCREENSHOT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_ARIA_ROLE = re.compile(r"^[a-z]{2,30}$")
+_MAX_STEPS = 50
+_MAX_STEP_TEXT = 500
+
+
+@dataclass(frozen=True)
+class BrowserStep:
+    """One saved, deterministic step of a browser scenario.
+
+    A target is an accessible ``role`` (+ optional accessible ``name``), a
+    visible ``text`` or a form ``label``. ``value`` (``fill`` only) may hold
+    ``${secrets.NAME}`` references that are resolved from the runner's
+    environment at run time and never stored or printed.
+    """
+
+    action: str
+    path: str = ""
+    role: str = ""
+    name: str = ""
+    text: str = ""
+    label: str = ""
+    value: str = ""
+    screenshot: str = ""
+
+    def secrets(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(_SECRET_REF.findall(self.value)))
+
+    def target(self) -> str:
+        if self.role:
+            return f'{self.role} "{self.name}"' if self.name else self.role
+        if self.label:
+            return f'label "{self.label}"'
+        return f'text "{self.text}"'
+
+    def describe(self) -> str:
+        """Human-readable step; a secret reference is shown as written, never resolved."""
+
+        if self.action in {"goto", "expect_url"}:
+            return f"{'goto' if self.action == 'goto' else 'expect URL'} {self.path}"
+        if self.action == "expect_text":
+            return f'expect text "{self.text}"'
+        if self.action == "screenshot":
+            return f"screenshot {self.screenshot}"
+        if self.action == "fill":
+            shown = self.value if self.secrets() else f'"{self.value}"'
+            return f"fill {self.target()} with {shown}"
+        if self.action == "expect_visible":
+            return f"expect visible {self.target()}"
+        return f"click {self.target()}"
+
+    def to_wire(self) -> dict[str, str]:
+        return {key: value for key, value in self.__dict__.items() if value}
+
+
 @dataclass(frozen=True)
 class BrowserScenario:
     """One repository-configured browser regression scenario."""
@@ -63,6 +121,13 @@ class BrowserScenario:
     viewports: tuple[str, ...] = ()
     visual_threshold: float | None = None
     allow_console_errors: bool = False
+    outcome: str = ""
+    """Plain-language user outcome the steps prove, e.g. "a new user can sign up"."""
+    steps: tuple[BrowserStep, ...] = ()
+    """Saved steps ``lc review qa run`` replays; empty when another runner reports this scenario."""
+
+    def secrets(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(name for step in self.steps for name in step.secrets()))
 
 
 @dataclass(frozen=True)
@@ -152,6 +217,80 @@ def _origin(value: str) -> str:
     return value.strip().rstrip("/").lower()
 
 
+def _step_text(value: object, *, where: str, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{where} needs a non-empty {field}")
+    if len(value) > _MAX_STEP_TEXT:
+        raise ValueError(f"{where} {field} is longer than {_MAX_STEP_TEXT} characters")
+    if "${secrets." in value:
+        raise ValueError(f"{where}: ${{secrets.NAME}} is allowed only in a fill value")
+    return value.strip()
+
+
+def _parse_step(raw: object, *, where: str) -> BrowserStep:
+    if not isinstance(raw, Mapping) or len(raw) != 1:
+        raise ValueError(f"{where} must be a mapping with exactly one action, such as {{goto: /login}}")
+    ((action, arg),) = raw.items()
+    action = str(action)
+    if action not in BROWSER_STEP_ACTIONS:
+        raise ValueError(f"{where} has unknown action {action!r}; expected one of {', '.join(BROWSER_STEP_ACTIONS)}")
+    if action in {"goto", "expect_url"}:
+        return BrowserStep(action=action, path=_normalize_route(_step_text(arg, where=where, field="path")))
+    if action == "expect_text":
+        return BrowserStep(action=action, text=_step_text(arg, where=where, field="text"))
+    if action == "screenshot":
+        name = _step_text(arg, where=where, field="screenshot name")
+        if not _SCREENSHOT_NAME.fullmatch(name):
+            raise ValueError(f"{where} screenshot name must be letters, digits, . _ -")
+        return BrowserStep(action=action, screenshot=name)
+    # click / fill / expect_visible: a role (+ name), a visible text or a label.
+    if isinstance(arg, str) and action != "fill":
+        return BrowserStep(action=action, text=_step_text(arg, where=where, field="text"))
+    if not isinstance(arg, Mapping):
+        raise ValueError(f"{where} {action} needs {{role, name}}, {{text}} or {{label}}")
+    allowed = {"role", "name", "text", "label"} | ({"value"} if action == "fill" else set())
+    unknown = sorted(str(key) for key in arg if key not in allowed)
+    if unknown:
+        raise ValueError(f"{where} {action} has unknown field(s) {', '.join(unknown)}")
+    targets = [key for key in ("role", "text", "label") if key in arg]
+    if len(targets) != 1:
+        raise ValueError(f"{where} {action} needs exactly one of role, text or label")
+    role = _step_text(arg["role"], where=where, field="role") if "role" in arg else ""
+    if role and not _ARIA_ROLE.fullmatch(role):
+        raise ValueError(f"{where} role must be an ARIA role such as button, link, textbox or heading")
+    if "name" in arg and not role:
+        raise ValueError(f"{where} name is the accessible name of a role; use text or label otherwise")
+    value = ""
+    if action == "fill":
+        raw_value = arg.get("value")
+        if not isinstance(raw_value, str) or len(raw_value) > _MAX_STEP_TEXT:
+            raise ValueError(f"{where} fill needs a string value (a literal or ${{secrets.NAME}})")
+        if "${secrets." in _SECRET_REF.sub("", raw_value):
+            raise ValueError(f"{where} fill value has a malformed secret reference; write ${{secrets.NAME}}")
+        value = raw_value
+    return BrowserStep(
+        action=action,
+        role=role,
+        name=_step_text(arg["name"], where=where, field="name") if "name" in arg else "",
+        text=_step_text(arg["text"], where=where, field="text") if "text" in arg else "",
+        label=_step_text(arg["label"], where=where, field="label") if "label" in arg else "",
+        value=value,
+    )
+
+
+def _parse_steps(raw: object, *, scenario_id: str) -> tuple[BrowserStep, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or len(raw) > _MAX_STEPS:
+        raise ValueError(f"browser scenario {scenario_id} steps must be a list of at most {_MAX_STEPS} steps")
+    steps = tuple(
+        _parse_step(item, where=f"browser scenario {scenario_id} step {index + 1}") for index, item in enumerate(raw)
+    )
+    if steps and steps[0].action != "goto":
+        raise ValueError(f"browser scenario {scenario_id} steps must start with goto")
+    return steps
+
+
 def parse_browser_policy(text: str, *, source: str) -> BrowserPolicy:
     """Parse the ``browser_checks`` section of ``.lemoncrow/review.yaml``.
 
@@ -208,6 +347,8 @@ def parse_browser_policy(text: str, *, source: str) -> BrowserPolicy:
                         raw.get("visual_threshold"), field=f"browser scenario {scenario_id} visual_threshold"
                     ),
                     allow_console_errors=raw.get("allow_console_errors") is True,
+                    outcome=str(raw.get("outcome") or "").strip()[:500],
+                    steps=_parse_steps(raw.get("steps"), scenario_id=scenario_id),
                 )
             )
     except ValueError as exc:
@@ -988,8 +1129,10 @@ def build_browser_projection(
 __all__ = [
     "BROWSER_CHECK_MEDIA_TYPE",
     "BROWSER_SOURCE_REF_PREFIX",
+    "BROWSER_STEP_ACTIONS",
     "BrowserPolicy",
     "BrowserScenario",
+    "BrowserStep",
     "browser_check_name",
     "browser_source_ref",
     "browser_summary",

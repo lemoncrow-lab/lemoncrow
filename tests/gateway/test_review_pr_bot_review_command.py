@@ -320,12 +320,19 @@ def test_a_command_review_counts_as_a_review_so_the_run_cap_is_reached(world: Wo
     assert world.review(max_runs_per_pr=2).verdict.state == "budget"  # type: ignore[union-attr]
 
 
-def test_a_dollar_budget_counts_what_the_command_cost(world: World) -> None:
-    # Each fake call costs $0.00027 and the first review makes three (a risk signal each in auth.py and cache.py, and
-    # plain.py as changed code with no signal), so $0.0012 leaves room for exactly one more command.
+def test_a_dollar_budget_counts_what_the_command_cost(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The route has no table price here, so the guard estimates each call from the largest one this run has seen
+    # (the full output limit at a table price would pass $0.0012 on the first call). The review and the deep command
+    # stay under the cap; the next command starts under it and stops at it; only then is a command refused outright.
+    from lemoncrow.pro.capabilities.review.pr_bot import spend
+
+    monkeypatch.setattr(spend, "_table_estimate", lambda *_args: None)
     reviewed(world, max_usd_per_pr=0.0012)
     first = world.chat("@lemoncrow review deep", max_usd_per_pr=0.0012)
     assert first.published["chat"]["kind"] == "review", "the first review cost less than the cap"
+    stopped = world.chat("@lemoncrow review thorough", max_usd_per_pr=0.0012)
+    assert stopped.published["chat"]["kind"] == "review" and "stopped at the cost cap" in answer(world)
+    assert state_of(world).spent.cost_usd >= 0.0012
     refused = world.chat("@lemoncrow review thorough", max_usd_per_pr=0.0012)
     assert refused.published["chat"]["kind"] == "budget" and "spent of $0.0012 allowed" in answer(world)
 

@@ -11,13 +11,21 @@ to that sample the lines the guide shows as additions:
 An edit whose anchor is gone from the sample raises :class:`WorkflowTemplateError`, which the test of every option
 combination turns into a failing test the day the guide changes shape.
 
-The pin. The sample carries one placeholder line, :data:`PIN_LINE`, and so do the README and the guide; the person
-replaces ``<sha>`` with the release commit the release notes print (:data:`RELEASES_URL`). Nothing here suggests a
-branch, a moving tag or "the latest commit": the commit is the version that reviews.
+The pin. The sample carries one placeholder line, :data:`PIN_LINE`, and so do the README and the guide. The command
+fills it in: :func:`resolve_pin` lists the release tags of :data:`RELEASE_REPO` (``git ls-remote --tags``), takes the
+highest ``vX.Y.Z`` (an annotated tag is peeled to the commit it names) and writes
+``uses: lemoncrow-lab/lemoncrow@<40-hex sha>  # vX.Y.Z``. When the lookup fails (offline, no git, no release tag) the
+placeholder stays and the next steps say exactly what to put there. Nothing here suggests a branch, a moving tag or
+"the latest commit": the commit of a release tag is the version that reviews.
 """
 
 from __future__ import annotations
 
+import functools
+import os
+import re
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -32,13 +40,83 @@ KEY_INPUTS: Final[dict[str, str]] = {"anthropic": "anthropic-api-key", "openai":
 #: The one pin line every page shows: ``<sha>`` is replaced with the commit the release notes print. The version after
 #: ``#`` is a reminder of what that commit is; the README, the guide and the sample are held to this exact line by a test.
 PIN_PLACEHOLDER: Final[str] = "<sha>"
-PIN_VERSION: Final[str] = "v0.8.1"
+PIN_VERSION: Final[str] = "v0.8.2"
 PIN_LINE: Final[str] = f"lemoncrow-lab/lemoncrow@{PIN_PLACEHOLDER}  # {PIN_VERSION}"
 #: Where the release commit to pin is printed: the release notes of every release carry the ready-to-copy line.
 RELEASES_URL: Final[str] = "https://github.com/lemoncrow-lab/lemoncrow/releases/latest"
 GUIDE_PIN_URL: Final[str] = (
     "https://github.com/lemoncrow-lab/lemoncrow/blob/main/docs/setup/github-action.md#pin-the-action"
 )
+
+#: Where the release tags are listed from.
+RELEASE_REPO: Final[str] = "https://github.com/lemoncrow-lab/lemoncrow"
+_LS_REMOTE_TIMEOUT = 15
+_RELEASE_TAG = re.compile(r"refs/tags/(v(\d+)\.(\d+)\.(\d+))(\^\{\})?")
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+@dataclass(frozen=True)
+class Pin:
+    """The release commit to pin: ``sha`` and ``tag`` when the lookup found one, else ``problem`` says why not."""
+
+    sha: str = ""
+    tag: str = ""
+    problem: str = ""
+
+    @property
+    def line(self) -> str:
+        """The ``uses:`` value the workflow gets: the release commit, or :data:`PIN_LINE` when there is none."""
+
+        return f"lemoncrow-lab/lemoncrow@{self.sha}  # {self.tag}" if self.sha else PIN_LINE
+
+
+def ls_remote(url: str = RELEASE_REPO) -> str:
+    """``git ls-remote --tags <url>``; raises ``OSError`` or ``subprocess.SubprocessError`` when it cannot run."""
+
+    done = subprocess.run(
+        ["git", "ls-remote", "--tags", url],
+        capture_output=True,
+        text=True,
+        timeout=_LS_REMOTE_TIMEOUT,
+        check=True,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},  # never a credential prompt: the repository is public
+    )
+    return done.stdout
+
+
+def newest_release(listing: str) -> Pin:
+    """The highest ``vX.Y.Z`` tag in ``git ls-remote --tags`` output, peeled to its commit when it is annotated."""
+
+    best: tuple[tuple[int, int, int], str] | None = None
+    shas: dict[str, dict[bool, str]] = {}
+    for row in listing.splitlines():
+        sha, _, ref = row.strip().partition("\t")
+        found = _RELEASE_TAG.fullmatch(ref.strip())
+        if found is None or _SHA.fullmatch(sha) is None:
+            continue
+        tag = found[1]
+        shas.setdefault(tag, {})[found[5] is not None] = sha
+        version = (int(found[2]), int(found[3]), int(found[4]))
+        if best is None or version > best[0]:
+            best = (version, tag)
+    if best is None:
+        return Pin(problem=f"no vX.Y.Z release tag found at {RELEASE_REPO}")
+    tag = best[1]
+    # `^{}` is the commit an annotated tag points at; a lightweight tag has only its own line, which is the commit.
+    return Pin(sha=shas[tag].get(True) or shas[tag][False], tag=tag)
+
+
+@functools.cache
+def resolve_pin() -> Pin:
+    """The newest release commit, looked up once per process; a :class:`Pin` with ``problem`` set when it cannot be."""
+
+    try:
+        return newest_release(ls_remote())
+    except subprocess.TimeoutExpired:
+        return Pin(problem=f"listing the release tags of {RELEASE_REPO} timed out")
+    except (OSError, subprocess.SubprocessError) as exc:
+        return Pin(problem=f"could not list the release tags of {RELEASE_REPO} ({type(exc).__name__})")
+
 
 _ON_TYPES = "    types: [opened, synchronize, reopened, ready_for_review]\n"
 CHAT_TRIGGERS: Final[str] = "  issue_comment: {types: [created]}\n  pull_request_review_comment: {types: [created]}\n"
@@ -87,8 +165,10 @@ def _edited(text: str, anchor: str, replacement: str, what: str) -> str:
     return text.replace(anchor, replacement, 1)
 
 
-def render_workflow(*, provider: str = "anthropic", fail_on: str = "none", chat: bool = False) -> str:
-    """The workflow file for these options."""
+def render_workflow(
+    *, provider: str = "anthropic", fail_on: str = "none", chat: bool = False, pin: Pin | None = None
+) -> str:
+    """The workflow file for these options, pinned to *pin* (default: :func:`resolve_pin`; the placeholder without one)."""
 
     if provider not in PROVIDERS:
         raise ValueError(f"provider must be one of {', '.join(PROVIDERS)}")
@@ -103,23 +183,38 @@ def render_workflow(*, provider: str = "anthropic", fail_on: str = "none", chat:
     if fail_on in GATING:
         key = _OPENAI_KEY if provider == "openai" else _ANTHROPIC_KEY
         text = _edited(text, key, key + GATING[fail_on], "the key line the fail-on setting follows")
+    chosen = resolve_pin() if pin is None else pin
+    if chosen.sha:
+        text = _edited(text, PIN_LINE, chosen.line, "the pin line")
     return text
 
 
-def next_steps(*, provider: str, chat: bool, path: str = WORKFLOW_PATH) -> list[tuple[str, tuple[str, ...]]]:
+def next_steps(
+    *, provider: str, chat: bool, path: str = WORKFLOW_PATH, pin: Pin | None = None
+) -> list[tuple[str, tuple[str, ...]]]:
     """What the person still has to do, which no command can do for them: ``(step, command lines)`` in order."""
 
     secret = SECRETS[provider]
+    chosen = resolve_pin() if pin is None else pin
+    if chosen.sha:
+        pinned = (
+            f"Pinned to the newest release, {chosen.tag} (commit {chosen.sha}). To upgrade later, replace the commit "
+            f'and the tag after # together (see "Pin the Action" in the guide: {GUIDE_PIN_URL}).',
+            (),
+        )
+    else:
+        pinned = (
+            f"Pin the Action: replace {PIN_PLACEHOLDER} in {path} with the release commit shown at {RELEASES_URL} "
+            f"and {PIN_VERSION} after # with that release's tag; the newest release could not be looked up "
+            f'({chosen.problem}). See "Pin the Action" in the guide: {GUIDE_PIN_URL}.',
+            (),
+        )
     steps: list[tuple[str, tuple[str, ...]]] = [
         (
             f"Add your model key as a repository secret named {secret} (Settings > Secrets and variables > Actions).",
             (f"gh secret set {secret}",),
         ),
-        (
-            f"Pin the Action: replace {PIN_PLACEHOLDER} in {path} with the release commit shown at {RELEASES_URL} "
-            f'(see "Pin the Action" in the guide: {GUIDE_PIN_URL}).',
-            (),
-        ),
+        pinned,
         (
             "Commit the file to your default branch, then open a pull request: the bot posts a summary and a "
             "`LemonCrow Review` status when the run finishes.",
@@ -145,10 +240,14 @@ __all__ = [
     "PIN_VERSION",
     "PROVIDERS",
     "RELEASES_URL",
+    "RELEASE_REPO",
     "WORKFLOW_PATH",
+    "Pin",
     "WorkflowTemplateError",
+    "newest_release",
     "next_steps",
     "render_workflow",
+    "resolve_pin",
     "sample",
     "template_path",
 ]

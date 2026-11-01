@@ -71,6 +71,68 @@ Per pull request and depth, and in aggregate over the depth:
 
 **How a finding catches a label.** Same file, and either (`location`) its changed region lies within the corpus `line_tolerance` of a line the fix edited, or (`symbol`) its text names an identifier the fix edited, which is how a bug outside the changed lines (a caller left behind by a signature change) can be caught. Assignment is one to one. `match: location` in the corpus file is the strict reading. Each catch in the report says which rule fired, and same-file findings that matched nothing are listed as near misses for a person to read.
 
+## Comparing reviewers: LemonCrow, a DIY prompt, and others
+
+The competitor that matters most is the one a team builds in an afternoon: a Claude Code or Codex review Action with one prompt ("review this diff, list bugs as file:line: severity: description"). The benchmark runs it as a reviewer beside LemonCrow, on the same pull requests, through the same drivers, the same `--max-usd` and `--max-calls` ceilings and the same scoring, so the two sit in one report.
+
+| Option | What it does |
+| --- | --- |
+| `--reviewer lemoncrow,diy` | Which reviewers run (default `lemoncrow`). `diy` is one model call per pull request: the prompt in `evals/review/diy_review_prompt.v1.txt` as the system prompt and the plain `git diff -U3` of the range, in a fence, as the message. No repository context, no triage, no verification. The model fills `file`, `line`, `severity` and `description` (the `file:line: severity: description` of the prompt); critical maps to P0, high to P1, medium and low to P2. |
+| `--diy-prompt FILE` | Another prompt file. The file name carries the version (`.v1.`), the report holds its text and SHA-256. Change the prompt by adding `v2`, never by editing `v1`. |
+| `--diy-max-diff-chars N` | A diff longer than this (default 400000, about 100k tokens) is cut at a line end and the cut is stated in the diff itself and in the run (`extra.diff_truncated`). It is still scored: a homemade Action would have cut it too. |
+| `--repeat N` | Reviews every pull request N times per reviewer and measures rerun stability (below). The first run is the headline row; every run is kept. Incompatible with `--record-dir` (a recording would answer every rerun from the first). |
+| `--plan` | Prints reviewers x depths x repeats, the call bound of each row and in all, and the maximum spend, before anything runs. |
+
+Pull request comments you import (a corpus entry's `baseline:`, `--fetch-baseline`, `import-reviews`) appear as one more row per comment author, `imported:<login>`, scored by the same matcher. They have no model cost in the run: pass `--baseline-usd-per-review` and the row shows that price with the basis `supplied`.
+
+Rounds run in this order: one review per pull request at each depth, then the DIY review, then the next round. A ceiling that stops the run therefore leaves every reviewer with its first round before any rerun is paid for.
+
+### The comparison block
+
+Both reports carry it. In the JSON it is `comparison`; in the Markdown it is the first section, "Reviewer comparison".
+
+- **Scope.** Labelled pull requests whose review finished. A **true positive** is a finding assigned to a label (the rule that fired, `location` or `symbol`, and the line gap are recorded). A **false positive** is a surfaced finding that matches no label, with a reason: `duplicate_of_caught_label`, `same_file_as_missed_label`, `same_file_as_caught_label` or `no_label_in_file`. A **false negative** is a label no finding was assigned to. Labels are bugs a later commit fixed, so a false positive is an upper bound. Every finding is listed in full per pull request and run (`comparison.reviewers[].per_pr[].runs[]`), so the totals can be recomputed by hand.
+- **Totals.** TP, FP, FN, precision, recall and F1 per reviewer, each with a Wilson 95% interval. The F1 interval is an approximation (Wilson on 2TP out of 2TP+FP+FN); F1 is not a binomial rate and the report says so. Reviewers scored on different pull requests (an imported reviewer with comments on only some) also get totals on the pull requests all of them were scored on.
+- **Cost and time.** Mean, median and p90 dollars per review, over every finished review of the reviewer (labelled or not), and the `usd_basis`: `provider` (the provider reported it), `price_table`, `override` (your `--input-usd-per-mtok` rates), `supplied`, `mixed` or `unknown`. A review with no price is counted in `unknown_cost_runs`, never as free. Wall seconds per review beside it.
+- **Run metadata.** `comparison.run` repeats what a reader needs without the rest of the file: date, LemonCrow git SHA and whether the tree was dirty, driver and model, depths, reviewers, repeat, corpus id and digest. The full `run` block has the command line.
+- **Judge transparency.** `comparison.scoring` records how matching is judged: matcher `label-match-1`, deterministic, **no LLM judge** (`llm_judge: false`, `judge_prompt: null`), the label match mode and line tolerance from the corpus, and that text similarity (Ochiai over content words, `--similarity`, `--line-window`) is used only for agreement with imported reviewers, never for TP, FP or FN. The golden-comment corpus is scored by `golden-score`, which does use an LLM judge (prompt `golden-judge-1`, digest in its report); the block says so. A change to the matching rules changes `matcher_version`.
+- **Rerun stability** (`--repeat N`). Two findings from different reruns are the same when they are on one file within the corpus `line_tolerance` lines of each other; wording is not compared. Per reviewer: the mean Jaccard agreement of the reruns' finding sets (all pull requests, and only those with findings, since two empty sets agree trivially), how many distinct findings appeared in every run and how many flipped, how many labels were caught in some reruns and not others, and the min, max, mean and standard deviation of precision, recall and F1 across the reruns. The same figures per pull request are under `per_pr[].stability`.
+
+### On the golden-comment corpus
+
+The 50-pull-request golden-comment corpus has no fix-derived labels, so its TP, FP and FN are the judge's (`golden-score`, below), not the comparison block's; the block still gives cost, time and stability there. The DIY run is stored under `prs[].depths.diy` in the report, so `golden-score --report REPORT --depth diy` scores it exactly like a LemonCrow depth, with the same judge and answer key. Other tools' saved comments are scored with `--reviewer-comments`, as before.
+
+### The launch benchmark
+
+One script plans or runs it: LemonCrow at thorough (the depth of the published row) and the DIY baseline, three runs each, on the 50-pull-request corpus, then both scored by the judge. Reports go outside the checkout.
+
+```bash
+evals/review/launch_benchmark.sh plan ~/lc-bench-reports   # prints the bound and the maximum spend; calls nothing
+evals/review/launch_benchmark.sh run  ~/lc-bench-reports   # the spend. Needs the claude CLI signed in.
+```
+
+The `plan` output of the current script:
+
+```text
+driver live; reviewers lemoncrow, diy; depths thorough; 3 run(s) per pull request and reviewer; max $150, max 1600 calls
+150 full reviews
+150 DIY reviews (one prompt over the unified diff, one model call each)
+  lemoncrow thorough: 50 PRs x 3 run(s) x at most 20 call(s) = 3000
+  diy: 50 PRs x 3 run(s) x 1 call = 150
+at most 3150 model calls in all: ...
+call bound: 1600 (--max-calls 1600 stops the run at that many calls)
+maximum spend: $150 (--max-usd), checked before every call; calls already running when it is reached finish, so a run can pass it by up to 6 calls
+```
+
+The ceilings are sized from the published run (350 calls and $28.75 for 50 pull requests at thorough): three LemonCrow runs are about 1050 calls and $86, the DIY runs add 150 calls. Judge calls (`golden-score`, one per pull request and reviewer, cached) are extra. The script is the two commands of "Run it" below with `--reviewer lemoncrow,diy --repeat 3 --depth thorough` added, then `golden-score` for `--depth thorough` and `--depth diy`. Comparators' saved comments (Copilot, Claude Code Review, Greptile) are scored afterwards:
+
+```bash
+uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comment_prs.yaml \
+    --reviewer-comments ~/comments/greptile --reviewer-label Greptile --out-dir ~/lc-bench-reports
+```
+
+The golden scoring covers each reviewer's first run; the reruns' judged scores are not computed (their finding-set stability is, in the benchmark report).
+
 ## The corpus
 
 `evals/review/real_prs.yaml` is the public seed: nine commits from well-known repositories that shipped a bug a later commit fixed. It follows Gate I's corpus vocabulary (`provenance.source: public_repository`, permissive licence, repository and commit) and the format is documented in its header and in `evaluation/real_prs.py`.
@@ -255,6 +317,10 @@ The importer takes a run report that carries a `benchmark_summary` object (the p
 | `…/evaluation/baseline_reviews.py` | the importer for a baseline reviewer's comments |
 | `…/evaluation/corpus_init.py` | `init-corpus` |
 | `…/evaluation/benchmark_report.py` | the JSON and markdown report, and the checklist |
+| `…/evaluation/benchmark_compare.py` | the reviewer comparison: TP / FP / FN per pull request, totals with intervals, cost, rerun stability, matcher metadata |
+| `…/evaluation/diy_review.py`, `evals/review/diy_review_prompt.v1.txt` | the DIY baseline reviewer and its versioned prompt |
+| `evals/review/launch_benchmark.sh` | the launch benchmark: plan or run, then judge |
+| `tests/gateway/test_review_benchmark_compare.py` | the comparison, the DIY reviewer, stability and the plan, with the fake driver |
 | `…/evaluation/golden_comments.py`, `golden_judge.py`, `golden_scoring.py` | the golden corpus and answer key, the judge and its cache, the scorer and its report |
 | `…/review/git_env.py` | the environment for git run on another repository (drops `GIT_DIR` and its relatives) |
 | `src/lemoncrow/gateway/cli/commands/review_benchmark.py`, `review_golden.py` | the commands |

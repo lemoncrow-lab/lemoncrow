@@ -1,5 +1,5 @@
-"""``lc review --ai`` prints the same structure as the pull request comment, in plain text: the confidence score, the impact
-line, the verdict, the findings and the summary bullets.
+"""``lc review --ai`` prints the same structure as the pull request comment, in plain text: the verdict in words, the
+coverage and human-review line, the impact line, the findings and the summary bullets (the score is in ``--json`` only).
 
 Same lab as ``test_cli_review_local.py`` (a real repository, the real engine path, a fake model). The overview is one
 more model call, made for a person at the command and not for a git hook, and reused while the tree is the same.
@@ -28,7 +28,7 @@ def lines_of(text: str) -> list[str]:
     return text.split("\n")
 
 
-def test_the_terminal_shows_the_score_the_impact_the_verdict_the_findings_and_the_summary_in_that_order(
+def test_the_terminal_shows_the_verdict_the_coverage_the_impact_the_findings_and_the_summary_in_that_order(
     lab: Lab,
 ) -> None:
     lab.model.overview = {
@@ -41,13 +41,14 @@ def test_the_terminal_shows_the_score_the_impact_the_verdict_the_findings_and_th
     out = lab.run().stdout
     lines = lines_of(out)
     assert lines[0] == "LemonCrow review · working tree against HEAD"
-    top = lines.index("Confidence Score: 3/5")
+    top = lines.index("No must-fix findings · 1 should-fix · 1 optional")
     assert top <= 2, "after the title and the line saying which configuration applied"
-    assert lines[top + 1] == "[Medium impact] Guards authorize and bounds the cache"
-    assert lines[top + 2].startswith("  security-sensitive code") and lines[top + 2].endswith(
+    assert lines[top + 1] == "All 3 changed files reviewed · Human review required: touches security-sensitive code"
+    assert lines[top + 2] == "[Medium impact] Guards authorize and bounds the cache"
+    assert lines[top + 3].startswith("  security-sensitive code") and lines[top + 3].endswith(
         "(from the change itself, not a model)"
     )
-    assert lines[top + 3] == "No must-fix findings · 1 should-fix · 1 optional"
+    assert "Confidence Score" not in out
     order = [
         out.index(part)
         for part in ("Findings\n", "1. P1 · should fix  src/auth.py:2-3", "Summary\n", "  - authorize rejects")
@@ -59,11 +60,12 @@ def test_the_terminal_shows_the_score_the_impact_the_verdict_the_findings_and_th
     assert lab.model.overviews and len(lab.model.overviews) == 1
 
 
-def test_a_clean_review_is_a_five_and_has_no_findings_section(lab: Lab) -> None:
+def test_a_clean_review_reads_calmly_and_has_no_findings_section(lab: Lab) -> None:
     lab.write({"src/plain.py": "VALUE = 2\n", "src/more.py": "A = 1\n" * 5, "src/third.py": "B = 2\n" * 5})
     out = lab.run().stdout
-    assert "Confidence Score: 5/5" in out and "Findings\n" not in out
-    assert "No must-fix findings" in out
+    assert "No issues found\n" in out and "Findings\n" not in out
+    assert "All 3 changed files reviewed · No extra human review flagged" in out
+    assert lab.wire()["verdict"]["confidence"] == 5
 
 
 def test_the_json_result_carries_the_score_and_the_overview(lab: Lab) -> None:
@@ -80,7 +82,7 @@ def test_a_second_run_on_the_same_tree_reuses_the_overview_and_asks_nothing(lab:
     asked = len(lab.model.overviews)
     second = lab.run().stdout
     assert len(lab.model.overviews) == asked and lab.model.calls == [], "no call of any kind"
-    assert "Confidence Score: 3/5" in second and "Changes 3 files" in second
+    assert "No must-fix findings · 1 should-fix · 1 optional" in second and "Changes 3 files" in second
     assert "reused, with no model call" in second
     assert first.split("Model:")[0].count("Summary") == 1
 
@@ -98,7 +100,7 @@ def test_a_small_change_is_not_summarised_and_its_terminal_output_has_no_summary
     out = lab.run().stdout
     assert lab.model.overviews == [] and "Summary\n" not in out
     lines = lines_of(out)
-    top = lines.index("Confidence Score: 3/5")
+    top = lines.index("No must-fix findings · 1 should-fix") + 1
     assert (
         lines[top + 1].startswith("[Medium impact]") and "Widgets" not in lines[top + 1]
     ), "a local change has no title"
@@ -108,7 +110,7 @@ def test_a_failed_overview_leaves_the_review_alone_and_says_so_in_a_note(lab: La
     lab.model.fail_overview = "provider overloaded"
     lab.write(THREE)
     result = lab.run()
-    assert "Confidence Score: 3/5" in result.stdout and "Summary\n" not in result.stdout
+    assert "No must-fix findings · 1 should-fix · 1 optional" in result.stdout and "Summary\n" not in result.stdout
     assert "Note: overview skipped: the model call failed (RuntimeError)" in result.stdout
     assert "provider overloaded" not in result.stdout
 

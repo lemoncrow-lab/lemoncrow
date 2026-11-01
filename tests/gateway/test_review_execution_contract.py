@@ -300,6 +300,56 @@ class _UnlistableArtifactBackend(_MemoryArtifactBackend):
     list_keys = None  # type: ignore[assignment]
 
 
+def test_evaluation_receipt_advertises_only_readable_digest_checked_artifacts(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.evaluation_timeline import _available_run_artifact_roles
+
+    store, revision = _stored_review(tmp_path)
+    artifacts = store.run_artifacts()
+    assert artifacts is not None
+    review_id = revision.review_id
+    evidence = SimpleNamespace(review_id=review_id)
+    good = artifacts.put(review_id, protect_bytes(b"safe output")[0], role="stdout", media_type="text/plain")
+    missing = artifacts.put(review_id, protect_bytes(b"lost trace")[0], role="trace", media_type="application/zip")
+    cross_tenant = replace(good, ref=f"run-artifact:another-review:{good.digest}")
+    oversized = replace(good, bytes=9 * 1024 * 1024)
+    forged = replace(good, ref=f"run-artifact:{review_id}:{'a' * 64}")
+    bytes_path = store.root / "review" / "run-artifacts" / review_id
+
+    assert _available_run_artifact_roles(store, evidence, (good,)) == (["stdout"], [])
+    assert _available_run_artifact_roles(store, evidence, (cross_tenant,)) == ([], ["stdout"])
+    assert _available_run_artifact_roles(store, evidence, (oversized,)) == ([], ["stdout"])
+    assert _available_run_artifact_roles(store, evidence, (forged,)) == ([], ["stdout"])
+    assert _available_run_artifact_roles(store, evidence, (good, forged)) == ([], ["stdout"])
+    (bytes_path / f"{missing.digest}.bin").unlink()
+    assert _available_run_artifact_roles(store, evidence, (good, missing)) == (["stdout"], ["trace"])
+    (bytes_path / f"{good.digest}.bin").write_bytes(b"tampered data")
+    assert _available_run_artifact_roles(store, evidence, (good,)) == ([], ["stdout"])
+    assert _available_run_artifact_roles(store, evidence, ()) == ([], [])
+
+
+def test_evaluation_receipt_has_one_aggregate_artifact_read_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import evaluation_timeline
+
+    store, revision = _stored_review(tmp_path)
+    artifacts = store.run_artifacts()
+    assert artifacts is not None
+    review_id = revision.review_id
+    first = artifacts.put(review_id, protect_bytes(b"one-two")[0], role="stdout", media_type="text/plain")
+    second = artifacts.put(review_id, protect_bytes(b"three-4")[0], role="stderr", media_type="text/plain")
+    evidence = SimpleNamespace(review_id=review_id)
+    monkeypatch.setattr(evaluation_timeline, "_MAX_VERIFIED_RUN_BYTES", first.bytes + 1)
+    assert evaluation_timeline._available_run_artifact_roles(store, evidence, (first, second)) == (
+        ["stdout"],
+        ["stderr"],
+    )
+    assert evaluation_timeline._available_run_artifact_roles(store, evidence, (second, first)) == (
+        ["stderr"],
+        ["stdout"],
+    )
+
+
 def test_hosted_backend_run_artifacts_keep_the_retention_contract_without_local_files(tmp_path: Path) -> None:
     now = [1_000_000.0]
     backend = _MemoryArtifactBackend()

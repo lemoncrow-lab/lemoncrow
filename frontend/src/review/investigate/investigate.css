@@ -1,0 +1,57 @@
+/* Investigate (N06): one target's investigation, in order, inside the Context drawer. */
+
+.iv-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  font-size: var(--fs-caption);
+}
+
+.iv-note { margin: 0; color: rgb(var(--muted-foreground)); overflow-wrap: anywhere; }
+
+/* The step strip: stable, numbered, always in the same order. */
+.iv-nav ol { display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 0; padding: 0; list-style: none; }
+
+.iv-facts { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.iv-fact-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; margin: 0; }
+.iv-fact { display: contents; }
+.iv-fact dt { color: rgb(var(--muted-foreground)); }
+.iv-fact dd { margin: 0; color: rgb(var(--subtle-foreground)); font-family: var(--workbench-code-font, monospace); overflow-wrap: anywhere; }
+
+.iv-step { display: flex; flex-direction: column; gap: 6px; min-width: 0; border-top: 1px solid rgb(var(--border)); padding-top: 10px; }
+.iv-step-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: rgb(var(--foreground));
+  outline: none;
+}
+.iv-step-title:focus-visible { box-shadow: 0 0 0 2px rgb(var(--ring) / 0.6); border-radius: 4px; }
+.iv-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 999px;
+  font-family: var(--workbench-code-font, monospace);
+  font-size: var(--fs-micro);
+  color: rgb(var(--muted-foreground));
+}
+.iv-step-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.iv-rows { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.iv-row { min-width: 0; border-top: 1px solid rgb(var(--border) / 0.6); padding-top: 6px; }
+.iv-row:first-child { border-top: 0; padding-top: 0; }
+.iv-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: rgb(var(--foreground)); overflow-wrap: anywhere; }
+.iv-row-detail { color: rgb(var(--subtle-foreground)); overflow-wrap: anywhere; }
+.iv-row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.iv-held { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.iv-held[data-stale="true"] { border-left: 2px dashed rgb(var(--border)); padding-left: 6px; }
+.iv-held-text { flex-basis: 100%; color: rgb(var(--foreground)); overflow-wrap: anywhere; }

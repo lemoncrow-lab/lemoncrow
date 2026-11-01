@@ -25,7 +25,6 @@ PLUGIN_DIR="${LEMONCROW_REPO}/integrations/claude/plugin"
 SOURCE_PLUGIN_DIR="${PLUGIN_DIR}"
 INSTALL_SOURCE_DIR="${PLUGIN_DIR}"
 SKILL_BUILDER="${SCRIPT_DIR}/build_host_skills.sh"
-MODE_RENDERER="${SCRIPT_DIR}/sync_agent_context.py"
 
 PLUGIN_REF="lemoncrow@lemoncrow"
 DRY_RUN=false
@@ -272,7 +271,9 @@ configure_project_enforcement() {
     }
 
 
-uv run python "$MODE_RENDERER" >/dev/null 2>&1 || python3 "$MODE_RENDERER" >/dev/null 2>&1 || true
+# Installation is a read-only projection of packaged host contexts.
+# Running the source generator here rewrote tracked files in release checkouts.
+# Developers update canonical instructions explicitly via `make sync-agent-context`.
 STAGING_DIR="${HOME}/.lemoncrow/claude-plugin"
 # Start fresh — stale symlinks from prior installs (hooks → source dir)
 # will cause `cp -r` to error with "same file".

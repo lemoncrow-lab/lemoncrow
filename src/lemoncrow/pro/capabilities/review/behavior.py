@@ -59,8 +59,8 @@ from lemoncrow.pro.capabilities.review.session_models import (
     ReviewRevision,
 )
 
-BEHAVIOR_CONTRACT_VERSION = 1
-"""Bump on any change to identity, fingerprint or evidence-digest inputs."""
+BEHAVIOR_CONTRACT_VERSION = 2
+"""v2 reopens v1 judgments and binds risk classification and complete evidence metadata."""
 
 BEHAVIOR_KEY_PREFIX = "beh:"
 """Namespace of behavior judgments inside ``review_marks``. Never a ReviewUnit key."""
@@ -258,10 +258,10 @@ def _observation_identity(observation: BehaviorObservation | None) -> dict[str, 
 def behavior_fingerprint(delta: BehaviorDelta) -> str:
     """What a judgment attests to. Carry-forward requires byte equality.
 
-    Observed values, the environment and the executor class participate;
-    titles, summaries and evidence ids (new rows every Snapshot) do not. An
-    environment or executor change therefore reopens the judgment: the
-    conservative reading of "the same behavior".
+    In v2, observed values, environment, executor and risk classification
+    participate. A v1 stored mark has a distinct fingerprint and reopens for
+    explicit review; its audit record is never silently rewritten or accepted.
+    Titles, narrative wording and evidence ids (new each Snapshot) do not.
     """
 
     return _digest(
@@ -275,15 +275,19 @@ def behavior_fingerprint(delta: BehaviorDelta) -> str:
             "head": _observation_identity(delta.head),
             "environment": delta.environment_fingerprint,
             "executor": delta.executor_class,
+            "severity": delta.severity,
+            "critical": delta.critical,
+            "unverified_integrations": sorted(set(delta.unverified_integrations)),
         }
     )
 
 
 def behavior_evidence_digest(delta: BehaviorDelta) -> str:
-    """Digest of exactly the evidence a client renders for this target.
+    """Versioned digest of the evidence the client renders for this target.
 
-    The judgment request must echo it; a client that never rendered the
-    evidence block for the current Snapshot cannot know it.
+    v2 includes every evidence-reference attribute rather than only (ref,
+    digest), so a relabelled or substituted role/side cannot reuse an old
+    displayed-evidence approval. Reference order is not meaningful.
     """
 
     return _digest(
@@ -293,7 +297,10 @@ def behavior_evidence_digest(delta: BehaviorDelta) -> str:
             "summary": delta.summary,
             "base": None if delta.base is None else delta.base.to_wire(),
             "head": None if delta.head is None else delta.head.to_wire(),
-            "evidence": sorted((ref.ref, ref.digest) for ref in delta.evidence),
+            "evidence": sorted(
+                (ref.to_wire() for ref in delta.evidence),
+                key=lambda row: (row["ref"], row["kind"], row["side"], row["role"], row["evidence_id"]),
+            ),
             "facts": [list(item) for item in delta.facts],
         }
     )

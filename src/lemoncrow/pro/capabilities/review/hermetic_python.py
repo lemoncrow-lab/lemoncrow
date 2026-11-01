@@ -32,7 +32,7 @@ import subprocess
 import threading
 import time
 import tomllib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -932,12 +932,13 @@ def provision_python_dependencies(
     sandbox_project: str,
     fetcher: _Fetcher | None = None,
     target: PythonTarget | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ProvisionedPython:
     """Fetch (registry-only, wheels only) then build (offline) the reviewed Python environment."""
 
     started = time.monotonic()
     interpreter = target or probe_sandbox_python()
-    client: _Fetcher = fetcher or RegistryFetcher(policy)
+    client: _Fetcher = fetcher or RegistryFetcher(policy, should_cancel=should_cancel)
     plan = plan_python_install(project, policy, interpreter, client, sandbox_project=sandbox_project)
     blocked = tuple(f"skipped {item}" for item in plan.skipped)
     existing = cache.tree(plan.digest, content="python")
@@ -956,7 +957,11 @@ def provision_python_dependencies(
 
     def fetch_one(wheel: PlannedWheel) -> None:
         nonlocal fetched_bytes
+        if should_cancel is not None and should_cancel():
+            raise HermeticUnavailable("dependency fetch cancelled by revoked authority")
         payload = client.fetch(wheel.url, max_bytes=MAX_TARBALL_BYTES)
+        if should_cancel is not None and should_cancel():
+            raise HermeticUnavailable("dependency fetch cancelled by revoked authority")
         if hashlib.sha256(payload).hexdigest() != wheel.sha256:
             raise HermeticRefused(f"downloaded wheel for {wheel.name}=={wheel.version} does not match its pinned hash")
         with guard:
@@ -980,6 +985,8 @@ def provision_python_dependencies(
         blocked=blocked,
         cache="miss" if missing else "hit",
     )
+    if should_cancel is not None and should_cancel():
+        raise HermeticUnavailable("dependency build cancelled by revoked authority")
     build_started = time.monotonic()
     with _tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
         existing = cache.tree(plan.digest, content="python")
@@ -988,7 +995,9 @@ def provision_python_dependencies(
         staging, final = cache.new_tree_dir(plan.digest)
         try:
             (staging / "python").mkdir()
-            report = _run_offline_python_build(plan, interpreter, cache, staging / "python")
+            report = _run_offline_python_build(
+                plan, interpreter, cache, staging / "python", should_cancel=should_cancel
+            )
             (staging / "tree.json").write_text(
                 json.dumps({"plan_digest": plan.digest, "namespace": cache.namespace, "created_at": time.time()}),
                 encoding="utf-8",
@@ -1012,9 +1021,19 @@ def provision_python_dependencies(
 
 
 def _run_offline_python_build(
-    plan: PythonInstallPlan, target: PythonTarget, cache: DependencyCache, out: Path
+    plan: PythonInstallPlan,
+    target: PythonTarget,
+    cache: DependencyCache,
+    out: Path,
+    *,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Mapping[str, Any]:
-    from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, run_limited
+    from lemoncrow.pro.capabilities.review.sandbox_limits import (
+        SandboxCapacityBusy,
+        SandboxExecutionCancelled,
+        run_limited,
+        run_limited_bounded,
+    )
 
     plan_file = out.parent / f"{out.parent.name}.python-plan.json"
     plan_file.write_text(
@@ -1056,15 +1075,26 @@ def _run_offline_python_build(
         )
     )
     try:
-        proc = run_limited(
-            command,
-            timeout=INSTALL_TIMEOUT_SECONDS,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=False,
-            env={"PATH": _SANDBOX_PATH},
-        )
+        if should_cancel is None:
+            proc = run_limited(
+                command,
+                timeout=INSTALL_TIMEOUT_SECONDS,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                env={"PATH": _SANDBOX_PATH},
+            )
+        else:
+            proc = run_limited_bounded(
+                command,
+                timeout=INSTALL_TIMEOUT_SECONDS,
+                max_output_bytes=65536,
+                should_cancel=should_cancel,
+                env={"PATH": _SANDBOX_PATH},
+            )
+    except SandboxExecutionCancelled as exc:
+        raise HermeticUnavailable("offline Python environment build cancelled by revoked authority") from exc
     except SandboxCapacityBusy as exc:
         raise HermeticUnavailable(str(exc)) from exc
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1077,7 +1107,11 @@ def _run_offline_python_build(
     except ValueError:
         report = {}
     if proc.returncode != 0 or not report.get("ok"):
-        error = str(report.get("error") or (proc.stdout or "").strip()[-2000:] or f"exit {proc.returncode}")
+        error = str(
+            report.get("error")
+            or ((proc.stdout or "") + (proc.stderr or "")).strip()[-2000:]
+            or f"exit {proc.returncode}"
+        )
         if "lookalike" in error or "escapes" in error or "unsafe" in error:
             raise HermeticRefused(f"offline Python environment build refused: {error}")
         raise HermeticUnavailable(f"offline Python environment build failed: {error}")

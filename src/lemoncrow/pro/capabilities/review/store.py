@@ -4115,7 +4115,7 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             rows = conn.execute(
-                "SELECT revision_id FROM review_activity_events " "WHERE review_id = ? AND kind = 'snapshot.published'",
+                "SELECT revision_id FROM review_activity_events WHERE review_id = ? AND kind = 'snapshot.published'",
                 (review_id,),
             ).fetchall()
         return {str(row["revision_id"]) for row in rows}
@@ -4757,8 +4757,7 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             rows = conn.execute(
-                "SELECT * FROM review_ask_conversations WHERE review_id = ? "
-                "ORDER BY updated_at DESC, id DESC LIMIT ?",
+                "SELECT * FROM review_ask_conversations WHERE review_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?",
                 (review_id, max(1, min(limit, 500))),
             ).fetchall()
         return tuple(_row_to_ask_conversation(row) for row in rows)
@@ -7080,6 +7079,27 @@ class ReviewStore(SqliteTableStore):
                     )
             # The row claims its artifact in this transaction, so an orphan GC can
             # never reclaim bytes a just-committed evidence row references.
+            # A fenced hosted queue attempt has exactly one immutable ReviewEvidence
+            # association. Serialize the insertion across PostgreSQL replicas (or
+            # SQLite writers), so concurrent status polls cannot mint two rows
+            # with the same source reference. Other evidence sources keep their
+            # established append-only semantics.
+            if (
+                record.source == "external"
+                and record.source_ref.startswith("runtime-validation:")
+                and ":fresh:" in record.source_ref
+            ):
+                self._lock_for_write(conn, key=f"runtime-validation-evidence:{record.review_id}:{record.source_ref}")
+                duplicate = conn.execute(
+                    "SELECT id FROM review_evidence WHERE review_id = ? AND source = ? AND source_ref = ? LIMIT 1",
+                    (record.review_id, record.source, record.source_ref),
+                ).fetchone()
+                if duplicate is not None:
+                    raise ValueError("hosted Runtime Validation queue job already has immutable evidence")
+            # The separate SQLite artifact-index claim commits before this
+            # evidence row. Hold the Review DB's writer lock FIRST so orphan GC
+            # cannot re-check authority and delete a freshly claimed mapping
+            # while this row is still uncommitted (including a skewed GC clock).
             self._lock_for_claim(conn)
             self._claim_artifacts((record.artifact_path,), row="evidence")
             conn.execute(
