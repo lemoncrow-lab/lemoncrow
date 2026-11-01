@@ -139,7 +139,7 @@ if $PRINT_ONLY; then
     echo "$NEW_ENTRY"
     echo ""
     echo "2. Append LemonCrow instructions to ${INSTRUCTIONS}:"
-    echo "   (contents of ${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md)"
+    echo "   (contents of ${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md)"
     if $WORKSPACE_SET; then
         echo ""
         echo "3. Project Copilot role agents into ${AGENTS_DEST_DIR}:"
@@ -182,11 +182,11 @@ else
 fi
 
 # ---- install Copilot instructions ------------------------------------------
-LEMONCROW_INSTRUCTIONS="${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md"
+LEMONCROW_INSTRUCTIONS="${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md"
 
 STAGING_DIR="${HOME}/.lemoncrow/copilot"
 run "mkdir -p $(printf %q "$STAGING_DIR")"
-COPILOT_SRC="${LEMONCROW_REPO}/integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md"
+COPILOT_SRC="${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md"
 info "Staging Copilot instructions"
 lemoncrow_write_managed_copy "${COPILOT_SRC}" "$STAGING_DIR/instructions.md" "$DRY_RUN"
 LEMONCROW_INSTRUCTIONS="$STAGING_DIR/instructions.md"

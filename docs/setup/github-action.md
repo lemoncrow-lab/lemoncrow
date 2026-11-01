@@ -846,6 +846,8 @@ The review looks at **every changed code target**, not only the ones a keyword m
 | `auto` | 4.9 | $0.16 | $0.28 | $1.10 |
 | `thorough` | 7.0 | $0.52 | $0.58 | $2.56 |
 
+  The 2026-11-01 benchmark run on the same fifty pull requests (`thorough`, a later version of the review) made 7.4 calls a review, at a median $0.56, a mean $0.65 and a largest $2.78.
+
   Calls are the steady number; the dollars follow the CLI's prompt cache (an earlier run, on a slightly earlier version of the review, spent $0.46 a review at `auto` for 4.8 calls, and two identical runs on 30 pull requests spent $0.53 and $0.20). `thorough` costs about twice `auto` on the mean and three times on the median. The $2.56 is the 4,248-line pull request, which used the whole 20-call cap. Three single pull requests of this repository, measured before the overview existed, cost $0.24 (the six-file change: 3 calls, 119,000 prompt tokens, 49 seconds), $0.38 (the eleven-file change: 4 calls, 215,000, 54 seconds) and $0.69 (the fifteen-file change: 7 calls, 387,000, 68 seconds), and made exactly the calls that were planned for them.
 
   **Measured: the Anthropic API-key route** (`anthropic-api-key`, through the same pipeline as the Action; an OpenAI key prices differently and is not measured here). Nine real public pull requests (two from each of five repositories in five languages; a tenth could not be fetched), 32 to 431 changed lines with a median of 212, one run at `auto` on each model, no pushes, on 2026-10-26. The cost is the provider's token counts at list price with no prompt cache: `claude-sonnet-5-5` (the default) at $2 per million input tokens and $10 per million output tokens, `claude-sonnet-4-6` (the default before it) at $3 and $15:

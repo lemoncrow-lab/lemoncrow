@@ -39,3 +39,5 @@ lite/index.py
 lite/mcp.py
 lite/policy.py
 lite/semantic.py
+workspace_members.py
+workspace_graph.py

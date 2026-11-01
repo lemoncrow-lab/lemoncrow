@@ -493,6 +493,7 @@ def run(picker: Picker) -> None:
     from prompt_toolkit.application import Application, run_in_terminal
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.filters import Condition
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
     from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, Window
@@ -505,10 +506,14 @@ def run(picker: Picker) -> None:
         dims = app.output.get_size()
         return dims.columns, max(dims.rows - _CHROME_ROWS, 5)
 
+    def text(fragments: Line) -> StyleAndTextTuples:
+        # prompt_toolkit's fragment list also admits mouse handlers; list is invariant, so widen it here.
+        return list(fragments)
+
     search_box = Buffer(multiline=False, on_text_changed=lambda buffer: picker.set_query(buffer.text))
     edit_box = Buffer(multiline=False)
     listing = Window(
-        FormattedTextControl(lambda: picker.body(*size()), focusable=True, show_cursor=False),
+        FormattedTextControl(lambda: text(picker.body(*size())), focusable=True, show_cursor=False),
         dont_extend_height=True,
     )
     search_input = Window(
@@ -611,11 +616,11 @@ def run(picker: Picker) -> None:
 
     layout = HSplit(
         [
-            Window(FormattedTextControl(lambda: picker.header(size()[0])), height=2),
+            Window(FormattedTextControl(lambda: text(picker.header(size()[0]))), height=2),
             ConditionalContainer(search_input, filter=Condition(lambda: picker.page.searchable)),
             listing,
             ConditionalContainer(edit_input, filter=editing),
-            Window(FormattedTextControl(lambda: picker.footer(*size())), dont_extend_height=True),
+            Window(FormattedTextControl(lambda: text(picker.footer(*size()))), dont_extend_height=True),
         ]
     )
     app: Application[None] = Application(

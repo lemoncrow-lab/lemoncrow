@@ -607,7 +607,7 @@ def render_bash_text(result: dict[str, Any], *, idle_grace_s: float | None = Non
     if log_file and log_file_stderr:
         # The two stream logs differ only in suffix -- brace the divergence
         # ({stdout.txt, stderr.txt}) instead of repeating the directory + id.
-        i = len(os.path.commonprefix([log_file, log_file_stderr]))
+        i = len(os.path.commonprefix([log_file, log_file_stderr]))  # noqa: RUF071 -- snapped to a . or / next line
         i = max(log_file.rfind(c, 0, i) + 1 for c in "./")
         if i:
             log_paths = f"{log_file[:i]}{{{log_file[i:]}, {log_file_stderr[i:]}}}"

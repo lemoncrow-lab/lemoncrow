@@ -25,6 +25,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from lemoncrow.core.foundation.optional_modules import skip_if_absent
 
@@ -244,11 +245,16 @@ def build_review_packet(
     context_lines: int = 3,
     limit: int = 40,
     with_patch_text: bool = False,
+    with_workspace: bool = False,
 ) -> ReviewPacket:
     """Build the complete review packet for *rng*.
 
     Never raises for a missing index, a missing session store or an unreadable
     blob: each of those adds a name to ``ReviewPacket.degraded`` instead.
+
+    *with_workspace* adds the ``workspace_impact`` slice (``review/workspace_impact.py``): which other repositories
+    of the reviewer's workspace depend on what changed. Only a review a person asked for turns it on; it needs the
+    impact pass, so ``with_impact=False`` leaves it off too.
 
     *with_patch_text* is passed straight to :func:`collect_diff`. It defaults to
     ``False`` so ``lc review --json`` is byte-identical to what it was apart from
@@ -272,6 +278,7 @@ def build_review_packet(
         limit=limit,
         with_patch_text=with_patch_text,
         keep_blobs=False,
+        with_workspace=with_workspace,
     ).packet
 
 
@@ -289,6 +296,7 @@ def build_review_packet_with_blobs(
     with_patch_text: bool = False,
     unbounded_patch_text: bool = False,
     progress: Callable[[str], None] | None = None,
+    with_workspace: bool = False,
 ) -> PacketBuild:
     """:func:`build_review_packet`, plus the blob texts the build actually read.
 
@@ -312,6 +320,7 @@ def build_review_packet_with_blobs(
         unbounded_patch_text=unbounded_patch_text,
         keep_blobs=True,
         progress=progress,
+        with_workspace=with_workspace,
     )
 
 
@@ -516,6 +525,7 @@ def _build(
     keep_blobs: bool,
     unbounded_patch_text: bool = False,
     progress: Callable[[str], None] | None = None,
+    with_workspace: bool = False,
 ) -> PacketBuild:
     """The single composition pass behind both public entry points."""
 
@@ -531,6 +541,13 @@ def _build(
     )
     files = diff.files
     degraded: set[str] = set(diff.degraded)
+
+    # The workspace scan reads every member repository's files: it runs beside the passes below, not after them.
+    pending_workspace = None
+    if with_workspace and with_impact and files:
+        from .workspace_impact import PendingWorkspaceImpact, packet_rows
+
+        pending_workspace = PendingWorkspaceImpact(repo_root, packet_rows(files))
 
     # One read, whether it feeds the impact pass, the fingerprints, or both.
     # Supported dependency manifests/lockfiles get a separate bounded allowance
@@ -640,6 +657,13 @@ def _build(
         # beyond it, otherwise bulk completion can treat risky files as safe.
         limit=len(files) if keep_blobs else limit,
     )
+    workspace_impact: dict[str, Any] = {}
+    if pending_workspace is not None:
+        if progress is not None:
+            progress("workspace")
+        workspace_impact, workspace_degraded = pending_workspace.result()
+        degraded.update(workspace_degraded)
+
     stats = {
         "files": len(files),
         "additions": sum(item.additions for item in files),
@@ -673,8 +697,27 @@ def _build(
         journal=journal,
         attributions=attributions,
         scope_paths=tuple(rng.paths),
+        workspace_impact=workspace_impact,
     )
     return PacketBuild(packet=packet, blobs=blobs, source_fingerprint=source_fingerprint)
+
+
+def attach_workspace_impact(build: PacketBuild, found: tuple[Mapping[str, Any], Sequence[str]]) -> PacketBuild:
+    """Set the ``workspace_impact`` slice of an already captured build.
+
+    *found* is :func:`review.workspace_impact.collect_workspace_impact`'s ``(slice, degraded names)``. They replace
+    any earlier slice and workspace degraded names; the diff, blobs and every other analysis stay as they were.
+    """
+
+    from .workspace_impact import FAILED, PARTIAL, UNAVAILABLE
+
+    payload, names = found
+    degraded = (set(build.packet.degraded) - {FAILED, PARTIAL, UNAVAILABLE}) | set(names)
+    return PacketBuild(
+        packet=replace(build.packet, workspace_impact=dict(payload), degraded=tuple(sorted(degraded))),
+        blobs=build.blobs,
+        source_fingerprint=build.source_fingerprint,
+    )
 
 
 __all__ = [
@@ -683,6 +726,7 @@ __all__ = [
     "attach_changed_symbols",
     "attach_impact",
     "attach_provenance",
+    "attach_workspace_impact",
     "build_review_packet",
     "build_review_packet_with_blobs",
 ]

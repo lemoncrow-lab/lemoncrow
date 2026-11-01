@@ -85,6 +85,9 @@ ConditionOwner = Literal["lemoncrow", "scm"]
 #: Bumped whenever a built-in rule changes what readiness requires; it is a
 #: policy layer, so a rules change yields a new policy generation.
 READINESS_RULES_VERSION: Final[int] = 3
+#: The wire shape of the readiness policy a client reads back (the manifest's ``policy`` schema). A rules change
+#: re-evaluates readiness on the server and leaves this shape alone, so it is versioned apart from the rules.
+READINESS_POLICY_SCHEMA_VERSION: Final[int] = 1
 
 
 # --------------------------------------------------------------------------- #
@@ -2116,6 +2119,7 @@ __all__ = [
     "CONDITION_STATES",
     "DEFAULT_CONDITIONS",
     "POLICY_LAYER_STATES",
+    "READINESS_POLICY_SCHEMA_VERSION",
     "READINESS_RULES_VERSION",
     "SATISFIED_STATES",
     "SUPPLY_CHAIN_REQUIREMENT_KEY",

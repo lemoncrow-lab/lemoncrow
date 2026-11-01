@@ -391,7 +391,7 @@ _REVIEW_PACKAGE: Final[str] = "lemoncrow.pro.capabilities.review"
 _SCHEMA_SOURCES: Final[dict[str, tuple[str, str]]] = {
     "packet": (f"{_REVIEW_PACKAGE}.models", "SCHEMA_VERSION"),
     "evidence": (f"{_REVIEW_PACKAGE}.session_models", "SESSION_SCHEMA_VERSION"),
-    "policy": (f"{_REVIEW_PACKAGE}.readiness", "READINESS_RULES_VERSION"),
+    "policy": (f"{_REVIEW_PACKAGE}.readiness", "READINESS_POLICY_SCHEMA_VERSION"),
     "record": (f"{_REVIEW_PACKAGE}.review_record", "RECORD_SCHEMA_VERSION"),
 }
 

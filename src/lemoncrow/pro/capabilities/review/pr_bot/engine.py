@@ -188,9 +188,12 @@ def capture_range(
     *,
     with_impact: bool = True,
     pull: PullRequestSource | None = None,
+    with_workspace: bool = False,
 ) -> Captured:
     """Record any resolved range (a commit range, the index or the working tree) as one Snapshot in a store under
-    *store_root*: the capture ``lc review --ai`` makes of a change that has no pull request (*pull* is ``None``)."""
+    *store_root*: the capture ``lc review --ai`` makes of a change that has no pull request (*pull* is ``None``).
+    *with_workspace* adds which other repositories of the reviewer's workspace depend on the change (for a person at
+    the command; a hook and a pull request leave it off)."""
 
     from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
     from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
@@ -208,6 +211,7 @@ def capture_range(
         with_impact=with_impact,
         with_provenance=False,
         with_patch_text=True,
+        with_workspace=with_workspace,
     )
     session = open_or_create_session(store, repo_root, rng, title=rng.title)
     if pull is not None:

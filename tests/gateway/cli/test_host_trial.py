@@ -187,7 +187,9 @@ def test_trial_prepares_lite_index_before_host_launch(monkeypatch: pytest.Monkey
     assert events[1][1][0] == "/opt/bin/codex"
 
 
-def test_trial_requires_git_workspace_for_code_search(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_trial_requires_git_workspace_for_code_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # A folder holding repositories is a workspace too, so run from one that holds none.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(host_trial.shutil, "which", _which)
     monkeypatch.setattr(host_trial.sys, "argv", ["python"])
     monkeypatch.setattr(

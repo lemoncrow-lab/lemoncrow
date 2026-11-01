@@ -578,7 +578,7 @@ wheels = [
 
 [[package]]
 name = "lemoncrow"
-version = "0.8.1"
+version = "0.8.2"
 source = { editable = "../" }
 dependencies = [
     { name = "aiohttp" },
@@ -704,7 +704,7 @@ dev = [
 
 [[package]]
 name = "lemoncrow-client"
-version = "0.8.1"
+version = "0.8.2"
 source = { editable = "../client" }
 
 [package.metadata]
@@ -729,7 +729,7 @@ dependencies = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.4" },
     { name = "lemoncrow", editable = "../" },
-    { name = "lemoncrow-client", specifier = "==0.8.1" },
+    { name = "lemoncrow-client", specifier = "==0.8.2" },
     { name = "regex", specifier = ">=2026.5.9" },
 ]
 

@@ -23,7 +23,7 @@ import ipaddress
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
 from urllib.parse import urlparse
 
@@ -105,7 +105,7 @@ class BrowserStep:
         return f"click {self.target()}"
 
     def to_wire(self) -> dict[str, str]:
-        return {key: value for key, value in self.__dict__.items() if value}
+        return {f.name: value for f in fields(self) if (value := getattr(self, f.name))}
 
 
 @dataclass(frozen=True)

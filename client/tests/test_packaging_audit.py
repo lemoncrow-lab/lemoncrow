@@ -438,7 +438,8 @@ def test_the_package_has_no_background_or_persistence_primitives() -> None:
     assert "thread.join(" in code_only(LITE_MCP), "lite/mcp.py must join its index build on close"
     for path in iter_modules():
         body = code_only(path)
-        if "ThreadPoolExecutor(" in body:
+        # A pool opened as a `with` block is shut down when the block exits.
+        if "ThreadPoolExecutor(" in body.replace("with ThreadPoolExecutor(", ""):
             assert ".shutdown(" in body, f"{path.name} must shut down the worker pools it starts"
 
 
@@ -484,6 +485,10 @@ def test_the_package_has_no_self_update_path() -> None:
         if path.name == "search.py" and path.parent.name == "kit":
             # ``kit/search.py`` names ``.venv``/``venv`` only as directories a
             # search skips (``SKIP_DIRS``). It neither creates nor runs one.
+            body = body.replace('".venv"', "").replace('"venv"', "")
+        if path.name == "workspace_graph.py" and path.parent == PACKAGE_ROOT:
+            # ``workspace_graph.py`` names ``.venv``/``venv`` only as directories
+            # its scan skips. It neither creates nor runs one.
             body = body.replace('".venv"', "").replace('"venv"', "")
         if path.name == "security_scan.py" and path.parent.name == "kit":
             # ``kit/security_scan.py`` names ``.venv``/``venv`` only as directories

@@ -49,6 +49,7 @@ usage:
   lc settings             save an API key, remember an agent (lc settings set llm.anthropic_api_key)
   lc code ...             use LemonCrow's Hosted coding agent
   lc with HOST [...]      use Runtime Lite with claude, codex, opencode, or pi
+  lc workspace COMMAND    status, branch, commit, push, pull requests and impact across the repositories in a folder
   lc runtime COMMAND      manage Runtime integration and transports
   lc rt COMMAND           shorthand for runtime (rt host manages LemonCode/Pi host binaries)
   lc run ...              managed/full Runtime only; not part of Runtime Lite
@@ -308,6 +309,10 @@ def _host(rest: Sequence[str], sink: TextIO) -> int:
         return 2
 
 
+def _member_label(root: Path, member: Path) -> str:
+    return "." if member == root else member.relative_to(root).as_posix()
+
+
 def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
     if not _module_available("lemoncrow_client.lite.index"):
         return _delegate_external_runtime(["runtime", "index", *arguments], sink)
@@ -322,6 +327,7 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
             sink.write(
                 f"usage: {CLIENT_NAME} runtime index [--repo-root DIR] [--reindex] [--json]\n"
                 "Build or refresh the local open-source Runtime Lite repository index.\n"
+                "In a folder of repositories, or a repository with submodules, each repository gets its own index.\n"
             )
             return 0
         if argument == "--json":
@@ -343,11 +349,20 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
             return 2
         index += 1
 
+    root = repo_root.expanduser().resolve()
     try:
         from .lite.index import LiteIndex
+        from .workspace_members import discover_members
 
-        render = None if as_json else _index_progress_line(sys.stderr)
-        report = LiteIndex(repo_root.expanduser().resolve()).prepare(force=force, progress=render)
+        # A folder of repositories, or a repository with checked-out
+        # submodules: each member repository gets its own index.
+        membership = discover_members(root)
+        targets = [member.root for member in membership.members] if membership.multi else []
+        targets = targets or [root]
+        reports = []
+        for target in targets:
+            render = None if as_json else _index_progress_line(sys.stderr)
+            reports.append((target, LiteIndex(target).prepare(force=force, progress=render)))
     except (OSError, RuntimeError) as exc:
         sink.write(f"could not prepare Runtime Lite index: {exc}\n")
         return 2
@@ -355,12 +370,20 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
         if not as_json and sys.stderr.isatty():
             sys.stderr.write("\r\033[2K")
             sys.stderr.flush()
-    payload = report.to_dict()
     if as_json:
-        sink.write(json.dumps(payload, sort_keys=True) + "\n")
-    else:
-        sink.write("Runtime Lite index ready\n")
-        sink.write(f"  path:  {payload.get('index_path', '')}\n")
+        if targets == [root]:
+            sink.write(json.dumps(reports[0][1].to_dict(), sort_keys=True) + "\n")
+        else:
+            payload = {
+                "workspace": str(root),
+                "repositories": {_member_label(root, target): report.to_dict() for target, report in reports},
+            }
+            sink.write(json.dumps(payload, sort_keys=True) + "\n")
+        return 0
+    for target, report in reports:
+        heading = "Runtime Lite index ready" if targets == [root] else f"{_member_label(root, target)}: index ready"
+        sink.write(heading + "\n")
+        sink.write(f"  path:  {report.to_dict().get('index_path', '')}\n")
         sink.write(
             f"  files: {report.files_seen:,} seen, {report.files_changed:,} indexed, "
             f"{report.files_deleted:,} deleted in {report.elapsed_s:.1f}s\n"
@@ -513,6 +536,13 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
         return run_settings(rest, sink)
     if verb == "target":
         return _target(rest, sink)
+    if verb == "workspace":
+        try:
+            from .workspace_cli import workspace_main
+        except ModuleNotFoundError:  # a Review-only client does not ship the workspace commands
+            sink.write("lc workspace is part of LemonCrow Runtime. Add it: " + _install_hint("runtime") + "\n")
+            return 2
+        return workspace_main(rest, sink)
     if verb == "audit":
         return _audit(sink)
     return _unknown_command(verb, sink)

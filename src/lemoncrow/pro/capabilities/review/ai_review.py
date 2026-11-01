@@ -792,8 +792,27 @@ def _marker_pattern(marker: str) -> re.Pattern[str]:
     return re.compile((_BEFORE_WORD if first_alnum else "") + body + (_AFTER_WORD if last_alnum else ""))
 
 
+def _marker_literal(marker: str) -> str:
+    """A substring that every match of :func:`_marker_pattern` (*marker*) contains; ``""`` when there is none."""
+
+    word = marker.strip()
+    if word.startswith("/"):
+        return word[1:]
+    parts = word.split()
+    if len(parts) == 1 and parts[0] in _PLURAL_FORMS:
+        # An irregular plural rewrites the whole word (``quer(?:y|ies)``).
+        return ""
+    return parts[0]
+
+
 _MARKER_PATTERNS: dict[FindingCategory, tuple[tuple[str, re.Pattern[str]], ...]] = {
     category: tuple((marker, _marker_pattern(marker)) for marker in markers) for category, markers in _MARKERS.items()
+}
+#: Each pattern behind a substring its every match holds. A pattern that opens with a lookbehind makes the regex
+#: engine try every position of the text, so a plain substring test first skips nearly every search.
+_MARKER_SEARCH: dict[FindingCategory, tuple[tuple[str, re.Pattern[str]], ...]] = {
+    category: tuple((_marker_literal(marker), pattern) for marker, pattern in patterns)
+    for category, patterns in _MARKER_PATTERNS.items()
 }
 
 
@@ -803,8 +822,8 @@ def _marker_categories(text: str) -> tuple[FindingCategory, ...]:
     views = tuple(dict.fromkeys((text.lower(), _CAMEL_BOUNDARY.sub(" ", text).lower())))
     return tuple(
         category
-        for category, patterns in _MARKER_PATTERNS.items()
-        if any(pattern.search(view) for view in views for _marker, pattern in patterns)
+        for category, patterns in _MARKER_SEARCH.items()
+        if any(literal in view and pattern.search(view) for view in views for literal, pattern in patterns)
     )
 
 

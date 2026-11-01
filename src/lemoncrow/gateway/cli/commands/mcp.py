@@ -771,7 +771,7 @@ def _remote_mcp_passthrough(name: str) -> click.Command:
     def forward(arguments: tuple[str, ...]) -> None:
         from lemoncrow_client.remote import cli as remote_cli
 
-        raise SystemExit(remote_cli.remote_main([name, *arguments], click.get_text_stream("stdout")))
+        raise SystemExit(remote_cli.remote_main([name, *arguments], sys.stdout))
 
     return forward
 

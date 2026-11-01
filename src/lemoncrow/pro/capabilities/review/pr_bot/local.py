@@ -191,6 +191,9 @@ class LocalReport:
     #: Which configuration the review used, as one line and as data (``working_tree_authority.config_line``).
     config_line: str = ""
     config: dict[str, Any] = field(default_factory=dict)
+    #: Other repositories of the workspace that depend on what changed (the packet's ``workspace_impact``): shown after
+    #: the findings, never a finding, in no verdict count and never in the exit code. Empty with no workspace.
+    workspace_impact: dict[str, Any] = field(default_factory=dict)
 
     @property
     def incomplete(self) -> bool:
@@ -261,6 +264,8 @@ class LocalReport:
             "usage": self.usage.to_wire(),
             "usage_total": None if self.state is None else self.state.usage_total.to_wire(),
             "notes": list(self.notes),
+            # Absent with no workspace, so a single repository's result reads exactly as it always did.
+            **({"workspace_impact": self.workspace_impact} if self.workspace_impact else {}),
         }
 
 
@@ -682,10 +687,21 @@ def run_local_review(
         try:
             with tempfile.TemporaryDirectory(prefix="lemoncrow-local-review-") as scratch:
                 say("Capturing the change")
-                captured = engine.capture_range(repo_root, rng, Path(scratch), with_impact=options.with_impact)
+                captured = engine.capture_range(
+                    repo_root,
+                    rng,
+                    Path(scratch),
+                    with_impact=options.with_impact,
+                    # A person at the command sees which other repositories the change reaches; a git hook, which
+                    # must stay cheap, does not scan the workspace.
+                    with_workspace=options.with_impact and options.fail_setup,
+                )
                 head_id = rng.head_sha or hashlib.sha1(captured.revision.tree_fingerprint.encode("utf-8")).hexdigest()
                 report.head = head_id
-                if not _changed_files(captured):
+                packet = _captured_packet(captured)
+                found = packet.get("workspace_impact")
+                report.workspace_impact = dict(found) if isinstance(found, dict) else {}
+                if not _changed_files(packet):
                     report.empty = True
                     report.verdict = verdict((), complete=True)
                     return _decided(report)
@@ -838,10 +854,14 @@ def run_local_review(
     return _decided(report)
 
 
-def _changed_files(captured: Any) -> bool:
+def _captured_packet(captured: Any) -> dict[str, Any]:
     from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
 
-    packet = read_packet_json(captured.store, captured.revision) or {}
+    packet = read_packet_json(captured.store, captured.revision)
+    return packet if isinstance(packet, dict) else {}
+
+
+def _changed_files(packet: Mapping[str, Any]) -> bool:
     files = packet.get("files")
     return bool(files) if isinstance(files, list) else True
 
@@ -931,6 +951,7 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append(paint(f"{heading}; not counted toward --fail-on. A P0 is never held back:", dim=True))
         lines.extend(_one_line_rows(sorted(report.held, key=sort_key), show_all=show_all))
         lines.append("")
+    lines.extend(_workspace_lines(report, paint, show_all=show_all))
     lines.extend(_summary_lines(report, paint))
     closed = [finding for finding in report.findings if finding.state == "fixed"]
     if closed:
@@ -1010,6 +1031,20 @@ def _impact_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
     lines = [f"{lead} {plain(described)}".strip()] if lead or described else []
     if weighed is not None:
         lines.append(paint(f"  {weighed.summary()} (from the change itself, not a model)", dim=True))
+    return lines
+
+
+def _workspace_lines(report: LocalReport, paint: Callable[..., str], *, show_all: bool) -> list[str]:
+    """``Workspace impact``: the other repositories that depend on what changed, after the findings; never a finding."""
+
+    if not report.workspace_impact:
+        return []
+    from lemoncrow.pro.capabilities.review.workspace_impact import heading, impact_lines
+
+    found = report.workspace_impact
+    lines = [paint("Workspace impact", bold=True) + "  " + paint(plain(heading(found)), dim=True)]
+    lines.extend(f"  {plain(line)}" for line in impact_lines(found, show_all=show_all))
+    lines.append("")
     return lines
 
 

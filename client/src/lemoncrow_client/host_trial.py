@@ -49,8 +49,14 @@ def _runtime_mcp_invocation(host: str) -> tuple[str, list[str]]:
     return sys.executable, ["-m", "lemoncrow_client", *args]
 
 
+_NO_WORKSPACE: Final[str] = (
+    "`lc with` needs a git repository, or a folder that holds git repositories, so indexed code_search "
+    "is available; run it inside one"
+)
+
+
 def _trial_workspace_root() -> Path:
-    """Return the git worktree root required by indexed `lc with` sessions."""
+    """Return the git worktree root, or the multi-repository folder, of an `lc with` session."""
     cwd = Path.cwd().resolve()
     try:
         result = subprocess.run(
@@ -61,16 +67,16 @@ def _trial_workspace_root() -> Path:
             timeout=2.0,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise HostTrialError(
-            "`lc with` needs a git repository so indexed code_search is available; run it inside a repository"
-        ) from exc
-    output = result.stdout if isinstance(result.stdout, str) else ""
-    if result.returncode == 0 and output.strip():
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    output = result.stdout if result is not None and isinstance(result.stdout, str) else ""
+    if result is not None and result.returncode == 0 and output.strip():
         return Path(output.strip()).expanduser().resolve()
-    raise HostTrialError(
-        "`lc with` needs a git repository so indexed code_search is available; run it inside a repository"
-    )
+    from .workspace_members import discover_members
+
+    if discover_members(cwd).members:
+        return cwd
+    raise HostTrialError(_NO_WORKSPACE)
 
 
 def _mcp_env(host: str, extra: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -263,8 +269,12 @@ def run_trial_host(
     workspace = workspace_root.expanduser().resolve() if workspace_root is not None else _trial_workspace_root()
     try:
         from .lite.index import prepare_lite_workspace
+        from .workspace_members import discover_members
 
-        prepare_lite_workspace(workspace)
+        # Every member repository (submodules, or the repositories of a folder
+        # that is not one) keeps its own index.
+        for member_root in [member.root for member in discover_members(workspace).members] or [workspace]:
+            prepare_lite_workspace(member_root)
     except (OSError, RuntimeError) as exc:
         raise HostTrialError(f"could not prepare local Runtime Lite index: {exc}") from exc
     extra = {

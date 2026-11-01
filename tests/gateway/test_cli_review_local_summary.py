@@ -120,12 +120,13 @@ def test_a_git_hook_asks_for_no_overview_because_it_must_stay_cheap(lab: Lab) ->
     options = local.LocalOptions(repo_root=lab.repo, store_root=lab.store, fail_setup=False)
     report = local.run_local_review(options)
     assert report.state is not None and lab.model.overviews == [] and report.state.overview is None
-    assert report.usage.calls == len(lab.model.calls), "its calls are the review's alone"
+    asked = len(lab.model.calls) + len(lab.model.dedupes)  # the investigations and the repeat check of their findings
+    assert report.usage.calls == asked, "its calls are the review's alone"
 
 
 def test_the_overview_is_counted_in_the_usage_the_terminal_prints(lab: Lab) -> None:
     lab.write(THREE)
     out = lab.run().stdout
-    investigated = len(lab.model.calls)
-    assert f"{investigated + 1} model calls" in out
+    asked = len(lab.model.calls) + len(lab.model.dedupes)  # the investigations and the repeat check of their findings
+    assert f"{asked + 1} model calls" in out
     assert TOKEN_BUGGY and local.NO_MODEL_ASKED not in out

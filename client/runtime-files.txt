@@ -43,6 +43,7 @@ lite/index.py
 lite/mcp.py
 lite/policy.py
 lite/semantic.py
+workspace_members.py
 remote/__init__.py
 remote/cli.py
 remote/gateway.py
@@ -81,6 +82,9 @@ toolsurface.json
 trace.py
 transport.py
 walkcache.py
+workspace_cli.py
+workspace_changes.py
+workspace_graph.py
 workspace_paths.py
 worktrees.py
 pi_host.py

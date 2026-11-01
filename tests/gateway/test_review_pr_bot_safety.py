@@ -160,7 +160,7 @@ def test_a_secret_in_the_diff_is_masked_before_any_model_call_and_counted_once(
     (stage,) = stages
     assert stage.safety.redacted == 1  # one secret, however many prompts and lines carried it
     extra = notices.receipt_extra(intent=None, ignored=(), globs=(), safety=stage.safety)
-    assert "Secrets: 1 secret redacted before the model saw the change" in extra
+    assert "Secrets: 1 credential-shaped value masked before the model saw the change" in extra
     # The code around it is still shown as written.
     assert any("API_KEY = " in prompt for prompt in prompts)
 

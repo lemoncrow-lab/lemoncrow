@@ -388,6 +388,29 @@ describe("ReviewBrief", () => {
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
   });
 
+  it("shows workspace impact after the reading order, outside attention, and nothing without it", () => {
+    const workspace = {
+      repo: "billing",
+      root: "/w",
+      changed: [{ repo: "billing", files: ["billing/billing/invoices.py"] }],
+      reached: [{
+        repo: "bazaar",
+        hops: 1,
+        confidence: "medium",
+        direct: true,
+        path: ["billing", "bazaar"],
+        edges: [{ kind: "import", confidence: "medium", direct: true, more: 0, links: [{ key: "billing", confidence: "medium", provider: { path: "billing/billing/", line: 0 }, consumer: { path: "bazaar/bazaar/checkout.py", line: 1 } }] }],
+      }],
+    };
+    renderBrief(projection({ workspace_impact: workspace }));
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
+    expect(headings.indexOf("Workspace impact")).toBe(headings.indexOf("Reviewed · 1") + 1);
+    expect(screen.getByText("import billing: bazaar/bazaar/checkout.py:1 uses billing/billing/")).toBeInTheDocument();
+    expect(screen.getByTestId("brief-glance").textContent).not.toContain("bazaar");
+    cleanup();
+    renderBrief(projection({ workspace_impact: {} }));
+    expect(screen.queryByRole("heading", { name: "Workspace impact" })).toBeNull();
+  });
   it("surfaces P0/P1 findings early without calling them proven defects", () => {
     const base = projection();
     const origin = { layer: "trusted_base_repository", source: "snapshot", commit: "abc" };

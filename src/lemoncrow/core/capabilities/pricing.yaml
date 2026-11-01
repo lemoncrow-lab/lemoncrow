@@ -226,6 +226,29 @@ overrides:
     context_window: 1000000
   claude-opus-4-6: *opus-4-7
 
+  # Claude Sonnet 4 / 4.5 — premium above 200K input tokens ($6/$22.50, cache read $0.60,
+  # 5m write $7.50). Pinned because litellm 1.106 dropped the *_above_200k_tokens keys from its
+  # first-party Sonnet 4.5 entry and the Sonnet 4 entry itself (still present on the
+  # Bedrock/Vertex ids), which silently priced 1M-context requests at the base rate (and let
+  # "claude-sonnet-4" alias to the flat Sonnet 4.6 card).
+  claude-sonnet-4-5: &sonnet-4-5
+    input: 3.00
+    output: 15.00
+    cache_read: 0.30
+    cache_write: 3.75
+    cache_write_1h: 6.00
+    thinking: 15.00
+    context_window: 200000
+    long_context:
+      threshold: 200000
+      input: 6.00
+      output: 22.50
+      cache_read: 0.60
+      cache_write: 7.50
+  claude-sonnet-4-5-20250929: *sonnet-4-5
+  claude-sonnet-4: *sonnet-4-5
+  claude-sonnet-4-20250514: *sonnet-4-5
+
   # Claude Sonnet 4.6 — flat rates only, no long-context premium (matches Claude /cost).
   claude-sonnet-4-6:
     input: 3.00

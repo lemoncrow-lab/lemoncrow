@@ -1,6 +1,6 @@
 [project]
 name = "lemoncrow-client"
-version = "0.8.1"
+version = "0.8.2"
 description = "Public LemonCrow thin client: one short-lived MCP stdio process, Python standard library only"
 requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
@@ -34,6 +34,7 @@ packages = ["src/lemoncrow_client"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
+  "slow: marks tests as slow (the release gate selects 'slow or not slow')",
   "enterprise_server: drives the private enterprise server over loopback; skipped when it is not importable",
   "public_registry: compares the bundled tool surface with the public lemoncrow registry",
 ]

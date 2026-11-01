@@ -83,7 +83,8 @@ CREATE TABLE symbols (name TEXT COLLATE NOCASE, kind TEXT, path TEXT, line INTEG
 CREATE TABLE imports (path TEXT, module TEXT, imported TEXT, line INTEGER);
 """
 # The columns code_map reads, over the Lite tables. TEMP views shadow the Lite
-# tables of the same name for unqualified SQL; this module reads ``main.*``.
+# tables of the same name for unqualified SQL; this module reads the ``lite_*``
+# views, which hold every visible row (own and inherited for a worktree overlay).
 _COMPAT_VIEWS: Final[str] = """
 CREATE TEMP VIEW symbols AS
     SELECT lite_symbol_id(path, line, name) AS symbol_id,
@@ -95,9 +96,9 @@ CREATE TEMP VIEW symbols AS
            line AS start_line,
            end_line,
            signature
-    FROM main.symbols;
+    FROM lite_symbols;
 CREATE TEMP VIEW files AS
-    SELECT path AS file_path, digest AS content_hash, size FROM main.files;
+    SELECT path AS file_path, digest AS content_hash, size FROM lite_files;
 """
 
 
@@ -147,14 +148,14 @@ class _ImportLinks:
 def _build_links(repo_root: Path, connection: sqlite3.Connection, key: tuple[int, int, int]) -> _ImportLinks:
     from lemoncrow_client.lite.index import ImportResolver
 
-    resolver = ImportResolver(repo_root, (str(row[0]) for row in connection.execute("SELECT path FROM main.files")))
+    resolver = ImportResolver(repo_root, (str(row[0]) for row in connection.execute("SELECT path FROM lite_files")))
     aggregate: dict[tuple[str, str], dict[str, Any]] = {}
     stats: Counter[tuple[str, str]] = Counter()
     languages: dict[str, str] = {}
     read = 0
     truncated = False
     cursor = connection.execute(
-        "SELECT path, module, imported, line FROM main.imports ORDER BY path, line LIMIT ?",
+        "SELECT path, module, imported, line FROM lite_imports ORDER BY path, line LIMIT ?",
         (_MAX_LINK_IMPORT_ROWS + 1,),
     )
     for row in cursor:
@@ -279,8 +280,11 @@ class LiteCodeMapEngine:
 
     @staticmethod
     def _prepare(connection: sqlite3.Connection) -> None:
+        from lemoncrow_client.lite.index import present_index_views
+
         connection.row_factory = sqlite3.Row
         connection.create_function("lite_symbol_id", 3, lite_symbol_id, deterministic=True)
+        present_index_views(connection, prefix="lite_")
         connection.executescript(_COMPAT_VIEWS)
 
     def available(self) -> bool:
@@ -324,7 +328,7 @@ class LiteCodeMapEngine:
         rows = (
             self.connection()
             .execute(
-                "SELECT name, kind, path, line, end_line FROM main.symbols WHERE name = ? AND line = ?",
+                "SELECT name, kind, path, line, end_line FROM lite_symbols WHERE name = ? AND line = ?",
                 (name, int(line)),
             )
             .fetchall()
@@ -365,7 +369,7 @@ class LiteCodeMapEngine:
             escaped = _like_escape(token)
             rows = connection.execute(
                 """
-                SELECT name, kind, path, line, end_line FROM main.symbols
+                SELECT name, kind, path, line, end_line FROM lite_symbols
                 WHERE name LIKE ? ESCAPE '\\'
                 ORDER BY CASE WHEN name = ? THEN 0 WHEN name LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END,
                          length(name), path, line
@@ -574,7 +578,7 @@ class LiteCodeMapProvider:
         links = self._engine.import_links(connection)
         rows = connection.execute(
             """
-            SELECT path, module, imported, line FROM main.imports
+            SELECT path, module, imported, line FROM lite_imports
             WHERE imported LIKE ? ESCAPE '\\'
             ORDER BY path, line
             LIMIT ?

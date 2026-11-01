@@ -77,9 +77,9 @@ def test_each_failure_is_named_with_its_cause_and_its_fix(error: str, kind: str,
     for fragment in fragments:
         assert fragment in failure.annotation + failure.headline, fragment
     assert "\n" not in failure.headline and len(f"Review incomplete: {failure.headline}") <= 140
-    assert not any(secret in failure.annotation for secret in ("sk-proj", "abcd")), (
-        "the provider's text is never repeated"
-    )
+    assert not any(
+        secret in failure.annotation for secret in ("sk-proj", "abcd")
+    ), "the provider's text is never repeated"
 
 
 _TERMINAL_ERRORS = {
@@ -246,9 +246,9 @@ def test_the_key_inputs_become_the_standard_variables_and_win_over_them() -> Non
             "OPENAI_API_KEY": "env",
         }
     )
-    assert merged["ANTHROPIC_API_KEY"] == KEY and merged["OPENAI_API_KEY"] == "env", (
-        "an empty input leaves the variable"
-    )
+    assert (
+        merged["ANTHROPIC_API_KEY"] == KEY and merged["OPENAI_API_KEY"] == "env"
+    ), "an empty input leaves the variable"
     route = ci_env.resolve_model_route(ci_env.key_environment({"INPUT_OPENAI_API_KEY": "sk-openai-123456"}))
     assert route is not None and route.provider == "openai"
     assert ci_env.resolve_model_route({}) is None

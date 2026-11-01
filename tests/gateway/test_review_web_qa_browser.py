@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -199,6 +200,9 @@ def _scenario(name: str = "signup") -> BrowserScenario:
 
 def _run(tmp_path: Path, base_url: str, scenario: BrowserScenario | None = None, **kwargs: Any) -> dict[str, Any]:
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(Path.home()), "QA_PASSWORD": PASSWORD}
+    # An isolated HOME (the release gate's) keeps its browsers elsewhere: the runner passes this through.
+    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        env["PLAYWRIGHT_BROWSERS_PATH"] = os.environ["PLAYWRIGHT_BROWSERS_PATH"]
     found = shutil.which("node")
     if found:
         env["PATH"] = f"{Path(found).parent}:{env['PATH']}"

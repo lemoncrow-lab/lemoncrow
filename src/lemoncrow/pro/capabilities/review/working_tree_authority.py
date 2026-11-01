@@ -83,15 +83,20 @@ def config_line(repo_root: Path) -> tuple[str, dict[str, object]]:
 
 
 def _committed_unchanged(repo_root: Path, path: str) -> bool:
-    """Whether *path* is tracked and identical to ``HEAD``'s copy."""
+    """Whether *path* is in ``HEAD`` and the file on disk hashes to that same blob.
+
+    Compares blob ids rather than asking ``git diff --quiet``: a file written and committed within the index's timestamp
+    granularity is stat-dirty, and ``--quiet`` stops at the stat mismatch without reading the content.
+    """
 
     base = ["git", "-C", str(repo_root)]
-    tracked = subprocess.run([*base, "ls-files", "--error-unmatch", "--", path], capture_output=True, check=False)
-    if tracked.returncode != 0:
-        return False
-    return (
-        subprocess.run([*base, "diff", "--quiet", "HEAD", "--", path], capture_output=True, check=False).returncode == 0
+    committed = subprocess.run(
+        [*base, "rev-parse", "--verify", "--quiet", f"HEAD:{path}"], capture_output=True, text=True, check=False
     )
+    if committed.returncode != 0:
+        return False
+    current = subprocess.run([*base, "hash-object", "--", path], capture_output=True, text=True, check=False)
+    return current.returncode == 0 and current.stdout.strip() == committed.stdout.strip()
 
 
 __all__ = ["MAX_DOCUMENT_BYTES", "REVIEW_CONFIG", "WorkingTreeAuthority", "config_line"]

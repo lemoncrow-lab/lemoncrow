@@ -216,12 +216,14 @@ def load_reviewer_comments(directory: Path, pr_ids: Sequence[str]) -> dict[str, 
         except OSError:
             out[pr_id] = Submission(reviewed=False, note="reviewer evidence could not be opened safely")
             continue
+        # No ``continue`` inside the ``with``: mypyc cannot compile one inside try/finally.
         with os.fdopen(fd, "rb") as handle:
             info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size > 4 * 1024 * 1024:
-                out[pr_id] = Submission(reviewed=False, note="reviewer evidence is not a bounded regular file")
-                continue
-            raw = handle.read(4 * 1024 * 1024 + 1)
+            bounded = stat.S_ISREG(info.st_mode) and info.st_size <= 4 * 1024 * 1024
+            raw = handle.read(4 * 1024 * 1024 + 1) if bounded else b""
+        if not bounded:
+            out[pr_id] = Submission(reviewed=False, note="reviewer evidence is not a bounded regular file")
+            continue
         if len(raw) > 4 * 1024 * 1024:
             out[pr_id] = Submission(reviewed=False, note="reviewer evidence exceeds 4 MiB cap")
             continue

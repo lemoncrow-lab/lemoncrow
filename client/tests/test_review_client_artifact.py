@@ -43,6 +43,8 @@ _ABSENT_ON_PURPOSE: dict[str, str] = {
     "review_hooks": "hosted agent-checkpoint `lc review hook after-edit`",
     "review_device_connect": "hosted `lc review connect`",
     "review_companion_cli": "hosted `lc review pending|device|task`",
+    "workspace_cli": "Runtime: `lc workspace` says it is part of LemonCrow Runtime first",
+    "workspace_members": "Runtime Lite: `lc runtime index`, beside lite/index",
 }
 
 

@@ -2,6 +2,7 @@ import { Component, lazy, useState, type ComponentType, type ErrorInfo, type Rea
 import { AlertTriangle } from "lucide-react";
 
 import { Button as UiButton } from "../components/ui/button";
+import { importOnceMore } from "./retryableLazy";
 
 interface PanelBoundaryProps {
   label: string;
@@ -62,12 +63,14 @@ class PanelBoundary extends Component<PanelBoundaryProps, { failed: boolean }> {
  * panel, with Retry, instead of unmounting the whole Reader. `React.lazy`
  * remembers a rejected import forever, so a failure swaps in a fresh one and
  * the next attempt (Retry, or opening the panel again) really loads again.
+ * Each attempt itself retries once quietly: one dropped load is not a failure.
  */
 export function lazyPanel<P extends object>(
   label: string,
   load: () => Promise<{ default: ComponentType<P> }>,
 ): ComponentType<P> {
-  let Loaded = lazy(load);
+  const importChunk = importOnceMore(load);
+  let Loaded = lazy(importChunk);
   function LazyPanel(props: P) {
     const [attempt, setAttempt] = useState(0);
     const Current = Loaded as unknown as ComponentType<P>;
@@ -75,7 +78,7 @@ export function lazyPanel<P extends object>(
       <PanelBoundary
         key={attempt}
         label={label}
-        onFailed={() => { Loaded = lazy(load); }}
+        onFailed={() => { Loaded = lazy(importChunk); }}
         onRetry={() => setAttempt((count) => count + 1)}
         onDismiss={(props as { onClose?: () => void }).onClose}
       >

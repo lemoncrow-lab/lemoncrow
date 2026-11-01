@@ -95,7 +95,7 @@ def test_v3_bootstrap_does_not_modify_v2_index_used_by_old_process(tmp_path: Pat
     with sqlite3.connect(old_db) as old:
         assert old.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("2",)
     with sqlite3.connect(newer.db_path) as current:
-        assert current.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("3",)
+        assert current.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("4",)
     assert newer.search("credit_probe")["files"][0]["path"] == "app.py"
 
 

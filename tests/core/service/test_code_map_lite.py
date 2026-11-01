@@ -91,6 +91,32 @@ def test_files_symbols_and_source_come_from_the_lite_index(engine: LiteCodeMapEn
     assert detail["source"] == "def charge():"
 
 
+def test_a_worktree_overlay_shows_every_visible_file_symbol_and_link(repo: Path) -> None:
+    """A linked worktree's index holds only its own rows; the map still shows the whole tree."""
+
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "commit", "-q", "-m", "init"], cwd=repo, check=True)
+    worktree = repo.parent / "wt"
+    subprocess.run([*git, "worktree", "add", "-q", "-b", "feat", str(worktree)], cwd=repo, check=True)
+    LiteCodeMapEngine(repo).prepare()
+    (worktree / "src/pkg/util.py").write_text("def helper_v2():\n    return 3\n", encoding="utf-8")
+    (worktree / "web/view.ts").unlink()
+    overlay = LiteCodeMapEngine(worktree)
+    overlay.prepare()
+    with overlay.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM main.files").fetchone()[0] == 1  # util.py only
+
+    with overlay.connection() as connection:
+        indexed = {str(row[0]) for row in connection.execute("SELECT DISTINCT file_path FROM symbols")}
+    assert indexed == {"src/pkg/core.py", "src/pkg/util.py", "src/pkg/api.py", "src/pkg/cli.py", "web/app.ts"}
+    assert _symbol(overlay, "charge")["path"] == "src/pkg/core.py"  # inherited from the main checkout
+    assert _symbol(overlay, "helper_v2")["path"] == "src/pkg/util.py"  # the worktree's own version
+    assert not [row for row in code_map.search_symbols(overlay, "helper", limit=10) if row["label"] == "helper"]
+    links = {(row["source_path"], row["target_path"]) for row in overlay.import_links().rows}
+    assert ("src/pkg/cli.py", "src/pkg/core.py") in links
+    assert ("web/app.ts", "web/view.ts") not in links
+
+
 def test_symbol_ids_resolve_only_to_the_symbol_they_name(engine: LiteCodeMapEngine) -> None:
     charge = _symbol(engine, "charge")
     prefix, digest, line, name = str(charge["id"]).split(":", 3)

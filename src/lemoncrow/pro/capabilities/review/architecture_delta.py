@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tempfile
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -99,25 +101,48 @@ def _architecture_provenance(
 
 
 def _reference_architecture(root: Path) -> dict[str, Any]:
-    """Build one deterministic file-reference architecture from an immutable tree."""
+    """Build one deterministic file-reference architecture from an immutable tree.
 
+    The repository map links a file to every file that defines a name it uses, by the bare name. The Review claims these
+    relationships as the Snapshot's own, so five uses are not taken as one: a name the file defines itself (its own
+    helper, a local), a name only an import brings in (the import uses someone else's definition), a name that is only
+    a local or a member of the other file, a name a JavaScript or TypeScript module declares without exporting it, and
+    a name defined in another language. On a 2026-11-01 pull request those tied 220 unchanged files to a new test file
+    through ``actual``, ``body``, ``json``, ``afterEach`` and ``calls``.
+    """
+
+    from lemoncrow.infra.tree_sitter.tags import detect_language
     from lemoncrow.pro.capabilities.repo_map.graph import build_reference_graph
+    from lemoncrow.pro.capabilities.review.impact import _is_definition_tag
 
     graph, tags_by_file = build_reference_graph(root)
     definitions: dict[str, set[str]] = defaultdict(set)
+    own: dict[str, set[str]] = defaultdict(set)
+    family: dict[str, str] = {}
     for path, tags in tags_by_file.items():
+        scoped = path.endswith(_SCOPELESS_SUFFIXES)
+        family[path] = "javascript" if scoped else str(detect_language(Path(path)) or Path(path).suffix)
+        module: _Module | None = None
         for tag in tags:
-            if tag.kind == "definition":
-                definitions[tag.name].add(path)
+            if tag.kind != "definition" or not _is_definition_tag(tag):
+                continue
+            own[path].add(tag.name)
+            if scoped:
+                if module is None:
+                    module = _module(root / path)
+                if not module.offers(tag.name, tag.line, tag.node_kind):
+                    continue
+            definitions[tag.name].add(path)
 
     edge_symbols: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
     edge_evidence: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for source in sorted(tags_by_file):
+        mine = own.get(source, set())
         for tag in tags_by_file[source]:
-            if tag.kind != "reference":
+            if tag.kind != "reference" or tag.name in mine:
                 continue
             for target in sorted(definitions.get(tag.name, ())):
-                if target == source or not graph.has_edge(source, target):
+                if target == source or family[target] != family[source]:
                     continue
                 key = (source, target)
                 edge_symbols[key][tag.name] += 1
@@ -135,15 +160,14 @@ def _reference_architecture(root: Path) -> dict[str, Any]:
                     )
 
     edges: list[dict[str, Any]] = []
-    for source, target, attrs in sorted(graph.edges(data=True), key=lambda row: (row[0], row[1])):
-        key = (source, target)
-        symbols = edge_symbols.get(key, Counter())
+    for key in sorted(edge_symbols):
+        symbols = edge_symbols[key]
         edges.append(
             {
-                "source": source,
-                "target": target,
+                "source": key[0],
+                "target": key[1],
                 "kind": "references",
-                "weight": max(1, round(float(attrs.get("weight", 1.0)))),
+                "weight": sum(symbols.values()),
                 "symbols": [
                     {"name": name, "count": count}
                     for name, count in sorted(symbols.items(), key=lambda item: (-item[1], item[0]))[:8]
@@ -152,6 +176,71 @@ def _reference_architecture(root: Path) -> dict[str, Any]:
             }
         )
     return {"nodes": sorted(str(node) for node in graph.nodes), "edges": edges}
+
+
+#: Sources whose tag extractor indexes definitions at every depth (function-body locals among them), so a definition's
+#: indentation is what tells a file-level declaration from a local. Other languages either index file- and class-level
+#: definitions only (Python) or skip locals by scope (C, Go, Java, Rust, Ruby).
+# lc-debt: indentation and export lines stand in for scope and the module's export table; a scope-aware walk for
+# JS/TS in infra.tree_sitter.tags, with export flags on its tags, would replace both.
+_SCOPELESS_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+#: The JavaScript and TypeScript declarations that can name something at file level; members (a method, a field, a
+#: property of a type) never do, even on a line that starts at column 0.
+_FILE_LEVEL_KINDS = frozenset(
+    {
+        "class_declaration",
+        "enum_declaration",
+        "function_declaration",
+        "function_signature",
+        "generator_function_declaration",
+        "interface_declaration",
+        "lexical_declaration",
+        "type_alias_declaration",
+        "variable_declaration",
+    }
+)
+_MODULE_LINE = re.compile(r"^(?:import|export)\b")
+_EXPORT_LIST = re.compile(r"\bexport\s+(?:type\s+)?\{([^}]*)\}")
+_EXPORT_DEFAULT = re.compile(r"^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$", re.MULTILINE)
+
+
+@dataclass(frozen=True, slots=True)
+class _Module:
+    """What one JavaScript or TypeScript file offers other files: its file-level names, only the exported ones if an ES
+    module (a script or CommonJS file has no export lines to read, so all of them)."""
+
+    lines: tuple[str, ...]
+    esm: bool
+    exported: frozenset[str]
+
+    def offers(self, name: str, line: int, node_kind: str | None) -> bool:
+        if node_kind is not None and node_kind not in _FILE_LEVEL_KINDS:
+            return False
+        if not 0 < line <= len(self.lines):
+            return True  # an unknown line keeps its definition
+        text = self.lines[line - 1]
+        if text[:1].isspace():
+            return False
+        return not self.esm or text.startswith("export") or name in self.exported
+
+
+def _module(path: Path) -> _Module:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+    lines = tuple(text.splitlines())
+    exported = {
+        part.split(" as ")[0].strip().removeprefix("type ").strip()
+        for clause in _EXPORT_LIST.findall(text)
+        for part in clause.split(",")
+    }
+    exported.update(_EXPORT_DEFAULT.findall(text))
+    return _Module(
+        lines=lines,
+        esm=any(_MODULE_LINE.match(row) for row in lines),
+        exported=frozenset(name for name in exported if name),
+    )
 
 
 def _rename_map(packet: Mapping[str, Any]) -> dict[str, str]:

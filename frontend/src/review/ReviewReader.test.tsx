@@ -2271,6 +2271,29 @@ describe("ReviewReader R22 shell", () => {
     expect(screen.getByText(/Rendered review surfaces unavailable: surface offline/)).toBeTruthy();
   });
 
+  it("retries failed surface discovery on the current Snapshot without running checks or reloading source", async () => {
+    // Several independently loaded Reader regions can discover surfaces; keep
+    // the outage until the reviewer deliberately presses Retry.
+    api.fetchReviewSurfaces.mockRejectedValue(new Error("temporary surface failure"));
+    render(<ReviewReader />);
+    expect(await screen.findByText("30 streamed targets")).toBeTruthy();
+    await waitFor(() => expect(api.fetchReviewSurfaces).toHaveBeenCalled());
+    // The outage may be the primary (and only) context signal, in which case
+    // the popover chip is intentionally absent. Retry must work in both views.
+    const warningChip = screen.queryByRole("button", { name: /Some context unavailable/ });
+    if (warningChip) await userEvent.click(warningChip);
+    expect(await screen.findByText(/Rendered review surfaces unavailable: temporary surface failure/)).toBeTruthy();
+    const startupCalls = api.fetchStartupOverview.mock.calls.length;
+    const previousSurfaceCalls = api.fetchReviewSurfaces.mock.calls.length;
+    const checksBefore = api.runReviewSurface.mock.calls.length;
+    api.fetchReviewSurfaces.mockResolvedValue({ revision_id: "rrv-1", surfaces: [] });
+    await userEvent.click(screen.getByRole("button", { name: "Retry surface discovery" }));
+    await waitFor(() => expect(api.fetchReviewSurfaces).toHaveBeenCalledTimes(previousSurfaceCalls + 1));
+    await waitFor(() => expect(screen.queryByText(/temporary surface failure/)).toBeNull());
+    expect(api.fetchStartupOverview).toHaveBeenCalledTimes(startupCalls);
+    expect(api.runReviewSurface).toHaveBeenCalledTimes(checksBefore);
+  });
+
   it("enables provider merge only with the exact readiness snapshot and condition hash", async () => {
     const landing = {
       review_id: "review-1", snapshot_id: "rrv-1", snapshot_number: 0, tree_fingerprint: "tree-1", source_fingerprint: "source-1",

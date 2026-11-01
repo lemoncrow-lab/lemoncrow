@@ -484,7 +484,9 @@ def _install_attribution_hook(git_root: Path) -> str | None:
     )
     hook_path.write_text(content, encoding="utf-8")
     hook_path.chmod(0o755)
-    return f"LemonCrow co-author hook installed at {hook_path.relative_to(git_root)}"
+    # A linked worktree's hooks live in the main repository's git directory, outside this checkout.
+    shown = hook_path.relative_to(git_root) if hook_path.is_relative_to(git_root) else hook_path
+    return f"LemonCrow co-author hook installed at {shown}"
 
 
 def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
@@ -497,7 +499,7 @@ def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
     # .gitignore \u2014 write .lemoncrow/.gitignore so the dir stays visible in git
     added = _ensure_gitignore(git_root)
     if added:
-        results["gitignore"] = [".lemoncrow/.gitignore written (ignores everything inside .lemoncrow/)"]
+        results["gitignore"] = [".lemoncrow/.gitignore written (ignores runtime data, keeps review config committable)"]
     else:
         results["gitignore"] = [".lemoncrow/.gitignore already present"]
 

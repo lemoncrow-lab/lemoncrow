@@ -72,3 +72,7 @@ src/lemoncrow/core/LICENSE
 src/lemoncrow/infra/LICENSE
 src/lemoncrow/py.typed
 src/lemoncrow/pro/capabilities/review/security_rules/README.md
+
+# The `lc workspace` command line. workspace_graph's usage message reads it, only from
+# workspace_graph.run; Review calls impact() and never the command line.
+client/src/lemoncrow_client/workspace_cli.py

@@ -10,6 +10,13 @@ A writer holds SQLite's BEGIN IMMEDIATE lock while it computes and commits one
 generation. WAL readers continue to observe the previous committed generation.
 A second writer waits, then reuses the newly committed file identities rather
 than rebuilding the repository.
+
+A linked worktree whose repository's main checkout has a usable index stores
+only what differs from it: that index is a read-only *base*, the ``inherit``
+table names the worktree files whose content equals the base's, and read
+connections present own rows plus the visible base rows under the usual table
+names. A base row is visible only while its digest still equals the digest the
+worktree recorded, so a base change never serves another checkout's content.
 """
 
 from __future__ import annotations
@@ -30,21 +37,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from ..worktrees import WorktreeCatalog
 from .imports import IMPORT_STATUSES, ImportResolution, ImportResolver, extract_imports, imported_names
 
 # v3: import rows cover multi-line, relative, re-export, dynamic, Go block,
 # Rust group/mod and Java/Kotlin statements (see lite/imports.py).
-_SCHEMA_VERSION: Final[int] = 3
+# v4: worktree overlays (the ``inherit`` table, meta base_path/base_generation).
+_SCHEMA_VERSION: Final[int] = 4
 
 
 class LiteIndexUpgradeRequired(RuntimeError):
     """A newer index must never be modified by an older Runtime Lite process."""
 
 
-# Never upgrade the database *used by an older, still-running MCP process*.
+# The file name predates schema 4 and stays: worktrees find their base by it,
+# and an older process that opens a schema 4 file refuses it before any DDL
+# (LiteIndexUpgradeRequired) instead of rebuilding next to ``inherit`` rows.
 # Keep the pre-versioned path only as a read-only migration source.
-_DB_NAME: Final[str] = f"runtime-lite-v{_SCHEMA_VERSION}.sqlite3"
+_DB_NAME: Final[str] = "runtime-lite-v3.sqlite3"
 _LEGACY_DB_NAME: Final[str] = "runtime-lite.sqlite3"
 _INDEX_DIR: Final[str] = ".lemoncrow/workspace"
 _MAX_INDEX_FILE_BYTES: Final[int] = 4 * 1024 * 1024
@@ -165,7 +174,7 @@ class LiteIndexReport:
 class LiteIndexProgress:
     """One observation of a running :meth:`LiteIndex.prepare`.
 
-    ``phase`` is ``seed`` (reusing a linked checkout's rows), ``lock`` (waiting
+    ``phase`` is ``seed`` (opening the index and its base), ``lock`` (waiting
     for another writer), ``scan`` (walking and indexing files), ``prune``
     (removing deleted files), ``commit`` or ``done``. ``total`` is the number
     of worktree entries to walk, or 0 while unknown.
@@ -418,54 +427,252 @@ def _count_git_paths(repo_root: Path) -> int:
     return count + (1 if trailing and trailing != b"\x00" else 0)
 
 
-def _git_value(repo_root: Path, *arguments: str) -> str | None:
-    """One bounded Git scalar, or ``None`` when the checkout cannot answer."""
+_BARE_CONFIG = re.compile(r"^\s*bare\s*=\s*true\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _main_checkout_index(repo_root: Path) -> Path | None:
+    """The main checkout's index path when ``repo_root`` is a linked worktree.
+
+    A linked worktree's ``.git`` is a file naming ``<common>/worktrees/<name>``;
+    the repository has a main checkout when the common directory is
+    ``<main>/.git`` of a non-bare repository. Submodule checkouts (no
+    ``commondir``), bare repositories and the main checkout itself have no base.
+    """
+
+    dotgit = repo_root / ".git"
+    try:
+        if not dotgit.is_file():
+            return None
+        first = dotgit.read_text(encoding="utf-8", errors="replace").partition("\n")[0].strip()
+        if not first.startswith("gitdir:"):
+            return None
+        gitdir = Path(first[len("gitdir:") :].strip())
+        if not gitdir.is_absolute():
+            gitdir = repo_root / gitdir
+        common = Path((gitdir / "commondir").read_text(encoding="utf-8", errors="replace").strip())
+        if not common.is_absolute():
+            common = gitdir / common
+        common = common.resolve()
+        if common.name != ".git" or not common.is_dir():
+            return None
+        config = common / "config"
+        if config.is_file() and _BARE_CONFIG.search(config.read_text(encoding="utf-8", errors="replace")):
+            return None
+    except OSError:
+        return None
+    main = common.parent
+    if main == repo_root:
+        return None
+    return main / _INDEX_DIR / _DB_NAME
+
+
+class _LiteConnection(sqlite3.Connection):
+    """A Runtime Lite connection; ``overlay`` once the base index is attached."""
+
+    overlay: bool = False
+    #: The index is an overlay whose base could not be attached: own rows only.
+    base_unavailable: bool = False
+
+
+def _usable_base_generation(values: dict[str, str]) -> int:
+    """The base generation an overlay may use, from base ``meta`` rows; 0 when unusable.
+
+    A base must have the current schema, a published generation and no base
+    of its own (no chains).
+    """
 
     try:
-        completed = subprocess.run(
-            ["git", *arguments],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if completed.returncode != 0:
-        return None
-    value = completed.stdout.strip()
-    return value or None
+        generation = int(values.get("generation", "0"))
+        schema = int(values.get("schema_version", "0"))
+    except ValueError:
+        return 0
+    if schema != _SCHEMA_VERSION or values.get("base_path", ""):
+        return 0
+    return max(0, generation)
 
 
-def _git_paths(repo_root: Path, *arguments: str) -> frozenset[str] | None:
-    """Return a NUL-delimited Git path result without ever guessing on failure."""
+_BASE_META_SQL: Final[str] = (
+    "SELECT key, value FROM {schema}.meta WHERE key IN ('schema_version', 'generation', 'base_path')"
+)
+
+
+def _base_state(base_db: Path | None) -> tuple[str, int]:
+    """``(base path, generation)`` of a usable base index, else ``('', 0)``."""
+
+    if base_db is None or not base_db.is_file():
+        return "", 0
+    try:
+        with contextlib.closing(sqlite3.connect(f"{base_db.as_uri()}?mode=ro", uri=True, timeout=5.0)) as base:
+            values = {str(key): str(value) for key, value in base.execute(_BASE_META_SQL.format(schema="main"))}
+    except sqlite3.Error:
+        return "", 0
+    generation = _usable_base_generation(values)
+    return (str(base_db), generation) if generation > 0 else ("", 0)
+
+
+def _attach_base(connection: sqlite3.Connection, base_path: str) -> dict[str, str] | None:
+    """Attach a base index read-only as ``base``; its meta values, or ``None``."""
 
     try:
-        completed = subprocess.run(
-            ["git", *arguments],
-            cwd=repo_root,
-            capture_output=True,
-            timeout=10.0,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        connection.execute("ATTACH DATABASE ? AS base", (f"{Path(base_path).as_uri()}?mode=ro",))
+    except sqlite3.Error:
         return None
-    if completed.returncode != 0:
-        return None
-    return frozenset(
-        raw.decode("utf-8", errors="surrogateescape").replace("\\", "/") for raw in completed.stdout.split(b"\0") if raw
-    )
+    try:
+        values = {str(row[0]): str(row[1]) for row in connection.execute(_BASE_META_SQL.format(schema="base"))}
+        if int(values.get("schema_version", "0")) == _SCHEMA_VERSION:
+            return values
+    except (sqlite3.Error, ValueError):
+        pass
+    with contextlib.suppress(sqlite3.Error):
+        connection.execute("DETACH DATABASE base")
+    return None
 
 
-def _worktree_changed_paths(repo_root: Path) -> frozenset[str] | None:
-    """Tracked changes plus untracked files whose bytes are not proved by HEAD."""
+# Own rows, then base rows whose path the worktree inherits with the digest the
+# base still has. TEMP objects shadow ``main`` tables for unqualified names.
+# lc-debt: every base row read through a view pays two primary-key lookups
+# (inherit, base.files) to prove visibility, so broad LIKE scans over symbols
+# run up to ~2x a standalone index. Upgrade: answer broad scans per side and
+# join visibility once per distinct path.
+_OVERLAY_VIEWS: Final[tuple[str, ...]] = (
+    """
+    CREATE TEMP VIEW files AS
+        SELECT path, identity, digest, size, text_indexed FROM main.files
+        UNION ALL
+        SELECT i.path, i.identity, b.digest, b.size, b.text_indexed
+        FROM main.inherit AS i JOIN base.files AS b ON b.path=i.path AND b.digest=i.digest
+    """,
+    """
+    CREATE TEMP VIEW symbols AS
+        SELECT name, kind, path, line, end_line, signature FROM main.symbols
+        UNION ALL
+        SELECT s.name, s.kind, s.path, s.line, s.end_line, s.signature
+        FROM base.symbols AS s
+        JOIN main.inherit AS i ON i.path=s.path
+        JOIN base.files AS b ON b.path=i.path AND b.digest=i.digest
+    """,
+    """
+    CREATE TEMP VIEW imports AS
+        SELECT path, module, imported, line FROM main.imports
+        UNION ALL
+        SELECT m.path, m.module, m.imported, m.line
+        FROM base.imports AS m
+        JOIN main.inherit AS i ON i.path=m.path
+        JOIN base.files AS b ON b.path=i.path AND b.digest=i.digest
+    """,
+)
 
-    tracked = _git_paths(repo_root, "diff", "--name-only", "--no-renames", "-z", "HEAD", "--")
-    untracked = _git_paths(repo_root, "ls-files", "--others", "--exclude-standard", "-z", "--")
-    if tracked is None or untracked is None:
-        return None
-    return tracked | untracked
+
+def _present_overlay(connection: _LiteConnection) -> None:
+    """Make an overlay's read connection answer with its visible rows.
+
+    Call before ``PRAGMA query_only``. A standalone index is left untouched; an
+    overlay whose base cannot be attached serves own rows and says so through
+    ``base_unavailable``.
+    """
+
+    try:
+        row = connection.execute("SELECT value FROM main.meta WHERE key='base_path'").fetchone()
+    except sqlite3.Error:
+        return
+    base_path = str(row[0]) if row is not None else ""
+    if not base_path:
+        return
+    if _attach_base(connection, base_path) is None:
+        connection.base_unavailable = True
+        return
+    for statement in _OVERLAY_VIEWS:
+        connection.execute(statement)
+    connection.overlay = True
+
+
+_VIEW_COLUMNS: Final[tuple[tuple[str, str], ...]] = (
+    ("files", "path, identity, digest, size, text_indexed"),
+    ("symbols", "name, kind, path, line, end_line, signature"),
+    ("imports", "path, module, imported, line"),
+)
+
+
+def present_index_views(connection: sqlite3.Connection, *, prefix: str) -> None:
+    """TEMP views ``<prefix>files``, ``<prefix>symbols`` and ``<prefix>imports`` with every visible row.
+
+    For code outside this module that keeps its own TEMP views under the plain
+    table names: an overlay's views union its own rows with the base rows it
+    inherits (base attached read-only as ``base``); a standalone index's views
+    read ``main``. Call before ``PRAGMA query_only``.
+    """
+
+    if not prefix.isidentifier():
+        raise ValueError(f"view prefix must be an identifier: {prefix!r}")
+    try:
+        row = connection.execute("SELECT value FROM main.meta WHERE key='base_path'").fetchone()
+    except sqlite3.Error:
+        row = None
+    base_path = str(row[0]) if row is not None else ""
+    if base_path and _attach_base(connection, base_path) is not None:
+        for statement in _OVERLAY_VIEWS:
+            connection.execute(statement.replace("CREATE TEMP VIEW ", f"CREATE TEMP VIEW {prefix}", 1))
+        return
+    for table, columns in _VIEW_COLUMNS:
+        connection.execute(f"CREATE TEMP VIEW {prefix}{table} AS SELECT {columns} FROM main.{table}")
+
+
+def open_index_reader(db_path: Path, *, timeout: float = 30.0) -> sqlite3.Connection:
+    """A read-only connection to a Runtime Lite index for code outside this module.
+
+    ``files``, ``symbols`` and ``imports`` answer with every visible row, also
+    for a worktree overlay; ``file_fts`` holds own rows only (see
+    :func:`_fts_matches`).
+    """
+
+    connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True, timeout=timeout, factory=_LiteConnection)
+    try:
+        _present_overlay(connection)
+        connection.execute("PRAGMA query_only=ON")
+    except BaseException:
+        connection.close()
+        raise
+    return connection
+
+
+def _fts_matches(connection: sqlite3.Connection, expression: str, limit: int, *, snippet: bool) -> list[sqlite3.Row]:
+    """``path``, ``rank`` (bm25) and ``match_snippet`` rows for one FTS5 expression.
+
+    FTS5 MATCH, bm25 and snippet need a real table, so an overlay queries its own
+    ``file_fts`` and the base's (filtered to visible paths) and merges by rank.
+    """
+
+    snippet_sql = "snippet(file_fts, 1, '', '', '...', 24)" if snippet else "''"
+    rows: list[sqlite3.Row] = connection.execute(
+        f"""
+        SELECT path, bm25(file_fts) AS rank, {snippet_sql} AS match_snippet
+        FROM main.file_fts
+        WHERE file_fts MATCH ?
+        ORDER BY rank, path
+        LIMIT ?
+        """,
+        (expression, limit),
+    ).fetchall()
+    if not getattr(connection, "overlay", False):
+        return rows
+    # lc-debt: own and base rows are ranked against two corpora whose BM25
+    # statistics (document count, average length, term frequencies) differ, so
+    # the merged order is approximate across them. Upgrade: score both sides
+    # with shared corpus statistics (a custom rank over fts5vocab counts).
+    base_rows: list[sqlite3.Row] = connection.execute(
+        f"""
+        SELECT f.path AS path, bm25(file_fts) AS rank, {snippet_sql} AS match_snippet
+        FROM base.file_fts AS f
+        JOIN main.inherit AS i ON i.path=f.path
+        JOIN base.files AS b ON b.path=i.path AND b.digest=i.digest
+        WHERE file_fts MATCH ?
+        ORDER BY rank, f.path
+        LIMIT ?
+        """,
+        (expression, limit),
+    ).fetchall()
+    merged = sorted([*rows, *base_rows], key=lambda row: (float(row["rank"] or 0.0), str(row["path"])))
+    return merged[:limit]
 
 
 def _index_payload(path: Path, *, identity: str, size: int) -> tuple[str | None, str]:
@@ -619,10 +826,12 @@ class LiteIndex:
         self.repo_root = repo_root.expanduser().resolve()
         self.store_dir = self.repo_root / _INDEX_DIR
         self.db_path = self.store_dir / _DB_NAME
-        self._query_cache: OrderedDict[tuple[str, tuple[str, ...], int, int], dict[str, Any]] = OrderedDict()
+        # (query, scopes, limit, generation, base generation or -1)
+        self._query_cache: OrderedDict[tuple[str, tuple[str, ...], int, int, int], dict[str, Any]] = OrderedDict()
         self._last_refresh_check = 0.0
         self._known_generation = -1
         self._worktree_signature: str | None = None
+        self._known_base_state: tuple[str, int] = ("", 0)
         self._dirty = True
         self._must_refresh = False
         self._stale_while_refresh = stale_while_refresh
@@ -670,7 +879,7 @@ class LiteIndex:
         try:
             with contextlib.closing(sqlite3.connect(legacy, timeout=5.0)) as old:
                 row = old.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-                if row is None or int(row[0]) not in (1, 2, _SCHEMA_VERSION):
+                if row is None or int(row[0]) not in (1, 2, 3):
                     return
                 fd, name = tempfile.mkstemp(prefix=".lite-index-copy-", suffix=".sqlite3", dir=self.store_dir)
                 os.close(fd)
@@ -689,12 +898,13 @@ class LiteIndex:
                 with contextlib.suppress(OSError):
                     candidate.unlink()
 
-    def _connect(self, *, initialize: bool = False, readonly: bool = False) -> sqlite3.Connection:
+    def _connect(self, *, initialize: bool = False, readonly: bool = False) -> _LiteConnection:
         opened = time.perf_counter()
         self.store_dir.mkdir(parents=True, exist_ok=True)
         if initialize:
             self._adopt_legacy_database()
-        connection = sqlite3.connect(self.db_path, timeout=600.0)
+        # A URI connection, so ATTACH of an overlay's base can say mode=ro.
+        connection = sqlite3.connect(self.db_path.as_uri(), uri=True, timeout=600.0, factory=_LiteConnection)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout=600000")
         if initialize:
@@ -722,6 +932,12 @@ class LiteIndex:
                 connection.close()
                 raise
         elif readonly:
+            _present_overlay(connection)
+            if connection.base_unavailable:
+                # Own rows only until the next prepare makes the index standalone.
+                with self._state_lock:
+                    self._dirty = True
+                    self._last_refresh_check = 0.0
             connection.execute("PRAGMA query_only=ON")
         self._timing_add("sqlite_open_ms", time.perf_counter() - opened)
         return connection
@@ -774,6 +990,11 @@ class LiteIndex:
                 content,
                 tokenize='porter unicode61'
             );
+            CREATE TABLE IF NOT EXISTS inherit (
+                path TEXT PRIMARY KEY,
+                identity TEXT NOT NULL,
+                digest TEXT NOT NULL
+            ) WITHOUT ROWID;
             """)
         schema = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
         if schema is None:
@@ -784,7 +1005,16 @@ class LiteIndex:
             connection.execute("INSERT INTO meta(key, value) VALUES('generation', '0')")
         else:
             version = int(schema["value"])
-            if version == 2:
+            if version == 3:
+                # v4 only adds the (empty) inherit table and base meta keys; the
+                # next prepare turns a linked worktree's full index into an overlay.
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "UPDATE meta SET value=? WHERE key='schema_version' AND value='3'",
+                    (str(_SCHEMA_VERSION),),
+                )
+                connection.commit()
+            elif version == 2:
                 # v3 changes what import rows hold. Keep serving the v2 rows and
                 # make the next prepare() re-read every file once.
                 connection.execute("BEGIN IMMEDIATE")
@@ -829,12 +1059,26 @@ class LiteIndex:
                     "Preserve the index for diagnosis."
                 )
         connection.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('worktree_signature', '')")
+        connection.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('base_path', '')")
+        connection.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('base_generation', '0')")
         connection.commit()
 
     @staticmethod
     def _generation(connection: sqlite3.Connection) -> int:
         row = connection.execute("SELECT value FROM meta WHERE key='generation'").fetchone()
         return int(row["value"]) if row is not None else 0
+
+    @staticmethod
+    def _base_generation(connection: _LiteConnection) -> int:
+        """The attached base's generation, or -1 when the connection serves no base rows."""
+
+        if not connection.overlay:
+            return -1
+        try:
+            row = connection.execute("SELECT value FROM base.meta WHERE key='generation'").fetchone()
+            return int(row[0]) if row is not None else -1
+        except (sqlite3.Error, ValueError):
+            return -1
 
     def generation(self) -> int:
         if not self.db_path.exists():
@@ -851,13 +1095,38 @@ class LiteIndex:
             self._must_refresh = True
             self._last_refresh_check = 0.0
 
-    def _set_adopted_state(self, *, generation: int, signature: str, dirty: bool) -> None:
+    def _set_adopted_state(
+        self, *, generation: int, signature: str, dirty: bool, base_state: tuple[str, int] = ("", 0)
+    ) -> None:
         with self._state_lock:
             self._known_generation = generation
             self._worktree_signature = signature or None
+            self._known_base_state = base_state
             self._dirty = dirty
             self._must_refresh = False
             self._last_refresh_check = time.monotonic()
+
+    @staticmethod
+    def _stored_base_state(connection: sqlite3.Connection) -> tuple[str, int]:
+        """The ``(base path, base generation)`` an index was last built against."""
+
+        values = {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                "SELECT key, value FROM main.meta WHERE key IN ('base_path', 'base_generation')"
+            )
+        }
+        path = values.get("base_path", "")
+        try:
+            generation = int(values.get("base_generation", "0"))
+        except ValueError:
+            generation = 0
+        return (path, generation) if path else ("", 0)
+
+    def _current_base_state(self) -> tuple[str, int]:
+        """The base this checkout would use now: ``(path, generation)`` or ``('', 0)``."""
+
+        return _base_state(_main_checkout_index(self.repo_root))
 
     def refresh_needed(self) -> bool:
         """Whether a warm generation should be refreshed off the request path."""
@@ -902,6 +1171,7 @@ class LiteIndex:
                 generation = self._generation(connection)
                 row = connection.execute("SELECT value FROM meta WHERE key='worktree_signature'").fetchone()
                 stored = str(row["value"]) if row is not None else ""
+                stored_base = self._stored_base_state(connection)
                 files_seen = int(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         except (sqlite3.OperationalError, ValueError):
             return self.prepare(progress=progress)
@@ -913,14 +1183,15 @@ class LiteIndex:
             # MCP initialize must not pay even the git-status freshness proof.
             # The previous WAL generation is immediately queryable; the owning
             # MCP refresh lane validates it after initialize returns.
-            self._set_adopted_state(generation=generation, signature=stored, dirty=True)
+            self._set_adopted_state(generation=generation, signature=stored, dirty=True, base_state=stored_base)
         else:
             signature_started = time.perf_counter()
             current = _worktree_signature(self.repo_root)
+            current_base = self._current_base_state()
             self._timing_add("git_freshness_ms", time.perf_counter() - signature_started)
-            if current is None or current != stored:
+            if current is None or current != stored or current_base != stored_base:
                 return self.prepare(progress=progress)
-            self._set_adopted_state(generation=generation, signature=current, dirty=False)
+            self._set_adopted_state(generation=generation, signature=current, dirty=False, base_state=current_base)
         return LiteIndexReport(
             path=self.db_path,
             generation=generation,
@@ -930,161 +1201,6 @@ class LiteIndex:
             cold=False,
             elapsed_s=time.monotonic() - started,
         )
-
-    def _seed_candidates(self) -> tuple[tuple[Path, Path], ...]:
-        """Fresh linked-checkout indexes that can cheaply seed this checkout."""
-
-        target_head = _git_value(self.repo_root, "rev-parse", "--verify", "HEAD^{commit}") or ""
-        ranked: list[tuple[int, float, Path, Path]] = []
-        for entry in WorktreeCatalog(self.repo_root).entries():
-            root = entry.root.resolve()
-            if root == self.repo_root:
-                continue
-            db_path = root / _INDEX_DIR / _DB_NAME
-            try:
-                mtime = db_path.stat().st_mtime
-            except OSError:
-                continue
-            source_head = _git_value(root, "rev-parse", "--verify", "HEAD^{commit}") or ""
-            ranked.append((0 if target_head and source_head == target_head else 1, -mtime, root, db_path))
-        ranked.sort(key=lambda item: (item[0], item[1], str(item[2])))
-        return tuple((root, db_path) for _same_head, _mtime, root, db_path in ranked)
-
-    def _seed_from_source(self, connection: sqlite3.Connection, source_root: Path, source_db: Path) -> int:
-        """Reuse proved rows from another linked checkout without reading source bytes.
-
-        A row is reusable only when the source index exactly matches its current
-        checkout, both paths are clean relative to their own HEADs, and the two
-        committed trees agree for that path. The copied analysis is therefore
-        byte-identical; only the child checkout's stat identity is rewritten.
-        """
-
-        source_signature = _worktree_signature(source_root)
-        source_head = _git_value(source_root, "rev-parse", "--verify", "HEAD^{commit}")
-        target_head = _git_value(self.repo_root, "rev-parse", "--verify", "HEAD^{commit}")
-        source_changed = _worktree_changed_paths(source_root)
-        target_changed = _worktree_changed_paths(self.repo_root)
-        if (
-            not source_signature
-            or not source_head
-            or not target_head
-            or source_changed is None
-            or target_changed is None
-        ):
-            return 0
-        revision_changed = _git_paths(
-            self.repo_root,
-            "diff",
-            "--name-only",
-            "--no-renames",
-            "-z",
-            source_head,
-            target_head,
-            "--",
-        )
-        if revision_changed is None:
-            return 0
-        excluded = source_changed | target_changed | revision_changed
-
-        attached = False
-        try:
-            connection.execute("ATTACH DATABASE ? AS lite_seed", (str(source_db),))
-            attached = True
-            connection.execute("BEGIN")
-            version = connection.execute("SELECT value FROM lite_seed.meta WHERE key='schema_version'").fetchone()
-            generation = connection.execute("SELECT value FROM lite_seed.meta WHERE key='generation'").fetchone()
-            stored_signature = connection.execute(
-                "SELECT value FROM lite_seed.meta WHERE key='worktree_signature'"
-            ).fetchone()
-            if (
-                version is None
-                or int(version[0]) != _SCHEMA_VERSION
-                or generation is None
-                or int(generation[0]) <= 0
-                or stored_signature is None
-                or str(stored_signature[0]) != source_signature
-            ):
-                connection.rollback()
-                return 0
-
-            connection.execute("DROP TABLE IF EXISTS temp.lite_seed_paths")
-            connection.execute(
-                "CREATE TEMP TABLE lite_seed_paths(path TEXT PRIMARY KEY, identity TEXT NOT NULL) WITHOUT ROWID"
-            )
-            batch: list[tuple[str, str]] = []
-            seeded = 0
-            for row in connection.execute("SELECT path FROM lite_seed.files ORDER BY path"):
-                relpath = str(row[0])
-                if relpath in excluded:
-                    continue
-                absolute = self.repo_root / relpath
-                try:
-                    info = absolute.lstat()
-                except OSError:
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue
-                batch.append((relpath, _stat_identity(info)))
-                if len(batch) >= 1024:
-                    connection.executemany("INSERT INTO lite_seed_paths(path, identity) VALUES(?, ?)", batch)
-                    seeded += len(batch)
-                    batch.clear()
-            if batch:
-                connection.executemany("INSERT INTO lite_seed_paths(path, identity) VALUES(?, ?)", batch)
-                seeded += len(batch)
-            if not seeded:
-                connection.rollback()
-                return 0
-
-            connection.execute("""
-                INSERT INTO files(path, identity, digest, size, text_indexed)
-                SELECT f.path, p.identity, f.digest, f.size, f.text_indexed
-                FROM lite_seed.files AS f
-                JOIN lite_seed_paths AS p ON p.path=f.path
-                """)
-            connection.execute("""
-                INSERT INTO symbols(name, kind, path, line, end_line, signature)
-                SELECT s.name, s.kind, s.path, s.line, s.end_line, s.signature
-                FROM lite_seed.symbols AS s
-                JOIN lite_seed_paths AS p ON p.path=s.path
-                """)
-            connection.execute("""
-                INSERT INTO imports(path, module, imported, line)
-                SELECT i.path, i.module, i.imported, i.line
-                FROM lite_seed.imports AS i
-                JOIN lite_seed_paths AS p ON p.path=i.path
-                """)
-            connection.execute("""
-                INSERT INTO file_fts(path, content)
-                SELECT f.path, f.content
-                FROM lite_seed.file_fts AS f
-                JOIN lite_seed_paths AS p ON p.path=f.path
-                """)
-            if _worktree_signature(source_root) != source_signature:
-                connection.rollback()
-                return 0
-            connection.execute("UPDATE meta SET value='' WHERE key='worktree_signature'")
-            connection.commit()
-            return seeded
-        except (OSError, sqlite3.Error, ValueError):
-            with contextlib.suppress(sqlite3.Error):
-                connection.rollback()
-            return 0
-        finally:
-            if attached:
-                with contextlib.suppress(sqlite3.Error):
-                    connection.execute("DETACH DATABASE lite_seed")
-
-    def _seed_from_linked_worktree(self, connection: sqlite3.Connection) -> int:
-        """Populate an empty index from the freshest compatible linked checkout."""
-
-        if self._generation(connection) != 0 or int(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]):
-            return 0
-        for source_root, source_db in self._seed_candidates():
-            seeded = self._seed_from_source(connection, source_root, source_db)
-            if seeded:
-                return seeded
-        return 0
 
     def prepare(self, *, force: bool = False, progress: ProgressCallback | None = None) -> LiteIndexReport:
         """Incrementally bring the durable index to the current worktree state.
@@ -1100,6 +1216,130 @@ class LiteIndex:
         with self._refresh_lock:
             return self._prepare_locked(force=force, progress=progress)
 
+    @staticmethod
+    def _delete_rows(connection: sqlite3.Connection, predicate: str, parameters: Sequence[str] = ()) -> None:
+        """Delete own analysis rows (``file_fts``, ``symbols``, ``imports``, ``files``)."""
+
+        for table in ("file_fts", "symbols", "imports", "files"):
+            connection.execute(f"DELETE FROM main.{table} WHERE {predicate}", parameters)
+
+    @staticmethod
+    def _indexed_count(connection: sqlite3.Connection) -> int:
+        row = connection.execute("SELECT (SELECT COUNT(*) FROM main.files) + (SELECT COUNT(*) FROM main.inherit)")
+        return int(row.fetchone()[0])
+
+    def _index_path(
+        self,
+        connection: sqlite3.Connection,
+        relpath: str,
+        info: os.stat_result,
+        *,
+        overlay: bool,
+        fresh: bool,
+        force: bool,
+    ) -> bool:
+        """Bring one worktree file's rows up to date; True when they changed.
+
+        ``fresh`` means the index holds no rows to look up or delete. With
+        ``overlay`` the base is attached: a file whose content equals the base's
+        is inherited instead of analysed into own rows.
+        """
+
+        identity = _stat_identity(info)
+        had_own = had_inherit = False
+        if not fresh:
+            own = connection.execute("SELECT identity FROM main.files WHERE path=?", (relpath,)).fetchone()
+            had_own = own is not None
+            if own is not None and not force and str(own[0]) == identity:
+                return False
+            if overlay:
+                inherited = connection.execute(
+                    """
+                    SELECT i.identity, b.digest IS i.digest
+                    FROM main.inherit AS i LEFT JOIN base.files AS b ON b.path=i.path
+                    WHERE i.path=?
+                    """,
+                    (relpath,),
+                ).fetchone()
+                had_inherit = inherited is not None
+                if inherited is not None and not force and str(inherited[0]) == identity and inherited[1]:
+                    return False
+
+        text, digest = _index_payload(self.repo_root / relpath, identity=identity, size=int(info.st_size))
+        if overlay:
+            base_row = connection.execute("SELECT digest FROM base.files WHERE path=?", (relpath,)).fetchone()
+            if base_row is not None and str(base_row[0]) == digest:
+                if had_own:
+                    self._delete_rows(connection, "path=?", (relpath,))
+                connection.execute(
+                    """
+                    INSERT INTO main.inherit(path, identity, digest) VALUES(?,?,?)
+                    ON CONFLICT(path) DO UPDATE SET identity=excluded.identity, digest=excluded.digest
+                    """,
+                    (relpath, identity, digest),
+                )
+                return True
+            if had_inherit:
+                connection.execute("DELETE FROM main.inherit WHERE path=?", (relpath,))
+
+        if not fresh:
+            connection.execute("DELETE FROM main.file_fts WHERE path=?", (relpath,))
+            connection.execute("DELETE FROM main.symbols WHERE path=?", (relpath,))
+            connection.execute("DELETE FROM main.imports WHERE path=?", (relpath,))
+        text_indexed = 0
+        if text is not None:
+            connection.execute(
+                "INSERT INTO main.file_fts(path, content) VALUES(?, ?)",
+                (relpath, text),
+            )
+            connection.executemany(
+                "INSERT INTO main.symbols(name, kind, path, line, end_line, signature) VALUES(?,?,?,?,?,?)",
+                _symbols(relpath, text),
+            )
+            connection.executemany(
+                "INSERT INTO main.imports(path, module, imported, line) VALUES(?,?,?,?)",
+                _imports(relpath, text),
+            )
+            text_indexed = 1
+        connection.execute(
+            """
+            INSERT INTO main.files(path, identity, digest, size, text_indexed)
+            VALUES(?,?,?,?,?)
+            ON CONFLICT(path) DO UPDATE SET
+                identity=excluded.identity,
+                digest=excluded.digest,
+                size=excluded.size,
+                text_indexed=excluded.text_indexed
+            """,
+            (relpath, identity, digest, int(info.st_size), text_indexed),
+        )
+        return True
+
+    @classmethod
+    def _promote_inherited(cls, connection: sqlite3.Connection) -> int:
+        """Move own rows whose content equals the base's into ``inherit``.
+
+        This also turns a schema 3 full worktree index into an overlay.
+        """
+
+        connection.execute("DROP TABLE IF EXISTS temp.lite_promote")
+        connection.execute(
+            "CREATE TEMP TABLE lite_promote(path TEXT PRIMARY KEY, identity TEXT NOT NULL, digest TEXT NOT NULL)"
+            " WITHOUT ROWID"
+        )
+        promoted = connection.execute("""
+            INSERT INTO temp.lite_promote(path, identity, digest)
+            SELECT f.path, f.identity, f.digest
+            FROM main.files AS f JOIN base.files AS b ON b.path=f.path AND b.digest=f.digest
+            """).rowcount
+        if promoted > 0:
+            connection.execute("""
+                INSERT OR REPLACE INTO main.inherit(path, identity, digest)
+                SELECT path, identity, digest FROM temp.lite_promote
+                """)
+            cls._delete_rows(connection, "path IN (SELECT path FROM temp.lite_promote)")
+        return max(0, promoted)
+
     def _prepare_locked(self, *, force: bool, progress: ProgressCallback | None) -> LiteIndexReport:
         if not (self.repo_root / ".git").exists():
             raise RuntimeError(f"Runtime Lite requires a Git worktree: {self.repo_root}")
@@ -1109,8 +1349,11 @@ class LiteIndex:
         if not force:
             reporter.emit("seed", now=True)
         connection = self._connect(initialize=True)
-        if not force:
-            self._seed_from_linked_worktree(connection)
+        base_db = _main_checkout_index(self.repo_root)
+        # ATTACH cannot run inside a transaction. The base is read-only, so
+        # BEGIN IMMEDIATE takes only a read snapshot of it and never blocks the
+        # main checkout's writer.
+        base_attached = base_db is not None and base_db.is_file() and _attach_base(connection, str(base_db)) is not None
         files_seen = 0
         deleted = 0
         changed = 0
@@ -1119,6 +1362,7 @@ class LiteIndex:
         cold = False
         generation = 0
         stable_signature = ""
+        base_state: tuple[str, int] = ("", 0)
         try:
             reporter.emit("lock", now=True)
             # One writer owns a complete generation. WAL readers remain on the
@@ -1128,30 +1372,39 @@ class LiteIndex:
             self._timing_add("sqlite_wait_ms", time.perf_counter() - writer_wait_started)
             generation = self._generation(connection)
             cold = generation == 0
+            if base_attached and base_db is not None:
+                # Read inside the snapshot: the base may have published since ATTACH.
+                values = {str(row[0]): str(row[1]) for row in connection.execute(_BASE_META_SQL.format(schema="base"))}
+                base_generation = _usable_base_generation(values)
+                if base_generation > 0:
+                    base_state = (str(base_db), base_generation)
+            overlay = bool(base_state[0])
+            stored_base = self._stored_base_state(connection)
             signature_started = time.perf_counter()
             signature_before = _worktree_signature(self.repo_root)
             self._timing_add("git_freshness_ms", time.perf_counter() - signature_started)
-            total = _count_git_paths(self.repo_root) if reporter.active else 0
-            reporter.emit("scan", 0, total, 0, now=True)
 
             # A competing Runtime Lite process may have refreshed this exact
             # worktree while we waited for BEGIN IMMEDIATE. Re-prove freshness
             # after taking the writer lock and skip the O(repo) walk entirely.
+            # The worktree signature does not see the base, so compare it too.
             stored_row = connection.execute("SELECT value FROM meta WHERE key='worktree_signature'").fetchone()
             stored_signature = str(stored_row["value"]) if stored_row is not None else ""
-            if (
+            worktree_current = bool(
                 not force
                 and generation > 0
                 and signature_before is not None
                 and stored_signature
                 and stored_signature == signature_before
-            ):
-                files_seen = int(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0])
+            )
+            if worktree_current and stored_base == base_state:
+                files_seen = self._indexed_count(connection)
                 connection.commit()
                 self._set_adopted_state(
                     generation=generation,
-                    signature=signature_before,
+                    signature=signature_before or "",
                     dirty=False,
+                    base_state=base_state,
                 )
                 self._timing_add("index_refresh_ms", time.monotonic() - started)
                 return LiteIndexReport(
@@ -1163,110 +1416,106 @@ class LiteIndex:
                     cold=False,
                     elapsed_s=time.monotonic() - started,
                 )
-            # On a genuinely empty database, there are no stale rows to find,
-            # compare or delete. Avoid six redundant SQLite round trips per
-            # file (30k statements for a 5k-file cold index). Check every
-            # durable table under the writer lock so a partially restored DB
-            # still takes the conservative incremental path.
-            empty_cold = cold and all(
-                connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is None
-                for table in ("files", "symbols", "imports", "file_fts")
-            )
-            # Incremental scans still track seen paths in a bounded-size
-            # SQLite temporary table, not a Python set.
-            if not empty_cold:
-                connection.execute("DROP TABLE IF EXISTS temp.lite_seen")
-                connection.execute("CREATE TEMP TABLE lite_seen(path TEXT PRIMARY KEY) WITHOUT ROWID")
 
-            for relpath in _iter_git_paths(self.repo_root):
-                walked += 1
-                reporter.emit("scan", walked, max(total, walked) if total else 0, changed)
-                absolute = self.repo_root / relpath
-                try:
-                    info = absolute.lstat()
-                except OSError:
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue
-
-                files_seen += 1
+            if worktree_current and overlay and stored_base[0] == base_state[0]:
+                # Only the base published: no worktree file changed identity, so
+                # the walk would keep every row except inherited paths whose base
+                # digest moved. Re-check just those.
+                stale = [str(row[0]) for row in connection.execute("""
+                        SELECT i.path FROM main.inherit AS i LEFT JOIN base.files AS b ON b.path=i.path
+                        WHERE b.digest IS NOT i.digest
+                        """)]
+                total = len(stale)
+                reporter.emit("scan", 0, total, 0, now=True)
+                for relpath in stale:
+                    walked += 1
+                    reporter.emit("scan", walked, total, changed)
+                    try:
+                        info = (self.repo_root / relpath).lstat()
+                    except OSError:
+                        info = None
+                    if info is None or not stat.S_ISREG(info.st_mode):
+                        connection.execute("DELETE FROM main.inherit WHERE path=?", (relpath,))
+                        deleted += 1
+                        continue
+                    if self._index_path(connection, relpath, info, overlay=True, fresh=False, force=False):
+                        changed += 1
+                reporter.emit("scan", walked, total, changed, now=True)
+                reporter.emit("prune", walked, total, changed, now=True)
+                files_seen = self._indexed_count(connection)
+            else:
+                total = _count_git_paths(self.repo_root) if reporter.active else 0
+                reporter.emit("scan", 0, total, 0, now=True)
+                if not overlay:
+                    # No usable base: the walk indexes formerly inherited paths
+                    # into own rows and the index becomes standalone.
+                    connection.execute("DELETE FROM main.inherit")
+                # On a genuinely empty database, there are no stale rows to find,
+                # compare or delete. Avoid six redundant SQLite round trips per
+                # file (30k statements for a 5k-file cold index). Check every
+                # durable table under the writer lock so a partially restored DB
+                # still takes the conservative incremental path.
+                empty_cold = cold and all(
+                    connection.execute(f"SELECT 1 FROM main.{table} LIMIT 1").fetchone() is None
+                    for table in ("files", "symbols", "imports", "file_fts", "inherit")
+                )
+                # Incremental scans still track seen paths in a bounded-size
+                # SQLite temporary table, not a Python set.
                 if not empty_cold:
-                    connection.execute(
-                        "INSERT OR IGNORE INTO lite_seen(path) VALUES(?)",
-                        (relpath,),
-                    )
-                identity = _stat_identity(info)
-                if not empty_cold and not force:
-                    previous = connection.execute(
-                        "SELECT identity FROM files WHERE path=?",
-                        (relpath,),
-                    ).fetchone()
-                    if previous is not None and str(previous["identity"]) == identity:
+                    connection.execute("DROP TABLE IF EXISTS temp.lite_seen")
+                    connection.execute("CREATE TEMP TABLE lite_seen(path TEXT PRIMARY KEY) WITHOUT ROWID")
+
+                for relpath in _iter_git_paths(self.repo_root):
+                    walked += 1
+                    reporter.emit("scan", walked, max(total, walked) if total else 0, changed)
+                    try:
+                        info = (self.repo_root / relpath).lstat()
+                    except OSError:
+                        continue
+                    if not stat.S_ISREG(info.st_mode):
                         continue
 
-                text, digest = _index_payload(
-                    absolute,
-                    identity=identity,
-                    size=int(info.st_size),
-                )
+                    files_seen += 1
+                    if not empty_cold:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO temp.lite_seen(path) VALUES(?)",
+                            (relpath,),
+                        )
+                    if self._index_path(connection, relpath, info, overlay=overlay, fresh=empty_cold, force=force):
+                        changed += 1
+
+                reporter.emit("scan", walked, max(total, walked), changed, now=True)
+                reporter.emit("prune", walked, max(total, walked), changed, now=True)
                 if not empty_cold:
-                    connection.execute("DELETE FROM file_fts WHERE path=?", (relpath,))
-                    connection.execute("DELETE FROM symbols WHERE path=?", (relpath,))
-                    connection.execute("DELETE FROM imports WHERE path=?", (relpath,))
-                text_indexed = 0
-                if text is not None:
-                    connection.execute(
-                        "INSERT INTO file_fts(path, content) VALUES(?, ?)",
-                        (relpath, text),
-                    )
-                    connection.executemany(
-                        "INSERT INTO symbols(name, kind, path, line, end_line, signature) VALUES(?,?,?,?,?,?)",
-                        _symbols(relpath, text),
-                    )
-                    connection.executemany(
-                        "INSERT INTO imports(path, module, imported, line) VALUES(?,?,?,?)",
-                        _imports(relpath, text),
-                    )
-                    text_indexed = 1
-                connection.execute(
-                    """
-                    INSERT INTO files(path, identity, digest, size, text_indexed)
-                    VALUES(?,?,?,?,?)
-                    ON CONFLICT(path) DO UPDATE SET
-                        identity=excluded.identity,
-                        digest=excluded.digest,
-                        size=excluded.size,
-                        text_indexed=excluded.text_indexed
-                    """,
-                    (relpath, identity, digest, int(info.st_size), text_indexed),
-                )
-                changed += 1
+                    connection.execute("DROP TABLE IF EXISTS temp.lite_deleted")
+                    connection.execute("CREATE TEMP TABLE lite_deleted(path TEXT PRIMARY KEY) WITHOUT ROWID")
+                    connection.execute("""
+                        INSERT OR IGNORE INTO temp.lite_deleted(path)
+                        SELECT f.path FROM main.files AS f
+                        LEFT JOIN temp.lite_seen AS s ON s.path=f.path
+                        WHERE s.path IS NULL
+                        UNION ALL
+                        SELECT i.path FROM main.inherit AS i
+                        LEFT JOIN temp.lite_seen AS s ON s.path=i.path
+                        WHERE s.path IS NULL
+                        """)
+                    deleted = int(connection.execute("SELECT COUNT(*) FROM temp.lite_deleted").fetchone()[0])
+                    if deleted:
+                        predicate = "path IN (SELECT path FROM temp.lite_deleted)"
+                        self._delete_rows(connection, predicate)
+                        connection.execute(f"DELETE FROM main.inherit WHERE {predicate}")
 
-            reporter.emit("scan", walked, max(total, walked), changed, now=True)
-            reporter.emit("prune", walked, max(total, walked), changed, now=True)
-            if not empty_cold:
-                connection.execute("DROP TABLE IF EXISTS temp.lite_deleted")
-                connection.execute("CREATE TEMP TABLE lite_deleted(path TEXT PRIMARY KEY) WITHOUT ROWID")
-                connection.execute("""
-                    INSERT INTO lite_deleted(path)
-                    SELECT files.path
-                    FROM files
-                    LEFT JOIN lite_seen ON lite_seen.path=files.path
-                    WHERE lite_seen.path IS NULL
-                    """)
-                deleted = int(connection.execute("SELECT COUNT(*) FROM lite_deleted").fetchone()[0])
-                if deleted:
-                    connection.execute("DELETE FROM file_fts WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM symbols WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM imports WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM files WHERE path IN (SELECT path FROM lite_deleted)")
+            if overlay:
+                changed += self._promote_inherited(connection)
 
-            if changed or deleted or cold:
+            if changed or deleted or cold or stored_base != base_state:
                 generation += 1
                 connection.execute(
                     "UPDATE meta SET value=? WHERE key='generation'",
                     (str(generation),),
                 )
+            connection.execute("UPDATE meta SET value=? WHERE key='base_path'", (base_state[0],))
+            connection.execute("UPDATE meta SET value=? WHERE key='base_generation'", (str(base_state[1]),))
 
             signature_started = time.perf_counter()
             signature_after = _worktree_signature(self.repo_root)
@@ -1288,6 +1537,7 @@ class LiteIndex:
 
         with self._state_lock:
             self._known_generation = generation
+            self._known_base_state = base_state
             self._dirty = not bool(stable_signature)
             self._must_refresh = False
             self._last_refresh_check = time.monotonic()
@@ -1347,13 +1597,16 @@ class LiteIndex:
                     return None
                 known_signature = self._worktree_signature
                 known_generation = self._known_generation
+                known_base_state = self._known_base_state
 
             signature_started = time.perf_counter()
             signature = _worktree_signature(self.repo_root)
+            # The signature does not see the base: a base publish means a refresh.
+            base_state = self._current_base_state()
             self._timing_add("git_freshness_ms", time.perf_counter() - signature_started)
             with self._state_lock:
                 self._last_refresh_check = now
-                if signature is not None and signature == known_signature:
+                if signature is not None and signature == known_signature and base_state == known_base_state:
                     self._dirty = False
                     return None
                 self._dirty = True
@@ -1439,11 +1692,12 @@ class LiteIndex:
 
         with self._connect(readonly=True) as connection:
             generation = self._generation(connection)
+            base_generation = self._base_generation(connection)
             with self._state_lock:
                 stale_served = bool(self._dirty and generation > 0)
             self._timing_set("index_generation", generation)
             self._timing_set("stale_served", 1 if stale_served else 0)
-            key = (query, scopes, limit, generation)
+            key = (query, scopes, limit, generation, base_generation)
             with self._cache_lock:
                 cached = self._query_cache.get(key)
                 if cached is not None:
@@ -1525,16 +1779,7 @@ class LiteIndex:
             if tokens:
                 expression = " OR ".join(_safe_fts_token(token) for token in tokens)
                 try:
-                    rows = connection.execute(
-                        """
-                        SELECT path, bm25(file_fts) AS rank
-                        FROM file_fts
-                        WHERE file_fts MATCH ?
-                        ORDER BY rank, path
-                        LIMIT ?
-                        """,
-                        (expression, max(64, limit * 8)),
-                    ).fetchall()
+                    rows = _fts_matches(connection, expression, max(64, limit * 8), snippet=False)
                 except sqlite3.OperationalError:
                     rows = []
                 strengths = [max(0.0, -float(row["rank"] or 0.0)) for row in rows]
@@ -1554,21 +1799,8 @@ class LiteIndex:
                 # This stays disk-backed and bounded: at most 8 * 20 FTS rows.
                 for token in tokens[:8]:
                     precise_identifier = not natural_language and _code_identifier_token(token)
-                    match_snippet_sql = "snippet(file_fts, 1, '', '', '...', 24)" if precise_identifier else "''"
                     try:
-                        term_rows = connection.execute(
-                            f"""
-                            SELECT
-                                path,
-                                bm25(file_fts) AS rank,
-                                {match_snippet_sql} AS match_snippet
-                            FROM file_fts
-                            WHERE file_fts MATCH ?
-                            ORDER BY rank, path
-                            LIMIT 20
-                            """,
-                            (_safe_fts_token(token),),
-                        ).fetchall()
+                        term_rows = _fts_matches(connection, _safe_fts_token(token), 20, snippet=precise_identifier)
                     except sqlite3.OperationalError:
                         term_rows = []
                     for rank, row in enumerate(term_rows):
@@ -1890,37 +2122,41 @@ class LiteIndex:
                     ).fetchall()
                 return {"kind": kind, "items": [dict(row) for row in rows], "lite": True}
 
-            if prefix:
-                rows = connection.execute(
-                    """
-                    SELECT f.path,
-                           COUNT(DISTINCT s.rowid) AS symbols,
-                           COUNT(DISTINCT i.rowid) AS imports
-                    FROM files f
-                    LEFT JOIN symbols s ON s.path=f.path
-                    LEFT JOIN imports i ON i.path=f.path
-                    WHERE f.path=? OR f.path LIKE ?
-                    GROUP BY f.path
-                    ORDER BY symbols DESC, imports DESC, f.path
-                    LIMIT ?
-                    """,
-                    (prefix, prefix + "/%", limit),
-                ).fetchall()
+            # Correlated counts: an overlay's views have no rowid to count by.
+            # An overlay counts each visible path in the one table that holds
+            # its rows (own or base), so every count stays one index range
+            # instead of a view join per symbol row.
+            if connection.overlay:
+                source = """(
+                    SELECT path, 0 AS inherited FROM main.files
+                    UNION ALL
+                    SELECT i.path, 1 FROM main.inherit AS i
+                    JOIN base.files AS b ON b.path=i.path AND b.digest=i.digest
+                )"""
+                symbol_count = (
+                    "CASE WHEN f.inherited THEN (SELECT COUNT(*) FROM base.symbols s WHERE s.path=f.path)"
+                    " ELSE (SELECT COUNT(*) FROM main.symbols s WHERE s.path=f.path) END"
+                )
+                import_count = (
+                    "CASE WHEN f.inherited THEN (SELECT COUNT(*) FROM base.imports i WHERE i.path=f.path)"
+                    " ELSE (SELECT COUNT(*) FROM main.imports i WHERE i.path=f.path) END"
+                )
             else:
-                rows = connection.execute(
-                    """
-                    SELECT f.path,
-                           COUNT(DISTINCT s.rowid) AS symbols,
-                           COUNT(DISTINCT i.rowid) AS imports
-                    FROM files f
-                    LEFT JOIN symbols s ON s.path=f.path
-                    LEFT JOIN imports i ON i.path=f.path
-                    GROUP BY f.path
-                    ORDER BY symbols DESC, imports DESC, f.path
-                    LIMIT ?
-                    """,
-                    (limit,),
-                ).fetchall()
+                source = "files"
+                symbol_count = "(SELECT COUNT(*) FROM symbols s WHERE s.path=f.path)"
+                import_count = "(SELECT COUNT(*) FROM imports i WHERE i.path=f.path)"
+            where = "WHERE f.path=? OR f.path LIKE ?" if prefix else ""
+            parameters: tuple[str | int, ...] = (prefix, prefix + "/%", limit) if prefix else (limit,)
+            rows = connection.execute(
+                f"""
+                SELECT f.path, {symbol_count} AS symbols, {import_count} AS imports
+                FROM {source} AS f
+                {where}
+                ORDER BY symbols DESC, imports DESC, f.path
+                LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
         return {"kind": "map", "items": [dict(row) for row in rows], "lite": True}
 
 
@@ -1940,5 +2176,7 @@ __all__ = [
     "ProgressCallback",
     "extract_imports",
     "imported_names",
+    "open_index_reader",
     "prepare_lite_workspace",
+    "present_index_views",
 ]

@@ -140,12 +140,33 @@ _CLAUDE_NO_TOOLS = (
     " lc tools absent or erroring on every call → refuse to proceed: never fall back "
     'to host tools, report "LemonCrow MCP not connected" and halt.'
 )
+# Keep repository code discovery in the indexed lc tools without blocking
+# ordinary grep/rg in directories that are not Git repositories. This policy
+# is sourced here, not manually patched into generated Claude personas: the
+# installer must not silently revert the non-Git search exception.
 _CLAUDE_TOOL_DISCIPLINE = "Always use lc: `bash`, `read`, `edit`, `code_search`." + _CLAUDE_NO_TOOLS
 _CLAUDE_TOOL_DISCIPLINE_READ = (
     "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
     "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n"
     "\n"
     "Always use lc: `bash`, `read`, `code_search`." + _CLAUDE_NO_TOOLS
+)
+# The coding/explore personas need a more exact Git-vs-non-Git rule than
+# the generic Claude tool instruction. Keep that rule in the generator, not
+# in manually patched outputs that the next sync would overwrite.
+_CLAUDE_CODE_DISCIPLINE = (
+    "Inside Git worktrees, use `code_search` first for unknown source and `read` for known "
+    "paths/ranges; do not use Bash grep/rg for repository discovery, including in subagents. "
+    "Outside Git worktrees, Bash `grep`/`rg` remains available for standalone directories. "
+    "Keep `edit` for edits and `bash` for execution. If lc is unavailable, stop rather than falling back."
+)
+_CLAUDE_EXPLORE_DISCIPLINE = (
+    "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
+    "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n\n"
+    "Inside Git worktrees, use `code_search` for unknown source and `read` for known paths/ranges; "
+    "do not use Bash grep/rg for code discovery, including pipes and cd-prefixed forms. "
+    "Outside Git worktrees, Bash grep/rg can search standalone directories. "
+    "If lc is unavailable, stop rather than falling back."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
@@ -456,7 +477,12 @@ def _inject_description(frontmatter: tuple[tuple[str, Any], ...], description: s
 
 def render_claude_agent(role: DefaultRole, mode_doc: ModeDoc, projection: HostProjection) -> str:
     frontmatter = _inject_description(projection.frontmatter, role.agent_description)
-    body = replace_inline_tool_names(render_mode_body(mode_doc, _CLAUDE_SHARED_OVERRIDES), _CLAUDE_TOOL_PREFIX)
+    overrides = dict(_CLAUDE_SHARED_OVERRIDES)
+    if role.role_id == "code":
+        overrides["{{TOOL_DISCIPLINE}}"] = _CLAUDE_CODE_DISCIPLINE
+    elif role.role_id == "explore":
+        overrides["{{TOOL_DISCIPLINE_READ}}"] = _CLAUDE_EXPLORE_DISCIPLINE
+    body = replace_inline_tool_names(render_mode_body(mode_doc, overrides), _CLAUDE_TOOL_PREFIX)
     return "\n".join([render_frontmatter(frontmatter), "", body]).rstrip() + "\n"
 
 
@@ -628,7 +654,6 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
     existing_agents = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
     outputs = {
         agents_path: render_managed_context(existing_agents),
-        ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):
         projection = registry.projection(role_id, "copilot_agent")

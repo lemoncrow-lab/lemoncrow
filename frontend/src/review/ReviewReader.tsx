@@ -983,6 +983,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   ]);
 
   const [contextFailures, setContextFailures] = useState<Partial<Record<"comments" | "evidence" | "journal" | "development" | "outcome" | "surfaces" | "plugins", string>>>({});
+  const [retryingSurfaceIdentity, setRetryingSurfaceIdentity] = useState("");
   const [evidence, setEvidence] = useState<ReviewEvidence[]>([]);
   const [journal, setJournal] = useState<ReviewJournal | null>(null);
   const [development, setDevelopment] = useState<ReviewDevelopment | null>(null);
@@ -1684,7 +1685,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     indexedWeights?: ReadonlyMap<string, number>,
     prefetchPlacements = true,
   ) => {
-    void fetchReviewSurfaces(id, revisionId).then((next) => {
+    return fetchReviewSurfaces(id, revisionId).then((next) => {
       if (!isCurrent()) return;
       setSurfaces(next.surfaces);
       setContextFailures((current) => ({
@@ -1711,11 +1712,32 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       }));
     });
   }, [queueBackgroundPaths]);
+
+  // Retry only the failed read-only surface discovery; a full Reader reload
+  // would unnecessarily re-fetch source and could disturb the active location.
+  // Generation + revision fencing prevent a late retry from painting a new
+  // Review's graph, surfacing a stale result, or clearing its progress state.
+  const retrySurfaceContext = useCallback(async () => {
+    if (!reviewId || !overview || !targetList) return;
+    const identity = `${reviewId}:${overview.revision.id}`;
+    if (retryingSurfaceIdentity === identity) return;
+    const generation = readerLoadRef.current;
+    const isCurrent = () => readerLoadRef.current === generation;
+    setRetryingSurfaceIdentity(identity);
+    try {
+      await loadSurfaces(reviewId, overview.revision.id, targetList.targets, isCurrent);
+    } finally {
+      if (isCurrent()) setRetryingSurfaceIdentity("");
+    }
+  }, [loadSurfaces, overview, retryingSurfaceIdentity, reviewId, targetList]);
+
   const loadReader = useCallback(async (id: string): Promise<boolean> => {
     // A newer load, or a capture, supersedes this one: nothing it requested
     // may land after that (G0.7's rule for surface runs, for all context).
     const load = ++readerLoadRef.current;
     const isCurrentLoad = () => readerLoadRef.current === load;
+    // A retry from an earlier Snapshot no longer owns this Reader.
+    setRetryingSurfaceIdentity("");
     setCommentsState("loading");
     setContextFailures({});
     try {
@@ -6107,6 +6129,16 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       label: "Some review context is unavailable",
       chipLabel: "Some context unavailable",
       detail: <span title={contextFailureMessages.join("\n")}>{contextFailureMessages.join(" · ")}</span>,
+      // ContextStrip displays only the first signal's `actions`, not its
+      // `chip`. Without this the only warning in an otherwise clean Review
+      // cannot be retried, despite the popover working in a degraded Review.
+      actions: contextFailures.surfaces && overview && targetList ? (
+        <UiButton type="button" variant="outline" size="compact"
+          disabled={retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}`}
+          onClick={() => void retrySurfaceContext()}>
+          {retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}` ? "Retrying surface discovery…" : "Retry surface discovery"}
+        </UiButton>
+      ) : undefined,
       chip: (
         <Popover key="context-failures">
           <PopoverTrigger asChild>
@@ -6117,6 +6149,13 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
           </PopoverTrigger>
           <PopoverContent align="end" aria-label="Unavailable review context" className="w-[420px] max-w-[88vw] space-y-1 rounded-md border-border p-2.5 text-label leading-5 text-muted-foreground">
             {contextFailureMessages.map((message) => <div key={message}>{message}</div>)}
+            {contextFailures.surfaces && overview && targetList && (
+              <UiButton type="button" variant="outline" size="compact"
+                disabled={retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}`}
+                onClick={() => void retrySurfaceContext()}>
+                {retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}` ? "Retrying surface discovery…" : "Retry surface discovery"}
+              </UiButton>
+            )}
           </PopoverContent>
         </Popover>
       ),

@@ -16,11 +16,11 @@ FORCE_ARG := $(if $(f),--force,)
 RELEASE_IMPACT_ARG = $(if $(filter 1,$(RELEASE_FULL)),,--changed-since-last-release)
 # Messages choose color at recipe execution time, so redirected logs stay plain.
 _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
-.PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-quick release-qualify release-stage \
+.PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-quick release-qualify release-qualify-steps release-stage \
 	oss-dev oss-prod oss-up oss-down oss-status oss-reset oss-ui oss-ui-build oss-test \
 	hosted-dev hosted-prod hosted-up hosted-down hosted-status hosted-reset hosted-ui hosted-ui-build hosted-test review-hosted-test-full \
 	_rehearse-install _verify-hosted-artifact _verify-hosted-e2e \
-	review-demo review-demo-diff review-demo-plugin review-e2e perf-slo perf-slo-product perf-product \
+	review-demo review-demo-diff review-demo-plugin review-e2e review-e2e-release perf-slo perf-slo-release perf-slo-product perf-product \
 	docs-check status-index benchmark-publish \
 	test test-fast test-cov test-full gate-g gate-k release-gate lint format-check format typecheck verify pre-commit \
 	proof-cost-quality import clean \
@@ -228,10 +228,13 @@ runtime-credit-evidence: ## Record runtime-credit evidence for the release gate:
 	uv run python -m scripts.runtime_credit_gate --baseline "$(OUT)/baseline.json" --current "$(OUT)/current.json" --out "$(OUT)/verdict.json"
 	@echo "export LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE=$(abspath $(OUT))/baseline.json LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT=$(abspath $(OUT))/current.json"
 
-release-qualify: release-prepared release-version-check ## Impact-selected release qualification since last published tag (RELEASE_FULL=1 for exhaustive); stamp only on passing evidence
+release-qualify: ## Hard-bounded local qualification: <=60 minutes, failed timeout is NEVER releasable
+	@timeout --signal=TERM --kill-after=20s 59m env LEMONCROW_TEST_WORKERS=4 LEMONCROW_REVIEW_TEST_WORKERS=4 $(MAKE) --no-print-directory release-qualify-steps
+
+release-qualify-steps: release-prepared release-version-check ## All release checks and stamp, bounded by release-qualify above
 	@# Catch missing prerequisites before spending hours on the release gate.
 	@# Default: run only impacted tests/checks since the latest published release.
-	@# RELEASE_FULL=1 restores exhaustive 52-component qualification for audits.
+	@# Exhaustive suites and benchmarks remain separate from the bounded release gate.
 	bash scripts/release_canary_env.sh uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag "$(tag)" $(RELEASE_IMPACT_ARG)
 	@# Real agent CLIs and accounts live on the releasing machine, outside the gate's clean checkout.
 	bash scripts/verify_agent_clis.sh
@@ -240,7 +243,7 @@ release-qualify: release-prepared release-version-check ## Impact-selected relea
 	@$(MAKE) --no-print-directory oss-test
 	@# G11-RELEASE: suites, gates, drills and the versioned candidate upgrade all run inside the gate;
 	@# the release record below is stamped only from its releasable report for this commit and tag.
-	@# The whole root suite runs only with the person's opt-in on this command: LEMONCROW_FULL_SUITE=1.
+	@# Explicit high-risk smoke tests are sufficient here; full suites remain available separately.
 	@bash scripts/release_canary_env.sh $(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_IMPACT_ARG) $(RELEASE_GATE_ARGS)"
 	uv run python -m scripts.release_record stamp --report "$(RELEASE_REPORT)" --tag "$(tag)"
 
@@ -407,8 +410,11 @@ review-demo-diff: ## Show the demo's prepared change (after make review-demo): m
 	git -C "$(DEMO_DIR)" diff --stat
 	git -C "$(DEMO_DIR)" diff
 
-review-e2e: ## Real-browser Review harness (B1-B5, Gate 1 E1-E8; Playwright + real server + built bundle): make review-e2e [E2E_ARGS=...]
+review-e2e: ## Exhaustive Review browser regression suite (developer/periodic use)
 	cd frontend && npm run test:e2e -- $(E2E_ARGS)
+
+review-e2e-release: ## Release-critical Review browser cases; exhaustive cases remain available via review-e2e
+	cd frontend && npm run test:e2e -- --config=playwright.release.config.ts $(E2E_ARGS)
 
 PERF_SLO_REPORT ?= $(CURDIR)/frontend/test-results/perf-slo
 PERF_PRODUCT_REPORT ?= $(CURDIR)/frontend/test-results/perf-slo-product
@@ -422,6 +428,18 @@ perf-slo: ## G9-SLO speed gate: Python targets, then Chromium (reader open, 10k-
 	uv run python -m benchmarks.review_slo run --report "$(PERF_SLO_REPORT)/python.json" $(if $(NO_RERUN),--no-rerun,) || status=1; \
 	(cd frontend && REVIEW_SLO_REPORT_DIR="$(PERF_SLO_REPORT)" $(if $(NO_RERUN),REVIEW_SLO_NO_RERUN=1,) npm run test:perf) || status=1; \
 	uv run python -m benchmarks.review_slo verify --report-dir "$(PERF_SLO_REPORT)" || status=1; \
+	exit $$status
+
+perf-slo-release: ## G9 release-critical SLOs only; unchanged approved targets/sample counts; exhaustive target checks remain `make perf-slo`
+	@mkdir -p "$(PERF_SLO_REPORT)" && rm -f "$(PERF_SLO_REPORT)"/*.json
+	@status=0; \
+	uv run python -m benchmarks.review_slo run --no-rerun \
+		--only capture_small --only incremental_delta --only brief_projection \
+		--report "$(PERF_SLO_REPORT)/python.json" || status=1; \
+	(cd frontend && REVIEW_SLO_REPORT_DIR="$(PERF_SLO_REPORT)" REVIEW_SLO_NO_RERUN=1 \
+		npm run test:perf -- --grep 'G9-SLO reader_open:') || status=1; \
+	uv run python -m benchmarks.review_slo verify --report-dir "$(PERF_SLO_REPORT)" \
+		--only reader_open --only capture_small --only incremental_delta --only brief_projection || status=1; \
 	exit $$status
 
 perf-slo-product: ## RC2 dedicated quiet-runner 10k product target. Set REFERENCE_RUNNER_ID; DIAGNOSTIC=1 permits a non-qualifying shared-machine run.
@@ -505,14 +523,14 @@ test-full: ## Run the FULL suite (incl. slow) with measured coverage floor
 
 RELEASE_REPORT ?= $(CURDIR)/reports/release/release-report.json
 
-release-gate: ## G11-RELEASE: suites, Gates F/G/H/I, G9 perf, G2 engine, G8 canary, G1 index, ops drills -> one report (RELEASE_REPORT=path; ONLY=ids is never releasable; RELEASE_GATE_ARGS="--tag vX.Y.Z --jobs N")
+release-gate: ## G11-RELEASE: bounded confidence suites, risk-selected Gates F/G/K/I, G9 core perf, G2 engine, G8 canary, G1 index, ops drills -> one report (RELEASE_REPORT=path; ONLY=ids is never releasable; RELEASE_GATE_ARGS="--tag vX.Y.Z --jobs N")
 	uv run --locked --extra postgres python -m scripts.release_gate --report "$(RELEASE_REPORT)" $(if $(ONLY),--only "$(ONLY)",) $(RELEASE_GATE_ARGS)
 
 gate-g: ## Replay the Gate G qualification matrix (LEMONCROW_TEST_POSTGRES_DSN for Postgres rows; STRICT=1 fails on skips; GATE_G_REPORT_DIR keeps the JUnit reports)
-	uv run python scripts/gate_g_matrix.py $(if $(STRICT),--strict,) $(if $(GATE_G_REPORT_DIR),--report-dir "$(GATE_G_REPORT_DIR)",)
+	uv run python scripts/gate_g_matrix.py $(if $(STRICT),--strict,) $(if $(ROWS),--rows "$(ROWS)",) $(if $(GATE_G_REPORT_DIR),--report-dir "$(GATE_G_REPORT_DIR)",)
 
 gate-k: ## Replay the Gate K (Project Knowledge) qualification matrix (LEMONCROW_TEST_POSTGRES_DSN for Postgres rows; STRICT=1 fails on skips; GATE_K_REPORT_DIR keeps the reports)
-	uv run python scripts/gate_g_matrix.py --manifest scripts/gate_k_matrix.toml $(if $(STRICT),--strict,) $(if $(GATE_K_REPORT_DIR),--report-dir "$(GATE_K_REPORT_DIR)",)
+	uv run python scripts/gate_g_matrix.py --manifest scripts/gate_k_matrix.toml $(if $(STRICT),--strict,) $(if $(ROWS),--rows "$(ROWS)",) $(if $(GATE_K_REPORT_DIR),--report-dir "$(GATE_K_REPORT_DIR)",)
 
 lint: | _ensure_hooks ## Run ruff lint checks
 	uv run ruff check $(PY_PATHS)

@@ -521,6 +521,21 @@ def _change_story(packet: ReviewPacket, *, limit: int = 4) -> str:
     return " · ".join(labels) + (f" · +{remaining} more" if remaining else "")
 
 
+def _workspace_section(packet: ReviewPacket, *, show_all: bool) -> tuple[str, list[str]] | None:
+    """``(heading, lines)`` for the other repositories that depend on what changed; ``None`` with no workspace.
+
+    It follows the reading order and is never part of ATTENTION: a reached repository is something a person may
+    want to check, not a finding about this change.
+    """
+
+    if not packet.workspace_impact:
+        return None
+    from .workspace_impact import heading, impact_lines
+
+    found = packet.workspace_impact
+    return heading(found), impact_lines(found, show_all=show_all)
+
+
 def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
     out: list[str] = []
     story = _change_story(packet)
@@ -585,6 +600,14 @@ def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
             out.append(f"  {category}")
             for item in files:
                 out.append(f"    {_STATUS_CHAR.get(item.status, '?')}  {_file_label(item)}  {_file_delta(item)}")
+
+    workspace = _workspace_section(packet, show_all=show_all)
+    if workspace is not None:
+        heading, body = workspace
+        out.append("")
+        out.append(f"WORKSPACE IMPACT  {heading}")
+        for line in body:
+            out.append(f"  {line}")
 
     out.append("")
     out.append("EXECUTION EVIDENCE")
@@ -695,6 +718,14 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
                     "" if item.is_binary or item.submodule_pointer is not None else f"{item.deletions:,}",
                 )
         console.print(file_table)
+
+    workspace = _workspace_section(packet, show_all=show_all)
+    if workspace is not None:
+        heading, body = workspace
+        console.print()
+        console.print(f"[bold bright_white]WORKSPACE IMPACT[/]  [dim]{escape(heading)}[/]")
+        for line in body:
+            console.print(f"  {escape(line)}")
 
     console.print()
     console.print("[bold bright_white]EXECUTION EVIDENCE[/]")

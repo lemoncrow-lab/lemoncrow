@@ -440,6 +440,26 @@ describe("requests", () => {
     expect(refusal).toHaveBeenCalledTimes(1);
   });
 
+  it("repeats a read the network dropped once, and never resends a write", async () => {
+    __setBootstrapForTest({ token: "t", reviewId: "rev-1" });
+    const read = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "rev-1" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", read);
+    await expect(fetchOverview("rev-1")).resolves.toEqual({ id: "rev-1" });
+    expect(read).toHaveBeenCalledTimes(2);
+
+    const down = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", down);
+    await expect(fetchOverview("rev-1")).rejects.toThrow("Failed to fetch");
+    expect(down).toHaveBeenCalledTimes(2);
+
+    const write = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", write);
+    await expect(postMark("rev-1", "fil:abc", "reviewed", "rrv-1")).rejects.toThrow("Failed to fetch");
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces the server's refusal text rather than a generic failure", async () => {
     __setBootstrapForTest({ token: "t", reviewId: "rev-1" });
     stubFetch(403, { detail: "Origin 'http://localhost:9999' is not this workspace" });

@@ -55,7 +55,7 @@ _ADDRESSED: Final[tuple[re.Pattern[str], ...]] = tuple(
         r"\bif\s+you\s+are\s+an?\s+(?:ai|llm|language\s+model|ai\s+(?:code\s+)?reviewer|automated\s+reviewer)\b",
         # A vocative to the reviewer: "AI reviewers: ...", "LemonCrow, do not ...".
         r"(?:^|[^\w])(?:(?:ai|llm|automated)\s+(?:code\s+)?(?:reviewers?|agents?|assistants?)|lemoncrow|copilot|claude|"
-        r"chatgpt|gpt|coderabbit|greptile)\s*[:,]\s*(?:please\s+)?"
+        r"chatgpt|gpt|coderabbit)\s*[:,]\s*(?:please\s+)?"
         r"(?:do|don'?t|never|ignore|approve|skip|mark|treat|report|disregard|you)\b",
     )
 )
@@ -403,10 +403,11 @@ class Safety:
     def receipt(self) -> str:
         """The receipt line for the masked secrets, or ``""``."""
 
+        # Values shaped like credentials, not proven ones: a test file's fake sk-... fixture is masked and counted too.
         if self.redacted <= 0:
             return ""
-        noun = "secret" if self.redacted == 1 else "secrets"
-        return f"{self.redacted} {noun} redacted before the model saw the change"
+        noun = "value" if self.redacted == 1 else "values"
+        return f"{self.redacted} credential-shaped {noun} masked before the model saw the change"
 
 
 __all__ = [

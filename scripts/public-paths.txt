@@ -91,6 +91,10 @@ evals/review/
 !tests/test_release_record.py
 # Imports scripts/release_gate.py, release_impact.py and release_record.py, which are private.
 !tests/test_release_impact.py
+# Reads the private release gate, test runner and release-runner scripts.
+!tests/test_release_runner_policy.py
+# Imports the private release gate and its timing budget.
+!tests/test_release_timing.py
 !tests/test_verify_compiled_candidate.py
 # The support-matrix renderer reads the private status index; only its page is public.
 !tests/gateway/test_support_matrix.py

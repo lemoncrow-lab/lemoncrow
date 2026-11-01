@@ -1022,11 +1022,14 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             return
         if trajectory is None:
             return
-        # The upstream converter takes total cost from its own stream log name
-        # (claude-code.txt); ours is claude-run.json, so patch the total in.
+        # The upstream converter reads the authoritative total from its own stream
+        # log name (claude-code.txt) and otherwise falls back to a LiteLLM estimate;
+        # ours is claude-run.json, so the run's real total replaces that estimate.
         cost = float((result_line or {}).get("total_cost_usd", 0.0) or 0.0)
-        if trajectory.final_metrics is not None and not trajectory.final_metrics.total_cost_usd and cost:
+        if trajectory.final_metrics is not None and cost:
             trajectory.final_metrics.total_cost_usd = cost
+            if trajectory.final_metrics.extra:
+                trajectory.final_metrics.extra.pop("cost_source", None)
         trajectory_path = Path(str(self.logs_dir)) / "trajectory.json"
         try:
             trajectory_path.write_text(

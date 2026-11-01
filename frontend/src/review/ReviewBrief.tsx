@@ -28,6 +28,7 @@ import WhatIf from "./whatIf/WhatIf";
 import type { CodeTarget } from "../lib/codeLinks";
 import BriefArchitectureDelta, { targetForSelection, type BriefChangeStory } from "./BriefArchitectureDelta";
 import BriefProjectContext from "./ProjectHistory";
+import BriefWorkspaceImpact from "./BriefWorkspaceImpact";
 import { fetchHistoricalAnnotations, fetchReviewExecutionArtifact, type ReviewExecutionArtifactView } from "./reviewApi";
 import { LARGE_REVIEW_TARGET_THRESHOLD } from "./reviewSurfaceModel";
 import { DependencyReviewSummary, dependencyReviewRelevant } from "./ReviewFileSemantics";
@@ -2028,6 +2029,9 @@ export default function ReviewBrief({
           {!requestScope.showOutside && <Limited rows={outsideItems} render={card} />}
         </Section>
       )}
+
+      {/* 5b. Other repositories of this workspace that depend on the change: after the reading order, never a finding. */}
+      <BriefWorkspaceImpact key={`${projection.review_id}@${projection.revision_id}`} impact={projection.workspace_impact} />
 
       {/* 6. Context and details: architecture, history, AI, policy and the full inventory. */}
       {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}

@@ -766,10 +766,11 @@ def test_json_is_a_stable_machine_readable_result(ruled: Lab) -> None:
     assert wire["complete"] is True and wire["incomplete_reason"] == ""
     assert set(wire["coverage"]) == {"files", "targets", "rereviewed", "unchanged", "candidates", "investigated"}
     assert wire["coverage"]["files"] == ["src/auth.py", "src/cache.py"]
-    assert set(wire["usage"]) >= {"calls", "input_tokens", "output_tokens", "cost_usd"} and wire["usage"][
-        "calls"
-    ] == len(ruled.model.calls)
-    assert wire["usage_total"]["calls"] == len(ruled.model.calls) and wire["model"].endswith("gpt-4o-mini")
+    asked = len(ruled.model.calls) + len(ruled.model.dedupes)  # the investigations, the rule and the repeat check
+    assert (
+        set(wire["usage"]) >= {"calls", "input_tokens", "output_tokens", "cost_usd"} and wire["usage"]["calls"] == asked
+    )
+    assert wire["usage_total"]["calls"] == asked and wire["model"].endswith("gpt-4o-mini")
     for row in wire["findings"]:  # the rows the pull request bot's hidden state carries
         assert {"id", "fingerprint", "severity", "category", "state", "path", "line", "title", "explanation"} <= set(
             row

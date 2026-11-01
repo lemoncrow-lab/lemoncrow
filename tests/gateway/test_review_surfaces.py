@@ -642,7 +642,7 @@ def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
         "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
         lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.run_limited_bounded", run)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="old")
 
@@ -652,10 +652,9 @@ def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
     assert result.output == "2 passed"
     assert materialized == ["old"]
     assert calls
-    # The host memory/task limiter wraps the run, then bubblewrap isolates it.
-    limiter = sandbox_limits.limit_prefix()
-    assert calls[0][: len(limiter)] == limiter
-    command = calls[0][len(limiter) :]
+    # The bounded runner adds the host memory/task limiter itself; the runner
+    # hands it the bubblewrap command.
+    command = calls[0]
     assert command[0] == "/usr/bin/bwrap"
     assert "--unshare-net" in command
     assert "--clearenv" in command
@@ -917,7 +916,7 @@ def test_runner_materializes_a_side_without_frozen_tree_from_the_source_checkout
         "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
         lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.run_limited_bounded", run)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="old")
 

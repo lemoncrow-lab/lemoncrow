@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -221,7 +222,7 @@ def register_project_knowledge_commands(parent: click.Group) -> None:
 
         if bool(entry_id) == bool(subject_path):
             raise click.UsageError("name exactly one of --entry or --subject-path")
-        body = click.get_text_stream("stdin").read() if text == "-" else text
+        body = sys.stdin.read() if text == "-" else text
         try:
             source, store = source_store(ctx, repo, repository_key, canonical_ref)
             proposal = propose_correction(

@@ -23,7 +23,7 @@ The normal Runtime path does not require a LemonCrow daemon or a listening local
 
 ### On macOS
 
-Linux is the release-qualified platform. On macOS the installer, `lc review` and the Review Reader work, but they are not yet covered by release qualification. Local check runs use the macOS Seatbelt sandbox instead of bubblewrap, and `lc review --reproduce` needs bubblewrap, so it refuses on macOS. The GitHub Action is unaffected: it runs on the CI runner (Linux or macOS). See the [support matrix](../reference/support-matrix.md).
+Linux is the release-qualified platform. On macOS the installer, `lc review` and the Review Reader work, but they are not yet covered by release qualification. Local check runs use the macOS Seatbelt sandbox instead of bubblewrap, and replaying a recorded run (`--reproduce`, see the [Review reference](../reference/review.md)) needs bubblewrap, so it refuses on macOS. The GitHub Action is unaffected: it runs on the CI runner (Linux or macOS). See the [support matrix](../reference/support-matrix.md).
 
 ## Install the GitHub Action
 

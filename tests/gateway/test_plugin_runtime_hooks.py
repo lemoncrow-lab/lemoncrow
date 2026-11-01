@@ -45,11 +45,8 @@ def _run_hook(
 
 
 def test_pre_tool_discipline_does_not_redirect_shell_reads() -> None:
-    # The old tool_redirect.py hook rewrote a shell read (cat/rg) into an
-    # lc.search PreToolUse nudge. It was removed -- pre_tool_discipline.py's
-    # docstring records that the hard shell-read redirect "mis-fired on
-    # legitimate searches" -- so a shell read must NOT be blocked or rewritten
-    # now.
+    # Plain cat still passes: the search-first hook blocks repository grep/rg,
+    # but does not change unrelated Bash commands or their output semantics.
     result = _run_hook(
         "pre_tool_discipline.py",
         {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
@@ -77,7 +74,7 @@ def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
         env=env,
     )
 
-    assert result.stdout == ""
+    assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert result.stderr == ""
 
 

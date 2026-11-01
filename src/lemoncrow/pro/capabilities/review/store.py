@@ -60,7 +60,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast
 
 from lemoncrow.core.foundation.paths import (
     DEFAULT_STORE_DIRNAME,
-    confine_to_root,
     ensure_dir_gitignore,
     safe_segment,
 )
@@ -1505,6 +1504,8 @@ class ReviewStore(SqliteTableStore):
         # Explicit native attribute: production wheels mypyc-compile ReviewStore,
         # whose instances have no __dict__ for dynamic per-store caches.
         self._session_comment_ingestors: dict[str, Any] = {}
+        # The store root resolved once (see _confined): every artifact read re-walked it.
+        self._resolved_root: Path | None = None
         self._ready = False
         # Units per Snapshot, reused while the Snapshot row is unchanged; see list_units.
         self._units_memo: OrderedDict[str, tuple[tuple[Any, ...], tuple[ReviewUnit, ...]]] = OrderedDict()
@@ -7837,13 +7838,30 @@ class ReviewStore(SqliteTableStore):
 
     # ----- artifacts ------------------------------------------------------ #
 
+    def _confined(self, key: str) -> Path:
+        """``confine_to_root(self.root / key, self.root)``, resolving the root once per store.
+
+        Resolving a path stats each of its components; a refresh reads dozens of
+        artifacts, so re-resolving the unchanging root on each was a measurable share of it.
+        """
+
+        root = self._resolved_root
+        if root is None:
+            root = self.root.expanduser().resolve()
+            self._resolved_root = root
+        # confine_to_root's check, without resolving the already-resolved root again.
+        target = (root / key).resolve()
+        if target != root and not target.is_relative_to(root):
+            raise ValueError("path escapes the allowed root")
+        return target
+
     def _write_artifact_bytes(self, key: str, payload: bytes) -> str:
         """Persist *payload* behind one deterministic Review artifact key."""
 
         backend = self._artifact_backend
         if backend is not None:
             return backend.write(key, payload)
-        target = confine_to_root(self.root / key, self.root)
+        target = self._confined(key)
         target.parent.mkdir(parents=True, exist_ok=True)
         handle, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".~review_artifact_")
         try:
@@ -7861,7 +7879,7 @@ class ReviewStore(SqliteTableStore):
         if backend is not None:
             return backend.read(key)
         try:
-            target = confine_to_root(self.root / key, self.root)
+            target = self._confined(key)
         except ValueError:
             return None
         if not target.is_file():
@@ -7877,7 +7895,7 @@ class ReviewStore(SqliteTableStore):
             backend.delete_prefix(prefix)
             return
         try:
-            target = confine_to_root(self.root / prefix, self.root)
+            target = self._confined(prefix)
         except ValueError:
             return
         if target.is_dir():

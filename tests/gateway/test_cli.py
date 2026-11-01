@@ -68,13 +68,18 @@ def _seed_rescue_block(root: Path) -> None:
     )
 
 
-def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) -> None:
-    # Index a throwaway repository, never the checkout the suite runs from.
+def _throwaway_repo(tmp_path: Path, monkeypatch) -> Path:
+    """Run ``init`` in a throwaway repository: in the checkout the suite runs from it rewrites AGENTS.md and the hooks."""
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     monkeypatch.chdir(repo)
+    return repo
+
+
+def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) -> None:
+    _throwaway_repo(tmp_path, monkeypatch)
     monkeypatch.delenv("LEMONCROW_WORKSPACE_ROOT", raising=False)
     res = _invoke(tmp_path / "a", "runtime", "init")
     assert res.exit_code == 0, res.output
@@ -85,10 +90,23 @@ def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) 
 
 def test_init_runs_locally_without_an_account(tmp_path: Path, monkeypatch) -> None:
     # Open-source runtime: init is fully local and never requires an account.
+    _throwaway_repo(tmp_path, monkeypatch)
     res = _invoke(tmp_path / "a", "runtime", "init", "--no-seed", "--no-index")
     assert res.exit_code == 0, res.output
     assert "store initialized" in res.output
     assert "account is required" not in res.output
+
+
+def test_init_in_a_linked_worktree_installs_the_hook_in_the_shared_git_directory(tmp_path: Path, monkeypatch) -> None:
+    main = _throwaway_repo(tmp_path, monkeypatch)
+    identity = ["-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", *identity, "-C", str(main), "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+    linked = tmp_path / "linked"
+    subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", "--detach", str(linked)], check=True)
+    monkeypatch.chdir(linked)
+    res = _invoke(tmp_path / "a", "runtime", "init", "--no-seed", "--no-index")
+    assert res.exit_code == 0, res.output
+    assert f"co-author hook installed at {main / '.git' / 'hooks' / 'prepare-commit-msg'}" in res.output
 
 
 def test_init_runs_locally_with_no_login_prompt(tmp_path: Path, monkeypatch) -> None:
@@ -105,6 +123,7 @@ def test_init_runs_locally_with_no_login_prompt(tmp_path: Path, monkeypatch) -> 
 
     monkeypatch.setattr(code, "_code_context_engine", lambda repo_root: object())
     monkeypatch.setattr(code, "_index_repo_with_progress", _fake_index)
+    _throwaway_repo(tmp_path, monkeypatch)
 
     res = _invoke(tmp_path / "a", "runtime", "init")
     assert res.exit_code == 0, res.output
@@ -195,11 +214,9 @@ def test_run_rubric_blocks_when_required_missing(tmp_path: Path) -> None:
     assert payload["status"] == "blocked"
 
 
-def test_code_context_cli_round_trip(tmp_path: Path) -> None:
+def test_code_context_cli_round_trip(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "lemoncrow"
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    repo = _throwaway_repo(tmp_path, monkeypatch)
     (repo / "service.py").write_text(
         "def alpha() -> int:\n    return 1\n\ndef beta() -> int:\n    return alpha()\n",
         encoding="utf-8",

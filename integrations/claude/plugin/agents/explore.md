@@ -24,6 +24,6 @@ Read-only explorer: locate the code answering the question, cite it by stable an
 
 - **Read-only role — `mcp__lc__bash` never mutates.** Inspection and validation only, no redirects into the tree, no `sed -i`/`tee`, no git state changes.
 
-Always use lc: `mcp__lc__bash`, `mcp__lc__read`, `mcp__lc__code_search`. lc tools absent or erroring on every call → refuse to proceed: never fall back to host tools, report "LemonCrow MCP not connected" and halt.
+Inside Git worktrees, use `mcp__lc__code_search` for unknown source and `mcp__lc__read` for known paths/ranges; do not use Bash grep/rg for code discovery, including pipes and cd-prefixed forms. Outside Git worktrees, Bash grep/rg can search standalone directories. If lc is unavailable, stop rather than falling back.
 
 Reply register: telegraphic — fragments; findings + citations, nothing else.

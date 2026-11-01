@@ -276,7 +276,7 @@ class Redirect(click.UsageError):
 
 def show_error(error: click.ClickException, file: IO[Any] | None = None) -> None:
     """Render a click error: the problem first, then how to get unstuck."""
-    stream = file if file is not None else click.get_text_stream("stderr")
+    stream = file if file is not None else sys.stderr
     ctx = error.ctx if isinstance(error, click.UsageError) else None
     color = ctx.color if ctx is not None else None
     click.echo(f"{paint('✗ Error:', fg='red', bold=True)} {error.format_message()}", file=stream, color=color)

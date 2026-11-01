@@ -13,6 +13,7 @@ Every collection field defaults to empty and every unknown scalar defaults to
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, cast
@@ -436,6 +437,10 @@ class ReviewPacket:
     """Exact contributor evidence scoped to source paths; never heuristic routing hints."""
     scope_paths: tuple[str, ...] = ()
     """A scoped Review's repo-relative paths (one agent session's files); empty is the whole range."""
+    workspace_impact: dict[str, Any] = field(default_factory=dict)
+    """Other repositories of the reviewer's workspace that depend on what changed (``review/workspace_impact.py``):
+    ``lemoncrow_client.workspace_graph.ImpactReport.to_dict()`` plus ``repo``, this repository's member path. Empty
+    when the repository has no workspace or the review did not ask. Never a finding."""
 
     def to_dict(self) -> dict[str, Any]:
         """Return the exact ``--json`` payload: asdict semantics, declaration order."""
@@ -764,6 +769,7 @@ def review_packet_from_dict(raw: Mapping[str, Any]) -> ReviewPacket:
         journal=tuple(journal),
         attributions=tuple(attributions),
         scope_paths=tuple(text(item, "scope_paths") for item in seq(raw.get("scope_paths", ()), "scope_paths")),
+        workspace_impact=copy.deepcopy(dict(obj(raw.get("workspace_impact") or {}, "workspace_impact"))),
     )
 
 

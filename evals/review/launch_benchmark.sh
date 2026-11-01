@@ -5,7 +5,7 @@
 #   evals/review/launch_benchmark.sh plan [OUT_DIR]   print the call bound and the maximum spend; call nothing
 #   evals/review/launch_benchmark.sh run  [OUT_DIR]   spend it (needs the claude CLI signed in)
 #
-# Imported comparators (Copilot, Claude Code Review, Greptile) are scored afterwards with `golden-score
+# Other reviewers' saved comments are scored afterwards with `golden-score
 # --reviewer-comments DIR --reviewer-label NAME`; the doc has the command. Reports hold reviewer comment text, so they
 # go outside the checkout.
 set -euo pipefail
@@ -27,8 +27,9 @@ case "$mode" in
     uv run lemoncrow settings set intelligence.model sonnet
     "${bench[@]}" || [ $? -eq 3 ] # 3: the spending ceiling stopped it; the partial report is still scored below
     for depth in thorough diy; do
+      # 3: a pull request could not be scored; the report is still written, so score the other reviewer too
       uv run lemoncrow dev eval review golden-score --corpus "$corpus" --report "$out/$name.json" \
-        --depth "$depth" --out-dir "$out" --name "$name-$depth"
+        --depth "$depth" --out-dir "$out" --name "$name-$depth" || [ $? -eq 3 ]
     done
     ;;
   *)

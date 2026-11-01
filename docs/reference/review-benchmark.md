@@ -124,14 +124,41 @@ call bound: 1600 (--max-calls 1600 stops the run at that many calls)
 maximum spend: $150 (--max-usd), checked before every call; calls already running when it is reached finish, so a run can pass it by up to 6 calls
 ```
 
-The ceilings are sized from the published run (350 calls and $28.75 for 50 pull requests at thorough): three LemonCrow runs are about 1050 calls and $86, the DIY runs add 150 calls. Judge calls (`golden-score`, one per pull request and reviewer, cached) are extra. The script is the two commands of "Run it" below with `--reviewer lemoncrow,diy --repeat 3 --depth thorough` added, then `golden-score` for `--depth thorough` and `--depth diy`. Comparators' saved comments (Copilot, Claude Code Review, Greptile) are scored afterwards:
+The ceilings are sized from the published run (350 calls and $28.75 for 50 pull requests at thorough): three LemonCrow runs are about 1050 calls and $86, the DIY runs add 150 calls. Judge calls (`golden-score`, one per pull request and reviewer, cached) are extra. The script is the two commands of "Run it" below with `--reviewer lemoncrow,diy --repeat 3 --depth thorough` added, then `golden-score` for `--depth thorough` and `--depth diy`. Other reviewers' saved comments are scored afterwards:
 
 ```bash
 uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comment_prs.yaml \
-    --reviewer-comments ~/comments/greptile --reviewer-label Greptile --out-dir ~/lc-bench-reports
+    --reviewer-comments ~/comments/other-reviewer --reviewer-label "Other reviewer" --out-dir ~/lc-bench-reports
 ```
 
 The golden scoring covers each reviewer's first run; the reruns' judged scores are not computed (their finding-set stability is, in the benchmark report).
+
+### Launch run results (2026-11-01)
+
+Run on `8841dd239` with the claude CLI on Sonnet, judged by Sonnet (judge prompt `cfe685620f23`). 49 of the 50 pull requests were scored: `calcom-01`'s pinned commit is no longer served by `calcom/cal.com` (`not our ref`). The checkout had uncommitted changes outside the review engine, so `golden-score` wrote no publishable summary and these figures are not the README row.
+
+The cal.com fork that the benchmark's pull requests were opened on, under `https://github.com/ai-code-review-evaluation`, still serves `calcom-01`'s commits. The harness fetches only commits a work directory lacks, so fetching both commits once from that fork lets every pull request run:
+
+```bash
+git -C ~/lc-bench-work/calcom-01/repo fetch <the fork's clone URL> \
+    7269aca1c02cb34a6f6526d81fc7662d8bf214ba 3784421f025afc3a595fbb4e222916785cc6de0c
+```
+
+The README row comes from a second run, on 2026-11-01 from a clean clone of `729e96003`: LemonCrow thorough alone, one run on all 50 pull requests. It scored precision 47.1% (49/104), recall 50.5% (49/97) and F 48.8%. Critical recall was 5/9, High 24/41 and Medium 20/47. It cost $32.28 in all: a median $0.56 and 8 calls a pull request, and 55 s of median time.
+
+| Reviewer | Precision | Recall | F | Comments judged | Critical | High | Medium | Median $ / PR | Mean $ / PR | Calls / PR | Median time | Rerun agreement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LemonCrow thorough | 48.5% (50/103) | 52.1% (50/96) | 50.3% | 103 | 5/9 | 25/41 | 20/46 | $0.54 | $0.61 | 7 | 56 s | 0.66 |
+| DIY prompt v1 | 34.7% (70/202) | 72.9% (70/96) | 47.0% | 202 | 8/9 | 31/41 | 31/46 | $0.07 | $0.09 | 1 | 16 s | 0.48 |
+
+Precision, recall and F are the strict counts of the first run. Cost, time and rerun agreement (the mean Jaccard of two reruns' finding sets) cover all three runs. LemonCrow posts half as many comments, and more of them are right. The DIY prompt finds more of the answer key at a seventh of the cost. Its F-score is three points lower because two of every three of its comments are not in the key.
+
+Where LemonCrow's misses come from:
+
+- **Critical goldens: no finding near the issue.** DIY caught three that LemonCrow did not: an SSRF through `open(url)`, a `getSubGroupsCount()` that returns null against its contract, and a `NoMethodError` in a `before_validation`. Both reviewers missed the fourth, a cache that recurses through `session` instead of the delegate.
+- **Two High goldens: two defects folded into one finding.** The judge credits a comment to one golden only. Examples: "breaks on datetime keys and allows negative offsets", and "colliding computed keys, strips expiry".
+
+No threshold change from the false positives was worth making. A per-pull-request cap would cut by file order, not by merit. Downgrading stylesheet findings would remove 2 of the 53. The repeat check on two-finding reviews (`3fd6b9d6c`, after this run) removes at most 2 more.
 
 ## The corpus
 

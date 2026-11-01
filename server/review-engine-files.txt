@@ -95,6 +95,8 @@ src/lemoncrow/pro/code_intel/git_history/renames.py
 client/src/lemoncrow_client/__init__.py
 client/src/lemoncrow_client/kit/__init__.py
 client/src/lemoncrow_client/kit/redaction.py
+client/src/lemoncrow_client/workspace_graph.py
+client/src/lemoncrow_client/workspace_members.py
 server/src/lemoncrow_server_core/__init__.py
 server/src/lemoncrow_server_core/app.py
 server/src/lemoncrow_server_core/blobmiss.py
@@ -329,6 +331,7 @@ src/lemoncrow/pro/capabilities/review/tour.py
 src/lemoncrow/pro/capabilities/review/track_record.py
 src/lemoncrow/pro/capabilities/review/trusted_base.py
 src/lemoncrow/pro/capabilities/review/working_tree_authority.py
+src/lemoncrow/pro/capabilities/review/workspace_impact.py
 src/lemoncrow/pro/capabilities/review/validity.py
 src/lemoncrow/pro/capabilities/review/verification.py
 src/lemoncrow/pro/capabilities/review/verification_delta.py
@@ -473,3 +476,20 @@ src/lemoncrow/pro/capabilities/review/security_rules/java.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/javascript.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/python.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/secrets.yaml
+src/lemoncrow/pro/capabilities/review/evaluation_timeline.py
+src/lemoncrow/pro/capabilities/review/pr_bot/authorship.py
+src/lemoncrow/pro/capabilities/review/pr_bot/change_story.py
+src/lemoncrow/pro/capabilities/review/pr_bot/change_story_svg.py
+src/lemoncrow/pro/capabilities/review/pr_bot/gitlab.py
+src/lemoncrow/pro/capabilities/review/pr_bot/host.py
+src/lemoncrow/pro/capabilities/review/pr_bot/proof_of_work.py
+src/lemoncrow/pro/capabilities/review/pr_bot/provenance.py
+src/lemoncrow/pro/capabilities/review/pr_bot/safety.py
+src/lemoncrow/pro/capabilities/review/pr_bot/spend.py
+src/lemoncrow/pro/capabilities/review/sources/gitlab.py
+src/lemoncrow/pro/capabilities/review/autofix_approval.py
+src/lemoncrow/pro/capabilities/review/check_recommendations.py
+src/lemoncrow/pro/capabilities/review/check_regressions.py
+src/lemoncrow/pro/capabilities/review/consumer_inventory.py
+src/lemoncrow/pro/capabilities/review/landed_review_knowledge.py
+src/lemoncrow/pro/capabilities/review/web_qa_runner.js

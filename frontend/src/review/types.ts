@@ -3730,8 +3730,54 @@ export interface ReviewProjection {
   triage?: ReviewTriage;
   /** Known callers/consumers of changed targets and impact-pass readiness, from this Snapshot's packet (F7). */
   context?: ReviewProjectionContext;
+  /** Other repositories of the reviewer's local workspace that depend on what changed; `{}` when none or not scanned. Never a finding. */
+  workspace_impact?: ReviewWorkspaceImpact | Record<string, never>;
 }
 
+/** One end of a cross-repository dependency: a workspace-root-relative path and line (0 when unknown). */
+export interface ReviewWorkspaceEvidence {
+  path: string;
+  line: number;
+}
+
+export interface ReviewWorkspaceLink {
+  key: string;
+  confidence: string;
+  provider: ReviewWorkspaceEvidence;
+  consumer: ReviewWorkspaceEvidence;
+}
+
+export interface ReviewWorkspaceEdge {
+  kind: string;
+  confidence: string;
+  direct: boolean;
+  links: ReviewWorkspaceLink[];
+  /** Evidence links the scan found beyond `links`. */
+  more: number;
+}
+
+export interface ReviewWorkspaceReached {
+  repo: string;
+  hops: number;
+  confidence: string;
+  direct: boolean;
+  /** Repositories from the changed one to this one, both included. */
+  path: string[];
+  edges: ReviewWorkspaceEdge[];
+}
+
+/** The packet's `workspace_impact` slice as the Reader receives it (no source lines). */
+export interface ReviewWorkspaceImpact {
+  /** This repository's member path in the workspace. */
+  repo: string;
+  root: string;
+  changed: { repo: string; files: string[] }[];
+  reached: ReviewWorkspaceReached[];
+  unknown?: string[];
+  errors?: { repo: string; error: string }[];
+  incomplete?: string[];
+  members_truncated?: boolean;
+}
 /** `snapshot`: recorded in this Snapshot's packet; `current_index`: from the working index, not this Snapshot. */
 export type ReviewConsumerExactness = "snapshot" | "current_index";
 

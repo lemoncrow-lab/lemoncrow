@@ -41,7 +41,7 @@ from lemoncrow_server_core.protocol import (
 )
 
 from lemoncrow.pro.capabilities.review.models import SCHEMA_VERSION as PACKET_SCHEMA_VERSION
-from lemoncrow.pro.capabilities.review.readiness import READINESS_RULES_VERSION
+from lemoncrow.pro.capabilities.review.readiness import READINESS_POLICY_SCHEMA_VERSION
 from lemoncrow.pro.capabilities.review.review_record import RECORD_SCHEMA_VERSION
 from lemoncrow.pro.capabilities.review.session_models import REVIEW_EVIDENCE_KINDS, SESSION_SCHEMA_VERSION
 
@@ -323,7 +323,7 @@ def test_the_local_manifest_names_every_feature_and_schema(tmp_path: Path) -> No
     assert review["schemas"] == {
         "packet": [PACKET_SCHEMA_VERSION],
         "evidence": [SESSION_SCHEMA_VERSION],
-        "policy": [READINESS_RULES_VERSION],
+        "policy": [READINESS_POLICY_SCHEMA_VERSION],
         "record": [RECORD_SCHEMA_VERSION],
     }
     assert review["evidence_kinds"] == sorted(REVIEW_EVIDENCE_KINDS)

@@ -4,6 +4,8 @@ argument-hint: <install|remove|list|set|...> [agent|skill|key] [name|value]
 description: "Extras manager."
 ---
 
+> **Active** — do not call `Skill("lemoncrow:lemoncrow")` again.
+
 # LemonCrow
 
 Thin pass-through to the real `lc` CLI (already built, already validated) — `lc rt agent` / `lc rt skill` / `lc settings set` / any other documented subcommand. Run the right CLI command, relay its output. Never invent cost numbers, validation, or confirmation logic here; the CLI already owns all of that. Not the cross-host bulk installer (`lc rt install optionals` is CLI-only, never called from this skill).

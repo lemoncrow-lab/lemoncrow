@@ -50,17 +50,19 @@ from .live_runtime import (
     load_live_review_binding,
     write_live_review_binding,
 )
-from .models import review_packet_from_dict
+from .models import ReviewPacket, review_packet_from_dict
 from .packet import (
     PacketBuild,
     attach_changed_symbols,
     attach_impact,
     attach_provenance,
+    attach_workspace_impact,
     build_review_packet_with_blobs,
 )
 from .precompute import base_snapshot, load_source_build, save_source_build
 from .snapshot import materialize_git_revision
 from .sources.local import source_ref
+from .workspace_impact import PendingWorkspaceImpact, packet_rows
 
 
 def _new_side_mode(repo_root: Path, rng: RevRange, path: str, *, fallback: int = 0o100644) -> int:
@@ -247,6 +249,7 @@ def _write_local_finalize_job(
     advance_claimed_binding: bool,
     publish_live_binding: bool = True,
     attach_base: bool = True,
+    with_workspace: bool = False,
 ) -> Path:
     payload = {
         "repo_root": str(repo_root),
@@ -283,6 +286,7 @@ def _write_local_finalize_job(
         "limit": int(limit),
         "with_impact": bool(with_impact),
         "with_provenance": bool(with_provenance),
+        "with_workspace": bool(with_workspace),
         "advance_claimed_binding": bool(advance_claimed_binding),
         "publish_live_binding": bool(publish_live_binding),
         "attach_base": bool(attach_base),
@@ -344,6 +348,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
         revision_short_id = str(payload.get("revision_short_id") or "")
         with_impact = bool(payload.get("with_impact"))
         with_provenance = bool(payload.get("with_provenance"))
+        with_workspace = bool(payload.get("with_workspace")) and with_impact and not config.hosted
         session_id = str(payload.get("session_id") or "") or None
         session_id_is_hint = bool(payload.get("session_id_is_hint"))
         limit = int(payload.get("limit") or 40)
@@ -360,8 +365,10 @@ def _run_local_finalize_job(job_path: Path) -> int:
                         enrichment_superseded = True
                         raise ValueError("source changed before background Review enrichment")
                     enriched = build
+                    pending_workspace = _workspace_scan(repo_root, build, enabled=with_workspace)
                     if with_impact:
                         enriched = attach_impact(repo_root, rng, enriched, limit=limit)
+                    enriched = _with_workspace_impact(enriched, pending_workspace)
                     if with_provenance:
                         enriched = attach_provenance(
                             store_root,
@@ -387,7 +394,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
                         repo_id=repo_id,
                         review_id=review_id,
                         revision_id=revision_id,
-                        packet=enriched.packet.to_dict(),
+                        packet=_server_packet(config, enriched.packet),
                         timeout_s=config.tool_timeout_s,
                     )
                     if publish_live_binding and enriched.packet.provenance.certainty == "exact":
@@ -703,6 +710,31 @@ def hosted_branch_review_base(
     return branch, found.review_id, base
 
 
+def _server_packet(config: ClientConfig, packet: ReviewPacket) -> dict[str, Any]:
+    """The packet as a Review server receives it.
+
+    The ``workspace_impact`` slice names other repositories of this machine and their paths: only a local server
+    stores it. A hosted server always receives it empty, whatever the packet carries.
+    """
+
+    payload = packet.to_dict()
+    if config.hosted:
+        payload["workspace_impact"] = {}
+    return payload
+
+
+def _workspace_scan(repo_root: Path, build: PacketBuild, *, enabled: bool) -> PendingWorkspaceImpact | None:
+    """Start the workspace scan for *build*'s changed files on its own thread; ``None`` when not asked."""
+
+    if not enabled or not build.packet.files:
+        return None
+    return PendingWorkspaceImpact(repo_root, packet_rows(build.packet.files))
+
+
+def _with_workspace_impact(build: PacketBuild, pending: PendingWorkspaceImpact | None) -> PacketBuild:
+    return build if pending is None else attach_workspace_impact(build, pending.result())
+
+
 def _local_source_build(
     repo_root: Path,
     rng: RevRange,
@@ -802,6 +834,7 @@ def capture_server_review(
     reuse_closed_review: bool = False,
     paths: tuple[str, ...] = (),
     review_scope: str = "",
+    with_workspace: bool = False,
 ) -> ServerCapture:
     """Capture *rng* into the configured LemonCrow server without binding locally.
 
@@ -815,10 +848,19 @@ def capture_server_review(
     workstream it belongs to (one agent session in a shared worktree): a scoped
     Review is its own Change, advanced by later scoped captures, and never
     continues or takes over the branch's Review.
+
+    ``with_workspace`` adds the packet's ``workspace_impact`` slice: which other
+    repositories of the reviewer's workspace depend on what changed. Only a
+    review a person asked for on a local server turns it on; it needs the
+    impact pass, and a hosted server never receives it. The working-tree and
+    commit-range paths scan beside the post-publication impact pass, so the
+    first readable Snapshot never waits for it.
     """
 
     if paths:
         rng = dataclass_replace(rng, paths=tuple(sorted({path for path in paths if path})))
+    # Other repositories' names and paths stay on this machine.
+    with_workspace = bool(with_workspace and with_impact and not config.hosted)
     publish_live_binding = not (review_scope or rng.paths)
     capture_started = time.perf_counter()
     stage_started: dict[str, float] = {}
@@ -971,6 +1013,7 @@ def capture_server_review(
                     with_patch_text=True,
                     unbounded_patch_text=True,
                     progress=packet_progress,
+                    with_workspace=with_workspace and not progressive_commit_range,
                 )
                 if not with_impact and not (progressive_commit_range and len(build.packet.files) > 250):
                     # For small Reviews, publish stable symbols immediately.
@@ -1070,7 +1113,7 @@ def capture_server_review(
                         repo_id=repo_id,
                         source_ref=stable_source_ref,
                         title=review_title,
-                        packet=packet.to_dict(),
+                        packet=_server_packet(config, packet),
                         new_blobs={},
                         restore_archived=restore_archived,
                         source_fingerprint=captured_source,
@@ -1106,7 +1149,7 @@ def capture_server_review(
                         repo_id=repo_id,
                         source_ref=stable_source_ref,
                         title=review_title,
-                        packet=packet.to_dict(),
+                        packet=_server_packet(config, packet),
                         new_blobs={},
                         restore_archived=restore_archived,
                         source_fingerprint=captured_source,
@@ -1227,6 +1270,7 @@ def capture_server_review(
                     with_provenance=with_provenance,
                     advance_claimed_binding=advance_claimed_binding,
                     publish_live_binding=publish_live_binding,
+                    with_workspace=with_workspace,
                 )
                 if _launch_local_finalize_job(job_path):
                     report("background_handoff_done", "Remaining Review context continues in background")
@@ -1244,6 +1288,7 @@ def capture_server_review(
                         enrichment_superseded = True
                         raise ValueError("newer live Review generation superseded background enrichment")
                     enriched = build
+                    pending_workspace = _workspace_scan(repo_root, build, enabled=with_workspace)
                     if with_impact:
                         report("packet_impact", "Analyzing callers and change impact in background")
                         enriched = attach_impact(repo_root, rng, enriched, limit=limit)
@@ -1251,6 +1296,7 @@ def capture_server_review(
                         if is_superseded():
                             enrichment_superseded = True
                             raise ValueError("newer live Review generation superseded background enrichment")
+                    enriched = _with_workspace_impact(enriched, pending_workspace)
                     if with_provenance:
                         report("packet_provenance", "Correlating author context in background")
                         enriched = attach_provenance(
@@ -1280,7 +1326,7 @@ def capture_server_review(
                         repo_id=str(repo_id),
                         review_id=review_id,
                         revision_id=revision_id,
-                        packet=enriched.packet.to_dict(),
+                        packet=_server_packet(config, enriched.packet),
                         timeout_s=config.tool_timeout_s,
                     )
                     if publish_live_binding and enriched.packet.provenance.certainty == "exact":
@@ -1388,7 +1434,7 @@ def capture_server_review(
             repo_id=repo_id,
             source_ref=stable_source_ref,
             title=review_title,
-            packet=packet.to_dict(),
+            packet=_server_packet(config, packet),
             new_blobs={},
             base_view_id=base_view_id,
             base_view_revision=base_view_revision,
@@ -1466,6 +1512,7 @@ def capture_server_review(
                     advance_claimed_binding=False,
                     publish_live_binding=False,
                     attach_base=False,  # Immutable base was attached before publication.
+                    with_workspace=with_workspace,
                 )
                 if _launch_local_finalize_job(job_path):
                     report("background_handoff_done", "Commit-range intelligence continues in background")
@@ -1474,10 +1521,12 @@ def capture_server_review(
                     job_path.unlink(missing_ok=True)
             try:
                 enriched = build
+                pending_workspace = _workspace_scan(repo_root, build, enabled=with_workspace)
                 if with_impact:
                     report("packet_impact", "Analyzing callers and impact after source publication")
                     enriched = attach_impact(repo_root, rng, enriched, limit=limit)
                     report("packet_impact_done", "Impact ready")
+                enriched = _with_workspace_impact(enriched, pending_workspace)
                 if with_provenance:
                     report("packet_provenance", "Analyzing author context after source publication")
                     enriched = attach_provenance(
@@ -1493,7 +1542,7 @@ def capture_server_review(
                     repo_id=str(repo_id),
                     review_id=review_id,
                     revision_id=revision_id,
-                    packet=enriched.packet.to_dict(),
+                    packet=_server_packet(config, enriched.packet),
                     timeout_s=config.tool_timeout_s,
                 )
                 captured = dataclass_replace(captured, build=enriched)

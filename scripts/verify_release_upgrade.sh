@@ -58,8 +58,10 @@ LEMONCROW_URL="$DRILL_URL" "$LEMONCROW_BIN_DIR/lc" --root "$STORE" review \
   --comment "pre-upgrade durable comment" --on app.py:L2 --json \
   > "$WORK/before.json"
 
-DB="$STORE/lemoncrow_reviews.db"
-[[ -s "$DB" ]] || { echo "previous release did not create $DB" >&2; exit 1; }
+# v0.8 records a Review in its local server's store (one database per repository), not under --root.
+REVIEWS="$LEMONCROW_HOME/server/data/reviews"
+DB="$(find "$REVIEWS" -name lemoncrow_reviews.db -print -quit 2>/dev/null || true)"
+[[ -n "$DB" && -s "$DB" ]] || { echo "previous release did not create a Review database under $REVIEWS" >&2; exit 1; }
 python - "$DB" "$WORK/before-counts.json" <<'PY'
 import json, sqlite3, sys
 db, out = sys.argv[1:]

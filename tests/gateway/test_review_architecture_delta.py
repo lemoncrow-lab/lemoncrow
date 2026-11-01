@@ -281,6 +281,55 @@ def test_trivial_relationship_change_does_not_force_sequence_flow() -> None:
     assert delta["flow"]["steps"] == []
 
 
+def test_reference_architecture_ties_files_by_what_they_export_not_by_shared_names(tmp_path: Path) -> None:
+    # The 2026-11-01 replay: a new test file's locals and its vitest import tied every other test file to it.
+    from lemoncrow.pro.capabilities.review.architecture_delta import _reference_architecture
+
+    files = {
+        "src/token.ts": (
+            "const internal = 1;\n"
+            "export async function exchange(code: string): Promise<string> {\n"
+            "  const actual = code.trim();\n"
+            "  return actual + internal;\n"
+            "}\n"
+            "export function isOk(value: { ok: boolean }): boolean { return value.ok; }\n"
+        ),
+        "src/service.ts": (
+            "import { exchange } from './token';\n"
+            "export async function signIn(code: string, actual: string) {\n"
+            "  return [await exchange(code), actual, internal];\n"
+            "}\n"
+        ),
+        "src/token.test.ts": (
+            "import { afterEach, expect, it } from 'vitest';\n"
+            "import { exchange } from './token';\n"
+            "const calls: string[] = [];\n"
+            "function json(data: object) { return data; }\n"
+            "afterEach(() => calls.splice(0));\n"
+            "it('exchanges', async () => { const body = json({}); expect(await exchange('x')).toBe(body); });\n"
+        ),
+        "src/other.test.ts": (
+            "import { afterEach, it } from 'vitest';\n"
+            "function json(data: object) { return data; }\n"
+            "afterEach(() => undefined);\n"
+            "it('reads', () => { const spy = { mock: { calls: [] } }; json(spy.mock.calls); });\n"
+        ),
+    }
+    for path, text in files.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    edges = {(edge["source"], edge["target"]): edge for edge in _reference_architecture(tmp_path)["edges"]}
+
+    assert set(edges) == {("src/service.ts", "src/token.ts"), ("src/token.test.ts", "src/token.ts")}
+    assert [row["name"] for row in edges[("src/service.ts", "src/token.ts")]["symbols"]] == ["exchange"]
+    assert (
+        edges[("src/token.test.ts", "src/token.ts")]["weight"]
+        == edges[("src/token.test.ts", "src/token.ts")]["symbols"][0]["count"]
+    )
+
+
 def _store(tmp_path: Path) -> tuple[ReviewStore, ReviewSession, ReviewRevision]:
     store = ReviewStore(tmp_path)
     store.init()

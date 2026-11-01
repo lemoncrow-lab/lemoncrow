@@ -96,7 +96,7 @@ class Change:
         session_id: str,
         events: list[dict[str, Any]],
         *,
-        workspace: Path | None | str = "repo",
+        workspace: Path | str | None = "repo",
         **extra: Any,
     ) -> Path:
         path = session_dir(self.store_root, host, session_id) / "run.json"

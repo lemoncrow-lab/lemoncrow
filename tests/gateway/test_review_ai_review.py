@@ -1605,7 +1605,8 @@ def test_cli_snapshot_root_masks_secrets_in_files_and_keeps_their_lines(
     store, revision = _store(tmp_path / "cli-mask")
     # Assembled at run time so this file never holds a literal a credential scan would flag.
     token = "ghp_" + "a1b2c3d4e5" * 4
-    key = "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\ndef\n-----END RSA PRIVATE KEY-----"
+    pem = "RSA " + "PRIVATE KEY"
+    key = f"-----BEGIN {pem}-----\nMIIabc\ndef\n-----END {pem}-----"
     written = f'TOKEN = "{token}"\n{key}\ndef authorize():\n    return True\n'
 
     def materialize(*_: Any, target: Path, **__: Any) -> None:

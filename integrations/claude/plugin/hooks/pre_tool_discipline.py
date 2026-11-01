@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
-"""PreToolUse read-after-edit guard.
+"""PreToolUse read-after-edit and source-search discipline.
 
-Blocks the one wasteful case: a whole-file re-read (``full=true`` with no range) of a
-file already edited this session. The edit response already returned the changed
-region, and a full re-read re-injects the whole file -- which is then re-cached
-on every later turn. Targeted range reads and reads of un-edited files pass
-through untouched.
-
-Edited files are recorded by loop_discipline_post.py (shared session state).
-Fail-open; opt-out via LEMONCROW_READ_AFTER_EDIT_GUARD=0.
-
-Note: this hook deliberately does NOT block grep/rg over source. Steering toward
-explore/search lives in the agent instructions + the strength of the indexed
-tools, not a hard PreToolUse deny (which mis-fired on legitimate searches).
+Prevents expensive whole-file re-reads after edits and redirects source code
+search through Bash toward the indexed code_search tool. The search guard is
+shared across parent sessions and Claude subagents, while real shell filters
+remain available. Both guards fail open on malformed input and dormancy.
 """
 
 from __future__ import annotations
@@ -191,6 +183,26 @@ def main() -> int:
     ti = payload.get("tool_input") or {}
     if not isinstance(ti, dict):
         return 0
+    # Source-search discipline applies independently of read-after-edit settings.
+    # Import the sibling guard in this existing PreToolUse process: no additional
+    # Python startup per bash/code_search call.
+    if os.environ.get("LEMONCROW_SEARCH_FIRST", "1") != "0":
+        try:
+            from search_first import _record, classify
+
+            choice = classify(payload)
+            if choice is not None:
+                decision, reason = choice
+                _record(payload, decision, reason)
+                if decision == "deny":
+                    _deny(
+                        "Use mcp__lc__code_search for source discovery and mcp__lc__read for exact ranges; "
+                        "do not use Bash grep/rg, including cd-prefixed and piped forms. "
+                        "For required exact shell behavior add '# lc:allow-shell-search' to the command."
+                    )
+                    return 0
+        except Exception:
+            pass
 
     # Read-after-edit guard.
     if os.environ.get("LEMONCROW_READ_AFTER_EDIT_GUARD", "1") == "0":

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow_client.lite.index import _DB_NAME as _LITE_INDEX_DB_NAME
+from lemoncrow_client.lite.index import open_index_reader
 
 _MODEL_ID: Final[str] = "minishlab/potion-code-16M-v2"
 # Changing the lexical database identity invalidates existing semantic generations.
@@ -239,7 +240,8 @@ class _CompactSemanticIndex:
         db_path = _CompactSemanticIndex._lite_db(repo_root)
         if not db_path.is_file():
             raise RuntimeError("Runtime Lite lexical index is not prepared")
-        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30)
+        # A worktree overlay's files include those it inherits from its base.
+        connection = open_index_reader(db_path, timeout=30)
         try:
             generation_row = connection.execute("SELECT value FROM meta WHERE key='generation'").fetchone()
             generation = int(generation_row[0]) if generation_row else 0
@@ -255,7 +257,7 @@ class _CompactSemanticIndex:
         db_path = _CompactSemanticIndex._lite_db(repo_root)
         if not db_path.is_file():
             return {}
-        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30)
+        connection = open_index_reader(db_path, timeout=30)
         try:
             rows = connection.execute("""
                 SELECT path, line, name

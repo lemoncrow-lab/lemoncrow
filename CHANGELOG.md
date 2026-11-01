@@ -6,6 +6,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-01
+
 0.8.1 was prepared but never published; this release is the first to carry its changes, listed under
 [0.8.1] below.
 
@@ -50,10 +52,25 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 - **GitLab merge request bot (early access).** `lemoncrow review --publish-bot` in a GitLab merge request pipeline
   posts one summary note, one discussion per finding and a `LemonCrow Review` external status. The template installs
   LemonCrow from the public repository at `LEMONCROW_REF`. See [GitLab CI](docs/setup/gitlab-ci.md).
+- **Multi-repository workspaces.** A Runtime Lite root that holds submodules, or a folder of repositories, serves
+  each member repository from its own index. `lc workspace status|branch|commit|push|pr` carries one change across
+  them (submodules first, one linked pull request per pushed repository), and `lc workspace graph|impact` lists the
+  edges between members (submodule, package, import, proto, OpenAPI, HTTP route, event topic, each with evidence and
+  a confidence) and the members a change reaches. The Brief of a local `lc review` shows that reach; hosted Review
+  never receives it.
 - **Benchmark harness with a DIY baseline.** `lemoncrow dev eval review benchmark --reviewer lemoncrow,diy`
   reviews the golden-comment corpus with LemonCrow and with a plain "review this diff" prompt on the same model,
   repeats each run, and reports raw per-PR true and false positives, confidence intervals, rerun stability and
   cost per PR. See [Review benchmark](docs/reference/review-benchmark.md).
+- **Measured against a DIY prompt.** On the 50-PR set, at thorough, LemonCrow posted half as many comments as a
+  plain "review this diff" prompt on the same model, and more of them were right. The DIY prompt found more
+  of the answer key at a seventh of the cost. LemonCrow scored precision 48.5%, recall 52.1% and F 50.3% at a
+  median $0.54 a pull request. The DIY prompt scored 34.7%, 72.9% and 47.0% at $0.07. These are 49 pull requests,
+  three runs each. LemonCrow's findings also agreed more often across reruns (Jaccard 0.66 against 0.48).
+- **A new benchmark row.** The README's LemonCrow row is now the 2026-11-01 run on all 50 pull requests: precision
+  47%, recall 51%, F-score 49%, a median $0.56 and 8 model calls a pull request. The 2026-10-26 run had 43%, 48%
+  and 46% at $0.52. Both runs use the claude CLI on Sonnet and LemonCrow's judge, and the raw report is under
+  `evals/review/published/runs/`.
 
 ### Security
 
@@ -68,6 +85,11 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   empty. Ollama gets the schema as its `format` and a named cause when it returns no answer.
 - The GitLab template installed LemonCrow from PyPI, where it is not published; it now installs the public
   repository at a pinned release from its lockfile.
+- The architecture delta behind the change diagram, the Change Story and the Review Map tied JavaScript and
+  TypeScript files together through shared local names (`actual`, `body`), imports of the same library name and
+  unexported declarations. On a four-file pull request that read as 227 changed relationships across unrelated
+  files. A reference now reaches only another file's exported, file-level declaration in the same language, and a
+  name the file defines itself stays its own.
 
 ## [0.8.1] - 2026-10-27
 

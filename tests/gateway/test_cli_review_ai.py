@@ -81,7 +81,7 @@ def test_a_local_ai_review_prints_the_findings_and_posts_nothing(ci: Any, monkey
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     result = invoke(ci[0], "--pr", "7", "--ai")
     assert result.exit_code == 0, result.output
-    assert "**No must-fix findings** · 1 should-fix" in result.stdout
+    assert "<h2>No must-fix findings · 1 should-fix</h2>" in result.stdout
     assert "lets a missing principal through" in result.stdout and "lemoncrow:state" not in result.stdout
     assert ci[1].statuses == [] and ci[1].issue_comments == []
 
@@ -104,7 +104,7 @@ def test_ai_with_dry_run_is_the_obvious_preview_and_writes_nothing(ci: Any, monk
     result = invoke(ci[0], "--pr", "7", "--ai", "--dry-run")
     assert result.exit_code == 0, result.output
     out = result.stdout
-    assert "**No must-fix findings** · 1 should-fix" in out and "lemoncrow:state" not in out
+    assert "<h2>No must-fix findings · 1 should-fix</h2>" in out and "lemoncrow:state" not in out
     assert "Dry run: would post 1 inline comment(s) and the summary above. Nothing was posted." in out
     assert "--- inline comment on src/auth.py:" in out
     assert _writes(ci[1]) == [] and ci[1].statuses == [] and ci[1].issue_comments == []
@@ -178,7 +178,7 @@ def test_a_dry_run_prints_the_summary_and_each_inline_comment_it_would_post(
     assert result.exit_code == 0, result.output
     out = result.stdout
     # The summary comment itself (not only its headline), without the hidden state block.
-    assert "**No must-fix findings** · 1 should-fix" in out and "lemoncrow:state" not in out
+    assert "<h2>No must-fix findings · 1 should-fix</h2>" in out and "lemoncrow:state" not in out
     assert "lets a missing principal through" in out
     # Then each inline comment, with the place it would go.
     assert "Dry run: would post 1 inline comment(s) and the summary above. Nothing was posted." in out

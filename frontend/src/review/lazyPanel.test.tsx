@@ -21,6 +21,7 @@ describe("lazyPanel", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const load = vi.fn<() => Promise<{ default: typeof Sheet }>>()
       .mockRejectedValueOnce(chunkFailure())
+      .mockRejectedValueOnce(chunkFailure())
       .mockResolvedValue({ default: Sheet });
     const Panel = lazyPanel("Comments", load);
 
@@ -39,12 +40,27 @@ describe("lazyPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("button", { name: "Comments sheet" })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+    // The failed open already tried twice; Retry's fresh import loads on its first try.
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it("rides out one dropped chunk load without showing a failure", async () => {
+    const load = vi.fn<() => Promise<{ default: typeof Sheet }>>()
+      .mockRejectedValueOnce(chunkFailure())
+      .mockResolvedValue({ default: Sheet });
+    const Panel = lazyPanel("Comments", load);
+
+    render(<Suspense fallback={null}><Panel onClose={vi.fn()} /></Suspense>);
+
+    expect(await screen.findByRole("button", { name: "Comments sheet" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
   });
 
   it("closes the panel from the failure, and opening it again loads afresh", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const load = vi.fn<() => Promise<{ default: typeof Sheet }>>()
+      .mockRejectedValueOnce(chunkFailure())
       .mockRejectedValueOnce(chunkFailure())
       .mockResolvedValue({ default: Sheet });
     const Panel = lazyPanel("Comments", load);

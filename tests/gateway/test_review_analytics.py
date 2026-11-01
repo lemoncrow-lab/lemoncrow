@@ -667,7 +667,8 @@ def _inbox_row(review_id: str, state: str, teams: tuple[str, ...], since: str, *
 
 def test_findings_outcomes_come_from_human_judgment_and_drop_stale_and_retracted(tmp_path: Path) -> None:
     store = ReviewStore(tmp_path / "store")
-    session, [first, second] = _change(store, revisions=2)
+    # Created inside the real-now period the report below reads (a fixed date ages out of it).
+    session, [first, second] = _change(store, revisions=2, created=_at(5, base=_real_now()))
     _finding(store, session, second)
     _finding(store, session, second, disposition="confirmed_by_reviewer")
     _finding(store, session, second, disposition="dismissed", reason="incorrect")

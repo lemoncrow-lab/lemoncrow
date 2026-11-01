@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import difflib
 import hashlib
 import json
@@ -111,7 +112,7 @@ from lemoncrow.pro.capabilities.review.session_models import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
     from lemoncrow.pro.capabilities.review.change_sets import ChangeSetDirectory
@@ -176,6 +177,40 @@ def _without_paths(reason: object) -> str:
     """An error text with absolute filesystem paths replaced, so a hosted Reader never prints a server path."""
 
     return _ABSOLUTE_PATH.sub("<path>", str(reason))
+
+
+#: Reads of one immutable Snapshot artifact that a single request repeats; see :func:`_reads_once`.
+_SNAPSHOT_READS: contextvars.ContextVar[dict[tuple[str, ...], object] | None] = contextvars.ContextVar(
+    "lemoncrow_review_snapshot_reads", default=None
+)
+
+
+@contextlib.contextmanager
+def _reads_once() -> Iterator[None]:
+    """Inside this block each :func:`_read_once` read of an immutable Snapshot artifact is made once.
+
+    The Brief's projection reads the same source-tree manifest and changed-path list a dozen times over; a
+    Snapshot's artifacts never change, so the first answer stands for the rest of the request. Nothing outlives
+    the block, so no request is ever answered from another request's reads.
+    """
+
+    if _SNAPSHOT_READS.get() is not None:
+        yield
+        return
+    token = _SNAPSHOT_READS.set({})
+    try:
+        yield
+    finally:
+        _SNAPSHOT_READS.reset(token)
+
+
+def _read_once[T](key: tuple[str, ...], read: Callable[[], T]) -> T:
+    reads = _SNAPSHOT_READS.get()
+    if reads is None:
+        return read()
+    if key not in reads:
+        reads[key] = read()
+    return cast(T, reads[key])
 
 
 # Emitted as real response headers, not a <meta> tag: a meta CSP cannot carry
@@ -3178,6 +3213,14 @@ def register_review_api(
         while len(cache) > 128:
             cache.pop(next(iter(cache)))
 
+    def _source_tree(revision: ReviewRevision, side: Literal["old", "new"]) -> dict[str, dict[str, int | str]] | None:
+        """One side's immutable source-tree manifest, read once per request (callers only read it)."""
+
+        return _read_once(
+            ("source_tree", revision.review_id, revision.id, side),
+            lambda: store.read_source_tree_artifact(revision.review_id, revision.id, side=side),
+        )
+
     def _snapshot_document_text(
         revision: ReviewRevision,
         path: str,
@@ -3188,7 +3231,7 @@ def register_review_api(
 
         from lemoncrow.pro.capabilities.review.gitdiff import _blob_from_tree, _decode, _open_repo, _tree_for_sha
 
-        tree = store.read_source_tree_artifact(revision.review_id, revision.id, side=side)
+        tree = _source_tree(revision, side)
         if tree is not None:
             entry = tree.get(path)
             if entry is None:
@@ -3434,13 +3477,16 @@ def register_review_api(
         )
 
     def _changed_paths(revision: ReviewRevision) -> tuple[str, ...]:
-        packet = read_packet_json(store, revision)
-        raw_files = packet.get("files", ()) if isinstance(packet, Mapping) else ()
-        return tuple(
-            str(item.get("path") or "")
-            for item in raw_files
-            if isinstance(item, Mapping) and str(item.get("path") or "")
-        )
+        def read() -> tuple[str, ...]:
+            packet = read_packet_json(store, revision)
+            raw_files = packet.get("files", ()) if isinstance(packet, Mapping) else ()
+            return tuple(
+                str(item.get("path") or "")
+                for item in raw_files
+                if isinstance(item, Mapping) and str(item.get("path") or "")
+            )
+
+        return _read_once(("changed_paths", revision.review_id, revision.id), read)
 
     def _changed_files(revision: ReviewRevision) -> tuple[tuple[str, str, str], ...]:
         """The whole Change as ``(path, old_path, status)`` (test-impact selection needs deletions and renames)."""
@@ -3459,7 +3505,7 @@ def register_review_api(
         from lemoncrow.pro.capabilities.review.gitdiff import _open_repo, _tree_for_sha
         from lemoncrow.pro.capabilities.review.run_plan_service import git_tree_paths
 
-        tree = store.read_source_tree_artifact(revision.review_id, revision.id, side="old")
+        tree = _source_tree(revision, "old")
         if tree is not None:
             return list(tree)
         if not revision.base_sha:
@@ -3478,7 +3524,7 @@ def register_review_api(
     def _head_tree_paths(revision: ReviewRevision) -> list[str] | None:
         """Head file paths: the immutable tree, else the base listing with the Change applied."""
 
-        tree = store.read_source_tree_artifact(revision.review_id, revision.id, side="new")
+        tree = _source_tree(revision, "new")
         if tree is not None:
             return list(tree)
         base = _base_tree_paths(revision)
@@ -11560,9 +11606,13 @@ def register_review_api(
         )
         payload["summary"] = build_brief_summary(payload, plan_checks)
         from lemoncrow.pro.capabilities.review.consumer_inventory import consumer_inventory
+        from lemoncrow.pro.capabilities.review.workspace_impact import reader_payload
 
         # Known callers/consumers per changed target and impact-pass readiness, from this Snapshot's packet.
-        payload["context"] = consumer_inventory(read_packet_json(store, revision), ordered)
+        stored_packet = read_packet_json(store, revision)
+        payload["context"] = consumer_inventory(stored_packet, ordered)
+        # Other repositories of the reviewer's workspace that depend on what changed; never a finding.
+        payload["workspace_impact"] = reader_payload(stored_packet)
         progress(4, "Grouping review material")
         payload["material"] = review_material_projection(
             ordered,
@@ -13717,12 +13767,15 @@ def register_review_api(
     def _prepare_projection(session: ReviewSession, revision: ReviewRevision, *, historical: bool) -> dict[str, Any]:
         token = _projection_progress.start(revision.id)
         try:
-            payload = _projection(
-                session,
-                revision,
-                historical=historical,
-                progress=lambda completed, detail: _projection_progress.update(revision.id, token, completed, detail),
-            )
+            with _reads_once():
+                payload = _projection(
+                    session,
+                    revision,
+                    historical=historical,
+                    progress=lambda completed, detail: _projection_progress.update(
+                        revision.id, token, completed, detail
+                    ),
+                )
         except Exception:
             _projection_progress.update(revision.id, token, 0, "Brief preparation failed", state="failed")
             raise

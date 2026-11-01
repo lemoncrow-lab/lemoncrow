@@ -425,7 +425,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}): 
       }
     }
 
-    const send = () => {
+    const sendOnce = () => {
       const capability = local ? currentBrowserSession() : "";
       const hasInit = Object.keys(init).length > 0;
       if (!capability && !hasInit) {
@@ -438,6 +438,13 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}): 
       if (capability) headers.set(BROWSER_SESSION_HEADER, capability);
       return fetch(path, { ...init, headers, credentials: "same-origin" });
     };
+    // A read the browser dropped with no response at all (a network change, a
+    // server restart) is safe to repeat once; a write is never resent blind.
+    const method = (init.method ?? "GET").toUpperCase();
+    const send = method !== "GET" && method !== "HEAD" ? sendOnce : () => sendOnce().catch((error: unknown) => {
+      if (!(error instanceof TypeError)) throw error;
+      return delay(250).then(sendOnce);
+    });
 
     let response = await send();
     if (response.status !== 401 || typeof window === "undefined") return response;

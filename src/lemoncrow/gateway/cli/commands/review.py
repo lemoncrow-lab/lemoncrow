@@ -1170,6 +1170,7 @@ def review_cmd(
                 with_provenance=not no_provenance,
                 session_id=session_id,
                 limit=limit,
+                with_workspace=not no_impact,
             )
             written = _write_html(packet, html_path) if html_path is not None else None
             if as_json:
@@ -1473,6 +1474,9 @@ def _review_server_capture(
                 force_new_review=force_new_review,
                 continue_review_id=continue_review_id,
                 reuse_closed_review=finish_review or reopen_review or discard_review,
+                # Which other repositories of this machine's workspace the change reaches: a local server only,
+                # so their names and paths never leave the machine.
+                with_workspace=not no_impact and not config.hosted,
             )
         except ClientError as exc:
             raise _review_server_click_error(exc, hosted=bool(config.hosted)) from exc

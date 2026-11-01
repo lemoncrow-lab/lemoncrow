@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-26",
+  "updated": "2026-11-01",
   "dataset": {
     "name": "Public 50-PR code-review benchmark",
     "pr_count": 50,
@@ -292,38 +292,38 @@
     "scored_by": "LemonCrow's judge",
     "answer_key_commit": "3f2c8ab794b4ed71c099cbf0a7670555e90906dc",
     "cost": {
-      "median_calls_per_pr": 7.0,
-      "median_usd_per_pr": 0.5157,
-      "total_calls": 350,
-      "total_usd": 28.754627
+      "median_calls_per_pr": 8.0,
+      "median_usd_per_pr": 0.5605,
+      "total_calls": 369,
+      "total_usd": 32.282888
     },
     "counts": {
-      "golden_matched": 47,
+      "golden_matched": 49,
       "golden_scored": 97,
-      "tool_comments_matched": 47,
-      "tool_comments_scored": 109
+      "tool_comments_matched": 49,
+      "tool_comments_scored": 104
     },
-    "date": "2026-10-26",
+    "date": "2026-11-01",
     "engine": {
-      "commit": "00b8f164a0b5c4de3f61259896383296220fcd5a",
-      "version": "0.8.0"
+      "commit": "729e96003acf38c76429955b8be85fb27eab4a7d",
+      "version": "0.8.1"
     },
-    "f_score": 45.63,
+    "f_score": 48.76,
     "judge": {
       "model": "sonnet",
       "prompt_sha256": "cfe685620f23bc1a171bd1905af9469d0b97b513473da2fea355c8edbe622afe"
     },
-    "precision": 43.12,
+    "precision": 47.12,
     "prs_reviewed": 50,
-    "recall": 48.45,
+    "recall": 50.52,
     "review": {
       "depth": "thorough",
       "model": "sonnet",
       "route": "claude"
     },
     "run_report": {
-      "url": "https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-10-26.json",
-      "sha256": "c5f5acc459ae9cd1167f68d427efa38a0af847f38f32b1d99f495fb824b51380"
+      "url": "https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-11-01.json",
+      "sha256": "d7f2dd2e1a222531792964e9257965d9cf6f8d7b46634af402bac00e133c2b3d"
     }
   },
   "competitor_rescored": {

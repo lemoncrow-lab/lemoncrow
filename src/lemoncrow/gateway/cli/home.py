@@ -15,14 +15,15 @@ def repository_lines() -> list[str]:
     repo = detect_git_root(Path.cwd())
     if repo is None:
         return []
-    from lemoncrow_client.lite.index import LiteIndex
+    from lemoncrow_client.lite.index import LiteIndex, open_index_reader
 
     lines = ["", f"  {style.heading('This repository')}  {style.dim(style.home_relative(repo))}"]
     index = LiteIndex(repo).db_path
     try:
         # WAL mode: recent writes land in the -wal file first.
         updated = max(path.stat().st_mtime for path in (index, index.with_name(index.name + "-wal")) if path.exists())
-        connection = sqlite3.connect(f"{index.as_uri()}?mode=ro", uri=True, timeout=0.2)
+        # A worktree overlay counts the files it inherits from its base too.
+        connection = open_index_reader(index, timeout=0.2)
         try:
             (files,) = connection.execute("SELECT COUNT(*) FROM files").fetchone()
         finally:

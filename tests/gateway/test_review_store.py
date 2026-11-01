@@ -2754,7 +2754,8 @@ def test_a_lemoncrow_named_store_root_ignores_itself_too(tmp_path: Path) -> None
     """``<repo>/.lemoncrow`` is unambiguously ours, so the db is covered as well."""
     root = tmp_path / "repo" / ".lemoncrow"
     store = _store(root)
-    assert (root / ".gitignore").read_text(encoding="utf-8").endswith(_IGNORE_ALL)
+    content = (root / ".gitignore").read_text(encoding="utf-8")
+    assert f"\n{_IGNORE_ALL}" in content and "!review.yaml\n" in content
     assert (store.root / DB_NAME).is_file()
 
 

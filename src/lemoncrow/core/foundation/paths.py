@@ -612,6 +612,22 @@ def confine_to_root(candidate: str | Path, root: str | Path) -> Path:
 
 _SELF_IGNORE_CONTENT = "# LemonCrow runtime data — keep the directory, ignore its contents\n*\n"
 
+# A project's ``.lemoncrow/`` also holds the team's review config, which is committed:
+# a review reads it from the merge base. Ignoring it too made ``git add -A`` skip it.
+_STORE_IGNORE_CONTENT = (
+    "# LemonCrow runtime data — keep the directory, ignore its contents\n"
+    "# except the team review config, which is committed (a review reads it from the merge base).\n"
+    "*\n"
+    "!review.yaml\n"
+    "!review-instructions.md\n"
+    "!review.json\n"
+    "!rules/\n"
+    "!rules/**\n"
+)
+
+# First lines of every ignore file LemonCrow has written; anything else was edited by a person.
+_MANAGED_IGNORE_HEADERS = ("# LemonCrow runtime data", "# Managed by LemonCrow")
+
 
 def ensure_dir_gitignore(directory: Path) -> list[str]:
     """Make *directory* ignore its own contents, keeping the directory itself.
@@ -619,20 +635,24 @@ def ensure_dir_gitignore(directory: Path) -> list[str]:
     The one place the ``*``-inside-our-own-directory rule is written down.
     Callers must only point this at a directory LemonCrow created: writing
     ``*`` into a directory the user owns would silently untrack their work.
+    A directory named ``.lemoncrow`` keeps the team review config trackable.
 
     Idempotent: returns ``["*"]`` when it wrote, ``[]`` when the file was
-    already correct.
+    already correct or a person replaced it with their own rules.
     """
+    content = _STORE_IGNORE_CONTENT if directory.name == DEFAULT_STORE_DIRNAME else _SELF_IGNORE_CONTENT
     directory.mkdir(parents=True, exist_ok=True)
     gitignore_path = directory / ".gitignore"
-    if gitignore_path.exists() and gitignore_path.read_text("utf-8") == _SELF_IGNORE_CONTENT:
-        return []
-    gitignore_path.write_text(_SELF_IGNORE_CONTENT, encoding="utf-8")
+    if gitignore_path.exists():
+        current = gitignore_path.read_text("utf-8")
+        if current == content or not current.startswith(_MANAGED_IGNORE_HEADERS):
+            return []
+    gitignore_path.write_text(content, encoding="utf-8")
     return ["*"]
 
 
 def ensure_gitignore(project_root: Path) -> list[str]:
-    """Create/update ``.lemoncrow/.gitignore`` to ignore everything inside ``.lemoncrow/``.
+    """Create/update ``.lemoncrow/.gitignore`` to ignore runtime data inside ``.lemoncrow/``.
 
     Keeps the ``.lemoncrow/`` directory visible in git for brand awareness while
     preventing cache files, binaries, and other project-local runtime data from

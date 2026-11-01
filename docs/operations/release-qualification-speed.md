@@ -1,22 +1,70 @@
 # Release qualification: concurrency, evidence, and isolation
 
-The release gate defaults to five concurrent **components** (`--jobs 5`).
-It keeps declaration-ordered durable reports but streams timestamped START,
-DONE, and BLOCKED events immediately, so a long test suite does not hide
-completed stages.
+The four-core local runner runs at most four release components concurrently.
+Its unprivileged runner and nested Docker daemon share host CPUs 16-19
+(four distinct physical cores) and each has a four-CPU cgroup ceiling.
+Declaration-ordered reports and timestamped start/finish events remain.
 
-The release gate does not run all tests concurrently. Resource locks prevent
-the two heavy Python suites from competing; Redis users serialize, and the
-Review browser and performance measurements are exclusive. The enterprise
-suite uses five pytest workers with a separate disposable PostgreSQL database
-per worker. The public server suite uses four file-distributed workers.
+Resource locks protect Redis, the browser/visual-sensitive tests and other
+shared services. The shortened Gate H contract tests remain; repeated-sample
+Gate H measurement is outside the release. Root and enterprise confidence
+suites are fixed, small selectors, not CPU-wide pytest-xdist pools.
+
+## One-hour release qualification (2026-11-02)
+
+**Hard time limits:** GitHub's `full` qualification job has
+`timeout-minutes: 60`; its release gate is independently limited to 55 minutes
+by GNU `timeout`, leaving time for cleanup and report upload. Local
+`make release-qualify` wraps **all** preflight, testing and stamping in a
+59-minute deadline plus a 20-second termination grace. Any deadline breach is
+a failed and **unreleasable** qualification, never a pass. The raw
+`release-gate` developer command can still be invoked manually outside that
+wrapper for diagnosis, without claiming it met the one-hour SLO.
+
+**Measured baseline:** the October 27, 2026 gate took 7,945.89 seconds
+(132.4 minutes) with two parallel slots. Its long wall time came primarily
+from global exclusive execution barriers, not simply the number of tests.
+The release contract now has **49 components**, with the 50k-file client-scale
+benchmark and two repeated-sample Gate H measurements explicitly removed.
+The normal release gate now:
+
+- Runs the four approved high-value latency targets (`reader_open`,
+  `capture_small`, `incremental_delta`, `brief_projection`) with unchanged
+  sample counts and thresholds. A separate `make perf-slo` retains the full
+  15-target, large-10k-file/memory diagnostic; 11 targets are not in the release
+  stamp, explicitly reported as not covered. No missing required core target
+  is silently accepted.
+- Runs only 7 root, 8 enterprise, 5 client and 4 server test files, covering
+  core MCP transport, authority, RBAC, tenant isolation, cryptographic signing,
+  sandbox, Authward and installation behavior. All other regression tests remain
+  runnable separately; the release does not assert that they passed.
+- Keeps 8 critical browser E2E specs rather than 13, and selected high-risk
+  Gate G/K matrix rows. The full UI/Matrix tests are available via
+  `make review-e2e`, `make gate-g` and `make gate-k`.
+- Includes up to four changed files per Python test group in impact mode;
+  larger test changes are reported as coverage not exercised in release and
+  must be handled by PR/developer testing. Gate G/K, PostgreSQL recovery,
+  canaries, signed records and the installed compiled candidate stay required.
+
+**Measured on the desktop, NOT on four CPUs:** the preceding `v0.8.2m`
+qualification completed in 42.45 minutes but failed root tests and Gate H.
+Those were the untrimmed 52 components. The new 49-component configuration
+has not passed end-to-end. The `scripts.release_timing` model is a planning
+heuristic using 1.75x historical durations for unchanged stages and explicit
+unmeasured budgets for the shortened stages. It currently forecasts **52.2
+minutes** with four concurrent components on four cores, but this is **not a
+four-CPU benchmark** and has only about 2.8 minutes of modeled gate headroom.
+The GitHub job itself enforces four CPUs and a 60-minute maximum; the release
+step has a 55-minute limit, and neither timeout nor missing credential can
+produce a release stamp. Repeat a complete clean-checkout qualification on
+the restricted runner for real runtime evidence.
 
 ## Qualify
 
 Before expensive installation/build/qualification, run:
 
 ```sh
-LEMONCROW_FULL_SUITE=1 uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag v0.8.0
+uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag v0.8.0
 ```
 
 Then, after resolving preflight problems, run the normal
@@ -77,6 +125,35 @@ against the developer's exported local-server state.
 The release remains fail-closed until **all** components and the full
 qualification pass. Do not tag or restart the developer's running servers.
 
+
+## Qualification risk-tier reduction (2026-11-01)
+
+The October 27 evidence lists 19,731 JUnit testcase executions, with 1,248
+repeated identifiers between independent gates. Seven complete root pytest
+files, totaling 280 measured cases, are repeated verbatim by the **always
+required** G1, G8 and signing/landing gate components. The full root-suite
+runner now omits those seven *second executions* only when the release gate
+explicitly sets `LEMONCROW_RELEASE_DEDUP=1`. The required independent gate
+components continue to run with the same assertions, and ordinary developer
+`make test` retains all the files. Impact-selected root test files are not
+pruned by this change.
+
+The release's real Chromium E2E component now selects 13 explicit critical spec
+files in `frontend/playwright.release.config.ts` rather than every UX scenario.
+The October 27 inventory shows 35 of 64 historical cases covered by those
+spec files, a reduction of **29 browser cases** for typical broad-release runs.
+This is a selection estimate from historical logs, **not** a new run or measured
+wall-time result. The excluded 29 tests are still in the developer's exhaustive
+`make review-e2e` suite for targeted investigation. New browser-spec-only
+changes are still selected directly by the Git-impact gate, even if outside the
+critical preset. Do not interpret a reduced release suite as evidence that all
+64 browser scenarios passed.
+
+The GitHub tag workflow now passes `--changed-since-last-release`, matching the
+existing `make release-qualify` local policy, while the scheduled and manual
+main runs remain exhaustive. All performance SLOs, migrations/restore, security
+and signing, canary, compiler and installer checks remain mandatory. See
+`docs/operations/release-runner.md` to register an isolated self-hosted runner.
 
 ## Measured improvements
 

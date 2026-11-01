@@ -50,6 +50,7 @@ def test_no_new_tool_config_in_frontend_is_left_out_of_the_mirror_unnoticed() ->
 
     test_only = {
         "frontend/playwright.config.ts",
+        "frontend/playwright.release.config.ts",
         "frontend/playwright.perf.config.ts",
         "frontend/playwright.perf.product.config.ts",
     }

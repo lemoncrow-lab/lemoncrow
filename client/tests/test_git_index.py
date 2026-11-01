@@ -161,7 +161,8 @@ def test_a_file_restored_byte_for_byte_is_still_not_clean_on_stat_data_alone(
     target.write_text("VALUE = 111\n", encoding="utf-8")
     assert "pkg0/module_000.py" not in clean_according_to_us(repository)
     target.write_text(original, encoding="utf-8")
-    settle(repository)
+    # No refresh here: `git update-index --refresh` would re-verify the file, and whether that
+    # entry then reads racy depends on the write and the refresh sharing one timestamp second.
     assert "pkg0/module_000.py" not in clean_according_to_us(repository)
     assert "pkg0/module_000.py" not in modified_according_to_git(repository)
 

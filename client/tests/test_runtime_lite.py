@@ -234,7 +234,7 @@ def test_lite_index_migrates_v1_fts_to_porter_stemming(tmp_path: Path) -> None:
     assert report.generation == 1
     with sqlite3.connect(index.db_path) as migrated:
         version = migrated.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-        assert version == ("3",)
+        assert version == ("4",)
     with sqlite3.connect(db) as original:
         assert original.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("1",)
     result = index.search("vector")
@@ -293,7 +293,7 @@ def test_lite_index_upgrades_v2_import_rows_once_keeping_old_rows_until_rebuilt(
     index = LiteIndex(root)
     index._connect(initialize=True).close()
     with sqlite3.connect(db) as migrated:
-        assert migrated.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("3",)
+        assert migrated.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone() == ("4",)
         assert migrated.execute("SELECT value FROM meta WHERE key='worktree_signature'").fetchone() == ("",)
         assert migrated.execute("SELECT DISTINCT identity FROM files").fetchall() == [("",)]
         # Until the rebuild commits, readers keep the old rows.
@@ -1021,7 +1021,7 @@ def test_lite_usage_records_honour_trace_off(tmp_path: Path) -> None:
     assert _lite_usage_records(tmp_path) == []
 
 
-def test_lite_worktree_index_seeds_from_parent_and_only_indexes_divergence(tmp_path: Path) -> None:
+def test_lite_worktree_index_overlays_the_main_index_and_stores_only_divergence(tmp_path: Path) -> None:
     root = _git_repo(tmp_path)
     (root / "app.py").write_text("def parent_symbol():\n    return 1\n", encoding="utf-8")
     (root / "common.py").write_text("def common_symbol():\n    return 2\n", encoding="utf-8")
@@ -1039,10 +1039,13 @@ def test_lite_worktree_index_seeds_from_parent_and_only_indexes_divergence(tmp_p
     subprocess.run(["git", "commit", "-m", "child"], cwd=linked, check=True, capture_output=True)
 
     child = LiteIndex(linked)
-    report = child.prepare()
-    assert report.files_changed == 1, "the unchanged committed file should come from the parent Lite index"
+    child.prepare()
+    with sqlite3.connect(child.db_path) as raw:
+        assert raw.execute("SELECT path FROM files").fetchall() == [("app.py",)]
+        assert raw.execute("SELECT path FROM inherit").fetchall() == [("common.py",)]
     assert child.search("child_symbol")["files"][0]["path"] == "app.py"
     assert child.search("common_symbol")["files"][0]["path"] == "common.py"
+    assert not child.exact_symbols("parent_symbol")
     assert not parent.search("child_symbol")["files"]
 
 
