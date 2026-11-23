@@ -51,9 +51,9 @@ class EscapedDefect:
     category: str = ""
     signals: tuple[str, ...] = ()
     depth: str = ""
-    """The merged Snapshot's effort preset (``""`` when no run plan was stored)."""
+    """The merged revision's effort preset (``""`` when no run plan was stored)."""
     checks: tuple[str, ...] = ()
-    """Plan entries that ran on the merged Snapshot."""
+    """Plan entries that ran on the merged revision."""
     observed_at: str = ""
     reverted: bool = False
     evidence_ids: tuple[str, ...] = ()

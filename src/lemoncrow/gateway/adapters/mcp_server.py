@@ -567,9 +567,6 @@ from lemoncrow.gateway.tools.read_policy import (
     DEFAULT_READ_INLINE_BUDGET_BYTES as _DEFAULT_READ_INLINE_BUDGET_BYTES,  # noqa: F401  (compat re-export)
 )
 from lemoncrow.gateway.tools.read_policy import (
-    MAX_INLINE_IMAGE_BYTES as _MAX_INLINE_IMAGE_BYTES,
-)
-from lemoncrow.gateway.tools.read_policy import (
     READ_SUGGEST_PRUNE_DIRS as _READ_SUGGEST_PRUNE_DIRS,  # noqa: F401  (compat re-export)
 )
 from lemoncrow.gateway.tools.read_policy import (
@@ -1942,7 +1939,7 @@ def _default_workflow_agent_executor(
 
 def _workflow_runner_profile() -> str:
     detected = _detect_agent()
-    if detected in {"claude", "codex", "copilot", "opencode", "lemoncode"}:
+    if detected in {"claude", "codex", "copilot", "opencode"}:
         return detected
     return "claude"
 
@@ -3916,7 +3913,8 @@ def _smart_read_single(
                 _sz = resolved.stat().st_size
             except OSError:
                 _sz = len(_sniff)
-            if _mt.startswith("image/") and 0 < _sz <= _MAX_INLINE_IMAGE_BYTES:
+            # No size cap: the model provider is the judge of what it accepts.
+            if _mt.startswith("image/") and _sz > 0:
                 # Hand the actual image to the multimodal model as an MCP image
                 # content block (drained into the response `content` by the
                 # tools/call dispatcher), so it can read the image directly rather

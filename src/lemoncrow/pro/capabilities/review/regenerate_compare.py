@@ -54,7 +54,7 @@ from lemoncrow.pro.capabilities.review.analysis_common import (
     valid_spec_id,
 )
 from lemoncrow.pro.capabilities.review.artifact_inspection import NOT_REGULAR, compare_regenerated
-from lemoncrow.pro.capabilities.review.runtimes import WorkspaceOverlay
+from lemoncrow.pro.environment.runners import WorkspaceOverlay
 
 _MAX_ARGS: Final[int] = 64
 _MAX_OUTPUTS: Final[int] = 32
@@ -107,7 +107,7 @@ def main():
     patterns = [globre(item) for item in P.get("outputs") or []]
     src = copy_root()
     tree = dir_identity(src)
-    # Before any reviewed code runs: what the Snapshot commits for every output glob, and
+    # Before any reviewed code runs: what the revision commits for every output glob, and
     # (bounded) its bytes, for the diffs of a comparison made in the sandbox.
     committed = listing(src, patterns)
     R["before"] = {path: digest(full) for path, full in committed}

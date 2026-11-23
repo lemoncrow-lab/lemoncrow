@@ -77,20 +77,20 @@ export function reviewScopeTone(target: ReviewTarget): ReviewScopeTone {
 }
 
 export function targetDisplayLabel(target: ReviewTarget): string {
-  if (target.kind === "document_section") return "Module declarations";
+  if (target.kind === "document_section") return "Imports and top-level code";
   if (target.symbol) return target.symbol;
   if (target.kind === "hunk") {
     const oldSpanCount = target.spans.filter((span) => span.side === "old").length;
     const newSpanCount = target.spans.filter((span) => span.side === "new").length;
     const hunkCount = new Set(target.spans.map((span) => span.hunk_ordinal)).size;
     const regionCount = Math.max(oldSpanCount, newSpanCount, hunkCount);
-    if (regionCount > 1) return `Changes outside detected symbols · ${regionCount} regions`;
+    if (regionCount > 1) return `Other changed lines · ${regionCount} places`;
     const span = target.spans.find((item) => item.side === "new") ?? target.spans[0];
     const start = span?.start_line || target.start_line || 0;
     const end = span?.end_line || target.end_line || start;
-    if (start > 0 && end === start) return `Line ${start}`;
-    if (start > 0 && end >= start) return `Lines ${start}–${end}`;
-    return "Changes outside detected symbols";
+    if (start > 0 && end === start) return `Changed line ${start}`;
+    if (start > 0 && end >= start) return `Changed lines ${start}–${end}`;
+    return "Other changed lines";
   }
   return target.path;
 }
@@ -313,6 +313,15 @@ export function nextReviewGuideTarget(targets: readonly ReviewTarget[]): ReviewG
   return first ? guideFor(first) : null;
 }
 
+/** The queue's first part that is not a requested change: where review goes once those are with the fixer. */
+export function nextReviewGuideTargetAfterHandoff(targets: readonly ReviewTarget[]): ReviewGuideTarget | null {
+  for (const target of reviewQueue(targets)) {
+    const guide = guideFor(target);
+    if (guide.reasonCode !== "request_change_open") return guide;
+  }
+  return null;
+}
+
 /** `]` / `[`: the next or previous item of the canonical queue, wrapping. */
 export function stepQueueTarget(
   targets: readonly ReviewTarget[],
@@ -375,6 +384,8 @@ export function bestTargetAfterRevision(
 }
 
 export function progressFromTargets(targets: readonly ReviewTarget[]): ReviewProgress {
+  // `later` is present only when a part was left for later, so a review without one reads exactly as it always did.
+  const later = targets.filter((target) => target.state === "later").length;
   return {
     target_count: targets.length,
     reviewed: targets.filter((target) => target.state === "reviewed").length,
@@ -383,6 +394,7 @@ export function progressFromTargets(targets: readonly ReviewTarget[]): ReviewPro
     unreviewed: targets.filter((target) => target.state === "unreviewed").length,
     unknown: targets.filter((target) => target.state === "unknown").length,
     mechanical: targets.filter((target) => target.attention_level === "mechanical").length,
+    ...(later > 0 ? { later } : {}),
   };
 }
 

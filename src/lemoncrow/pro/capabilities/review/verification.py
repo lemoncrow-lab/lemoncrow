@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.execution import verification_row
 from lemoncrow.pro.capabilities.review.freshness import (
     EvidenceFreshness,
     format_timestamp,
@@ -20,6 +19,7 @@ from lemoncrow.pro.capabilities.review.freshness import (
 )
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.supply_chain import parse_evidence_metadata
+from lemoncrow.pro.environment.execution import verification_row
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.browser_checks import BrowserPolicy

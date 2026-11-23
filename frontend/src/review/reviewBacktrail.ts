@@ -1,4 +1,4 @@
-import type { ReviewView } from "./ReaderHeader";
+export type ReviewView = "brief" | "tour" | "implementation" | "map";
 
 /**
  * The in-Review backtrail: where an in-Review jump (Code Peek, Map node, Ask

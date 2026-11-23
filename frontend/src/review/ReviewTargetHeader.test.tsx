@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import ReviewTargetHeader from "./ReviewTargetHeader";
+import ReviewTargetHeader, { partSummary } from "./ReviewTargetHeader";
 import type { ReviewTarget } from "./types";
 
 const TARGET: ReviewTarget = {
@@ -86,7 +86,7 @@ describe("ReviewTargetHeader queue reason", () => {
 });
 
 describe("ReviewTargetHeader accessibility", () => {
-  it("names the target group and every primary review action", () => {
+  it("names the part group and every primary review action", () => {
     render(
       <ReviewTargetHeader
         target={TARGET}
@@ -99,13 +99,13 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    expect(screen.getByRole("group", { name: "Checkout review area" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Checkout part" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark Checkout reviewed" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark Checkout needs changes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Comment on Checkout" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open context for Checkout" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Checkout symbol/i }).getAttribute("aria-current")).toBe("true");
-    expect(screen.getByText("· covers lines 10–20")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Checkout" }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByText("· lines 10–20 · modified")).toBeTruthy();
   });
 
   it("shows nearby module declarations as one review action", () => {
@@ -115,7 +115,7 @@ describe("ReviewTargetHeader accessibility", () => {
           ...TARGET,
           kind: "document_section",
           symbol: "",
-          label: "src/checkout.ts::Module declarations",
+          label: "src/checkout.ts::Imports and top-level code",
           start_line: 48,
           end_line: 62,
           spans: [{ side: "new", start_line: 48, end_line: 62, hunk_ordinal: 0 }],
@@ -129,9 +129,9 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    expect(screen.getByRole("group", { name: "Module declarations review area" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark Module declarations reviewed" })).toBeTruthy();
-    expect(screen.getByText("· covers lines 48–62")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Imports and top-level code part" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark Imports and top-level code reviewed" })).toBeTruthy();
+    expect(screen.getByText("· lines 48–62 · modified")).toBeTruthy();
   });
 
   it("uses a neutral compact header with a scope-tone left accent", () => {
@@ -148,7 +148,7 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    let group = screen.getByRole("group", { name: "Checkout review area" });
+    let group = screen.getByRole("group", { name: "Checkout part" });
     expect(group.className).toContain("border-border");
     expect(group.className).toContain("bg-muted");
     expect(group.className).toContain("border-l-p0-solid");
@@ -169,13 +169,13 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    group = screen.getByRole("group", { name: "Checkout review area" });
+    group = screen.getByRole("group", { name: "Checkout part" });
     expect(group.className).toContain("border-border");
     expect(group.className).toContain("bg-muted");
     expect(group.className).toContain("border-l-p2-solid");
   });
 
-  it("does not change the active review target merely because the pointer crossed it", () => {
+  it("does not change the active part merely because the pointer crossed it", () => {
     const onFocus = vi.fn();
     render(
       <ReviewTargetHeader
@@ -189,11 +189,11 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    const group = screen.getByRole("group", { name: "Checkout review area" });
+    const group = screen.getByRole("group", { name: "Checkout part" });
     fireEvent.mouseEnter(group);
     expect(onFocus).not.toHaveBeenCalled();
 
-    fireEvent.focus(screen.getByRole("button", { name: /Checkout symbol/i }));
+    fireEvent.focus(screen.getByRole("button", { name: "Checkout" }));
     expect(onFocus).toHaveBeenCalledTimes(1);
   });
 
@@ -210,12 +210,13 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    const group = screen.getByRole("group", { name: "Checkout review area" });
+    const group = screen.getByRole("group", { name: "Checkout part" });
     expect(group.className).toContain("bg-muted");
     expect(group.className).toContain("border-l-ok-solid");
-    expect(screen.getByText("Reviewed")).toBeTruthy();
+    expect(screen.getByTestId("target-state-badge").textContent).toBe("Reviewed");
     expect(screen.getByText("reviewed", { selector: ".sr-only" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark Checkout reviewed" }).textContent).toContain("✓ Reviewed");
+    expect(screen.getByRole("button", { name: "Mark Checkout reviewed" }).textContent).toContain("Reviewed");
+    expect(screen.getByRole("button", { name: "Mark Checkout reviewed" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Mark Checkout reviewed" })).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -264,13 +265,139 @@ describe("ReviewTargetHeader accessibility", () => {
       />,
     );
 
-    expect(screen.getByRole("group", { name: "Changes outside detected symbols · 2 regions review area" })).toBeTruthy();
-    expect(screen.getByText("· covers lines 1–67, 664–877")).toBeTruthy();
-    expect(screen.queryByText(/covers lines 1–877/)).toBeNull();
+    expect(screen.getByRole("group", { name: "Other changed lines · 2 places part" })).toBeTruthy();
+    expect(screen.getByText("· lines 1–67, 664–877 · modified")).toBeTruthy();
+    expect(screen.queryByText(/lines 1–877/)).toBeNull();
   });
 });
 
-describe("ReviewTargetHeader target states (plan §8.4)", () => {
+describe("ReviewTargetHeader compact summary", () => {
+  it("uses one format for every kind of part", () => {
+    expect(partSummary(TARGET)).toBe("lines 10–20 · modified");
+    expect(partSummary({ ...TARGET, additions: 11, deletions: 0, spans: [{ side: "new", start_line: 10, end_line: 20, hunk_ordinal: 0 }] }))
+      .toBe("lines 10–20 · new");
+    expect(partSummary({ ...TARGET, additions: 2, deletions: 0 })).toBe("lines 10–20 · lines added");
+    expect(partSummary({
+      ...TARGET,
+      spans: [
+        { side: "new", start_line: 12, end_line: 12, hunk_ordinal: 0 },
+        { side: "new", start_line: 18, end_line: 19, hunk_ordinal: 0 },
+      ],
+    })).toBe("lines 10–20 · modified in 2 places");
+    // A hunk whose label already names its lines does not repeat them.
+    expect(partSummary({ ...TARGET, kind: "hunk", symbol: "", spans: [{ side: "new", start_line: 3, end_line: 5, hunk_ordinal: 0 }] }))
+      .toBe("modified");
+  });
+
+  it("wraps a long name and reason instead of truncating them", () => {
+    render(
+      <ReviewTargetHeader
+        target={{
+          ...TARGET,
+          symbol: "can_view_order_for_a_very_long_tenant_scoped_permission_check",
+          priority: {
+            version: 1,
+            tier: 3,
+            attention: "review_first",
+            outstanding: true,
+            position: 0,
+            reasons: [{ code: "sensitive_path", detail: "Review first: authentication path changed in a shared helper" }],
+          },
+        }}
+        active
+        busy={false}
+        onFocus={vi.fn()}
+        onMark={vi.fn()}
+        onComment={vi.fn()}
+        onContext={vi.fn()}
+      />,
+    );
+    const name = screen.getByRole("button", { name: "can_view_order_for_a_very_long_tenant_scoped_permission_check" });
+    const reason = screen.getByRole("button", { name: "Review first: authentication path changed in a shared helper" });
+    for (const element of [name, name.firstElementChild!, reason, reason.parentElement!]) {
+      expect(element.className).not.toMatch(/\btruncate\b/);
+    }
+    expect(screen.getByText("· lines 10–20 · modified").className).not.toMatch(/\btruncate\b/);
+  });
+
+  it("keeps a visual copy's controls out of the tab order", () => {
+    render(
+      <ReviewTargetHeader
+        target={TARGET}
+        active
+        busy={false}
+        visualCopy
+        onFocus={vi.fn()}
+        onMark={vi.fn()}
+        onComment={vi.fn()}
+        onContext={vi.fn()}
+      />,
+    );
+    for (const button of screen.getAllByRole("button")) expect(button).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("shows a pinned signature line with its number", () => {
+    render(
+      <ReviewTargetHeader
+        target={TARGET}
+        active
+        busy={false}
+        signature={{ line: 10, text: "  class Checkout:" }}
+        onFocus={vi.fn()}
+        onMark={vi.fn()}
+        onComment={vi.fn()}
+        onContext={vi.fn()}
+      />,
+    );
+    const signature = screen.getByTestId("target-signature");
+    expect(signature.textContent).toBe("10class Checkout:");
+    expect(within(signature).getByLabelText("line 10")).toBeTruthy();
+  });
+});
+
+describe("ReviewTargetHeader mark actions", () => {
+  function renderState(state: ReviewTarget["state"], onMark = vi.fn()) {
+    render(
+      <ReviewTargetHeader
+        target={{ ...TARGET, state }}
+        active={false}
+        busy={false}
+        onFocus={vi.fn()}
+        onMark={onMark}
+        onComment={vi.fn()}
+        onContext={vi.fn()}
+      />,
+    );
+    return {
+      reviewed: screen.getByRole("button", { name: "Mark Checkout reviewed" }),
+      needs: screen.getByRole("button", { name: "Mark Checkout needs changes" }),
+    };
+  }
+
+  it("shows visible text on both actions without hover, keeping their accessible names", () => {
+    const onMark = vi.fn();
+    const { reviewed, needs } = renderState("unreviewed", onMark);
+    expect(within(reviewed).getByText("Reviewed")).toBeVisible();
+    expect(within(needs).getByText("Needs changes")).toBeVisible();
+    // Both words at every width: a lone "Changes" reads like "show changes".
+    expect(needs.textContent).toBe("Needs changes");
+    expect(within(needs).queryByText("Changes")).toBeNull();
+    expect(reviewed).toHaveAttribute("aria-pressed", "false");
+    expect(needs).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(reviewed);
+    expect(onMark).toHaveBeenCalledWith("reviewed", true);
+    fireEvent.click(needs);
+    expect(onMark).toHaveBeenLastCalledWith("needs_changes");
+  });
+
+  it("marks the current judgment as pressed", () => {
+    const { reviewed, needs } = renderState("needs_changes");
+    expect(needs).toHaveAttribute("aria-pressed", "true");
+    expect(reviewed).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("ReviewTargetHeader part states (plan §8.4)", () => {
   const STATES: Array<{
     state: ReviewTarget["state"];
     badge: string | null;
@@ -287,7 +414,7 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
       badge: "Changed · re-review",
       spoken: "changed since review",
       tone: "border-l-p2-solid",
-      explanation: "Changed since you reviewed · your earlier judgment no longer covers this review area.",
+      explanation: "Changed since you reviewed · your earlier judgment no longer covers this part.",
       foldable: false,
       markedReviewed: false,
     },
@@ -319,12 +446,10 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
       />,
     );
 
-    const group = screen.getByRole("group", { name: "Checkout review area" });
+    const group = screen.getByRole("group", { name: "Checkout part" });
     expect(within(group).getByText(row.spoken, { selector: ".sr-only" })).toBeTruthy();
-    for (const other of ["Reviewed", "Needs changes", "Changed · re-review", "State uncertain"]) {
-      if (other === row.badge) expect(within(group).getByText(other)).toBeTruthy();
-      else expect(within(group).queryByText(other)).toBeNull();
-    }
+    const badge = within(group).queryByTestId("target-state-badge");
+    expect(badge?.textContent ?? null).toBe(row.badge);
     if (row.tone) expect(group.className).toContain(row.tone);
     else expect(group.className).toContain("border-input");
     if (row.explanation) expect(within(group).getByText(row.explanation)).toBeTruthy();
@@ -380,7 +505,7 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
       />,
     );
 
-    const strip = screen.getByRole("group", { name: `Checkout review area · ${spoken} · folded` });
+    const strip = screen.getByRole("group", { name: `Checkout part · ${spoken} · folded` });
     expect(strip.dataset.reviewTargetFolded).toBe("true");
     expect(strip.className).toContain(tone);
     expect(within(strip).getByText(text)).toBeTruthy();
@@ -407,7 +532,7 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
         onContext={vi.fn()}
       />,
     );
-    expect(screen.getByRole("group", { name: "Checkout review area" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Checkout part" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Expand Checkout" })).toBeNull();
     expect(screen.queryByText("Reviewed")).toBeNull();
   });

@@ -82,6 +82,7 @@ __all__ = [
     "MAX_POLICY_MICROS",
     "PRIORITY_ENVELOPE_PERCENT",
     "AdmissionReason",
+    "AiUse",
     "BackgroundAdmission",
     "BackgroundBudgetPolicies",
     "BackgroundBudgetPolicy",
@@ -101,6 +102,7 @@ __all__ = [
     "PriorityTier",
     "SqlLedgerTransaction",
     "UnknownReservation",
+    "ai_use_in",
     "build_status",
     "day_start",
     "decide",
@@ -108,6 +110,7 @@ __all__ = [
     "extend_in",
     "key_digest",
     "lane_for",
+    "meter_in",
     "month_start",
     "next_month_start",
     "read_status",
@@ -251,6 +254,8 @@ class AdmissionReason(StrEnum):
     DAILY_GUARD_EXHAUSTED = "daily_guard_exhausted"
     #: The managed (LemonCrow-paid) spend ceiling is reached.
     MANAGED_SPEND_EXHAUSTED = "managed_spend_exhausted"
+    #: The personal monthly AI budget is $0 or used up (local only; it applies to both lanes).
+    AI_BUDGET_EXHAUSTED = "ai_budget_exhausted"
     #: A dollar ceiling binds this managed work but its cost cannot be estimated.
     COST_UNMEASURABLE = "cost_unmeasurable"
     #: Room remains, but it is held for higher-priority background work.
@@ -1313,6 +1318,84 @@ def settle_in(
     if locked is None:  # purged between the read and the lock
         raise UnknownReservation("no budget reservation for this key")
     return _settle_row(txn, locked, calls=calls, cost_micros=cost_micros, now=now)
+
+
+# --------------------------------------------------------------------------- #
+# the AI budget's meter (P8-4)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class AiUse:
+    """One UTC month of model calls on this machine, for the personal AI budget.
+
+    ``micros`` is the cost that is known; ``unreported_calls`` is how many calls
+    had no cost to add, so ``complete`` is False while any exists and ``micros``
+    is then a lower bound, never a total.
+    """
+
+    calls: int = 0
+    micros: int = 0
+    unreported_calls: int = 0
+
+    @property
+    def complete(self) -> bool:
+        return self.unreported_calls <= 0
+
+
+def meter_in(
+    txn: LedgerTransaction,
+    *,
+    calls: int,
+    cost_micros: int | None,
+    now: float,
+    retention_s: float = BACKGROUND_BUDGET_RETENTION_S,
+) -> None:
+    """Record ``calls`` model calls that no admission metered: the interactive lane's month and day counters.
+
+    ``cost_micros`` is their whole known cost, or ``None`` when it is not known
+    (the calls are then counted as unmeasured, never as free). Rows are written
+    here and only here; the rollover that opens a new month deletes the
+    accounting past the retention horizon, as :func:`reserve_in` does.
+    """
+
+    if isinstance(calls, bool) or not isinstance(calls, int) or calls < 1:
+        raise ValueError("metered calls must be a positive integer")
+    if cost_micros is not None and (
+        isinstance(cost_micros, bool) or not isinstance(cost_micros, int) or cost_micros < 0
+    ):
+        raise ValueError("metered cost must be a non-negative integer of micros or None")
+    lane = BudgetLane.INTERACTIVE
+    txn.lock_lane(lane)
+    month, day = month_start(now), day_start(now)
+    opened = txn.ensure_period(lane, "month", month, now)
+    txn.ensure_period(lane, "day", day, now)
+    if opened:
+        txn.collect(month_start(now - retention_s))
+    delta = {
+        "calls_used": calls,
+        "reported_micros": 0 if cost_micros is None else cost_micros,
+        "unmeasured_calls": calls if cost_micros is None else 0,
+    }
+    txn.add_period(lane, "month", month, delta, now)
+    txn.add_period(lane, "day", day, delta, now)
+
+
+def ai_use_in(txn: LedgerTransaction, *, now: float) -> AiUse:
+    """The month's model calls and known cost across both lanes (explicit work and the background envelope).
+
+    Calls an admission metered are settled in their lane; calls nothing admitted
+    are metered by :func:`meter_in`. No call is in both: a metered call inside an
+    admission is added to that admission's settlement instead.
+    """
+
+    month = month_start(now)
+    totals = [txn.period(lane, "month", month) for lane in BudgetLane]
+    return AiUse(
+        calls=sum(item.calls_used for item in totals),
+        micros=sum(item.micros_used + item.reported_micros for item in totals),
+        unreported_calls=sum(item.unmeasured_calls for item in totals),
+    )
 
 
 # --------------------------------------------------------------------------- #

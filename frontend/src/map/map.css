@@ -136,7 +136,6 @@
   background: rgb(var(--n-900));
 }
 
-.rm-card[data-reviewed="true"] .rm-card-name { color: rgb(var(--n-400)); }
 .rm-card[data-deleted="true"] .rm-card-name {
   color: rgb(var(--n-400));
   text-decoration: line-through;
@@ -177,6 +176,8 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+.rm-note { color: rgb(var(--amber-300)); }
 
 .rm-add { color: rgb(var(--emerald-400)); }
 .rm-del { color: rgb(var(--rose-400)); }

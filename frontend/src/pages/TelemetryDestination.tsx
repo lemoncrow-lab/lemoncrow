@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
+import { ToggleGroup } from "../components/ui/toggle-group";
 import { Chip } from "../components/WorkbenchUI";
 import {
   getTelemetryConfig,
@@ -11,9 +12,9 @@ import {
   type TelemetryDestinationSetting,
 } from "../lib/insightsApi";
 
+// "Off" is the On/Off switch above the list, not one of its destinations.
 const OPTIONS: Array<{ value: TelemetryDestinationSetting; label: string }> = [
   { value: "auto", label: "Automatic" },
-  { value: "off", label: "Local only" },
   { value: "lemoncrow", label: "LemonCrow cloud" },
   { value: "server", label: "My LemonCrow server" },
   { value: "custom", label: "Custom host" },
@@ -96,17 +97,20 @@ export default function TelemetryDestinationPanel() {
   }
 
   const locked = config.managed;
+  // DO_NOT_TRACK or LEMONCROW_TELEMETRY=off wins over any saved choice, so the switch cannot turn sharing on.
+  const forcedOff = config.destination_source === "env";
+  const sharing = config.destination !== "off";
   const dirty =
     setting !== config.destination_setting ||
     (setting === "custom" &&
       (endpoint.trim() !== config.endpoint || token !== ""));
 
-  const save = async () => {
+  const save = async (destination: TelemetryDestinationSetting = setting) => {
     setSaving(true);
     setSaved(false);
     setError(null);
-    const payload: TelemetryConfigUpdate = { destination: setting };
-    if (setting === "custom") {
+    const payload: TelemetryConfigUpdate = { destination };
+    if (destination === "custom") {
       payload.endpoint = endpoint.trim();
       if (token) payload.token = token;
     }
@@ -122,6 +126,24 @@ export default function TelemetryDestinationPanel() {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-label font-semibold text-foreground" aria-hidden="true">
+          Share anonymous telemetry
+        </span>
+        <ToggleGroup
+          aria-label="Share anonymous telemetry"
+          variant="segment"
+          value={sharing ? "on" : "off"}
+          options={[{ value: "on", label: "On" }, { value: "off", label: "Off" }]}
+          disabled={locked || forcedOff || saving}
+          onChange={(value) => {
+            if (value === (sharing ? "on" : "off")) return;
+            // On goes back to the automatic destination; a custom host stays under Destination.
+            void save(value === "off" ? "off" : "auto");
+          }}
+        />
+      </div>
+      {sharing && (
       <div className="flex flex-wrap items-center gap-3">
         <Select
           aria-label="Telemetry destination"
@@ -152,8 +174,10 @@ export default function TelemetryDestinationPanel() {
           </Button>
         )}
       </div>
-      <p className="text-heading text-muted-foreground">{optionHelp(setting, config)}</p>
-      {setting === "custom" && !locked && (
+      )}
+      {sharing && <p className="text-heading text-muted-foreground">{optionHelp(setting, config)}</p>}
+      {locked && !sharing && <Chip tone="warning">Managed by your organization</Chip>}
+      {sharing && setting === "custom" && !locked && (
         <div className="grid gap-3 md:grid-cols-2">
           <label className="space-y-1 text-body text-muted-foreground">
             <span>Base URL</span>

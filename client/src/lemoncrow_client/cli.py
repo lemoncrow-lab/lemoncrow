@@ -16,12 +16,16 @@ The one listener, tunnel and pair of user services belong to the opt-in remote M
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, TextIO
@@ -31,6 +35,7 @@ if TYPE_CHECKING:
     from .lite.index import LiteIndexProgress, ProgressCallback
 
 from . import CLIENT_NAME, CLIENT_VERSION
+from . import usage_cli as usage
 from .auth_cli import auth_main
 from .config import load_config, product_settings_path
 from .errors import ClientError
@@ -47,40 +52,42 @@ usage:
   lc review init-action   write the GitHub Action workflow that reviews pull requests
   lc review config        show the review rules this repository sets
   lc settings             save an API key, remember an agent (lc settings set llm.anthropic_api_key)
-  lc code ...             use LemonCrow's Hosted coding agent
-  lc with HOST [...]      use Runtime Lite with claude, codex, opencode, or pi
+  lc code ...             reserved for the Hosted coding agent; not available yet
+  lc with HOST [...]      use Workspaces Lite with claude, codex, opencode, or pi
   lc workspace COMMAND    status, branch, commit, push, pull requests and impact across the repositories in a folder
-  lc runtime COMMAND      manage Runtime integration and transports
-  lc rt COMMAND           shorthand for runtime (rt host manages LemonCode/Pi host binaries)
-  lc run ...              managed/full Runtime only; not part of Runtime Lite
-  lc session ...          managed/full Runtime only; not part of Runtime Lite
-  lc context ...          managed/full Runtime only; not part of Runtime Lite
+  lc verify [--all]       run the checks in .lemoncrow/environment.toml that your change touches
+  lc task COMMAND         start, land, finish and list agent tasks: a worktree and agent/ID branch per task
+  lc runtime COMMAND      manage Workspaces integration and transports
+  lc rt COMMAND           shorthand for runtime (rt host manages Pi host binaries)
+  lc run ...              managed/full CLI only; not part of Workspaces Lite
+  lc session ...          managed/full CLI only; not part of Workspaces Lite
+  lc context ...          managed/full CLI only; not part of Workspaces Lite
   lc status               show installed products and next actions
   lc update [--dry-run]   re-run the release installer for installed products
-  lc uninstall PRODUCT    list, then remove review, runtime, or all (--dry-run to only list)
-  lc auth [COMMAND]       sign in to Hosted Runtime/Review
-  lc target [URL]         show or set a Hosted Runtime/Review endpoint
+  lc uninstall PRODUCT    list, then remove review, workspaces, or all (--dry-run to only list)
+  lc auth [COMMAND]       sign in to Hosted Review and Workspaces Pro
+  lc target [URL]         show or set a hosted retrieval/Review endpoint
   lc audit                print what this client does and does not do
 
 runtime commands:
-  code [OPTIONS]                 LemonCrow Hosted coding agent
-  index [OPTIONS]                build/refresh local Runtime Lite index
-  savings ...                    managed/full Runtime Local Savings controls
-  model ...                      managed/full Runtime local-model registry
-  work ...                       managed/full Runtime verified-work diagnostics
-  status [NAME]                 report Runtime host registration
-  enable NAME                   persist local Runtime Lite
-  enable NAME --hosted          explicitly use Hosted Runtime instead
+  code [OPTIONS]                 reserved for the Hosted coding agent; not available yet
+  index [OPTIONS]                build/refresh local Workspaces Lite index
+  savings ...                    managed/full CLI Local Savings controls
+  model ...                      managed/full CLI local-model registry
+  work ...                       managed/full CLI verified-work diagnostics
+  status [NAME]                 report Workspaces host registration
+  enable NAME                   persist local Workspaces Lite
+  enable NAME --hosted          explicitly use hosted retrieval instead
   enable NAME --dry-run         print native host commands without changing host config
-  disable NAME [--dry-run]      remove Runtime registration where the host CLI supports it
-  lite-mcp [--host NAME]        internal Local Lite stdio process; no listener or daemon
-  mcp [--host NAME]             explicit hosted/thin-client Runtime MCP stdio process
+  disable NAME [--dry-run]      remove Workspaces registration where the host CLI supports it
+  lite-mcp [--host NAME]        internal Workspaces Lite stdio process; no listener or daemon
+  mcp [--host NAME]             explicit hosted/thin-client Workspaces MCP stdio process
   mcp serve [--persistent]      opt-in remote MCP for chat apps (loopback gateway + tunnel)
   mcp service COMMAND           manage the persistent remote MCP gateway and tunnel
   routes                        print the tool execution matrix
 
 environment:
-  LEMONCROW_URL                 Hosted Runtime endpoint (unused by Runtime Lite)
+  LEMONCROW_URL                 hosted retrieval endpoint (unused by Workspaces Lite)
   LEMONCROW_TOKEN               explicit operator-provided bearer override
   LEMONCROW_REFRESH_TOKEN       explicit operator-provided refresh override
   LEMONCROW_HOME                state directory (default ~/.lemoncrow)
@@ -126,9 +133,9 @@ def _delegate_full_runtime(arguments: Sequence[str], sink: TextIO) -> int:
         else:
             command = arguments[0] if arguments else "this command"
         sink.write(
-            f"lc {command} is not part of serverless Runtime Lite; it requires the optional managed/full Runtime CLI.\n"
+            f"lc {command} is not part of serverless Workspaces Lite; it requires the optional managed/full CLI.\n"
         )
-        sink.write("Local Lite itself does not require or start a LemonCrow server.\n")
+        sink.write("Workspaces Lite itself does not require or start a LemonCrow server.\n")
         sink.write(
             "Run it from a LemonCrow source checkout (`uv run lc ...`), or set LEMONCROW_FULL_RUNTIME_CLI "
             "to an installed full CLI.\n"
@@ -146,11 +153,12 @@ def _delegate_full_runtime(arguments: Sequence[str], sink: TextIO) -> int:
 _HOSTED_CODE_USAGE: Final[str] = f"""usage:
   {CLIENT_NAME} code [-p PROMPT] [--resume SESSION]
 
-`lc code` is LemonCrow's Hosted coding agent. The owned agent loop is a Hosted/
-Enterprise capability; it is not the open-source local Runtime Lite launcher.
+`lc code` is reserved for LemonCrow's Hosted coding agent, which is not available
+yet. The owned agent loop is a Hosted/Enterprise capability;
+it is not the open-source local Workspaces Lite launcher.
 
-For local Runtime Lite, use `lc with claude`, `lc with codex`, `lc with opencode`,
-`lc with pi`, or an installed editor integration. Public LemonCode/Pi host lifecycle
+For local Workspaces Lite, use `lc with claude`, `lc with codex`, `lc with opencode`,
+`lc with pi`, or an installed editor integration. Public Pi host lifecycle
 is under `lc rt host`.
 """
 
@@ -188,9 +196,9 @@ def _code(rest: Sequence[str], sink: TextIO) -> int:
             return 2
         index += 1
 
-    sink.write("lc code is LemonCrow's Hosted coding agent.\n")
-    sink.write("This OSS Runtime client does not contain the Hosted owned-agent execution loop.\n")
-    sink.write("The Hosted coding loop is not available yet. For Hosted Runtime (Pro), run\n")
+    sink.write("lc code is reserved for LemonCrow's Hosted coding agent.\n")
+    sink.write("This OSS Workspaces client does not contain the Hosted owned-agent execution loop.\n")
+    sink.write("The Hosted coding loop is not available yet. For hosted retrieval (Pro), run\n")
     sink.write("`lc rt enable <host> --hosted`, then `lc auth login`. Guide:\n")
     sink.write("https://docs.lemoncrow.com/setup/pro-hosted-runtime\n")
     return 2
@@ -204,13 +212,12 @@ def _runtime_store_root() -> Path:
 def _host(rest: Sequence[str], sink: TextIO) -> int:
     usage = (
         f"usage: {CLIENT_NAME} runtime host status|install|update|build|remove "
-        "[--engine pi|lemoncode] [--json] [--source DIR] [--yes]\n"
+        "[--engine pi] [--json] [--source DIR] [--yes]\n"
     )
     arguments = list(rest)
     if not arguments or arguments[0] in {"-h", "--help", "help"}:
         sink.write(usage)
-        sink.write("Pi lifecycle is fully available in serverless Runtime Lite.\n")
-        sink.write("LemonCode lifecycle delegates to the managed/full CLI when installed.\n")
+        sink.write("Pi lifecycle is fully available in serverless Workspaces Lite.\n")
         return 0 if arguments else 2
     action = arguments.pop(0)
     if action not in {"status", "install", "update", "build", "remove"}:
@@ -218,7 +225,7 @@ def _host(rest: Sequence[str], sink: TextIO) -> int:
         sink.write(usage)
         return 2
 
-    engine = "lemoncode"
+    engine = "pi"
     as_json = False
     yes = False
     source: Path | None = None
@@ -253,15 +260,9 @@ def _host(rest: Sequence[str], sink: TextIO) -> int:
             return 2
         index += 1
 
-    if engine not in {"pi", "lemoncode"}:
-        sink.write("host --engine must be pi or lemoncode\n")
+    if engine not in {"pi"}:
+        sink.write("host --engine must be pi\n")
         return 2
-    if engine == "lemoncode":
-        if _full_runtime_executable() is not None:
-            return _delegate_full_runtime(["host", action, *arguments], sink)
-        sink.write("LemonCode host lifecycle requires the managed/full CLI in this build; Pi is available directly.\n")
-        return 2
-
     if not _module_available("lemoncrow_client.pi_host"):
         return _delegate_external_runtime(["runtime", "host", *rest], sink)
     try:
@@ -326,7 +327,7 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
         if argument in {"-h", "--help", "help"}:
             sink.write(
                 f"usage: {CLIENT_NAME} runtime index [--repo-root DIR] [--reindex] [--json]\n"
-                "Build or refresh the local open-source Runtime Lite repository index.\n"
+                "Build or refresh the local open-source Workspaces Lite repository index.\n"
                 "In a folder of repositories, or a repository with submodules, each repository gets its own index.\n"
             )
             return 0
@@ -364,7 +365,7 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
             render = None if as_json else _index_progress_line(sys.stderr)
             reports.append((target, LiteIndex(target).prepare(force=force, progress=render)))
     except (OSError, RuntimeError) as exc:
-        sink.write(f"could not prepare Runtime Lite index: {exc}\n")
+        sink.write(f"could not prepare Workspaces Lite index: {exc}\n")
         return 2
     finally:
         if not as_json and sys.stderr.isatty():
@@ -381,7 +382,7 @@ def _runtime_index(arguments: Sequence[str], sink: TextIO) -> int:
             sink.write(json.dumps(payload, sort_keys=True) + "\n")
         return 0
     for target, report in reports:
-        heading = "Runtime Lite index ready" if targets == [root] else f"{_member_label(root, target)}: index ready"
+        heading = "Workspaces Lite index ready" if targets == [root] else f"{_member_label(root, target)}: index ready"
         sink.write(heading + "\n")
         sink.write(f"  path:  {report.to_dict().get('index_path', '')}\n")
         sink.write(
@@ -457,21 +458,21 @@ def _primary_product() -> str:
 def _orientation() -> str:
     lines = ["LemonCrow", ""]
     if _module_available("lemoncrow_client.review"):
-        lines.append("  Review    lcr  /  lc review")
+        lines.append("  Review      lcr  /  lc review")
     lite_runtime = _module_available("lemoncrow_client.lite.mcp") or _external_runtime_executable() is not None
     full_runtime = _full_runtime_executable() is not None
     if lite_runtime:
         lines.extend(
             [
-                "  Code      lc code              (Hosted LemonCrow agent)",
-                "  Try       lc with claude  /  codex  /  opencode",
+                "  Code        lc code              (reserved; not available yet)",
+                "  Try         lc with claude  /  codex  /  opencode",
             ]
         )
     if full_runtime:
-        lines.extend(["  Run       lc run", "  Sessions  lc session"])
+        lines.extend(["  Run         lc run", "  Sessions    lc session"])
     if _module_available("lemoncrow_client.mcpserver") or _external_runtime_executable() is not None:
-        lines.append("  Runtime   lc rt")
-    lines.extend(["", "  Status    lc status", "  Help      lc --help", ""])
+        lines.append("  Workspaces  lc rt")
+    lines.extend(["", "  Status      lc status", "  Help        lc --help", ""])
     return "\n".join(lines)
 
 
@@ -485,6 +486,23 @@ def review_entrypoint() -> int:
 def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     sink = stdout if stdout is not None else sys.stdout
+    counted = usage.classify(arguments)
+    if counted is None:
+        return _dispatch(arguments, sink)
+    with contextlib.suppress(Exception):
+        usage.announce()
+    feature, surface = counted
+    started = time.monotonic()
+    status = 1
+    try:
+        status = _dispatch(arguments, sink)
+        return status
+    finally:
+        usage.record(feature, surface=surface, ok=status == 0, seconds=time.monotonic() - started)
+        usage.flush(CLIENT_VERSION)
+
+
+def _dispatch(arguments: list[str], sink: TextIO) -> int:
     if not arguments:
         sink.write(_orientation())
         return 0
@@ -522,7 +540,7 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
             from .review import review_main
         except ModuleNotFoundError:
             if not _lazy_install_product("review", sink):
-                sink.write("LemonCrow Review is not installed. Runtime is available and unaffected.\n")
+                sink.write("LemonCrow Review is not installed. Workspaces is available and unaffected.\n")
                 sink.write(f"Install it with: {_install_hint('review')}\n")
                 return 2
             return _delegate_review_after_install(rest, sink)
@@ -539,10 +557,30 @@ def main(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> int
     if verb == "workspace":
         try:
             from .workspace_cli import workspace_main
-        except ModuleNotFoundError:  # a Review-only client does not ship the workspace commands
-            sink.write("lc workspace is part of LemonCrow Runtime. Add it: " + _install_hint("runtime") + "\n")
+        except ModuleNotFoundError:  # the Review client does not ship the workspace commands; the Runtime client does
+            if _external_runtime_executable() is not None:
+                return _delegate_external_runtime(["workspace", *rest], sink)
+            sink.write("lc workspace is part of LemonCrow Workspaces. Add it: " + _install_hint("runtime") + "\n")
             return 2
         return workspace_main(rest, sink)
+    if verb == "verify":
+        try:
+            from .verify import verify_main
+        except ModuleNotFoundError:  # the Review client does not ship lc verify; the Workspaces client does
+            if _external_runtime_executable() is not None:
+                return _delegate_external_runtime(["verify", *rest], sink)
+            sink.write("lc verify is part of LemonCrow Workspaces. Add it: " + _install_hint("runtime") + "\n")
+            return 2
+        return verify_main(rest, sink)
+    if verb == "task":
+        try:
+            from .task import task_main
+        except ModuleNotFoundError:  # the Review client does not ship lc task; the Workspaces client does
+            if _external_runtime_executable() is not None:
+                return _delegate_external_runtime(["task", *rest], sink)
+            sink.write("lc task is part of LemonCrow Workspaces. Add it: " + _install_hint("runtime") + "\n")
+            return 2
+        return task_main(rest, sink)
     if verb == "audit":
         return _audit(sink)
     return _unknown_command(verb, sink)
@@ -556,7 +594,7 @@ def _unknown_command(verb: str, sink: TextIO) -> int:
         return 2
     sink.write(f"unknown command: {verb}\n")
     if verb in _RUNTIME_VERB_HINTS:
-        sink.write(f"It is a Runtime command: {_RUNTIME_VERB_HINTS[verb]}\n")
+        sink.write(f"It is a Workspaces command: {_RUNTIME_VERB_HINTS[verb]}\n")
     elif verb in _FULL_ENGINE_VERBS:
         sink.write(f"lc {verb} is part of the full LemonCrow CLI in a source checkout (`uv run lc {verb}`).\n")
         if verb == "doctor":
@@ -576,28 +614,39 @@ _RUNTIME_USAGE: Final[str] = f"""usage:
   {CLIENT_NAME} runtime mcp [--host NAME]
   {CLIENT_NAME} runtime mcp serve|client|service ...
   {CLIENT_NAME} runtime routes
+  {CLIENT_NAME} runtime search-stats [--days N] [--json]
+  {CLIENT_NAME} runtime telemetry [status|show|remote on|remote off] [--json]
 
 NAME:
   claude | codex | opencode | auto
 
-Runtime integration is explicit. Local Lite is the default and uses no server.
+Workspaces integration is explicit. Workspaces Lite is the default and uses no server.
 Review never enables or modifies coding-agent hosts.
 """
 
 
-_UNINSTALL_USAGE: Final[str] = "usage: lc uninstall review|runtime|all [--dry-run] [--yes] [--purge]\n"
+_UNINSTALL_USAGE: Final[str] = (
+    "usage: lc uninstall review|workspaces|all [--dry-run] [--yes] [--purge]   (runtime: the old name of workspaces)\n"
+)
+#: What each spelling removes, as the installer's script names it.
+_UNINSTALL_PRODUCTS: Final[dict[str, str]] = {
+    "review": "review",
+    "workspaces": "runtime",
+    "runtime": "runtime",
+    "all": "all",
+}
 
 
 def _uninstall(rest: Sequence[str], sink: TextIO) -> int:
     arguments = list(rest)
     product = ""
-    if arguments and arguments[0] in {"review", "runtime", "all"}:
-        product = arguments.pop(0)
+    if arguments and arguments[0] in _UNINSTALL_PRODUCTS:
+        product = _UNINSTALL_PRODUCTS[arguments.pop(0)]
     elif arguments and arguments[0] in {"-h", "--help", "help"}:
         sink.write(_UNINSTALL_USAGE)
         return 0
     elif arguments:
-        sink.write("uninstall product must be review, runtime, or all\n")
+        sink.write("uninstall product must be review, workspaces, or all\n")
         sink.write(_UNINSTALL_USAGE)
         return 2
 
@@ -680,11 +729,11 @@ def _status(rest: Sequence[str], sink: TextIO) -> int:
         sink.write("  Installed      no\n")
         sink.write("  Add            lemoncrow.com → Review\n")
 
-    sink.write("\nRuntime\n")
+    sink.write("\nWorkspaces\n")
     if runtime_client_installed:
         sink.write("  Installed      yes\n")
         sink.write(f"  Deployment     {runtime.get('deployment', 'unknown')}\n")
-        sink.write(f"  Local Lite     {'yes' if lite_runtime else 'no'}\n")
+        sink.write(f"  Lite           {'yes' if lite_runtime else 'no'}\n")
         sink.write(f"  Managed CLI    {'yes' if full_runtime else 'no'}\n")
         if _module_available("lemoncrow_client.host_install"):
             import io
@@ -698,7 +747,7 @@ def _status(rest: Sequence[str], sink: TextIO) -> int:
         sink.write("  Manage         lc rt status\n")
     else:
         sink.write("  Installed      no\n")
-        sink.write("  Add            lemoncrow.com → Runtime\n")
+        sink.write("  Add            lemoncrow.com → Workspaces\n")
     return 0
 
 
@@ -721,7 +770,7 @@ def _external_runtime_executable() -> Path | None:
 
 
 def _runtime_not_installed(sink: TextIO) -> int:
-    sink.write("LemonCrow Runtime is not installed. Review is available and unaffected.\n")
+    sink.write("LemonCrow Workspaces is not installed. Review is available and unaffected.\n")
     sink.write(f"Install it with: {_install_hint('runtime')}\n")
     return 2
 
@@ -731,6 +780,45 @@ _INSTALL_URL: Final[str] = "https://lemoncrow.com/install.sh"
 
 def _install_hint(product: str) -> str:
     return f"curl -fsSL {_INSTALL_URL} | bash -s -- --product {product}"
+
+
+def _search_stats(arguments: Sequence[str], sink: TextIO) -> int:
+    """How code_search answered: from the index, or by grep because the index could not."""
+    try:
+        from .trace import summarize_code_search
+    except ModuleNotFoundError:  # the Review client owns `lc`; the Runtime client ships the traces
+        return _delegate_external_runtime(["runtime", "search-stats", *arguments], sink)
+
+    as_json = False
+    days = 14
+    remaining = list(arguments)
+    while remaining:
+        argument = remaining.pop(0)
+        if argument == "--json":
+            as_json = True
+            continue
+        value = argument.partition("=")[2] if argument.startswith("--days=") else ""
+        if argument == "--days" and remaining:
+            value = remaining.pop(0)
+        if not value.isdigit() or int(value) < 1:
+            sink.write("usage: runtime search-stats [--days N] [--json]\n")
+            return 2
+        days = int(value)
+    summary = summarize_code_search(_state_dir() / "runtime" / "traces", days=days)
+    if as_json:
+        sink.write(json.dumps(summary, indent=2) + "\n")
+        return 0
+    sink.write(f"code_search, last {days} days: {summary['total']} calls\n")
+    sink.write(f"  indexed: {summary['indexed']}\n")
+    sink.write(f"  grep fallback: {summary['grep_fallback']}\n")
+    for reason, count in summary["grep_fallback_reasons"].items():
+        sink.write(f"    {reason}: {count}\n")
+    sink.write(f"  errors: {summary['errors']}\n")
+    sink.write(f"  bash calls: {summary['bash_calls']}\n")
+    sink.write(f"    containing rg/grep: {summary['bash_rg_grep']}\n")
+    sink.write(f"      auto-upgraded to code_search: {summary['bash_auto_upgraded']}\n")
+    sink.write(f"      left as Bash: {summary['bash_rg_grep_preserved']}\n")
+    return 0
 
 
 def _state_dir() -> Path:
@@ -751,26 +839,109 @@ def _release_base_url() -> str:
     )
 
 
+#: Every published release asset has a ``<asset>.sigstore.json`` bundle beside it: a keyless Sigstore signature made by
+#: the public repository's release workflow at the release's tag (.github/public-workflows/release.yml, plan X5).
+_RELEASE_SIGNER_ISSUER: Final[str] = "https://token.actions.githubusercontent.com"
+_RELEASE_SIGNER: Final[str] = "https://github.com/lemoncrow-lab/lemoncrow/.github/workflows/release.yml@refs/tags/"
+#: ``latest`` names no tag, so it accepts that workflow at any release tag (cosign's Go regular-expression syntax).
+_RELEASE_SIGNER_ANY_TAG: Final[str] = (
+    r"^https://github\.com/lemoncrow-lab/lemoncrow/\.github/workflows/release\.yml"
+    r"@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$"
+)
+
+
+def _release_verifier() -> str | None:
+    """The ``cosign`` that checks a release asset's signature, when one is installed."""
+    return shutil.which("cosign")
+
+
+#: One line on stderr when the installer runs without cosign (decided 2026-11-14: warn, then continue).
+_UNSIGNED_INSTALLER_WARNING: Final[str] = (
+    "Warning: the LemonCrow installer's signature was not checked because cosign is not installed; "
+    "install cosign to have it checked: https://docs.sigstore.dev/cosign/system_config/installation/\n"
+)
+
+
+@functools.cache
+def _warn_unsigned_installer() -> None:
+    """Write :data:`_UNSIGNED_INSTALLER_WARNING` once per run, however many products ``lc update`` installs."""
+    sys.stderr.write(_UNSIGNED_INSTALLER_WARNING)
+    sys.stderr.flush()
+
+
+def _release_signer_flags() -> list[str]:
+    """cosign's identity flags: the release workflow at the requested tag, or at any release tag for ``latest``."""
+    tag = os.environ.get("LEMONCROW_RELEASE_TAG", "").strip() or "latest"
+    if tag == "latest":
+        identity = ["--certificate-identity-regexp", _RELEASE_SIGNER_ANY_TAG]
+    else:
+        identity = ["--certificate-identity", _RELEASE_SIGNER + tag]
+    return [*identity, "--certificate-oidc-issuer", _RELEASE_SIGNER_ISSUER]
+
+
 def _run_release_installer(args: Sequence[str], sink: TextIO, *, dry_run: bool = False) -> int:
-    """Pipe the release ``install.sh`` into bash with ``args``; the shared fetch path."""
-    script = (
-        f"curl -fLsS --retry 3 --connect-timeout 15 {shlex.quote(_release_base_url() + '/install.sh')}"
-        f" | bash -s -- {' '.join(shlex.quote(arg) for arg in args)}"
-    )
+    """Run the release ``install.sh`` with ``args``; the shared fetch path.
+
+    With ``cosign`` installed, the installer is downloaded with its Sigstore bundle and runs only once cosign proves
+    the public release workflow signed it; a missing bundle, a different signer or any other failure refuses. Without
+    cosign it is streamed into bash unchecked, as before X5, after one warning line on stderr saying so and how to get
+    it checked. Either way the installer then checks every helper and archive it fetches against the SHA-256 pins it
+    carries.
+    """
+    url = _release_base_url() + "/install.sh"
+    # A client-triggered install must always use verified release assets,
+    # even if the caller's shell has opted into an installer-only bypass.
+    env = {**os.environ, "LEMONCROW_ALLOW_UNVERIFIED": "0"}
+    stdout = sys.stderr if sink is sys.stderr else None
+    cosign = _release_verifier()
+    if cosign is None:
+        script = (
+            f"curl -fLsS --retry 3 --connect-timeout 15 {shlex.quote(url)}"
+            f" | bash -s -- {' '.join(shlex.quote(arg) for arg in args)}"
+        )
+        if dry_run:
+            sink.write(f"{script}\n")
+            return 0
+        _warn_unsigned_installer()
+        try:
+            return subprocess.run(
+                ["bash", "-o", "pipefail", "-c", script], check=False, env=env, stdout=stdout
+            ).returncode
+        except OSError:
+            return 1
+    fetch = ["curl", "-fLsS", "--retry", "3", "--connect-timeout", "15"]
+    # stdin, not a path: the installer sees no sibling directory, exactly as when it is streamed in.
+    run = ["bash", "-s", "--", *args]
+
+    def checks_in(work: Path) -> tuple[list[tuple[list[str], str]], Path]:
+        installer, bundle = work / "install.sh", work / "install.sh.sigstore.json"
+        checks = [
+            ([*fetch, url, "-o", str(installer)], f"could not download {url}"),
+            ([*fetch, url + ".sigstore.json", "-o", str(bundle)], f"{url} has no signature bundle"),
+            (
+                [cosign, "verify-blob", "--bundle", str(bundle), *_release_signer_flags(), str(installer)],
+                f"{url} is not signed by LemonCrow's release workflow",
+            ),
+        ]
+        return checks, installer
+
     if dry_run:
-        sink.write(f"{script}\n")
+        checks, installer = checks_in(Path(tempfile.gettempdir()) / "lemoncrow-installer-XXXXXXXX")
+        for argv, _ in checks:
+            sink.write(shlex.join(argv) + "\n")
+        sink.write(f"{shlex.join(run)} < {shlex.quote(str(installer))}\n")
         return 0
-    try:
-        return subprocess.run(
-            ["bash", "-o", "pipefail", "-c", script],
-            check=False,
-            # A client-triggered install must always use verified release assets,
-            # even if the caller's shell has opted into an installer-only bypass.
-            env={**os.environ, "LEMONCROW_ALLOW_UNVERIFIED": "0"},
-            stdout=sys.stderr if sink is sys.stderr else None,
-        ).returncode
-    except OSError:
-        return 1
+    with tempfile.TemporaryDirectory(prefix="lemoncrow-installer-") as work:
+        checks, installer = checks_in(Path(work))
+        try:
+            for argv, refusal in checks:
+                if subprocess.run(argv, check=False, stdout=stdout).returncode != 0:
+                    sink.write(f"Not running the LemonCrow installer: {refusal}.\n")
+                    return 1
+            with installer.open("rb") as script_input:
+                return subprocess.run(run, check=False, env=env, stdin=script_input, stdout=stdout).returncode
+        except OSError:
+            return 1
 
 
 def _lazy_install_product(product: str, sink: TextIO) -> bool:
@@ -858,7 +1029,7 @@ def _update(rest: Sequence[str], sink: TextIO) -> int:
         deployment = _deployment_args(state_dir, product) or ["--local"]
         plan.append(["--product", "runtime", *deployment])
     if not plan:
-        sink.write("No LemonCrow Review or Runtime client is installed.\n")
+        sink.write("No LemonCrow Review or Workspaces client is installed.\n")
         sink.write(f"Install one with: {_install_hint('review')}\n")
         return 2
     status = 0
@@ -880,7 +1051,7 @@ def _delegate_external_runtime(arguments: Sequence[str], sink: TextIO) -> int:
     if executable is None:
         return _runtime_not_installed(installer_sink)
     if executable.parent.resolve() == Path(sys.executable).parent.resolve():
-        installer_sink.write("The installed Runtime package is incomplete; reinstall the Runtime product.\n")
+        installer_sink.write("The installed Workspaces package is incomplete; reinstall the Workspaces product.\n")
         return 2
     if sink is sys.stdout:
         return subprocess.run([str(executable), *arguments], check=False).returncode
@@ -955,7 +1126,7 @@ def _runtime(rest: Sequence[str], sink: TextIO) -> int:
         return _delegate_full_runtime(["runtime", action, *arguments], sink)
     if action in _FULL_ENGINE_RUNTIME_COMMANDS:
         if action == "telemetry" and _full_runtime_executable() is None:
-            sink.write('This client sends no product telemetry; `lc audit` reports "product_telemetry": false.\n')
+            return usage.telemetry_command(arguments, sink)
         return _delegate_full_runtime(["runtime", action, *arguments], sink)
     if action == "mcp" and arguments and arguments[0] in _REMOTE_MCP_COMMANDS:
         # Opt-in remote MCP (listener, tunnel, user services) ships only with Runtime.
@@ -969,9 +1140,9 @@ def _runtime(rest: Sequence[str], sink: TextIO) -> int:
         if arguments in (["-h"], ["--help"], ["help"]):
             sink.write(f"usage: {CLIENT_NAME} runtime {action} [--host NAME]\n")
             if lite:
-                sink.write("Run the local-only Runtime Lite MCP stdio process.\n")
+                sink.write("Run the local-only Workspaces Lite MCP stdio process.\n")
             else:
-                sink.write("Run one short-lived Runtime MCP stdio process for the configured target.\n")
+                sink.write("Run one short-lived Workspaces MCP stdio process for the configured target.\n")
             return 0
         host = ""
         index = 0
@@ -1003,6 +1174,8 @@ def _runtime(rest: Sequence[str], sink: TextIO) -> int:
             sink.write("runtime routes accepts no arguments\n")
             return 2
         return _routes(sink)
+    if action == "search-stats":
+        return _search_stats(arguments, sink)
 
     try:
         from .host_install import SUPPORTED_AGENTS, register_agents, runtime_status, unregister_agents
@@ -1055,7 +1228,7 @@ def _target(rest: Sequence[str], sink: TextIO) -> int:
     """
     product = _primary_product()
     if product == "core":
-        sink.write("No Review or Runtime product capability is installed.\n")
+        sink.write("No Review or Workspaces product capability is installed.\n")
         return 2
     try:
         config = load_config(product=product)
@@ -1125,7 +1298,9 @@ def _audit(sink: TextIO) -> int:
             "downloads_no_binary_or_model": True,
             "public_page_egress": "client-side web_fetch only",
             "self_update": False,
-            "product_telemetry": False,
+            "product_telemetry": not usage.off_reason(),
+            "product_telemetry_off_reason": usage.off_reason(),
+            "product_telemetry_endpoint": "" if usage.off_reason() else usage.ENDPOINT,
             "writes_outside_repo_and_state_dir": False,
         },
         "tools": {

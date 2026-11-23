@@ -115,6 +115,25 @@ def view(findings: tuple[BotFinding, ...], **fields: Any) -> SummaryView:
 # --------------------------------------------------------------------------- #
 
 
+def test_the_claude_agent_route_reviews_on_sonnet_unless_a_model_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.review.intelligence_runtime import resolve_driver_model
+
+    route = ci_env.resolve_model_route({"LEMONCROW_LLM_BACKEND": "claude"})
+    assert route is not None and route.model == "sonnet"
+    named = ci_env.resolve_model_route({"LEMONCROW_LLM_BACKEND": "claude", "LEMONCROW_REVIEW_MODEL": "haiku"})
+    assert named is not None and named.model == "haiku"
+    codex = ci_env.resolve_model_route({"LEMONCROW_LLM_BACKEND": "codex"})
+    assert codex is not None and codex.model == ""
+
+    monkeypatch.delenv("LEMONCROW_CLAUDE_MODEL", raising=False)
+    assert resolve_driver_model("claude", None).model == ""
+    env: dict[str, str] = {}
+    ci_env.apply_model_route(route, env)
+    monkeypatch.setenv("LEMONCROW_CLAUDE_MODEL", env["LEMONCROW_CLAUDE_MODEL"])
+    assert resolve_driver_model("claude", None).model == "sonnet"
+    assert resolve_driver_model("claude", "opus").model == "opus"  # a model that was chosen is kept
+
+
 def test_an_anthropic_key_selects_litellm_on_an_anthropic_model() -> None:
     route = ci_env.resolve_model_route({"ANTHROPIC_API_KEY": "k"})
     assert route is not None
@@ -284,6 +303,17 @@ def test_the_gate_runs_as_a_standard_library_script_and_writes_its_output(tmp_pa
         ({"OPENAI_API_KEY": "k"}, "cloud"),
         ({"OPENAI_API_KEY": "k", "LEMONCROW_REVIEW_PROVIDER": "litellm"}, "litellm"),
         ({"LEMONCROW_LLM_BACKEND": "claude"}, ""),
+        ({"INPUT_CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-subscription"}, ""),
+        # A federated token is sent by the SDK-free route: LiteLLM is not installed for it.
+        (
+            {
+                "INPUT_ANTHROPIC_FEDERATION_RULE_ID": "fdrl_x",
+                "INPUT_ANTHROPIC_ORGANIZATION_ID": "org",
+                "ACTIONS_ID_TOKEN_REQUEST_URL": "https://example.invalid/token?api-version=2.0",
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "request-token",
+            },
+            "",
+        ),
     ],
 )
 def test_the_gate_tells_the_action_which_client_library_to_install(
@@ -303,7 +333,9 @@ def test_the_gate_tells_the_action_which_client_library_to_install(
         [sys.executable, "-I", str(Path(ci_env.__file__))], env=env, capture_output=True, text=True, check=False
     )
     assert done.returncode == 0, done.stdout
-    assert output.read_text() == f"run=true\nextra={extra}\n"
+    # The claude CLI is installed for the route that runs it, and only that one.
+    claude = keys.get("LEMONCROW_LLM_BACKEND") == "claude" or "INPUT_CLAUDE_CODE_OAUTH_TOKEN" in keys
+    assert output.read_text() == f"run=true\nextra={extra}\n" + ("agent=claude\n" if claude else "")
 
 
 # --------------------------------------------------------------------------- #

@@ -9,6 +9,7 @@ remain observable so the worker retries instead of recording false success.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -114,6 +115,74 @@ def test_retention_cleanup_spares_reviews_nobody_archived(tmp_path: Path) -> Non
     review_store.update_session(review_id, status="archived")
     _age(review_store, review_id, days=120)
     assert _run(_Store(root), {"review_days": 90})["deleted_reviews"] == 1
+
+
+def _mirror(root: Path, relative: str, *, age_days: int) -> Path:
+    path = root / "raw" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("redacted transcript", encoding="utf-8")
+    stamp = (datetime.now(UTC) - timedelta(days=age_days)).timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_retention_cleanup_deletes_old_transcript_mirrors_only(tmp_path: Path) -> None:
+    """``raw/`` grew to 21 GB with no closer; old mirrors go, anything still current or irreplaceable stays."""
+
+    root = tmp_path / "store"
+    old = _mirror(root, "claude/proj-a/old.jsonl", age_days=120)
+    fresh = _mirror(root, "claude/proj-a/fresh.jsonl", age_days=3)
+    only_old = _mirror(root, "codex/proj-b/old.jsonl", age_days=200)
+    copilot = _mirror(root, "copilot/proj-c/old.jsonl", age_days=400)  # the Copilot parser reads this back
+    recorded = _mirror(root, "mcp/session/artifact.txt", age_days=400)  # an agent's own record, no host copy
+
+    result = _run(_Store(root), {"raw_days": 90})
+
+    assert result["pruned_raw_files"] == 2
+    assert result["pruned_raw_bytes"] == 2 * len("redacted transcript")
+    assert not old.exists() and not only_old.exists()
+    assert fresh.exists() and copilot.exists() and recorded.exists()
+    assert not only_old.parent.exists()  # a directory emptied by the prune goes with it
+    assert (root / "raw" / "codex").is_dir()  # the source directory itself stays
+
+
+def test_retention_cleanup_raw_age_is_configurable_and_can_be_turned_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "store"
+    old = _mirror(root, "claude/p/old.jsonl", age_days=45)
+
+    monkeypatch.delenv("LEMONCROW_RAW_RETENTION_DAYS", raising=False)
+    assert _run(_Store(root), {})["pruned_raw_files"] == 0  # the default is 90 days
+    assert old.exists()
+
+    monkeypatch.setenv("LEMONCROW_RAW_RETENTION_DAYS", "30")
+    assert _run(_Store(root), {"raw_days": 0})["pruned_raw_files"] == 0  # the payload wins; 0 keeps everything
+    assert old.exists()
+    assert _run(_Store(root), {})["pruned_raw_files"] == 1  # the environment sets it when the payload does not
+    assert not old.exists()
+
+    monkeypatch.setenv("LEMONCROW_RAW_RETENTION_DAYS", "not-a-number")
+    assert _run(_Store(root), {})["pruned_raw_files"] == 0  # an unreadable value falls back to the default
+
+
+def test_retention_cleanup_raw_prune_never_follows_a_symlink(tmp_path: Path) -> None:
+    root = tmp_path / "store"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "keep.jsonl"
+    target.write_text("not ours", encoding="utf-8")
+    stamp = (datetime.now(UTC) - timedelta(days=400)).timestamp()
+    os.utime(target, (stamp, stamp))
+    (root / "raw" / "claude").mkdir(parents=True)
+    (root / "raw" / "claude" / "linked-dir").symlink_to(outside, target_is_directory=True)
+    (root / "raw" / "claude" / "linked-file.jsonl").symlink_to(target)
+
+    result = _run(_Store(root), {"raw_days": 30})
+
+    assert result["pruned_raw_files"] == 0
+    assert target.read_text(encoding="utf-8") == "not ours"
+    assert (root / "raw" / "claude" / "linked-file.jsonl").is_symlink()
 
 
 def test_retention_cleanup_fails_for_retry_after_job_prune_when_review_store_is_unusable(tmp_path: Path) -> None:

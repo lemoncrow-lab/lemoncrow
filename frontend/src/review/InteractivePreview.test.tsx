@@ -33,6 +33,8 @@ function offer(
       source: ".lemoncrow/review.yaml interactive_preview",
       framework: "",
     },
+    previews: [],
+    preview: null,
     budget: { remaining_minutes: 100, minutes_per_minute: 2 },
     ttl: { default_seconds: 600, max_seconds: 900, min_seconds: 60 },
     opens_from: ["behavior_changes", "checks_rail"],
@@ -161,6 +163,52 @@ describe("InteractivePreviewPanel", () => {
     expect(
       screen.queryByRole("button", { name: "Open side by side" })
     ).toBeNull();
+  });
+
+  it("opens the environment.toml preview the reviewer picks, the first declared by default", async () => {
+    api.fetchInteractivePreview.mockResolvedValue(
+      offer({ previews: ["web", "docs"], preview: "web" })
+    );
+    api.startInteractivePreview.mockRejectedValue(new Error("refused"));
+    render(
+      <InteractivePreviewPanel
+        reviewId="review-1"
+        revisionId="rev-2"
+        openedFrom="checks_rail"
+      />
+    );
+    const picker = await screen.findByRole("combobox", { name: "Preview" });
+    expect(picker).toHaveTextContent("web");
+    await userEvent.click(picker);
+    await userEvent.click(screen.getByRole("option", { name: "docs" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open side by side" })
+    );
+    await waitFor(() =>
+      expect(api.startInteractivePreview).toHaveBeenCalledWith(
+        "review-1",
+        "rev-2",
+        undefined,
+        "docs"
+      )
+    );
+  });
+
+  it("offers no picker with one preview or none", async () => {
+    api.fetchInteractivePreview.mockResolvedValue(
+      offer({ previews: ["web"], preview: "web" })
+    );
+    render(
+      <InteractivePreviewPanel
+        reviewId="review-1"
+        revisionId="rev-2"
+        openedFrom="checks_rail"
+      />
+    );
+    expect(
+      await screen.findByRole("button", { name: "Open side by side" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Preview" })).toBeNull();
   });
 
   it("opens base and head side by side in sandboxed frames and stops on request", async () => {

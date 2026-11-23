@@ -127,9 +127,9 @@ def qa_group() -> None:
 @click.option(
     "--config-ref",
     default="",
-    help="Trusted git ref holding .lemoncrow/review.yaml (default: the bound Snapshot's base commit).",
+    help="Trusted git ref holding .lemoncrow/review.yaml (default: the bound revision's base commit).",
 )
-@click.option("--review", "review_id", default="", help="Record each run on this local Review's Snapshot of --sha.")
+@click.option("--review", "review_id", default="", help="Record each run on this local Review's revision of --sha.")
 @click.option("--github-check", is_flag=True, help="Post a 'LemonCrow QA' check run on --sha with gh api.")
 @click.option("--playwright-dir", type=click.Path(path_type=Path, file_okay=False), default=None)
 @click.option("--playwright-version", default="", help="Install this exact Playwright version and Chromium first (CI).")
@@ -182,7 +182,7 @@ def qa_run(
         rows = _review_request(config, "GET", f"/api/reviews/{quote(review_id, safe='')}/revisions").get("revisions")
         found = web_qa.snapshot_for_sha([row for row in rows or () if isinstance(row, dict)], sha)
         if found is None:
-            raise setup_failed(f"Review {review_id} has no clean Snapshot of commit {sha[:12]}; capture it first")
+            raise setup_failed(f"Review {review_id} has no clean revision of commit {sha[:12]}; capture it first")
         snapshot = dict(found)
     ref = config_ref or str(snapshot.get("base_sha") or "")
     if not ref:
@@ -311,7 +311,7 @@ def _echo_report(report: dict[str, Any], report_dir: Path, bound: dict[str, Any]
         click.echo(f"  screenshot {shot['name']}: {report_dir / shot['file']}")
     if bound:
         click.echo(
-            f"  Review {bound['review_id']} Snapshot {bound.get('snapshot_number')}: {bound.get('review_status')}"
+            f"  Review {bound['review_id']} revision {bound.get('snapshot_number')}: {bound.get('review_status')}"
             + (f" ({'; '.join(bound['review_reasons'])})" if bound.get("review_status") != "PASS" else "")
         )
     click.echo(f"  report: {report_dir / 'report.json'}  {report['digest']}")

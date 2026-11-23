@@ -64,10 +64,16 @@ def test_a_high_finding_outside_the_must_fix_categories_is_p1_at_most(category: 
     assert severity_for(category, impact="high", verified=True) == "p1"
 
 
-@pytest.mark.parametrize("category", ["correctness", "security", "performance"])
+@pytest.mark.parametrize("category", ["concurrency_state", "api_compatibility", "performance", "verification"])
 def test_a_medium_finding_is_p1_with_evidence_and_p2_without(category: str) -> None:
     assert severity_for(category, impact="medium", verified=True) == "p1"
     assert severity_for(category, impact="medium", verified=False) == "p2"
+
+
+@pytest.mark.parametrize("verified", [True, False])
+@pytest.mark.parametrize("category", ["correctness", "security", "persistence_migration"])
+def test_a_medium_possible_bug_is_never_optional(category: str, verified: bool) -> None:
+    assert severity_for(category, impact="medium", verified=verified) == "p1"
 
 
 @pytest.mark.parametrize("verified", [True, False])
@@ -441,7 +447,7 @@ def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(worl
     prompts = [call["evidence"] for call in world.model.evidence_seen if call["path"] == "src/auth.py"]
     assert any(
         row["kind"] == "repo_context" and "src/handlers.py" in row["ref"] for rows in prompts for row in rows
-    ), "the corroborating excerpt is a real file of the Snapshot, found by the pack, not by the model"
+    ), "the corroborating excerpt is a real file of the revision, found by the pack, not by the model"
     assert world.github.last_status()["state"] == "failure"
     assert "<h2>1 must-fix before merge</h2>" in summary_body(world).split("\n")
     (inline,) = world.github.inline()
@@ -469,13 +475,13 @@ def test_a_model_only_p0_is_demoted_to_p1_and_does_not_fail_the_status(world: Wo
     assert inline["body"].startswith(f"{badge('p1')} **lets a missing principal through**")
 
 
-def test_a_medium_finding_backed_only_by_its_own_source_is_optional_not_should_fix(world: World) -> None:
+def test_a_medium_possible_bug_backed_only_by_its_own_source_is_should_fix_not_optional(world: World) -> None:
     world.model.severity[TITLE] = "medium"
     world.model.cite_source.add(TITLE)
     world.origin.push({"src/auth.py": AUTH_BUGGY})
     (found,) = world.review().findings
-    assert (found.impact, found.verified, found.severity) == ("medium", False, "p2")
-    assert world.github.inline() == []
+    assert (found.impact, found.verified, found.severity) == ("medium", False, "p1")
+    assert len(world.github.inline()) == 1
 
     world.model.severity[TITLE] = "medium"
     world.model.cite_context.add(TITLE)

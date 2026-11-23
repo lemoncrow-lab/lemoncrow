@@ -131,7 +131,7 @@ export default function ReviewFixSheet({
           </SheetClose>
         </SheetHeader>
         <SheetLede>
-          Nothing changes the reviewed Snapshot. The fixer's work comes back as a new Snapshot for re-review; nothing here marks a finding resolved.
+          Nothing changes the reviewed revision. The fixer's work comes back as a new revision for re-review; nothing here marks a finding resolved.
         </SheetLede>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3 text-label">
           {loading && !preview && (
@@ -227,7 +227,7 @@ export default function ReviewFixSheet({
         </div>
         <div className="flex items-center gap-2 border-t border-border px-4 py-2">
           {route_?.mode === "copy" && (
-            <span className="text-caption text-muted-foreground">The next Snapshot is linked as unattributed.</span>
+            <span className="text-caption text-muted-foreground">The next revision is linked as unattributed.</span>
           )}
           <span className="flex-1" />
           {stale && preview ? (

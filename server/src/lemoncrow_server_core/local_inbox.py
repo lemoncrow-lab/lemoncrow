@@ -36,10 +36,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from aiohttp import web
+from lemoncrow_client import usage
+from lemoncrow_client.review_words import part_count, revision_name
 
 from lemoncrow.pro.capabilities.review import fix_lines
 from lemoncrow.pro.capabilities.review.archive_safety import owed_cancellation
-from lemoncrow.pro.capabilities.review.handoff import ReviewHandoff, handoff_row_fields, review_handoff
+from lemoncrow.pro.capabilities.review.freshness import parse_timestamp
+from lemoncrow.pro.capabilities.review.handoff import (
+    ReviewHandoff,
+    approved_on,
+    handoff_row_fields,
+    review_handoff,
+    settled_by_approval,
+)
 from lemoncrow.pro.capabilities.review.inbox_inputs import SnapshotRef, load_stored_inbox_facts, triage_wire
 from lemoncrow.pro.capabilities.review.inbox_views import (
     INBOX_VIEWS,
@@ -55,6 +64,7 @@ from lemoncrow.pro.capabilities.review.inbox_views import (
     inbox_views,
     narrow,
     parse_limit,
+    parse_read,
     select_page,
     updated_sort_key,
 )
@@ -77,6 +87,7 @@ from lemoncrow.pro.capabilities.review.saved_filters import (
 )
 from lemoncrow.pro.capabilities.review.store import ReviewListInputs, ReviewStore, ShortReferenceIndex
 from lemoncrow.pro.capabilities.review.targets import DerivedRefresh
+from lemoncrow.pro.capabilities.review.viewer_queue import ViewerState
 from lemoncrow.pro.capabilities.review.workflow_state import (
     WORKFLOW_LABELS,
     WORKFLOW_STATES,
@@ -93,7 +104,7 @@ from .http.wire import json_response
 if TYPE_CHECKING:
     from .local_review_service import LocalReviewService
 
-__all__ = ["SEARCH_KEYS", "LocalInbox", "local_inbox_rows", "local_review_workflow"]
+__all__ = ["SEARCH_KEYS", "LocalInbox", "local_inbox_rows", "local_review_wait", "local_review_workflow"]
 
 #: Wire-row fields a Reviews search matches (the legacy list and the view mode alike).
 SEARCH_KEYS: Final[tuple[str, ...]] = (
@@ -107,10 +118,25 @@ SEARCH_KEYS: Final[tuple[str, ...]] = (
     "branch",
     "worktree_root",
 )
-_ACTIONABLE: Final[tuple[str, ...]] = ("unreviewed", "changed_since_review", "unknown")
+# ``later`` ("Decide later") is not judged, so it stays actionable.
+_ACTIONABLE: Final[tuple[str, ...]] = ("unreviewed", "changed_since_review", "unknown", "later")
 _REVIEWER_TURN: Final[frozenset[str]] = frozenset({"review_pending", "thread_returned"})
 _NONE: Final[str] = "\0none"
 FILTERS_PATH: Final[str] = "/api/review-inbox/filters"
+FRICTION_PATH: Final[str] = "/api/review-friction"
+#: What the Reader may report; the browser sends one of these names and nothing else is read from it.
+_FRICTION_EVENTS: Final[Mapping[str, str]] = {
+    "blocked_reason": "review-friction-blocked-reason",
+    "map_open_with_delta": "review-friction-map-open-with-delta",
+    "map_open_without_delta": "review-friction-map-open-without-delta",
+    "settings_before_first_review": "review-friction-settings-before-first-review",
+}
+_WAIT_METRICS: Final[Mapping[str, str]] = {
+    "needs_review": "review-friction-wait-reviewer",
+    "waiting_on_reviewer": "review-friction-wait-reviewer",
+    "waiting_on_author": "review-friction-wait-author",
+    "waiting_on_checks": "review-friction-wait-checks",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -153,6 +179,13 @@ def local_inbox_rows(
         triage.update(stored.triage)
         readiness.update(stored.readiness)
         running.update(stored.post_merge_running)
+    queue: dict[str, Any] = {}
+    for reviewer, refs in sorted(by_reviewer.items()):
+        queue.update(store.viewer_states([ref.review_id for ref in refs], reviewer))
+    # P7-3: the policy files each current revision edits (one read for the page), for the row's red warning.
+    policy_files = store.policy_edit_revisions(
+        [str(item.revision.id) for _s, item in items if item.revision is not None]
+    )
     rows: list[InboxRow] = []
     for session, item in items:
         review_id = str(session.id)
@@ -160,10 +193,14 @@ def local_inbox_rows(
         pull_request = str(session.source_ref).startswith(GITHUB_SOURCE_PREFIX) or (
             facts.get("destination") == "github_pr"
         )
+        approved = item.revision is not None and approved_on(facts, str(item.revision.id))
         handoff = (
             ReviewHandoff()
             if item.revision is None
-            else review_handoff(item.revision.id, item.annotations, versions, deliveries, pull_request=pull_request)
+            else settled_by_approval(
+                review_handoff(item.revision.id, item.annotations, versions, deliveries, pull_request=pull_request),
+                approved,
+            )
         )
         rows.append(
             _row(
@@ -179,6 +216,9 @@ def local_inbox_rows(
                 post_merge_running=running.get(review_id, 0),
                 as_of=as_of,
                 haystack=(haystacks or {}).get(review_id, ""),
+                viewer=queue.get(review_id),
+                edits_policy=bool(policy_files.get("" if item.revision is None else str(item.revision.id))),
+                approved=approved,
             )
         )
     return rows
@@ -206,6 +246,19 @@ def local_review_workflow(
     only while it names this Review's current Snapshot.
     """
 
+    wire = _review_row(store, repo_id, session, progress_of=progress_of, as_of=as_of, progress=progress)
+    return None if wire is None else {"workflow": wire["workflow"], "next_action": wire["next_action"]}
+
+
+def _review_row(
+    store: ReviewStore,
+    repo_id: str,
+    session: Any,
+    *,
+    progress_of: Callable[[ReviewStore, Sequence[tuple[Any, ReviewListInputs]]], Mapping[str, Mapping[str, int]]],
+    as_of: datetime,
+    progress: SnapshotProgress | None = None,
+) -> Mapping[str, Any] | None:
     item = store.review_list_inputs([session]).get(str(session.id))
     if item is None:
         return None
@@ -219,10 +272,28 @@ def local_review_workflow(
     else:
         counts = progress_of(store, items)
     rows = local_inbox_rows(store, repo_id, items, counts, as_of=as_of)
-    if not rows:
+    return rows[0].wire if rows else None
+
+
+def local_review_wait(
+    store: ReviewStore,
+    repo_id: str,
+    session: Any,
+    *,
+    progress_of: Callable[[ReviewStore, Sequence[tuple[Any, ReviewListInputs]]], Mapping[str, Mapping[str, int]]],
+    as_of: datetime,
+) -> tuple[str, float] | None:
+    """``(friction metric, seconds waited)`` when this Review waits on someone, from the Inbox's own row.
+
+    The wait starts at the attention clock, else the Review's last update. Nothing about the Review leaves here.
+    """
+
+    wire = _review_row(store, repo_id, session, progress_of=progress_of, as_of=as_of)
+    metric = None if wire is None else _WAIT_METRICS.get(str(wire["workflow"]["state"]))
+    if wire is None or metric is None:
         return None
-    wire = rows[0].wire
-    return {"workflow": wire["workflow"], "next_action": wire["next_action"]}
+    since = parse_timestamp(wire["attention"].get("waiting_since") or session.updated_at)
+    return None if since is None else (metric, max(0.0, (as_of - since).total_seconds()))
 
 
 def _row(
@@ -239,6 +310,9 @@ def _row(
     post_merge_running: int,
     as_of: datetime,
     haystack: str,
+    viewer: ViewerState | None = None,
+    edits_policy: bool = False,
+    approved: bool = False,
 ) -> InboxRow:
     review_id = str(session.id)
     status = str(session.status)
@@ -250,7 +324,8 @@ def _row(
     remaining = sum(int(counts.get(key, 0)) for key in _ACTIONABLE)
     # Positive evidence only: the reviewer's fresh readiness record says reviewed, or every
     # current target is judged. No targets at all is not evidence of a finished review.
-    review_complete = readiness.reviewed or (revision is not None and targets > 0 and remaining == 0)
+    # An approval on the current revision is the reviewer's finished review, whatever the per-part marks say.
+    review_complete = approved or readiness.reviewed or (revision is not None and targets > 0 and remaining == 0)
     evidence = (
         bool(item.marks)
         or int(counts.get("reviewed", 0)) > 0
@@ -268,9 +343,9 @@ def _row(
                     "review_pending",
                     since=str(revision.created_at),
                     fact=(
-                        f"{remaining} target(s) left to review"
+                        f"{part_count(remaining)} left to review"
                         if remaining
-                        else "Review is not complete on the current Snapshot"
+                        else f"Review is not complete on {revision_name(max(0, int(revision.revision_number) - 1))}"
                     ),
                 )
             )
@@ -315,7 +390,7 @@ def _row(
             priority=triage.priority,
             criticality=triage.criticality,
             effort=remaining if revision is not None and targets else None,
-            effort_unit="targets",
+            effort_unit="parts",
         ),
         now=as_of,
     )
@@ -358,6 +433,8 @@ def _row(
                 "target_count": targets,
                 "reviewed": int(counts.get("reviewed", 0)),
                 "remaining": remaining,
+                # You approved the current revision: Home moves it to its folded Done group (review-1.4).
+                "approved": approved,
             },
             "team_review": {"state": "not_applicable", "reason": "A local Review has one reviewer"},
             "scm": scm_axis(readiness, connected=pull_request, provider="github" if pull_request else ""),
@@ -365,6 +442,16 @@ def _row(
         "attention": attention.to_wire(),
         "teams": [],
         "team_requests": 0,
+        # Notes written and not yet sent (the row's "1 note not sent").
+        "unsent_count": handoff.unsent,
+        # The change edits the rules file, CODEOWNERS or the allowed signers (SPEC 4.19, P7-3).
+        "edits_policy": edits_policy,
+        # This viewer's snooze (only while it holds) and saved place; empty when they have set neither.
+        "queue": (
+            ViewerState(review_id, reviewer).queue_wire(current_revision=0, now=as_of)
+            if viewer is None
+            else viewer.queue_wire(current_revision=0 if revision is None else int(revision.revision_number), now=as_of)
+        ),
     }
     return InboxRow(
         repo_id=repo_id,
@@ -424,7 +511,32 @@ class LocalInbox:
             ("POST", FILTERS_PATH, self.create_filter),
             ("PUT", FILTERS_PATH + "/{filter_id}", self.update_filter),
             ("DELETE", FILTERS_PATH + "/{filter_id}", self.delete_filter),
+            ("POST", FRICTION_PATH, self.friction),
         )
+
+    async def friction(self, request: web.Request) -> web.StreamResponse:
+        """Count one Reader friction event (:data:`usage.FRICTION_METRICS`); off when telemetry is off.
+
+        ``metric`` is a fixed name. ``waiting`` also names the open Review, which is used to read its wait here and
+        is not kept: the count is the metric and a duration bucket.
+        """
+
+        service = self._service
+        service._principal(request)
+        body = await service._body(request)
+        metric = body.get("metric")
+        if metric == "waiting":
+            review_id = body.get("review_id")
+            if not isinstance(review_id, str) or not review_id:
+                raise _invalid("review_id", "waiting needs the open Review")
+            wait = await service._in_worker(service.review_wait, review_id)
+            if wait is not None:
+                usage.record(wait[0], surface="reader", ok=True, seconds=wait[1])
+        elif isinstance(metric, str) and metric in _FRICTION_EVENTS:
+            usage.record(_FRICTION_EVENTS[metric], surface="reader", ok=True, seconds=0.0)
+        else:
+            raise _invalid("metric", "unknown friction metric")
+        return json_response({"recorded": True})
 
     async def views(self, request: web.Request) -> web.StreamResponse:
         """``GET /v1/reviews?view=...``: the local user's views over every local Review."""
@@ -433,7 +545,7 @@ class LocalInbox:
         principal = service._principal(request)
         try:
             selection = request_selection(lambda name: request.query.getall(name, []), teams_supported=False)
-            limit = parse_limit(request.query.get("limit"))
+            limit = parse_limit(request.query.get("limit"), read=parse_read(request.query.get("read")))
             cursor = decode_cursor(request.query.get("cursor", ""))
         except InboxQueryError as exc:
             raise _invalid(exc.field, str(exc), limit=exc.limit) from exc
@@ -540,6 +652,8 @@ class LocalInbox:
         for row in page.rows:
             if (row.repo_id, row.review_id) not in built:
                 missing.setdefault(row.repo_id, []).append(sessions_by_key[(row.repo_id, row.review_id)])
+        # Each repository's checkout is described by Git subprocesses; the ones not already kept go together.
+        service.warm_checkout_locations(missing)
         for repo_id, on_page in missing.items():
             for session, _item, wire in service._review_wire_rows(
                 repo_id, on_page, references=references, location_metadata_cache=checkout_metadata

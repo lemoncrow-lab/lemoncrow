@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import json
+import os
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import lemoncrow_client.credentials as credentials_mod
 import pytest
+from lemoncrow_client.authward import discover_authward
 from lemoncrow_client.config import load_config
 from lemoncrow_client.credentials import (
+    NOT_COVERED,
+    ManagedSignIn,
     RefreshingHttpTransport,
     managed_credentials_path,
     read_managed_credentials,
+    read_managed_sign_in,
+    refresh_managed_access,
+    store_new_sign_in,
+    workspaces_access,
     write_managed_credentials,
 )
 from lemoncrow_client.errors import ClientError
@@ -328,3 +339,163 @@ def test_refresh_migrates_legacy_pair_into_account_state_before_rotation(tmp_pat
         "legacy-access-0123456789",
         "legacy-refresh-0123456789",
     )
+
+
+WORKSPACES = "https://acme.workspaces.lemoncrow.com"
+
+
+def test_a_sign_in_from_before_workspaces_servers_had_tokens_migrates(tmp_path: Path, monkeypatch) -> None:
+    path = managed_credentials_path(tmp_path)
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_text(
+        json.dumps({"access_token": "access-old-0123456789", "refresh_token": "refresh-old-0123456789"}),
+        encoding="utf-8",
+    )
+    os.chmod(path, 0o600)
+    assert read_managed_sign_in(tmp_path) == ManagedSignIn("access-old-0123456789", "refresh-old-0123456789", {})
+    assert load_config(_hosted_env(tmp_path), cwd=tmp_path).refresh_token == "refresh-old-0123456789"
+
+    sent: list[tuple[str, str]] = []
+
+    class FakeAuthward:
+        def refresh(self, refresh_token: str, *, resource: str = ""):
+            sent.append((refresh_token, resource))
+            return "access-new-0123456789", "refresh-new-0123456789"
+
+    monkeypatch.setattr(credentials_mod, "discover_authward", lambda *_args, **_kwargs: FakeAuthward())
+    # It names no Workspaces server: asking for one says which command fixes it, and Authward is not asked.
+    with pytest.raises(ClientError) as raised:
+        workspaces_access(
+            "https://api.lemoncrow.test", state_dir=tmp_path, origin=WORKSPACES, refresh_within_s=60, timeout_s=5
+        )
+    assert raised.value.server_code == NOT_COVERED
+    assert f"run `lc auth login --server {WORKSPACES}`" in raised.value.message
+    assert sent == []
+
+    # The next API rotation keeps the sign-in and writes the new layout, whose API pair an older client still reads.
+    fresh = refresh_managed_access(
+        "https://api.lemoncrow.test", state_dir=tmp_path, stale_access="access-old-0123456789", timeout_s=5
+    )
+    assert fresh == "access-new-0123456789" and sent == [("refresh-old-0123456789", "")]
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "version": 2,
+        "access_token": "access-new-0123456789",
+        "refresh_token": "refresh-new-0123456789",
+        "servers": {},
+    }
+    assert path.stat().st_mode & 0o077 == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"version": 3, "access_token": "a", "refresh_token": "r"},
+        {"version": True, "access_token": "a", "refresh_token": "r"},
+        {"version": 2, "access_token": "a", "refresh_token": "r", "servers": ["https://a.lemoncrow.com"]},
+        {"version": 2, "access_token": "a", "refresh_token": "r", "servers": {"https://a.lemoncrow.com/x": ""}},
+        {"version": 2, "access_token": "a", "refresh_token": "r", "servers": {"HTTPS://A.lemoncrow.com": ""}},
+        {"version": 2, "access_token": "a", "refresh_token": "r", "servers": {"https://a.lemoncrow.com": 7}},
+    ],
+)
+def test_a_credential_file_this_client_cannot_read_asks_for_a_new_sign_in(tmp_path: Path, payload: object) -> None:
+    path = managed_credentials_path(tmp_path)
+    path.parent.mkdir(parents=True, mode=0o700)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    os.chmod(path, 0o600)
+    with pytest.raises(ClientError):
+        read_managed_sign_in(tmp_path)
+
+
+def test_a_server_token_is_asked_for_by_its_origin_alone_and_the_api_pair_is_kept(tmp_path: Path, monkeypatch) -> None:
+    write_managed_credentials(
+        tmp_path, access_token="access-api-0123456789", refresh_token="refresh-1", servers=[WORKSPACES]
+    )
+    sent: list[tuple[str, str]] = []
+
+    class FakeAuthward:
+        def refresh(self, refresh_token: str, *, resource: str = ""):
+            sent.append((refresh_token, resource))
+            if resource == "https://other.lemoncrow.com":
+                raise ClientError(credentials_mod.ErrorCode.UNAUTHENTICATED, "no", server_code="invalid_target")
+            return f"access-for-{resource}", "refresh-2"
+
+    monkeypatch.setattr(credentials_mod, "discover_authward", lambda *_args, **_kwargs: FakeAuthward())
+    access = workspaces_access(
+        "https://api.lemoncrow.test", state_dir=tmp_path, origin=WORKSPACES, refresh_within_s=60, timeout_s=5
+    )
+    assert access == f"access-for-{WORKSPACES}" and sent == [("refresh-1", WORKSPACES)]
+    assert read_managed_sign_in(tmp_path) == ManagedSignIn("access-api-0123456789", "refresh-2", {WORKSPACES: access})
+    # A token that is not a JWT has no expiry to run out: it is reused until the server refuses it.
+    assert (
+        workspaces_access(
+            "https://api.lemoncrow.test", state_dir=tmp_path, origin=WORKSPACES, refresh_within_s=60, timeout_s=5
+        )
+        == access
+    )
+    assert len(sent) == 1
+
+    # Authward answering invalid_target (a resource the sign-in did not name) uses nothing up and names the fix.
+    path = managed_credentials_path(tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["servers"]["https://other.lemoncrow.com"] = ""
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ClientError) as raised:
+        workspaces_access(
+            "https://api.lemoncrow.test",
+            state_dir=tmp_path,
+            origin="https://other.lemoncrow.com",
+            refresh_within_s=60,
+            timeout_s=5,
+        )
+    assert raised.value.server_code == NOT_COVERED
+    assert read_managed_sign_in(tmp_path).refresh_token == "refresh-2"
+
+
+def test_concurrent_refreshes_never_send_a_spent_refresh_token(tmp_path: Path) -> None:
+    from _fake_authward import serve_authward
+
+    state_dir = tmp_path / "account"
+    with serve_authward() as authward:
+        authward.registered.add(WORKSPACES)
+        client = discover_authward(HttpTransport(authward.base, timeout_s=5), timeout_s=5)
+        started = client.start_device([WORKSPACES])
+        issued = client.poll_device(started["device_code"])
+        store_new_sign_in(
+            state_dir, access_token=issued["access_token"], refresh_token=issued["refresh_token"], servers=[WORKSPACES]
+        )
+        barrier = threading.Barrier(12)
+        failures: list[BaseException] = []
+
+        def api() -> None:
+            barrier.wait()
+            stale = read_managed_sign_in(state_dir).access_token
+            refresh_managed_access(authward.base, state_dir=state_dir, stale_access=stale, timeout_s=5)
+
+        def server() -> None:
+            barrier.wait()
+            # Every call finds the held token due, so every call rotates the refresh token.
+            workspaces_access(
+                authward.base, state_dir=state_dir, origin=WORKSPACES, refresh_within_s=10**6, timeout_s=5
+            )
+
+        def guarded(work: Callable[[], None]) -> Callable[[], None]:
+            def run() -> None:
+                try:
+                    work()
+                except BaseException as exc:  # reported below, with the thread's work
+                    failures.append(exc)
+
+            return run
+
+        threads = [threading.Thread(target=guarded(api if n % 2 else server)) for n in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+
+        assert failures == []
+        assert not authward.ended
+        assert len(authward.refreshes) == len(set(authward.refreshes)) >= 6
+        final = read_managed_sign_in(state_dir)
+        assert final is not None and final.refresh_token == next(iter(authward.newest.values()))
+        assert final.servers[WORKSPACES] == [token for resource, token in authward.issued if resource == WORKSPACES][-1]

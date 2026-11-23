@@ -133,11 +133,12 @@ class CatalogEntry:
         }
 
 
-#: Why render diffs are local-only; the planner adds what this deployment's reviewer can do about it
+#: Why render diffs do not run on this locus; the planner adds what this deployment's reviewer can do about it
 #: (``run_plan._locus_action``: a hosted deployment has no local executor to switch to).
 _RENDER_LOCUS_HINT: Final[str] = (
-    "Rendered diffs run a headless browser against the Snapshot's own build, which exists only on the machine "
-    "that holds it."
+    "Rendered diffs build the revision and run a headless browser against it, which this executor is not set up "
+    "to do; an operator enables that with `reviewWorker.renderDiffs` and a worker image carrying a browser and "
+    "Node.js."
 )
 _CHECK_RECIPES: Final[str] = "check_recipes"
 _ANALYSES: Final[str] = "artifact_analyses"
@@ -258,10 +259,9 @@ STATIC_CATALOG: Final[Mapping[str, CatalogEntry]] = {
             ),
             minimum_minutes=10.0,
         ),
-        # Sandboxed headless-browser render diffs (``render_diff.py``); the driver runs on
-        # the machine that holds the Snapshot's build, so only the local locus runs them.
-        # lc-debt: render diffs run on the local locus only; worker and managed loci plan not_available.
-        # Upgrade: a worker/managed driver that builds the Snapshot's app where the sandbox runs.
+        # Sandboxed headless-browser render diffs (``render_diff.py``). The catalog states what
+        # every deployment runs: the local locus. A deployment whose worker image carries a
+        # browser and a build toolchain adds its own locus (``PlanInputs.executor_loci``).
         CatalogEntry(
             "visual.dom_a11y",
             "visual",
@@ -371,6 +371,25 @@ STATIC_CATALOG: Final[Mapping[str, CatalogEntry]] = {
                 "analyses.compatibility in the trusted-base .lemoncrow/review.yaml."
             ),
         ),
+        # P10-7: request-data flows Opengrep finds on base and head, and how they changed (``data_path.py``).
+        # Experimental and on request only; it runs a local, pinned binary, so only the local locus runs it.
+        # lc-debt: local locus only; worker and managed loci plan not_available. Upgrade: ship the pinned
+        # Opengrep v2.0.0 in the worker image with the same digest check.
+        CatalogEntry(
+            "data_path.diff",
+            "static",
+            "Data path difference (experimental)",
+            "medium",
+            "deep_extra",
+            executor="data_path",
+            loci=("local",),
+            locus_hint="The data path runs the pinned Opengrep v2.0.0 binary of the machine that holds the revision.",
+            setup_hint=(
+                "Needs the pinned Opengrep v2.0.0 release on this machine: set LEMONCROW_DATA_PATH_OPENGREP_BIN "
+                "to it (or put it on PATH as opengrep). A review never downloads it. It runs only sandboxed: "
+                "sandbox-exec on macOS, bubblewrap on Linux."
+            ),
+        ),
         # Phase 9R item 44: behavior diffs with each touched feature flag on and off (``flag_matrix.py``).
         CatalogEntry(
             "behavior.flag_matrix",
@@ -478,6 +497,8 @@ _DEEP: Final[tuple[PresetEntry, ...]] = (
     PresetEntry("compat.mixed_version"),
     # Offered on request at Deep; any depth may add it as a per-Review pick.
     PresetEntry("visual.interactive_preview", when="manual", sides="base+head"),
+    # Experimental (P10-7): offered on request at Deep, never run on a Snapshot by itself.
+    PresetEntry("data_path.diff", when="manual", sides="base+head"),
 )
 PRESET_SELECTIONS: Final[Mapping[Preset, tuple[PresetEntry, ...]]] = {
     "quick": _QUICK,
@@ -549,6 +570,34 @@ DETECTION_FACTS: Final[tuple[str, ...]] = (
     "flag_overrides",
 )
 _STATIC_PREVIEW_FRAMEWORKS: Final[frozenset[str]] = frozenset({"next", "astro", "vite"})
+
+
+def _declares_previews(text: str | None) -> bool:
+    """The trusted-base environment.toml is valid and declares at least one preview."""
+
+    from lemoncrow_client.environment import DefinitionError, parse_environment
+
+    if not text or "previews" not in text:
+        return False
+    try:
+        return bool(parse_environment(text).previews)
+    except DefinitionError:
+        return False
+
+
+def _declares_render_root(text: str | None) -> bool:
+    """The trusted-base review config names a static site to render (``render.static_root``)."""
+
+    if not text or "static_root" not in text:
+        return False
+    import yaml
+
+    try:
+        decoded = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    block = decoded.get("render") if isinstance(decoded, Mapping) else None
+    return isinstance(block, Mapping) and bool(block.get("static_root"))
 
 
 def _declares_interactive_preview(text: str | None) -> bool:
@@ -860,8 +909,12 @@ def detect_capabilities(
             if re.search(rf"^{target}\s*:", text, re.MULTILINE):
                 mark(fact, f"Makefile {target} target")
 
+    if ".lemoncrow/environment.toml" in names and _declares_previews(reader(".lemoncrow/environment.toml")):
+        mark("previewable_app", ".lemoncrow/environment.toml previews")
     if ".lemoncrow/review.yaml" in names and _declares_interactive_preview(reader(".lemoncrow/review.yaml")):
         mark("previewable_app", ".lemoncrow/review.yaml interactive_preview")
+    if ".lemoncrow/review.yaml" in names and _declares_render_root(reader(".lemoncrow/review.yaml")):
+        mark("web_app", ".lemoncrow/review.yaml render.static_root")
     if any(path in names for path in ("index.html", "public/index.html", "src/index.html")):
         mark("web_app", "index.html")
     if any(row.applicability != "not_applicable" or row.required for row in browser_scenarios):

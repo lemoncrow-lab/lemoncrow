@@ -33,7 +33,6 @@ def test_status_script_uses_current_host_artifacts(tmp_path: Path) -> None:
 
     _touch(tmp_path / ".config/opencode/opencode.json", '{"mcp":{"lc":{"command":["lemoncrow"]}}}\n')
     _touch(tmp_path / ".lemoncrow/bin/pi-host", "#!/bin/sh\n", executable=True)
-    _touch(tmp_path / ".lemoncrow/bin/lemoncode-host", "#!/bin/sh\n", executable=True)
     _touch(tmp_path / ".cursor/mcp.json", '{"mcpServers":{"lemoncrow":{"command":"lc"}}}\n')
 
     env = os.environ.copy()
@@ -58,7 +57,7 @@ def test_status_script_uses_current_host_artifacts(tmp_path: Path) -> None:
     assert status["codex"] == "installed"
     assert status["opencode"] == "configured, CLI not found"
     assert status["pi"] == "installed"
-    assert status["lemoncode"] == "installed"
+    assert "lemoncode" not in status
     assert status["cursor"] == "installed"
 
     subprocess.run(
@@ -71,5 +70,5 @@ def test_status_script_uses_current_host_artifacts(tmp_path: Path) -> None:
         timeout=30,
     )
     cached = json.loads((tmp_path / ".lemoncrow/hosts/status.json").read_text(encoding="utf-8"))
-    for host in ("claude", "codex", "opencode", "pi", "lemoncode", "cursor"):
+    for host in ("claude", "codex", "opencode", "pi", "cursor"):
         assert cached[host] == "installed"

@@ -95,13 +95,13 @@ describe("ServiceReviewPreview", () => {
       <ServiceReviewPreview
         surface={surface}
         mode="preview"
-        run={{ error: "Runtime compose-runtime is not pinned to Snapshot rrv-9" }}
+        run={{ error: "Runtime compose-runtime is not pinned to revision rrv-9" }}
         running
         onRun={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("Runtime compose-runtime is not pinned to Snapshot rrv-9")).toBeTruthy();
+    expect(screen.getByText("Runtime compose-runtime is not pinned to revision rrv-9")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Running…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Not run yet")).toBeTruthy();
   });
@@ -123,7 +123,7 @@ describe("ServiceReviewPreview", () => {
     expect((screen.getByRole("button", { name: "Run check" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("keeps service metadata reviewable without a Snapshot-pinned runtime", () => {
+  it("keeps service metadata reviewable without a revision-pinned runtime", () => {
     render(
       <ServiceReviewPreview
         surface={{ ...surface, runtime: "", metadata: {}, title: "" }}
@@ -134,7 +134,7 @@ describe("ServiceReviewPreview", () => {
 
     expect(screen.getByText("app-stack:api")).toBeTruthy();
     expect(screen.getByText("no runtime bound")).toBeTruthy();
-    expect(screen.getByText(/Execution needs a Snapshot-pinned runtime/)).toBeTruthy();
+    expect(screen.getByText(/Execution needs a revision-pinned runtime/)).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
 });

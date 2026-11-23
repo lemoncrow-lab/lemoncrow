@@ -71,7 +71,7 @@ _RESOLVED_MARKER = re.compile(r"<!-- lemoncrow:resolved (\S+) -->")
 _THREADS_QUERY: Final[str] = (
     "query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){"
     "pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}"
-    "nodes{id isResolved comments(first:1){nodes{databaseId}}}}}}}"
+    "nodes{id isResolved comments(first:1){nodes{fullDatabaseId}}}}}}}"
 )
 #: Every review thread with who resolved it, its comments (author, association) and the reactions on them: what G9
 #: reads to learn from people. Pages of 100 threads; a thread past 30 comments or a comment past 30 reactions is
@@ -79,7 +79,7 @@ _THREADS_QUERY: Final[str] = (
 _FEEDBACK_QUERY: Final[str] = (
     "query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){"
     "pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}"
-    "nodes{id isResolved resolvedBy{login __typename} comments(first:30){nodes{databaseId body "
+    "nodes{id isResolved resolvedBy{login __typename} comments(first:30){nodes{fullDatabaseId body "
     "author{login __typename} authorAssociation reactions(first:30){nodes{content user{login}}}}}}}}}}"
 )
 _LOGIN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
@@ -90,12 +90,20 @@ def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _comment_id(comment: dict[str, Any]) -> int | None:
+    """A review comment's REST id. ``fullDatabaseId`` is a ``BigInt``, which GraphQL sends as a string; the older
+    ``databaseId`` is a 32-bit ``Int`` that GitHub deprecated because comment ids no longer fit it."""
+
+    value = comment.get("fullDatabaseId")
+    return int(value) if isinstance(value, str) and value.isascii() and value.isdigit() else None
+
+
 def _feedback_thread(node: dict[str, Any]) -> FeedbackThread | None:
     comments: list[ThreadComment] = []
     for row in _mapping(node.get("comments")).get("nodes") or ():
         item = _mapping(row)
-        identity = item.get("databaseId")
-        if not isinstance(identity, int) or isinstance(identity, bool):
+        identity = _comment_id(item)
+        if identity is None:
             continue
         author = _mapping(item.get("author"))
         reactions = tuple(
@@ -243,6 +251,10 @@ class PullFacts:
     body: str = ""
     #: A closed pull request that was merged (GitHub reports ``state: closed`` for both).
     merged: bool = False
+    #: The base branch's tip as GitHub reports it now, and the branch's name: what a commit the summary's state names
+    #: as the base is checked against (the state is not signed).
+    base_sha: str = ""
+    base_ref: str = ""
 
     @property
     def open(self) -> bool:
@@ -449,6 +461,8 @@ class BotGitHub:
             author_association=str(pull.get("author_association") or "").upper(),
             body=str(pull.get("body") or ""),
             merged=pull.get("merged") is True,
+            base_sha=str(_mapping(pull.get("base")).get("sha") or ""),
+            base_ref=str(_mapping(pull.get("base")).get("ref") or ""),
         )
 
     def issue(self, number: int) -> dict[str, Any]:
@@ -921,8 +935,8 @@ class BotGitHub:
             for node in page.get("nodes") or ():
                 nodes = _mapping(_mapping(node).get("comments")).get("nodes") or ()
                 first = _mapping(nodes[0]) if nodes else {}
-                database_id = first.get("databaseId")
-                if isinstance(database_id, int) and isinstance(_mapping(node).get("id"), str):
+                database_id = _comment_id(first)
+                if database_id is not None and isinstance(_mapping(node).get("id"), str):
                     threads[database_id] = (str(node["id"]), _mapping(node).get("isResolved") is True)
             info = _mapping(page.get("pageInfo"))
             if info.get("hasNextPage") is not True or not isinstance(info.get("endCursor"), str):

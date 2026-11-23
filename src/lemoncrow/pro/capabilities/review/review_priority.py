@@ -5,10 +5,12 @@ Spec: docs/planning/2026-09-28-evidence-backed-review-design.md §7.
 Tier membership comes only from records LemonCrow can point to: human
 request-change state, re-review state, feedback anchor state, recorded check
 results on the target's file, plan questions built from author guidance and
-linked evidence, and parser proofs for Routine. Ranker descriptors -- churn,
-caller counts, centrality, "public contract changed" -- are context. They may
-order work inside a tier through the legacy scalar rank; they never establish
-a tier.
+linked evidence, parser proofs for Routine, and the listed outside files that
+still use a changed (not added) symbol (``wide_reach``), and a safeguard the
+diff removes or narrows (``removed_safeguard``). Ranker descriptors --
+churn, caller counts, centrality, "public contract changed" -- are context.
+They may order work inside a tier through the legacy scalar rank; they never
+establish a tier.
 
 This module is pure. It never reads a store and never writes a mark.
 """
@@ -17,9 +19,12 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+from lemoncrow.pro.capabilities.review.answer_category import effective_answer
 
 if TYPE_CHECKING:
+    from lemoncrow.pro.capabilities.review.answer_category import Answer
     from lemoncrow.pro.capabilities.review.routine import RoutineProof
     from lemoncrow.pro.capabilities.review.targets import AttentionLevel, ReviewTarget
 
@@ -49,10 +54,18 @@ _REASON_TIER: dict[str, int] = {
     # AI-raised questions (review/synthesis.py) never exceed tier 3.
     "author_observation_mismatch": TIER_REVIEW_FIRST,
     "implementation_choice_unrecorded": TIER_REVIEW_FIRST,
+    # A changed symbol that files outside the change still call: its effect
+    # reaches code the diff does not show.
+    "wide_reach": TIER_REVIEW_FIRST,
+    # A changed part whose diff removes or narrows a raise, assert or early
+    # return (review/change_risk.py): a High risk fact, read from the diff.
+    "removed_safeguard": TIER_REVIEW_FIRST,
     "fingerprint_unavailable": TIER_UNDERSTAND,
     "check_unsettled": TIER_UNDERSTAND,
     "comment_open": TIER_UNDERSTAND,
     "unreviewed": TIER_UNDERSTAND,
+    # "Decide later": the reviewer set the part aside. It is not a judgment, so it stays outstanding.
+    "left_for_later": TIER_UNDERSTAND,
     # Generated/vendor is context, never permission to hide (spec §4.4).
     "generated_or_vendor": TIER_UNDERSTAND,
     "routine_comment_only": TIER_ROUTINE,
@@ -134,6 +147,10 @@ class TargetPriority:
     outstanding: bool = True
     position: int = 0
     reasons: tuple[QueueReason, ...] = ()
+    #: The target's own reasons (risk facts, policy, plan questions, failed or orphaned evidence) put it in
+    #: Review first whenever it is outstanding. A judgment never clears it, so the Brief's Understanding
+    #: keeps counting a part after it is marked; the reviewer's own objection or a re-review never sets it.
+    review_first: bool = False
 
 
 def attention_for_tier(tier: int) -> PriorityAttention:
@@ -201,6 +218,8 @@ def _reasons(
     plain_open = counts.open - counts.addressed_needs_rereview
     if plain_open > 0 and not requested:
         out.append(QueueReason("comment_open", _count(plain_open, "open comment", "open comments")))
+    if target.state == "later":
+        out.append(QueueReason("left_for_later", "You left this for later"))
     if target.state == "unreviewed":
         if proof is not None:
             out.append(QueueReason(f"routine_{proof.rule}", proof.detail))
@@ -239,6 +258,7 @@ def assign_review_priority(
     question_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
     narrative: Mapping[str, int] | None = None,
     policy_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
+    ai_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
 ) -> tuple[ReviewTarget, ...]:
     """Return *targets* in canonical order, each carrying its ``priority``.
 
@@ -259,6 +279,10 @@ def assign_review_priority(
     ``review_last_policy`` target sorts to the end of its own tier and never
     crosses a tier boundary.
 
+    ``ai_reasons`` names the reasons in ``question_reasons`` / ``policy_reasons`` that an AI raised (AI
+    questions, AI findings). They order and tier the queue as before, but the part's answer category
+    ignores them: AI can never raise or lower how a part is asked of a person.
+
     ``attention_level`` is rewritten for legacy readers: tiers 1-3 are
     ``high``, tier 5 is ``mechanical``, everything else ``normal``.
     """
@@ -266,6 +290,7 @@ def assign_review_priority(
     proofs = routine_proofs or {}
     questions = question_reasons or {}
     policies = policy_reasons or {}
+    from_ai = ai_reasons or {}
     story = narrative or {}
     requested = set(request_change_target_ids)
     first_by_path: dict[str, ReviewTarget] = {}
@@ -277,7 +302,9 @@ def assign_review_priority(
             first_by_path[target.path] = target
     requested.update(target.target_id for target in first_by_path.values())
 
-    staged: list[tuple[tuple[int, int, int, int, int, int, str, int, str], ReviewTarget, TargetPriority]] = []
+    staged: list[
+        tuple[tuple[int, int, int, int, int, int, int, str, int, str], ReviewTarget, TargetPriority, Answer]
+    ] = []
     for target in targets:
         # ``attention_level`` may already carry a previous assignment's "high";
         # the structural level is what derive_review_targets classified, so
@@ -293,11 +320,35 @@ def assign_review_priority(
             )
         )
         tier = min(_REASON_TIER[reason.code] for reason in reasons)
+        # The same reasons on the part as if nobody had judged it yet: Review first membership, not position.
+        unjudged = _reasons(
+            replace(base, state="unreviewed", changed_since_mark=False),
+            request_change_open=False,
+            questions=questions.get(target.target_id, ()),
+            policy=policies.get(target.target_id, ()),
+        )
+        review_first = any(_REASON_TIER[reason.code] == TIER_REVIEW_FIRST for reason in unjudged)
+        # The answer reads the same facts without what an AI raised, so it is the same with AI on or off.
+        ai_here = from_ai.get(target.target_id, ())
+        if ai_here:
+            checked = _reasons(
+                replace(base, state="unreviewed", changed_since_mark=False),
+                request_change_open=False,
+                questions=[r for r in questions.get(target.target_id, ()) if r not in ai_here],
+                policy=[r for r in policies.get(target.target_id, ()) if r not in ai_here],
+            )
+            answer_review_first = any(_REASON_TIER[reason.code] == TIER_REVIEW_FIRST for reason in checked)
+        else:
+            answer_review_first = review_first
         rank = target.attention_rank
         key = (
             tier,
-            1 if any(reason.code == "review_last_policy" for reason in reasons) else 0,
+            # A part the reviewer left for later goes to the end of its tier, as does ``priority: last``.
+            1 if target.state == "later" or any(reason.code == "review_last_policy" for reason in reasons) else 0,
             _sub_order(tier, reasons),
+            # Inside one class, more independent reasons to look first sort earlier: an auth path that
+            # outside files also call comes before code that outside files only call.
+            -len({reason.code for reason in reasons if _REASON_TIER[reason.code] == tier == TIER_REVIEW_FIRST}),
             story.get(target.target_id, _UNNARRATED),
             1 if rank <= 0 else 0,
             rank,
@@ -310,16 +361,24 @@ def assign_review_priority(
             attention=attention_for_tier(tier),
             outstanding=tier < TIER_DONE,
             reasons=reasons,
+            review_first=review_first,
         )
-        staged.append((key, base, priority))
+        proof = proofs.get(target.target_id)
+        answer = effective_answer(
+            target.structural,
+            review_first=answer_review_first,
+            routine_rule=proof.rule if proof is not None else "",
+        )
+        staged.append((key, base, priority, answer))
     staged.sort(key=lambda row: row[0])
     return tuple(
         replace(
             base,
             attention_level=_legacy_level(priority.tier),
             priority=replace(priority, position=index),
+            answer=answer,
         )
-        for index, (_, base, priority) in enumerate(staged)
+        for index, (_, base, priority, answer) in enumerate(staged)
     )
 
 
@@ -330,6 +389,7 @@ def reprioritize(
     question_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
     narrative: Mapping[str, int] | None = None,
     policy_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
+    ai_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
 ) -> tuple[ReviewTarget, ...]:
     """Re-rank already-prioritized targets with proofs, plan questions, narrative and policy.
 
@@ -350,6 +410,7 @@ def reprioritize(
         question_reasons=question_reasons,
         narrative=narrative,
         policy_reasons=policy_reasons,
+        ai_reasons=ai_reasons,
     )
 
 
@@ -378,6 +439,60 @@ def pinned_ranks(generations: Sequence[tuple[str, Mapping[str, int]]], started_a
     return out
 
 
+class OutsideReach(Protocol):
+    """``consumer_inventory.OutsideReach``, structurally: target derivation must not import the inventory."""
+
+    @property
+    def change(self) -> str: ...
+    @property
+    def files(self) -> tuple[str, ...]: ...
+    @property
+    def calls_only(self) -> bool: ...
+    @property
+    def at_least(self) -> bool: ...
+
+
+def reach_phrase(reach: OutsideReach) -> str:
+    """``called from 3 files outside this change``; ``""`` when no non-test file uses the symbol."""
+
+    if not reach.files:
+        return ""
+    verb = "called from" if reach.calls_only else "used in"
+    count = f"at least {len(reach.files)}" if reach.at_least else str(len(reach.files))
+    return f"{verb} {count} {'file' if len(reach.files) == 1 else 'files'} outside this change"
+
+
+def wide_reach_reasons(reach: Mapping[str, OutsideReach]) -> dict[str, list[QueueReason]]:
+    """``wide_reach`` per target whose modified or deleted symbol outside non-test files still use.
+
+    An added symbol is excluded: nothing outside the change can depend on its
+    old behavior. Test files alone do not widen reach.
+    """
+
+    out: dict[str, list[QueueReason]] = {}
+    for target_id, row in reach.items():
+        phrase = reach_phrase(row)
+        if phrase and row.change != "added":
+            out[target_id] = [QueueReason("wide_reach", phrase[0].upper() + phrase[1:])]
+    return out
+
+
+def safeguard_reasons(found: Mapping[str, Sequence[str]]) -> dict[str, list[QueueReason]]:
+    """``removed_safeguard`` per target from ``change_risk.removed_safeguards`` phrases.
+
+    The reason is the first phrase in plain words, like every other reason:
+    ``No longer rejects a percent over 100 (check narrowed from percent < 0 or
+    percent > 100 to percent < 0)``.
+    """
+
+    out: dict[str, list[QueueReason]] = {}
+    for target_id, phrases in found.items():
+        if phrases:
+            text = phrases[0].replace("`", "")
+            out[target_id] = [QueueReason("removed_safeguard", text[:1].upper() + text[1:])]
+    return out
+
+
 def priority_payload(priority: TargetPriority) -> dict[str, Any]:
     return {
         "version": PRIORITY_VERSION,
@@ -386,6 +501,7 @@ def priority_payload(priority: TargetPriority) -> dict[str, Any]:
         "outstanding": priority.outstanding,
         "position": priority.position,
         "reasons": [{"code": reason.code, "detail": reason.detail} for reason in priority.reasons],
+        "review_first": priority.review_first,
     }
 
 
@@ -407,5 +523,8 @@ __all__ = [
     "pinned_ranks",
     "priority_payload",
     "queue_class",
+    "reach_phrase",
     "reprioritize",
+    "safeguard_reasons",
+    "wide_reach_reasons",
 ]

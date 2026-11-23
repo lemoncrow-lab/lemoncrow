@@ -124,8 +124,12 @@ def hosted_status(review: str, as_json: bool) -> None:
 @hosted_group.command("queue")
 @click.argument("review")
 @click.argument("kind", type=click.Choice(["mark", "comment", "reply", "outcome", "request_complete"]))
-@click.option("--unit-key", default=None, help="mark: the target unit.")
-@click.option("--state", default=None, help="mark: reviewed, needs_changes or unreviewed.")
+@click.option("--unit-key", default=None, help="mark: the part's key.")
+@click.option(
+    "--state",
+    default=None,
+    help="mark: reviewed, needs_changes or unreviewed ('later' is not available on hosted reviews yet).",
+)
 @click.option("--path", default=None, help="comment: the file.")
 @click.option("--start-line", type=int, default=None, help="comment: first line (omit for a file comment).")
 @click.option("--end-line", type=int, default=None, help="comment: last line.")

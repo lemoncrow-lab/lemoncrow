@@ -44,7 +44,7 @@ _DEFAULT_PRICING: dict[str, float] = {
 # Only responses to these hosts are counted (skips telemetry/other traffic).
 # Hosts whose responses carry model usage. Beyond Anthropic/Bedrock, any
 # OpenAI-compatible inference endpoint a driver may use (OpenCode Zen for the
-# lemoncode driver, OpenAI/OpenRouter/Groq for pinned-provider runs) -- the
+# inference endpoints, OpenAI/OpenRouter/Groq for pinned-provider runs) -- the
 # usage parser reads both payload shapes.
 _MODEL_HOST_HINTS = (
     "bedrock-runtime",

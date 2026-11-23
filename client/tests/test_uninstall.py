@@ -257,6 +257,25 @@ def test_only_a_hook_with_our_marker_is_removed_and_a_dry_run_lists_every_one(bo
     assert replaced.read_text() == "#!/bin/sh\necho my own check\n"
 
 
+def test_a_verify_hook_goes_with_lc_and_stays_with_review_only(box: dict[str, Path]) -> None:
+    """``lc verify hook install`` belongs to Workspaces: `review` keeps it and its record, `all` removes both."""
+
+    verify_hook = box["tmp"] / "gated" / ".git" / "hooks" / "pre-push"
+    verify_hook.parent.mkdir(parents=True)
+    verify_hook.write_text('#!/bin/sh\n# lemoncrow-verify-hook v1\nexec lc verify --pre-push "$@"\n')
+    with (box["state"] / "installed-hooks.txt").open("a") as record:
+        record.write(f"{verify_hook}\n")
+
+    assert run(["review", "--yes"], box)[0] == 0
+    assert verify_hook.exists() and (box["state"] / "installed-hooks.txt").exists()
+    assert not box["hook"].exists()
+
+    _, out = run(["all", "--dry-run"], box)
+    assert "A git hook written by lc verify hook install" in out and str(verify_hook) in out
+    assert run(["all", "--yes"], box)[0] == 0
+    assert not verify_hook.exists() and not (box["state"] / "installed-hooks.txt").exists()
+
+
 def test_a_hook_in_the_repository_you_are_in_is_found_without_being_listed(box: dict[str, Path]) -> None:
     (box["state"] / "installed-hooks.txt").unlink()
     assert run(["review", "--yes"], box)[0] == 0
@@ -315,7 +334,7 @@ def test_review_alone_keeps_runtime_working(box: dict[str, Path]) -> None:
     called = box["tmp"] / "wrapper.log"
     wrapper.write_text(f'#!/bin/sh\necho "$@" >> {called}\n')
     _, out = run(["review", "--dry-run"], box)
-    assert "Review: its client and engine, and its commands (Runtime keeps working)" in out
+    assert "Review: its client and engine, and its commands (Workspaces keeps working)" in out
     for kept in ("shell setup file", "installer's scripts", "The lines the installer added", "Your settings"):
         assert kept not in out, kept  # Runtime still needs them
     assert run(["review", "--yes"], box)[0] == 0
@@ -335,7 +354,7 @@ def test_all_with_runtime_removes_it_first_through_its_own_script(box: dict[str,
     called = box["tmp"] / "wrapper.log"
     wrapper.write_text(f'#!/bin/sh\necho "$@" >> {called}\n')
     _, out = run(["all", "--dry-run"], box)
-    assert "Runtime: its coding-agent entries (claude, codex, opencode, pi) and its client" in out
+    assert "Workspaces: its coding-agent entries (claude, codex, opencode, pi) and its client" in out
     assert not called.exists()
     assert run(["all", "--yes"], box)[0] == 0
     assert called.read_text().strip() == "runtime" and not (box["state"] / "install").exists()
@@ -351,7 +370,7 @@ def test_nothing_installed_says_so_and_a_bad_command_line_is_usage(box: dict[str
     assert code == 0 and "Nothing to remove" in sink.getvalue()
     for bad in ([], ["review", "--force"], ["everything"]):
         sink = io.StringIO()
-        assert uninstall.main(bad, sink) == 2 and "usage: lc uninstall review|runtime|all" in sink.getvalue()
+        assert uninstall.main(bad, sink) == 2 and "usage: lc uninstall review|workspaces|all" in sink.getvalue()
 
 
 def test_the_client_command_goes_through_it_and_runtime_still_uses_the_script(
@@ -365,6 +384,9 @@ def test_the_client_command_goes_through_it_and_runtime_still_uses_the_script(
     script.write_text("#!/bin/sh\nprintf 'script:%s\\n' \"$*\"\n")
     sink = io.StringIO()
     assert cli.main(["uninstall", "runtime", "--dry-run"], sink) == 0
+    assert sink.getvalue() == "script:runtime --dry-run\n"
+    sink = io.StringIO()  # workspaces is the new name of the same product
+    assert cli.main(["uninstall", "workspaces", "--dry-run"], sink) == 0
     assert sink.getvalue() == "script:runtime --dry-run\n"
 
 

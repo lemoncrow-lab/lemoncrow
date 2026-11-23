@@ -81,3 +81,13 @@ it("refetches the summary only when the feed changes or it ages out", async () =
   await act(() => vi.advanceTimersByTimeAsync(30_000));
   expect(api.getTelemetrySummary).toHaveBeenCalledTimes(3);
 });
+
+it("labels every day of a week-long timeline, skipping none", async () => {
+  const { axisTicks } = await import("./Telemetry");
+  const start = new Date(2026, 10, 9, 15, 30).getTime() / 1000;
+  const end = new Date(2026, 10, 16, 15, 30).getTime() / 1000;
+  const days = axisTicks(start, end).map((ts) => new Date(ts * 1000).getDate());
+  expect(days).toEqual([10, 11, 12, 13, 14, 15, 16]);
+  // A short range keeps evenly spaced time labels.
+  expect(axisTicks(0, 3600)).toHaveLength(7);
+});

@@ -48,7 +48,7 @@ export default function ScreenshotEvidenceCompare({ before, after }: { before: R
       ) : error ? (
         <div className="border border-amber-950/70 bg-amber-950/10 px-2.5 py-2 text-caption text-amber-300">Screenshot comparison unavailable: {error}</div>
       ) : (
-        <div className="border border-border px-2.5 py-3 text-caption text-muted-foreground">Loading exact Snapshot screenshots…</div>
+        <div className="border border-border px-2.5 py-3 text-caption text-muted-foreground">Loading exact revision screenshots…</div>
       )}
     </section>
   );

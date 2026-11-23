@@ -353,7 +353,9 @@ export function decorateDiffAccessibility(node: HTMLElement, path: string, phase
       continue;
     }
     seen.add(key);
-    const hidden = separator.querySelector("[data-unmodified-lines]")?.textContent?.trim() || "unchanged lines";
+    const label = separator.querySelector<HTMLElement>("[data-unmodified-lines]");
+    // The stream rewrites the visible text as an action; speak what is hidden.
+    const hidden = label?.dataset.lcHiddenDescription || label?.textContent?.trim() || "unchanged lines";
     const verb = direction === "up" ? "Show more above" : direction === "down" ? "Show more below" : "Show";
     setAttr(button, "tabindex", "0");
     setAttr(button, "aria-label", `${verb}: ${hidden}`);

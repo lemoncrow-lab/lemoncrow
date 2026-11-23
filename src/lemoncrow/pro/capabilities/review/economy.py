@@ -31,7 +31,7 @@ SavedReason = Literal["base_shared", "carried_forward", "ci_reuse", "impact_sele
 MEASURED_REASONS: Final[tuple[str, ...]] = ("base_shared", "carried_forward")
 _LABELS: Final[Mapping[str, str]] = {
     "base_shared": "Base result shared from another Review",
-    "carried_forward": "Unchanged since an earlier Snapshot",
+    "carried_forward": "Unchanged since an earlier revision",
     "ci_reuse": "Satisfied by an equivalent CI result",
     "impact_selection": "Tests the change cannot affect",
 }

@@ -111,6 +111,7 @@ def test_claude_review_ask_uses_partial_stream_json(monkeypatch: pytest.MonkeyPa
     assert isinstance(command, list)
     assert command[command.index("--output-format") + 1] == "stream-json"
     assert "--include-partial-messages" in command
+    assert "--verbose" in command  # `claude -p` refuses stream-json without it
 
 
 def test_answer_ask_streams_generic_provider_body_without_json_framing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -324,7 +325,7 @@ def test_answer_ask_redacts_server_snapshot_paths(monkeypatch: pytest.MonkeyPatc
     def fake_answer(**_kwargs):
         return {
             "intent": "question",
-            "body": (f"[README.md:3]({project_root}/README.md:3) changed; " f"also checked {project_root}/src/app.py."),
+            "body": (f"[README.md:3]({project_root}/README.md:3) changed; also checked {project_root}/src/app.py."),
             "handoff_instruction": "",
         }
 
@@ -433,11 +434,9 @@ def test_opencode_review_ask_uses_ollama_and_lemoncrow_mcp(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from lemoncrow.core.foundation import managed_host
-
-    host = tmp_path / "lemoncode-host"
+    host = tmp_path / "opencode"
     host.write_text("host")
-    monkeypatch.setattr(managed_host, "resolve_managed_host_binary", lambda _root: str(host))
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: str(host) if name == "opencode" else None)
 
     class Config:
         def get(self, provider: str, key: str) -> str | None:
@@ -470,7 +469,7 @@ def test_opencode_review_ask_uses_ollama_and_lemoncrow_mcp(
     command = captured["command"]
     assert isinstance(command, list)
     assert command[0] == str(host)
-    assert "--pure" in command
+    assert "--pure" not in command
     assert "ollama/qwen3.8:27b" in command
     assert "--format" in command and "json" in command
     env = captured["env"]
@@ -494,11 +493,9 @@ def test_opencode_review_ask_uses_native_model_catalog_and_existing_auth(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from lemoncrow.core.foundation import managed_host
-
-    host = tmp_path / "lemoncode-host"
+    host = tmp_path / "opencode"
     host.write_text("host")
-    monkeypatch.setattr(managed_host, "resolve_managed_host_binary", lambda _root: str(host))
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: str(host) if name == "opencode" else None)
 
     xdg_data = tmp_path / "xdg-data"
     auth_source = xdg_data / "opencode" / "auth.json"
@@ -539,9 +536,6 @@ def test_opencode_review_ask_uses_native_model_catalog_and_existing_auth(
     assert "opencode/claude-haiku-4-5" in command
     env = captured["env"]
     assert isinstance(env, dict)
-    assert env["LEMONCODE_CLI_NAME"] == "opencode"
-    assert env["LEMONCODE_PRODUCT_NAME"] == "OpenCode"
-    assert env["LEMONCODE_STORAGE_NAME"] == "opencode"
     config = json.loads(str(env["OPENCODE_CONFIG_CONTENT"]))
     assert config["model"] == "opencode/claude-haiku-4-5"
     assert config["enabled_providers"] == ["opencode"]

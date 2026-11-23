@@ -665,7 +665,7 @@ def test_triage_focus_contract() -> None:
 
     def earlier() -> Any:
         yield ((), (RUNTIME, VULNERABILITY_PRODUCER))
-        raise AssertionError("an older Snapshot was computed after every producer had run")
+        raise AssertionError("an older revision was computed after every producer had run")
 
     assert stale_severity_signals((), (), earlier(), producers=(RUNTIME, VULNERABILITY_PRODUCER)) == ()
     assert triage(()).priority == "low"

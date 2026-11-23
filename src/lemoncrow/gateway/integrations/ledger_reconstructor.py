@@ -118,8 +118,8 @@ class LedgerReconstructor:
                     input_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                     output_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
 
-            # OpenCode / LemonCode usage (best effort; identical shapes)
-            elif source in ("opencode", "lemoncode"):
+            # OpenCode usage (best effort; identical shapes)
+            elif source in ("opencode",):
                 data = ev.get("data", {})
                 if "usage" in data:
                     usage = data.get("usage", {})

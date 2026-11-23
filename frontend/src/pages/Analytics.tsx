@@ -4,10 +4,18 @@ import {
   api,
   type GranularToolUsage,
   type AnalyticsDashboard,
+  type SavingsSummaryV2,
 } from "../api";
 import { EmptyState, MetricCard, ToggleGroup } from "../components/WorkbenchUI";
-import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { ServerUnreachable, describeError, isUnreachable } from "../components/ServerUnreachable";
+import { fmtPct, fmtTok, fmtUsd, fmtUsdRate } from "../lib/format";
+import { domainLabel, toolLabel } from "../lib/labels";
+import { REDUCTION_HINT, REDUCTION_LABEL, SAVED_LABEL, savingsHeadline } from "../lib/savings";
 import { useTimeRange } from "../lib/TimeRangeContext";
+
+function sessions(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? "session" : "sessions"}`;
+}
 
 const TIMELINE_BREAKDOWN_OPTIONS = [
   { value: "daily", label: "Daily" },
@@ -69,9 +77,11 @@ function CompactLeaderboard({
         <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
           {title}
         </div>
-        <div className="text-caption font-mono text-muted-foreground">
-          Top {rows.length}
-        </div>
+        {rows.length > 0 && (
+          <div className="text-caption font-mono text-muted-foreground">
+            Top {rows.length}
+          </div>
+        )}
       </div>
 
       {rows.length ? (
@@ -240,7 +250,7 @@ function SpendTimelineChart({
 
   return (
     <section className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
             {breakdown === "hourly" ? "Hourly" : "Daily"} Activity
@@ -263,9 +273,10 @@ function SpendTimelineChart({
 
       <div
         className={`flex items-end overflow-x-auto pb-2 ${
-          isHourly ? "gap-px" : "gap-2"
+          isHourly ? "gap-px" : "gap-1 sm:gap-2"
         }`}
       >
+        {/* A week of daily bars fits a 390px phone (7 x 40px + 6 x 4px inside the card); longer windows scroll. */}
         {buckets.map((d) => {
           const h = Math.max(6, (d.cost / maxCost) * (isHourly ? 72 : 112));
           return (
@@ -274,13 +285,13 @@ function SpendTimelineChart({
               className={`flex flex-col items-center ${
                 isHourly
                   ? "min-w-[34px] flex-1 gap-1"
-                  : "min-w-[52px] flex-1 gap-2"
+                  : "min-w-[40px] flex-1 gap-2 sm:min-w-[52px]"
               }`}
               title={`${d.date}: ${timelineValueLabel(d.cost)} · ${d.sessions} sessions`}
             >
               <div
                 className={`max-w-full truncate font-mono ${
-                  d.cost > 0 ? "text-emerald-300" : "text-muted-foreground"
+                  d.cost > 0 ? "text-ok" : "text-muted-foreground"
                 } ${isHourly ? "text-caption" : "text-caption"}`}
               >
                 {timelineValueLabel(d.cost)}
@@ -311,7 +322,7 @@ function SpendTimelineChart({
           <div className="text-caption uppercase text-muted-foreground mb-0.5">
             Total
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-heading font-mono text-ok">
             ${totalCost.toFixed(2)}
           </div>
         </div>
@@ -319,7 +330,7 @@ function SpendTimelineChart({
           <div className="text-caption uppercase text-muted-foreground mb-0.5">
             Avg/Bucket
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-heading font-mono text-ok">
             ${(totalCost / buckets.length).toFixed(2)}
           </div>
         </div>
@@ -335,9 +346,11 @@ export default function Analytics({
 } = {}) {
   const [data, setData] = useState<GranularToolUsage[]>([]);
   const [dashboard, setDashboard] = useState<AnalyticsDashboard | null>(null);
+  const [savings, setSavings] = useState<SavingsSummaryV2 | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashLoading, setDashLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
   const { days, range } = useTimeRange();
   const [timelineBreakdown, setTimelineBreakdown] =
     useState<TimelineBreakdownValue>("daily");
@@ -357,7 +370,7 @@ export default function Analytics({
         if (!cancelled) setData(rows);
       })
       .catch((e) => {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(e);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -375,10 +388,21 @@ export default function Analytics({
       .finally(() => {
         if (!cancelled) setDashLoading(false);
       });
+
+    // Saved and cost reduction come from the savings summary, the one source Home and the Savings sheet read.
+    api
+      .savingsSummary(days)
+      .then((next) => {
+        if (!cancelled) setSavings(next);
+      })
+      .catch(() => {
+        if (!cancelled) setSavings(null);
+      });
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [days, attempt]);
+  const headline = savings ? savingsHeadline(savings) : null;
 
   const costDriversData = useMemo(() => {
     const toolCosts = defaultdict_int();
@@ -406,7 +430,7 @@ export default function Analytics({
   const topHostRows = useMemo<CompactLeaderboardRow[]>(() => {
     return (dashboard?.by_host ?? []).slice(0, 5).map((row) => ({
       label: row.host,
-      sublabel: `${row.sessions.toLocaleString()} sessions`,
+      sublabel: sessions(row.sessions),
       value: fmtUsd(row.cost),
       detail: `${fmtPct(row.cache_pct)} cache`,
       barValue: row.cost,
@@ -418,24 +442,24 @@ export default function Analytics({
       label: row.model || "—",
       sublabel: `${(row.input_tokens / 1_000_000).toFixed(2)}M in · ${(row.output_tokens / 1_000_000).toFixed(2)}M out`,
       value: fmtUsd(row.cost),
-      detail: `${row.sessions.toLocaleString()} sessions · ${fmtPct(row.cache_pct)} cache`,
+      detail: `${sessions(row.sessions)} · ${fmtPct(row.cache_pct)} cache`,
       barValue: row.cost,
     }));
   }, [dashboard]);
 
   const topDomainRows = useMemo<CompactLeaderboardRow[]>(() => {
     return (dashboard?.by_domain ?? []).slice(0, 5).map((row) => ({
-      label: row.domain,
-      sublabel: `${row.sessions.toLocaleString()} sessions`,
+      label: domainLabel(row.domain),
+      sublabel: sessions(row.sessions),
       value: fmtUsd(row.cost),
-      detail: `${fmtUsd(row.avg_cost)}/session`,
+      detail: `${fmtUsdRate(row.avg_cost)}/session`,
       barValue: row.cost,
     }));
   }, [dashboard]);
 
   const topToolRows = useMemo<CompactLeaderboardRow[]>(() => {
     return costDriversData.slice(0, 5).map((row) => ({
-      label: row.tool,
+      label: toolLabel(row.tool),
       sublabel: `${row.calls.toLocaleString()} calls`,
       value: fmtUsd(row.cost),
       detail: `${fmtTok(row.tokens)} out · $${row.costPerCall.toFixed(4)}/call`,
@@ -444,9 +468,10 @@ export default function Analytics({
   }, [costDriversData]);
 
   if (err) {
+    if (isUnreachable(err)) return <ServerUnreachable onRetry={() => setAttempt((n) => n + 1)} />;
     return (
-      <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">
-        {err}
+      <div role="alert" className="rounded-lg border border-p0-line bg-p0-bg px-3 py-2 text-body leading-6 text-p0">
+        {describeError(err)}
       </div>
     );
   }
@@ -476,12 +501,8 @@ export default function Analytics({
               aria-label={onInspectSavings ? "Open savings evidence" : undefined}
             >
               <MetricCard
-                label="Saved"
-                value={
-                  dashboard
-                    ? fmtUsd(dashboard.summary.total_lemoncrow_savings_usd ?? 0)
-                    : "—"
-                }
+                label={SAVED_LABEL}
+                value={headline ? fmtUsd(headline.savedUsd) : "—"}
                 detail={onInspectSavings ? "View evidence →" : undefined}
                 tone="success"
               />
@@ -492,22 +513,11 @@ export default function Analytics({
               disabled={!onInspectSavings}
               className="min-w-0 text-left disabled:cursor-default"
               aria-label={onInspectSavings ? "Open reduction evidence" : undefined}
+              title={REDUCTION_HINT}
             >
               <MetricCard
-                label="Reduction"
-                value={
-                  dashboard
-                    ? (() => {
-                        const cost = dashboard.summary.total_cost;
-                        const saved =
-                          dashboard.summary.total_lemoncrow_savings_usd ?? 0;
-                        const wouldHaveCost = cost + saved;
-                        return wouldHaveCost > 0
-                          ? `${((saved / wouldHaveCost) * 100).toFixed(1)}%`
-                          : "0.0%";
-                      })()
-                    : "—"
-                }
+                label={REDUCTION_LABEL}
+                value={headline ? fmtPct(headline.reductionPct) : "—"}
                 detail={onInspectSavings ? "How this is measured →" : undefined}
                 tone="neutral"
               />

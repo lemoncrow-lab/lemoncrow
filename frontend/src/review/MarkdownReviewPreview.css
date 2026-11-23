@@ -46,7 +46,7 @@
 
 .lc-markdown-help,
 .lc-markdown-side-label {
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--fs-caption);
   letter-spacing: 0.04em;
 }

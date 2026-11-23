@@ -44,16 +44,18 @@ def test_managed_context_preserves_existing_content() -> None:
     assert rendered.count("<!-- LEMONCROW END -->") == 1
 
 
-def test_claude_personas_preserve_non_git_grep_exception_after_regeneration() -> None:
+def test_claude_personas_keep_shell_search_available_after_regeneration() -> None:
     module = load_script(ROOT / "scripts/sync_agent_context.py", "sync_agent_context_claude")
     outputs = module.build_outputs()
     for role in ("code", "explore"):
         path = ROOT / "integrations/claude/plugin/agents" / f"{role}.md"
         rendered = outputs[path]
         assert rendered == path.read_text(encoding="utf-8")
-        assert "Outside Git worktrees, Bash" in rendered
-        assert "grep/rg" in rendered or "`grep`/`rg`" in rendered
-        assert "Inside Git worktrees, use `mcp__lc__code_search`" in rendered
+        assert "Git source discovery → `mcp__lc__code_search` first" in rendered
+        assert "`mcp__lc__read`" in rendered
+        assert "exact" in rendered
+        assert "compound" in rendered
+        assert "fall back to grep" in rendered
 
 
 def test_managed_context_updates_only_existing_block() -> None:

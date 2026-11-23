@@ -1258,6 +1258,8 @@ _HOSTED_OWNED_WRITES: list[tuple[str, str, dict[str, Any]]] = [
     # Provider operations (RC5): never queued, and never run locally while hosted owns them.
     ("POST", "provider-review/dismiss", {"remote_ref": "github-review:7"}),
     ("POST", "post-merge/notification", {"confirm": True}),
+    # P3-2: self-reported seen coverage is a Review fact hosted owns while attached.
+    ("POST", "seen-coverage", {"action": "skipped", "block_keys": []}),
 ]
 
 
@@ -2278,3 +2280,18 @@ def test_lc_review_hosted_sync_prints_each_exact_outcome(monkeypatch: pytest.Mon
     report.identity = "mismatch"
     refused = CliRunner().invoke(review_hosted_cli.hosted_group, ["sync", "local-review"])
     assert refused.exit_code != 0 and "nothing replayed: mismatch" in refused.output
+
+
+def test_a_later_mark_is_refused_at_queue_time_until_the_hosted_server_says_it_records_it() -> None:
+    """P1-2 H: queue time, not sync time, so the reviewer is told before anything waits."""
+    aligned = _projection(targets={"file:src/a.py": {"path": "src/a.py", "state": "unreviewed", "fingerprint": "fp-a"}})
+    body = {"unit_key": "file:src/a.py", "state": "later"}
+    for projection in (aligned, {**aligned, "later_marks": False}):
+        with pytest.raises(engine.HostedActionRefused) as refused:
+            _prepare("mark", body, projection)
+        assert refused.value.code == "invalid"
+        assert "not available on hosted reviews yet" in str(refused.value)
+    # The next schema bump flips the hosted flag and nothing here changes; other states never needed it.
+    opened = _prepare("mark", body, {**aligned, "later_marks": True})
+    assert opened is not None
+    assert _prepare("mark", {**body, "state": "needs_changes"}, aligned) is not None

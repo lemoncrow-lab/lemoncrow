@@ -22,6 +22,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from lemoncrow.pro.capabilities.review import viewer_lens
 from lemoncrow.pro.capabilities.review.outcomes.observation_outcomes import observation_projection
 from lemoncrow.pro.capabilities.review.outcomes.outcome_actions import (
     RELATIONS,
@@ -50,6 +51,7 @@ def register_production_routes(
     rules: Callable[[Any], Any],
     repository: Callable[[Any], str],
     permission_check: Callable[[Any, str], bool],
+    hidden: Callable[[Any], frozenset[str]] | None = None,
 ) -> None:
     def projection(current: Any) -> dict[str, Any]:
         deployment, observability = settings(current)
@@ -100,7 +102,12 @@ def register_production_routes(
 
         def run() -> dict[str, Any]:
             revision_ids = [item.id for item in store.list_revisions(current.id)]
-            action = ReviewActionLedger(store).get(revision_ids, action_id)
+            # An action of someone this person may not read yet is as unknown to her as an id nobody holds.
+            action = viewer_lens.reachable(
+                frozenset() if hidden is None else hidden(current),
+                ReviewActionLedger(store).get(revision_ids, action_id),
+                lambda found: found.created_by,
+            )
             if action is None or action.review_id != current.id or action.kind not in RELATIONS:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "no such Revert or Fix forward action on this Review")
             resolved = store.resolve_session(target)

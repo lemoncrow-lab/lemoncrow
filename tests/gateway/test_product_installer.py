@@ -248,10 +248,47 @@ def test_both_local_uses_review_server_then_serverless_runtime_lite(tmp_path: Pa
         "local_review.sh|--port 7555",
         "local_runtime.sh|--agent codex",
     ]
-    assert "Local Review and Runtime Lite ready" in result.stdout
-    assert result.stdout.index("Installation verified") < result.stdout.index("Local Review and Runtime Lite ready")
+    assert "Local Review and Workspaces Lite ready" in result.stdout
+    assert result.stdout.index("Installation verified") < result.stdout.index("Local Review and Workspaces Lite ready")
     assert "Review endpoint: http://127.0.0.1:7555" in result.stdout
-    assert "Runtime Lite ready" in result.stdout
+    assert "Workspaces Lite ready" in result.stdout
+
+
+@pytest.mark.parametrize("product", ["workspaces", "runtime"])
+@pytest.mark.parametrize("spelling", ["separate", "equals", "env"])
+def test_product_workspaces_is_an_alias_of_runtime(tmp_path: Path, product: str, spelling: str) -> None:
+    script, env, log = _fixture(tmp_path)
+    if spelling == "separate":
+        args: tuple[str, ...] = ("--product", product)
+    elif spelling == "equals":
+        args = (f"--product={product}",)
+    else:
+        env["LEMONCROW_PRODUCT"] = product
+        args = ()
+    result = _run(script, env, *args, "--local", "--agent", "codex", "--non-interactive")
+    assert result.returncode == 0, result.stderr
+    assert log.read_text().splitlines() == ["local_runtime.sh|--agent codex"]
+    assert "Workspaces Lite ready" in result.stdout
+
+
+def test_product_workspaces_hosted_uses_the_runtime_helper(tmp_path: Path) -> None:
+    script, env, log = _fixture(tmp_path)
+    result = _run(script, env, "--product", "workspaces", "--hosted", "--non-interactive")
+    assert result.returncode == 0, result.stderr
+    assert [line.split("|", 1)[0] for line in log.read_text().splitlines()] == ["runtime.sh"]
+
+
+def test_help_and_errors_name_the_workspaces_product(tmp_path: Path) -> None:
+    script, env, _log = _fixture(tmp_path)
+    help_text = _run(script, env, "--help").stdout
+    assert "--product review|workspaces|both" in help_text
+    assert "--product workspaces --agent codex" in help_text
+    bad = _run(script, env, "--product", "nope")
+    assert bad.returncode == 2
+    assert "--product must be review, workspaces, or both" in bad.stderr
+    agent = _run(script, env, "--product", "review", "--agent", "codex")
+    assert agent.returncode == 2
+    assert "choose --product workspaces or --product both" in agent.stderr
 
 
 def test_runtime_only_local_never_passes_a_server_port(tmp_path: Path) -> None:
@@ -259,7 +296,7 @@ def test_runtime_only_local_never_passes_a_server_port(tmp_path: Path) -> None:
     result = _run(script, env, "--product", "runtime", "--local", "--port", "99999", "--non-interactive")
     assert result.returncode == 0, result.stderr
     assert log.read_text().splitlines() == ["local_runtime.sh|"]
-    assert "Runtime Lite ready" in result.stdout
+    assert "Workspaces Lite ready" in result.stdout
     assert "Review endpoint:" not in result.stdout
 
 
@@ -571,7 +608,7 @@ def test_review_rejects_runtime_agent_option(tmp_path: Path) -> None:
         "--non-interactive",
     )
     assert result.returncode == 2
-    assert "--agent requires Runtime" in result.stderr
+    assert "--agent requires Workspaces" in result.stderr
     assert not log.exists()
 
 
@@ -579,10 +616,11 @@ def test_help_explains_products_and_safe_runtime_opt_in(tmp_path: Path) -> None:
     script, env, _log = _fixture(tmp_path)
     result = _run(script, env, "--help")
     assert result.returncode == 0
-    assert "review    Review code changes" in result.stdout
-    assert "runtime   Use LemonCrow code intelligence" in result.stdout
-    assert "both      Install Review and Runtime together" in result.stdout
-    assert "Runtime never modifies a coding-agent host unless --agent is" in result.stdout
+    assert "review      Review code changes" in result.stdout
+    assert "workspaces  Workspaces: LemonCrow code intelligence" in result.stdout
+    assert "(`runtime` is accepted as an alias)" in result.stdout
+    assert "both        Install Review and Workspaces together" in result.stdout
+    assert "Workspaces never modifies a coding-agent host unless --agent is" in result.stdout
     assert "lc rt enable <host>" in result.stdout
 
 
@@ -649,3 +687,21 @@ def test_printed_setup_selects_installation_despite_inherited_environment(tmp_pa
             check=True,
         )
         assert probe.stdout.splitlines() == [str(install_home), str(install_bin), str(install_bin), "unset", "unset"]
+
+
+@pytest.mark.parametrize("product", ["runtime", "both"])
+@pytest.mark.parametrize("shell", ["bash", "/bin/bash"])
+def test_local_runtime_install_with_no_optional_args(tmp_path: Path, product: str, shell: str) -> None:
+    script, env, log = _fixture(tmp_path)
+    result = subprocess.run(
+        [shell, str(script), "--product", product, "--local"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = log.read_text().splitlines()
+    assert "local_runtime.sh|" in calls
+    if product == "both":
+        assert "local_review.sh|--port 7420" in calls

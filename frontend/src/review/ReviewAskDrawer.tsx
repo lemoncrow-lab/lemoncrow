@@ -12,9 +12,11 @@ import { ArrowUp, Check, ChevronDown, Copy, Cpu, FileCode2, FileText, History, L
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { createReviewAskConversation, fetchReviewAsk, reviewHref, sendReviewAskHandoff, streamReviewAsk, uploadReviewEvidence, type ReviewAskStreamEvent } from "./reviewApi";
+import { askNotSetUp, askSetupHelp } from "./reviewAskErrors";
 import { askDraftKey, loadAskDraft, saveAskDraft } from "./reviewDraftPersistence";
 import { activeReviewFriction } from "./reviewFriction";
 import type {
+  ReviewAiSetupHelp,
   ReviewAskDriver,
   ReviewAskConversation,
   ReviewAskConversationOrigin,
@@ -28,6 +30,8 @@ import type {
   ReviewEvidence,
   ReviewMapSelection,
 } from "./types";
+import { ReviewAiSetupNotice } from "./ReviewAiSetupNotice";
+import { revisionName } from "./revisionLabel";
 
 export interface ReviewAskSelection {
   context?: ReviewMapSelection;
@@ -50,6 +54,8 @@ interface PendingAskTurn {
   status: "starting" | "working" | "failed";
   elapsedMs: number;
   error: string;
+  /** The send failed only because no AI model is set up. */
+  notSetUp?: boolean;
   answer: string;
 }
 
@@ -233,7 +239,7 @@ function referenceLabel(reference: ReviewAskReference): string {
  */
 function ProjectKnowledgeChip({ reference }: { reference: ReviewAskReference }) {
   const label = `History · ${reference.label || "project knowledge"}`;
-  const title = [reference.freshness_label, reference.exactness === "ai_narration" ? "AI narration, not evidence" : "Landed history, not evidence for this Snapshot"]
+  const title = [reference.freshness_label, reference.exactness === "ai_narration" ? "AI narration, not evidence" : "Landed history, not evidence for this revision"]
     .filter(Boolean)
     .join(" · ");
   const className = "inline-flex max-w-full items-center gap-1 rounded-full border border-dashed border-border px-2 py-1 text-micro text-muted-foreground";
@@ -265,7 +271,7 @@ function conversationOriginLabel(origin: ReviewAskConversationOrigin): string {
   if (origin.path && origin.symbol) return [origin.path, origin.symbol, range].filter(Boolean).join(" · ");
   if (origin.path) return [origin.path, range].filter(Boolean).join(" · ");
   if (origin.kind === "map") return "Review Map";
-  if (origin.revision_number != null) return `Snapshot ${origin.revision_number}`;
+  if (origin.revision_number != null) return revisionName(origin.revision_number);
   return origin.kind === "code" ? "Current worktree" : "Whole change";
 }
 
@@ -336,6 +342,11 @@ function ReviewAskDrawerForReview({
   const [modelsByDriver, setModelsByDriver] = useState<Partial<Record<ReviewAskDriver, string[]>>>({});
   const [serverDrivers, setServerDrivers] = useState<ReviewAskDriver[] | undefined>(undefined);
   const allowedDrivers = transport?.allowedDrivers ?? serverDrivers;
+  // Set by the server when no AI model is set up; the same help the Brief shows.
+  const [setupHelp, setSetupHelp] = useState<ReviewAiSetupHelp | null>(null);
+  // "Configured" is the route that does not exist yet: only an explicitly chosen agent or provider can answer.
+  const askBlocked = setupHelp !== null && driver === "configured";
+  const showSetup = setupHelp !== null && (askBlocked || Boolean(pendingTurn?.notSetUp));
   const [handoffs, setHandoffs] = useState<Record<string, ReviewAskHandoffResult>>({});
   const [mentionedPaths, setMentionedPaths] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<ReviewEvidence[]>([]);
@@ -367,7 +378,7 @@ function ReviewAskDrawerForReview({
     askAbortRef.current = null;
     setAsking(false);
     setPendingTurn((current) => current ? {
-      ...current, status: "failed", error: "The Snapshot changed while Ask was running. This answer was not applied; ask again on the current Snapshot.",
+      ...current, status: "failed", error: "The revision changed while Ask was running. This answer was not applied; ask again on the current revision.",
     } : current);
   }, [revisionIdentity, transport]);
 
@@ -408,6 +419,7 @@ function ReviewAskDrawerForReview({
         setModels(result.ai?.models ?? []);
         setModelsByDriver(result.ai?.models_by_driver ?? {});
         setServerDrivers(result.ai?.drivers);
+        setSetupHelp(result.ai?.setup_help ?? null);
         setDriver((current) => current === "configured" ? (result.ai?.driver ?? current) : current);
         setModel((current) => current || result.ai?.model || "");
       })
@@ -611,7 +623,7 @@ function ReviewAskDrawerForReview({
   const attachExternalFiles = async (files: File[]) => {
     if (files.length === 0 || (transport && !transport.upload)) return;
     if (!transport && !revisionId) {
-      setError("This Snapshot is still resolving; external files cannot be attached yet.");
+      setError("This revision is still resolving; external files cannot be attached yet.");
       return;
     }
     const available = Math.max(0, 8 - attachments.length);
@@ -679,7 +691,7 @@ function ReviewAskDrawerForReview({
 
   const ask = async (raw: string, attachedPaths: string[] = mentionedPaths, attachedEvidence: ReviewEvidence[] = attachments) => {
     const question = raw.trim();
-    if (!question || asking) return;
+    if (!question || asking || askBlocked) return;
     const activeDriver = driver;
     const activeModel = model;
     if (!transport) {
@@ -754,8 +766,11 @@ function ReviewAskDrawerForReview({
     } catch (reason) {
       if (controller.signal.aborted || startedRevision !== currentRevisionRef.current) return;
       const detail = String(reason instanceof Error ? reason.message : reason);
+      const notSetUp = askNotSetUp(reason);
+      const carriedHelp = askSetupHelp(reason);
+      if (carriedHelp) setSetupHelp(carriedHelp);
       setPendingTurn((current) => current
-        ? { ...current, status: "failed", error: detail }
+        ? { ...current, status: "failed", error: detail, ...(notSetUp ? { notSetUp } : {}) }
         : current);
     } finally {
       if (askAbortRef.current === controller) {
@@ -830,17 +845,18 @@ function ReviewAskDrawerForReview({
   let previousRevision: number | null | undefined = undefined;
 
   return (
-    <section className="relative flex h-full min-h-0 flex-col bg-background" aria-label={transport ? "Code chat" : "Review chat"}>
+    // One name for the review panel (review-11.1): "Ask", as the top bar button that opens it.
+    <section className="relative flex h-full min-h-0 flex-col bg-background" aria-label={transport ? "Code chat" : "Ask"}>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted px-3">
         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-ai-bg text-ai">
           <Sparkles size={14} aria-hidden="true" />
         </div>
         <div className="min-w-0">
-          <div className="text-label font-medium leading-4 text-foreground">{transport ? "Code chat" : "Review chat"}</div>
+          <div className="text-label font-medium leading-4 text-foreground">{transport ? "Code chat" : "Ask"}</div>
           <div className="max-w-[180px] truncate text-micro leading-3 text-muted-foreground">
             {activeConversationId
-              ? conversations.find((item) => item.id === activeConversationId)?.title || (transport ? "Current worktree" : `Snapshot ${revisionNumber}`)
-              : transport ? "Current worktree · file focused" : `Snapshot ${revisionNumber}`}
+              ? conversations.find((item) => item.id === activeConversationId)?.title || (transport ? "Current worktree" : revisionName(revisionNumber))
+              : transport ? "Current worktree · file focused" : revisionName(revisionNumber)}
           </div>
         </div>
         <span className="flex-1" />
@@ -934,7 +950,7 @@ function ReviewAskDrawerForReview({
 
       {!transport && visibleLatest > revisionNumber && (
         <div className="flex shrink-0 items-center gap-2 border-b border-cyan-900/50 bg-cyan-950/20 px-3 py-2 text-caption text-cyan-200">
-          <span>Snapshot {visibleLatest} available</span>
+          <span>{revisionName(visibleLatest)} available</span>
           <UiButton type="button" variant="ghost" size="compact" onClick={onSwitchLatest} className="ml-auto h-6 px-2">
             Switch to latest
           </UiButton>
@@ -947,11 +963,12 @@ function ReviewAskDrawerForReview({
             <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted text-ai">
               <Sparkles size={14} />
             </div>
-            <div className="mt-3 text-heading font-medium text-foreground">{transport ? "Ask about this code" : "Ask, challenge, or request a change"}</div>
+            <div className="mt-3 text-heading font-medium text-foreground">{transport ? "Ask about this code" : "Ask about this change"}</div>
             <p className="mx-auto mt-1 max-w-[290px] text-caption leading-4 text-muted-foreground">
-              {transport ? "Ask about the selected code and explore it as a conversation." : "Discuss this review like a chat. Ask why something changed, check an implementation, or request a concrete fix."}
+              {transport ? "Ask about the selected code and explore it as a conversation." : "Ask why something changed, or check how it works."}
             </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+            {/* Suggestions only when something can answer them; with no model set up, the setup help is the one call to action. */}
+            {!askBlocked && <div className="mt-4 flex flex-wrap justify-center gap-1.5">
               {(transport ? CODE_SUGGESTIONS : SUGGESTIONS).map((suggestion) => (
                 <UiButton
                   key={suggestion}
@@ -964,7 +981,7 @@ function ReviewAskDrawerForReview({
                   {suggestion}
                 </UiButton>
               ))}
-            </div>
+            </div>}
           </div>
         )}
 
@@ -989,7 +1006,7 @@ function ReviewAskDrawerForReview({
                 {showDivider && revision != null && (
                   <div className="my-3 flex items-center gap-2 text-micro uppercase tracking-tag text-muted-foreground">
                     <span className="h-px flex-1 bg-muted" />
-                    <span>Snapshot {revision}</span>
+                    <span>{revisionName(revision)}</span>
                     <span className="h-px flex-1 bg-muted" />
                   </div>
                 )}
@@ -1049,6 +1066,14 @@ function ReviewAskDrawerForReview({
                         <div className="mt-2 flex flex-wrap gap-1">
                           {message.references.map((reference, index) => reference.kind === "project_knowledge" ? (
                             <ProjectKnowledgeChip key={`${reference.entry_id ?? "knowledge"}:${index}`} reference={reference} />
+                          ) : reference.kind === "source_unavailable" ? (
+                            <span
+                              key={`source-unavailable:${index}`}
+                              title={(reference.paths ?? []).join("\n")}
+                              className="rounded-full border border-border bg-muted/80 px-2 py-1 text-meta text-muted-foreground"
+                            >
+                              {reference.label || "Some files were not available to Ask"}
+                            </span>
                           ) : (
                             <UiButton unstyled
                               key={`${reference.path}:${reference.start_line}:${index}`}
@@ -1085,7 +1110,7 @@ function ReviewAskDrawerForReview({
                               {deliveryLabel(handoffState)}
                             </UiButton>
                             {handoffState === "sent" && (
-                              <span className="text-micro text-emerald-400">Sent to {destination}; a new snapshot will appear when captured.</span>
+                              <span className="text-micro text-emerald-400">Sent to {destination}; a new revision will appear when captured.</span>
                             )}
                             {!delivery?.supported && delivery?.reason && (
                               <span className="text-micro text-muted-foreground">{delivery.reason}</span>
@@ -1176,7 +1201,7 @@ function ReviewAskDrawerForReview({
                   ) : (
                     <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
                       <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
-                      <span>{pendingTurn.status === "starting" ? "Starting…" : transport ? "Working on this code…" : "Working on this snapshot…"}</span>
+                      <span>{pendingTurn.status === "starting" ? "Starting…" : transport ? "Working on this code…" : "Working on this revision…"}</span>
                     </div>
                   )}
                 </div>
@@ -1194,6 +1219,14 @@ function ReviewAskDrawerForReview({
       </div>
 
       <form onSubmit={submit} className="shrink-0 border-t border-border bg-background/95 p-2.5">
+        {showSetup && setupHelp && (
+          <div className="mb-2">
+            <ReviewAiSetupNotice
+              help={setupHelp}
+              agentPicker={(allowedDrivers ?? ["claude", "codex", "opencode"]).some((item) => item === "claude" || item === "codex" || item === "opencode")}
+            />
+          </div>
+        )}
         <div
           className={`relative rounded-lg border p-2 transition focus-within:border-border focus-within:bg-muted/50 ${draggingAttachment ? "border-border bg-muted" : "border-border bg-muted/35"}`}
           onDragEnter={(event) => {
@@ -1366,11 +1399,12 @@ function ReviewAskDrawerForReview({
                 if (!asking) void ask(body);
               }
             }}
-            placeholder={transport ? "Ask about this code…" : scope?.context
-              ? "Ask about this context or request a change…"
+            disabled={askBlocked}
+            placeholder={askBlocked ? "Set up an AI model to ask questions" : transport ? "Ask about this code…" : scope?.context
+              ? "Ask about this context…"
               : scope?.path
-                ? "Ask about this code or request a change…"
-                : "Ask a question or request a change…"}
+                ? "Ask about this code…"
+                : "Ask a question…"}
             aria-label={transport ? "Ask Code" : "Ask Review"}
             className="min-h-[44px] max-h-[132px] w-full resize-none bg-transparent px-1 py-1.5 text-label leading-5 text-foreground outline-none placeholder:text-muted-foreground"
           />
@@ -1455,7 +1489,7 @@ function ReviewAskDrawerForReview({
               <UiButton
                 type="submit"
                 variant="solid"
-                disabled={body.trim() === ""}
+                disabled={body.trim() === "" || askBlocked}
                 aria-label="Send Ask question"
                 className="h-8 w-8 shrink-0 rounded-full"
               >

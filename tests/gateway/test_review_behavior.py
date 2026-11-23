@@ -80,11 +80,11 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     surface_validation_scenario,
     trusted_policy_digest,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision, ReviewSession, ReviewUnit
 from lemoncrow.pro.capabilities.review.store import ReviewStore, new_evidence_id, new_revision_id, new_session_id
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
 from lemoncrow.pro.capabilities.review.verification import build_verification_projection
+from lemoncrow.pro.environment.runners import SurfaceRunResult
 
 
 def _delta(**overrides: Any) -> BehaviorDelta:
@@ -344,7 +344,7 @@ def test_behavior_collection_and_judgment_contract() -> None:
     notes = " | ".join(collection.degraded)
     for expected in (
         "test.broken: RuntimeError: boom",
-        "did not resolve on this Snapshot and were dropped",
+        "did not resolve on this revision and were dropped",
         "duplicate behavior",
         "unknown behavior kind",
         "claims producer",
@@ -738,14 +738,14 @@ def _executed_api_deltas(
     executors: tuple[str, str] = ("author_machine", "author_machine"),
     not_verified: tuple[str, ...] = (),
 ) -> tuple[BehaviorDelta, ...]:
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+    from lemoncrow.pro.environment.execution import (
         ExecutionRecipe,
         ExecutionSubject,
         ExecutorClass,
         StageOutcome,
         UnverifiedIntegration,
     )
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
 
     store, revision = _store_revision(root)
     policy = HermeticPolicy(not_verified=tuple(UnverifiedIntegration(name, "declared") for name in not_verified))

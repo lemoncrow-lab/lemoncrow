@@ -145,8 +145,13 @@ def test_companion_status_is_local_and_check_only_uses_fixed_read(
     assert "Work execution is not enabled" in checked.getvalue()
     assert machine["machine_token"] not in checked.getvalue()
     unsupported = io.StringIO()
+    # Unattended start needs an explicit model route and source approval before anything is claimed.
     assert review_main(["companion", "start"], sink=unsupported) == 2
-    assert "not enabled" in unsupported.getvalue()
+    assert requests == ["/v1/review-workers/keys", "closed"]
+    route = ["--route", "r", "--provider", "openai", "--model", "m", "--generation", "g"]
+    route += ["--input-price", "1", "--output-price", "1", "--max-cost", "1000"]
+    assert review_main(["companion", "start", *route], sink=unsupported) == 2
+    assert "--allow-external-source" in unsupported.getvalue()
     assert requests == ["/v1/review-workers/keys", "closed"]
     once = io.StringIO()
     assert review_main(["companion", "online", "--once"], sink=once) == 0

@@ -8,7 +8,34 @@ Install LemonCrow once, then use it with an existing coding agent, through Lemon
 curl -fsSL https://lemoncrow.com/install.sh | bash
 ```
 
-The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Re-running the bare installer keeps an existing hosted install hosted. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch.
+The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Re-running the bare installer keeps an existing hosted install hosted. Workspaces is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`).
+
+### Installer options
+
+Pass options after `bash -s --`, for example `curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --hosted`.
+
+| Option | What it does |
+| --- | --- |
+| `--hosted` (alias `--cloud`) | Hosted Review at api.lemoncrow.com instead of Local Review. Needs an invited account; run `lc auth login` next |
+| `--product workspaces` or `--product both` | Pre-install Workspaces instead of fetching it on first use (`--product runtime` still works) |
+| `--agent <host>` | With `--product`, also enable that agent |
+| `--dry-run` | Print the plan and change nothing |
+| `--url <url>` | The hosted server to use with `--hosted` |
+| `--port <port>` | The port of the local Review server (default 7420) |
+| `LEMONCROW_RELEASE_TAG` | Install this release tag |
+| `LEMONCROW_RELEASE_BASE_URL` | An alternate asset base, for example `file://` for a local rehearsal |
+| `LEMONCROW_NO_LAZY_INSTALL=1` | Disable the first-use fetch |
+
+Every release asset has a Sigstore signature beside it, `<asset>.sigstore.json`, made by the public repository's release workflow at the release's tag; the published `install.sh` also pins the SHA-256 of every helper and archive it fetches. To check the installer yourself with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) before running it:
+
+```bash
+base=https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download
+curl -fsSLO "$base/install.sh" -fsSLO "$base/install.sh.sigstore.json"
+cosign verify-blob --bundle install.sh.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/lemoncrow-lab/lemoncrow/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com install.sh
+bash install.sh
+```
 
 Verify the install, then get your first AI review in two more steps (a key or an agent you are signed in to, then `lc review --ai`; see [Your first AI review](./ai-review.md)):
 
@@ -19,7 +46,7 @@ export ANTHROPIC_API_KEY=sk-ant-...        # or OPENAI_API_KEY; or skip it and u
 cd your-project && lc review --ai
 ```
 
-The normal Runtime path does not require a LemonCrow daemon or a listening local application server. Repository intelligence is prepared in the repository you are working in.
+The loopback server on port 7420 is Local Review's. Workspaces needs no LemonCrow daemon or listening local application server of its own. Repository intelligence is prepared in the repository you are working in.
 
 ### On macOS
 
@@ -89,9 +116,9 @@ bash scripts/install_cursor.sh --workspace /path/to/repo
 
 See [Cursor integration](../hosts/cursor-install.md) for the exact artifacts and verification steps.
 
-## Use Runtime Lite locally
+## Use Workspaces Lite locally
 
-Use your existing coding agent with the open-source local Runtime:
+Use your existing coding agent with open-source, local Workspaces Lite:
 
 ```bash
 lc with claude
@@ -105,27 +132,26 @@ Cursor uses its integration from a source checkout (above). Persist a supported 
 lc runtime index
 ```
 
-Pi and LemonCode are public managed coding-agent hosts:
+Pi is the public managed coding-agent host:
 
 ```bash
 lc rt host install --engine pi
 lc rt host status --engine pi
-lc rt host install --engine lemoncode   # full CLI only; the installed client says so
 ```
 
-The installed client manages Pi itself. LemonCode host lifecycle needs the full LemonCrow CLI from a [source checkout](#source-checkout--contributor-setup). Installing either host does not enable Hosted Runtime and does not require a Pro plan.
+The installed client manages Pi itself. Installing Pi does not enable hosted retrieval and does not require a Pro plan.
 
-## Use Hosted Runtime
+## Use hosted retrieval (Pro)
 
-Point an existing-agent integration explicitly at Hosted Runtime. A Pro plan grants access; see [LemonCrow Pro: Hosted Runtime](./pro-hosted-runtime.md) for the full sequence:
+Point an existing-agent integration explicitly at hosted retrieval. A Pro plan grants access; see [LemonCrow Pro: hosted retrieval](./pro-hosted-runtime.md) for the full sequence:
 
 ```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --product runtime --hosted
+curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --product workspaces --hosted
 lc auth login
 lc rt enable claude --hosted
 ```
 
-`lc code` is reserved for LemonCrow's Hosted owned coding agent, which is not yet available. The installed client says so and exits; it does not fall back to a local private engine:
+`lc code` is reserved for LemonCrow's hosted coding agent, which is not yet available. The installed client says so and exits; it does not fall back to a local private engine:
 
 ```bash
 lc code --help
@@ -133,12 +159,12 @@ lc code --help
 
 | Path | What it adds |
 | --- | --- |
-| Runtime Lite | Open-source repository intelligence and LemonCrow tools on the developer machine |
-| Public hosts | Pi and LemonCode host binaries managed with `lc rt host` |
-| Hosted Runtime | Private deeper retrieval and richer code relationships. Cross-workspace context and LemonCrow-owned managed execution are not yet available |
-| Enterprise Runtime | The private Runtime in customer-controlled/dedicated infrastructure with identity, policy, managed workspaces, governance, and audit |
+| Workspaces Lite | Open-source repository intelligence and LemonCrow tools on the developer machine |
+| Public hosts | Pi host binaries managed with `lc rt host` |
+| Workspaces Pro | Private deeper retrieval and richer code relationships. Cross-workspace context and LemonCrow-owned managed execution are not yet available |
+| Enterprise Workspaces | The private engine in customer-controlled/dedicated infrastructure with identity, policy, managed workspaces, governance, and audit |
 
-A Pro plan is a commercial access tier for Hosted Runtime. Signing in does not silently change local Runtime Lite into hosted execution. To set up a Pro organization's machines, follow [LemonCrow Pro: Hosted Runtime](./pro-hosted-runtime.md).
+Workspaces Pro is a commercial access tier for hosted retrieval. Signing in does not silently change local Workspaces Lite into hosted execution. To set up a Pro organization's machines, follow [Workspaces Pro: hosted retrieval](./pro-hosted-runtime.md).
 
 ## Source checkout / contributor setup
 
@@ -149,7 +175,7 @@ git clone https://github.com/lemoncrow-lab/lemoncrow.git
 cd lemoncrow
 uv sync --all-extras
 make oss-dev    # the real public installer on locally built assets, in the sandbox ~/.lemoncrow-oss (port 7428)
-make verify
+make verify-full
 ```
 
 Developer targets come in two sets with the same verbs. `oss-*` uses only this
@@ -177,7 +203,7 @@ Useful host-specific installers live under `scripts/install_<host>.sh` and are d
 
 ## Shared services and self-hosting
 
-Review, hosted Runtime, Enterprise, and integration/API use cases can involve shared HTTP services. They are not required for the normal local Runtime plugin path.
+Review, Workspaces Pro, Enterprise, and integration/API use cases can involve shared HTTP services. They are not required for the normal local Workspaces plugin path.
 
 For production or self-hosted service topology, storage backends, ports, and operational controls, use [Production readiness](../operations/production-readiness.md) and the [architecture reference](../reference/architecture.md).
 
@@ -199,11 +225,11 @@ Security hardening changed how the local product behaves. The full list is in th
 ```bash
 lc uninstall all --dry-run   # list what would be removed; changes nothing
 lc uninstall all             # asks; --yes skips the question (your data stays), --purge removes your data too
-lc uninstall review          # Review only, Runtime keeps working (or: runtime)
+lc uninstall review          # Review only, Workspaces keeps working (or: workspaces)
 ```
 
 What it removes: the `lc` and `lcr` commands, the Review client and engine, the installer's scripts, the background server, carried review results (a cache) and the lines the installer added to `~/.bashrc`, `~/.profile` and the other shell startup files. What it asks about: your settings and any API key you saved (`~/.lemoncrow/plugin_settings.json`), the reviews you opened in the Reader, the git hooks `lc review hook install` wrote, and the `.lemoncrow` folder of the repository you run it in. It never runs `npm` and never touches coding-agent settings or your code. Without a terminal it removes nothing until you pass `--yes`. Details: [CLI reference](../reference/cli.md#removal-lc-uninstall).
 
-Update with `lc update`, which re-runs the installer for each installed product and leaves host registrations untouched.
+Update with `lc update`, which re-runs the installer for each installed product and leaves host registrations untouched. When `cosign` is installed, it runs the installer only after checking its signature as above, and refuses one that has no signature or does not verify.
 
 Host-specific uninstall scripts remain available for audited or recovery workflows.

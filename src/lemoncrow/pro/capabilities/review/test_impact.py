@@ -44,7 +44,7 @@ import hashlib
 import json
 import posixpath
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import PurePosixPath
@@ -808,8 +808,16 @@ def select_recipe_tests(
     base_sha: str,
     unavailable: str = "",
     complete: bool = True,
+    executed: Sequence[str] | None = None,
 ) -> RecipeSelection:
-    """The test files of *recipe* this Snapshot's changes can affect (module docstring)."""
+    """The test files of *recipe* this Snapshot's changes can affect (module docstring).
+
+    ``executed`` names a subset of test files a caller will run on its own (part proof runs the
+    parts in view first). When the change is decidable, the result is an ``impact`` selection of
+    exactly those files with the closure input digest of that run, so an unchanged closure carries
+    forward like any selected run. When it is not decidable the result is the usual full-suite
+    selection, and the caller keeps its own subset without a digest (nothing carries).
+    """
 
     short = base_sha[:12]
     known = complete and len(changes) <= MAX_CHANGED and bool(base_sha)
@@ -825,7 +833,7 @@ def select_recipe_tests(
     if impact.base_sha != base_sha:
         return full(
             f"full suite: the test-impact map is stale (built for base {impact.base_sha[:12]}, "
-            f"this Snapshot's base is {short})"
+            f"this revision's base is {short})"
         )
     if impact.version != IMPACT_MAP_VERSION:
         return full(
@@ -834,7 +842,7 @@ def select_recipe_tests(
     if impact.truncated:
         return full(f"full suite: test-impact map incomplete ({impact.truncated})")
     if not complete:
-        return full("full suite: this Snapshot's changed-file list is incomplete")
+        return full("full suite: this revision's changed-file list is incomplete")
     if len(changes) > MAX_CHANGED:
         return full(f"full suite: more than {MAX_CHANGED} changed paths")
 
@@ -923,6 +931,19 @@ def select_recipe_tests(
         )
 
     full_digest = inputs_of(tests, "all")
+    if executed:
+        present = frozenset(tests)
+        if recipe.selectable and all(path in present for path in executed):
+            subset = tuple(dict.fromkeys(executed))
+            return RecipeSelection(
+                recipe.id,
+                "impact",
+                f"test impact: {len(subset)} of {len(tests)} test files reach the parts being proven",
+                subset,
+                len(tests),
+                inputs_of(subset, "impact"),
+                full_digest,
+            )
     if not seeds:
         return RecipeSelection(
             recipe.id,
@@ -969,6 +990,131 @@ def select_recipe_tests(
         input_digest=full_digest,
         full_input_digest=full_digest,
     )
+
+
+#: Reverse-graph node visits one reach computation may spend; the rest is reported unknown.
+MAX_REACH_VISITS: Final[int] = 3_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class ChangedReach:
+    """Which test files reach each changed file, file-level (never a symbol or line claim).
+
+    ``tests`` maps a changed path to the test files (under the recipe's ``cwd``) whose import
+    closure reaches it; an empty tuple means no test file reaches it. A path in ``unknown``
+    could not be decided (no usable graph, a file a test may read at run time, a doctest, the
+    visit bound); ``reasons`` names why per path and ``whole`` names the one cause when nothing
+    could be decided. ``deleted`` lists changed files that no longer exist (no test claim at all).
+    """
+
+    tests: Mapping[str, tuple[str, ...]]
+    unknown: frozenset[str] = frozenset()
+    why_unknown: str = ""
+    all_tests: tuple[str, ...] = ()
+    reasons: Mapping[str, str] = field(default_factory=dict)
+    whole: str = ""
+    deleted: frozenset[str] = frozenset()
+
+
+def changed_reach(
+    impact: ImpactMap | None,
+    changes: Sequence[HeadChange],
+    *,
+    cwd: str = "",
+    base_sha: str = "",
+    unavailable: str = "",
+    complete: bool = True,
+    declared: Collection[str] = (),
+) -> ChangedReach:
+    """For every changed path, the test files under *cwd* that reach it through the import graph.
+
+    The same graph, overlay and fail-toward-unknown rules as :func:`select_recipe_tests`, answered
+    per changed file instead of per Snapshot. A dependency or runner configuration input, and a
+    path the recipe declares as an input (*declared*), is reached by every test. A non-source file
+    a test may read at run time, a documentation file that may be collected as a doctest, and every
+    path while an added file may shadow an unresolved import are *unknown*, never "no test reaches it".
+
+    lc-debt: file-level reach from the import graph, no coverage map; visits are bounded by
+    :data:`MAX_REACH_VISITS`. Upgrade: per-test coverage collected under the sandbox.
+    """
+
+    paths = [row.path for row in changes if not row.deleted]
+    gone = frozenset(row.path for row in changes if row.deleted)
+
+    def undecided(why: str, whole: str) -> ChangedReach:
+        return ChangedReach({}, frozenset(paths), why, whole=whole, deleted=gone)
+
+    if impact is None:
+        return undecided(f"no test-impact map for this base ({unavailable or 'not built'})", "no_map")
+    if impact.base_sha != base_sha or impact.version != IMPACT_MAP_VERSION or impact.truncated:
+        return undecided("the test-impact map does not match this revision's base", "no_map")
+    if not complete or len(changes) > MAX_CHANGED:
+        return undecided(f"more than {MAX_CHANGED} changed paths or an incomplete list", "too_large")
+    graph = overlay(impact, changes)
+    foreign = (*impact.foreign_tests, *(row.path for row in changes if not row.deleted and is_foreign_test(row.path)))
+    if impact.foreign_overflow or any(_under(path, cwd) for path in foreign):
+        return undecided("tests in languages outside the import graph", "foreign_tests")
+    tests = tuple(sorted(path for path in graph.present if _under(path, cwd) and is_test_entry(path)))
+    if not tests:
+        return undecided("no Python or JS/TS test files are recognized for this recipe", "no_tests")
+    reverse: dict[str, list[str]] = {}
+    for source, targets in graph.edges.items():
+        for target in targets:
+            reverse.setdefault(target, []).append(source)
+    test_set = frozenset(tests)
+    inputs = set(declared)
+    found: dict[str, tuple[str, ...]] = {}
+    unknown: set[str] = set()
+    reasons: dict[str, str] = {}
+    visits = 0
+    dynamic = set(graph.dynamic)
+
+    def give_up(path: str, reason: str) -> None:
+        unknown.add(path)
+        reasons[path] = reason
+
+    for row in changes:
+        path = row.path
+        if row.deleted:
+            continue
+        if path in inputs or is_global_input(path):
+            found[path] = tests
+            continue
+        if graph.shadowing:
+            # An added file may satisfy an import the base could not resolve: no path is decidable.
+            give_up(path, "shadowing")
+            continue
+        if is_source(path):
+            seeds = {path, *dynamic}
+        elif _suffix(path) in DOC_SUFFIXES:
+            if impact.doc_tests:
+                give_up(path, "doctest")
+                continue
+            basename = PurePosixPath(path).name.lower()
+            seeds = {source for source, refs in graph.doc_refs.items() if _reads_doc(refs, basename)}
+        else:
+            # Data, fixtures, templates: a test may read them at run time, which the graph cannot see.
+            give_up(path, "runtime_read")
+            continue
+        seen: set[str] = set()
+        pending = list(seeds)
+        while pending and visits <= MAX_REACH_VISITS:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            visits += 1
+            pending.extend(reverse.get(current, ()))
+        if visits > MAX_REACH_VISITS:
+            give_up(path, "too_large")
+            continue
+        found[path] = tuple(sorted(seen & test_set))
+    why = (
+        f"reach was not decided for {len(unknown)} paths (a file a test may read, a doctest or a bound)"
+        if unknown
+        else ""
+    )
+    return ChangedReach(found, frozenset(unknown), why, tests, reasons, deleted=gone)
 
 
 def _max_args() -> int:

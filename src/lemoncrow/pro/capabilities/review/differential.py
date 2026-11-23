@@ -488,6 +488,8 @@ class RecipeDifferential:
     head_guard: str = ""
     #: R6 execution economy: test selection and how the base side was decided.
     economy: Mapping[str, Any] = field(default_factory=dict)
+    #: Every test file the run selected, untruncated (``economy.selection.tests`` keeps 200). Never stored.
+    selected_files: tuple[str, ...] = ()
 
     def attention(self) -> tuple[UnitResult, ...]:
         units = tuple(unit for unit in self.tests if unit.klass in ATTENTION_CLASSES)

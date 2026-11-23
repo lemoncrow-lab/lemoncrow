@@ -6,8 +6,11 @@ import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
+import { plainCode, usePrincipalLabel } from "./plainWords";
 import { webHref } from "./safeLinks";
 import type { ReviewPremergeCheck, ReviewPremergeProjection } from "./types";
+import { revisionName } from "./revisionLabel";
+import { fmtWhen } from "../lib/format";
 
 export interface PremergeWaiverInput {
   check_id: string;
@@ -25,7 +28,7 @@ export interface PremergeActions {
 }
 
 function instant(value: string): string {
-  return value.replace("T", " ").replace(/Z$/, " UTC");
+  return fmtWhen(value);
 }
 
 function waiverPrincipals(premerge: ReviewPremergeProjection, check: ReviewPremergeCheck): string[] {
@@ -70,8 +73,8 @@ function WaiverForm({
       />
       <div className="flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
         <Select value={scope} onValueChange={(value) => setScope(value === "review" ? "review" : "snapshot")} uiSize="xs" aria-label="Waiver scope">
-          <SelectItem value="snapshot">This Snapshot only</SelectItem>
-          <SelectItem value="review">Later Snapshots on the same paths</SelectItem>
+          <SelectItem value="snapshot">This revision only</SelectItem>
+          <SelectItem value="review">Later revisions on the same paths</SelectItem>
         </Select>
         <label className="flex items-center gap-1">
           Expires in
@@ -112,6 +115,7 @@ export default function ReviewPremergeChecks({
   readOnly?: boolean;
   actions?: PremergeActions;
 }) {
+  const principalName = usePrincipalLabel();
   const [waiving, setWaiving] = useState("");
   const busy = Boolean(actions?.busy);
   const interactive = !readOnly && actions !== undefined;
@@ -127,12 +131,12 @@ export default function ReviewPremergeChecks({
   // The plan decided not to run them (budget, family off, inapplicable): no button bypasses that.
   const blockedByPlan = limited || ["skipped", "inapplicable", "not_available"].includes(run?.status ?? "");
   const planned = run?.status === "run";
-  let notRunText = "Natural-language checks are not in this Snapshot's run plan; evaluate them on request.";
+  let notRunText = "Natural-language checks are not in this revision's run plan; evaluate them on request.";
   if (premerge.ai_unavailable) notRunText = `${premerge.ai_unavailable}. Natural-language checks stay NOT_RUN and are never passed.`;
   else if (limited) notRunText = `${run?.reason || "Limited by budget"}. Natural-language checks stay NOT_RUN and are never passed.`;
   else if (blockedByPlan) notRunText = `Not run: ${run?.reason || run?.status}. Natural-language checks stay NOT_RUN and are never passed.`;
-  else if (planned) notRunText = "The run plan evaluates natural-language checks on this Snapshot; they stay NOT_RUN until a result is recorded.";
-  else if (!run) notRunText = "Natural-language checks have not run on this Snapshot; they stay NOT_RUN until evaluated.";
+  else if (planned) notRunText = "The run plan evaluates natural-language checks on this revision; they stay NOT_RUN until a result is recorded.";
+  else if (!run) notRunText = "Natural-language checks have not run on this revision; they stay NOT_RUN until evaluated.";
 
   return (
     <div className="mt-4" aria-labelledby="premerge-checks-heading">
@@ -166,8 +170,8 @@ export default function ReviewPremergeChecks({
                   <span className="min-w-0 truncate text-subtle">{intent.bound.title || intent.ref}</span>
                 )}
                 <span className="shrink-0 font-mono text-muted-foreground">
-                  {intent.kind}
-                  {intent.bound.snapshot_number !== null ? ` · Snapshot ${intent.bound.snapshot_number}` : ""}
+                  {plainCode(intent.kind)}
+                  {intent.bound.snapshot_number !== null ? ` · ${revisionName(intent.bound.snapshot_number)}` : ""}
                 </span>
               </div>
               {!intent.bound.digest && (
@@ -230,8 +234,8 @@ export default function ReviewPremergeChecks({
         <div key={check.id} className="mb-1.5 flex gap-2.5 text-caption leading-4">
           <CircleDot size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 text-muted-foreground">
-            <span className="text-subtle">{check.title}</span> ({check.status}) waived by {check.waiver.actor} until{" "}
-            {instant(check.waiver.expires_at)} · {check.waiver.scope === "review" ? "same-path Snapshots" : "this Snapshot"} · policy{" "}
+            <span className="text-subtle">{check.title}</span> ({plainCode(check.status)}) waived by {principalName(check.waiver.actor)} until{" "}
+            {instant(check.waiver.expires_at)} · {check.waiver.scope === "review" ? "same-path revisions" : "this revision"} · policy{" "}
             <span className="font-mono">{check.waiver.policy_generation_short}</span>: {check.waiver.reason}
           </div>
         </div>

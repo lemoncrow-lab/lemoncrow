@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# local_runtime.sh — Install serverless LemonCrow Runtime Lite independently of Review.
+# local_runtime.sh — Install serverless Workspaces Lite independently of Review.
 #
 # Runtime Lite uses only session-scoped stdio processes. It installs no local API
 # server, frontend, daemon, listener, or service.
@@ -86,9 +86,9 @@ usage() {
     cat <<'USAGE'
 usage: local_runtime.sh [OPTIONS]
 
-Install LemonCrow Runtime Lite with no LemonCrow server, frontend, daemon, or listener.
+Install LemonCrow Workspaces Lite with no LemonCrow server, frontend, daemon, or listener.
 
-  --from-build [ARCHIVE]    use a local Runtime client artifact
+  --from-build [ARCHIVE]    use a local Workspaces client artifact
   --runtime-artifact PATH   compatibility alias for --from-build PATH
   --agent NAME              opt in to claude, codex, opencode, or auto
   --dry-run                 print the install plan without changing anything
@@ -212,22 +212,22 @@ migrate_legacy_local_runtime() {
         # use the release's uninstall_runtime.sh. TEMP is set here, in the parent
         # shell, so the EXIT trap removes it.
         if [[ "$DRY_RUN" == "1" ]]; then
-            lc_ui_printf '36' '[dry-run] retire legacy server-backed Runtime with: %s/uninstall_runtime.sh --keep-hosts\n' "$BASE_URL"
+            lc_ui_printf '36' '[dry-run] retire the legacy server-backed install with: %s/uninstall_runtime.sh --keep-hosts\n' "$BASE_URL"
             return 0
         fi
         [[ -n "$TEMP" ]] || TEMP="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-local-runtime.XXXXXX")"
         uninstaller="$TEMP/uninstall_runtime.sh"
         fetch_to "$BASE_URL/uninstall_runtime.sh" "$uninstaller" \
-            || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: legacy server-backed Runtime is installed, but its uninstaller is missing and could not be downloaded from $BASE_URL" >&2; return 1; }
+            || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: a legacy server-backed install is present, but its uninstaller is missing and could not be downloaded from $BASE_URL" >&2; return 1; }
         chmod +x "$uninstaller"
     fi
     if [[ "$DRY_RUN" == "1" ]]; then
-        lc_ui_printf '36' '[dry-run] retire legacy server-backed Runtime with: bash %q --keep-hosts\n' "$uninstaller"
+        lc_ui_printf '36' '[dry-run] retire the legacy server-backed install with: bash %q --keep-hosts\n' "$uninstaller"
         return 0
     fi
-    echo "Migrating legacy server-backed Runtime to Local Lite..."
+    echo "Migrating the legacy server-backed install to Workspaces Lite..."
     bash "$uninstaller" --keep-hosts \
-        || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: could not retire the legacy local Runtime server/engine" >&2; return 1; }
+        || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: could not retire the legacy local server/engine" >&2; return 1; }
 }
 
 cleanup() {
@@ -237,7 +237,7 @@ trap cleanup EXIT
 
 if [[ "$FROM_BUILD" == "1" && "$DRY_RUN" != "1" ]]; then
     [[ -s "$RUNTIME_ARCHIVE" ]] \
-        || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: Runtime artifact not found: $RUNTIME_ARCHIVE" >&2; exit 1; }
+        || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: Workspaces artifact not found: $RUNTIME_ARCHIVE" >&2; exit 1; }
 fi
 
 migrate_legacy_local_runtime || exit $?
@@ -260,7 +260,7 @@ if [[ "$DRY_RUN" == "1" ]]; then exit 0; fi
 RUNTIME_CLIENT="$STATE_DIR/runtime/client/bin/lemoncrow-client"
 RUNTIME_NAMED="$STATE_DIR/runtime/client/bin/lemoncrow-runtime-client"
 [[ -x "$RUNTIME_CLIENT" && -x "$RUNTIME_NAMED" ]] \
-    || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: Runtime client was not installed" >&2; exit 1; }
+    || { lc_ui_printf '1;31' '%s\n' "local_runtime.sh: Workspaces client was not installed" >&2; exit 1; }
 
 # Review owns the public launchers when present; Runtime Lite owns only lc when
 # installed alone. There is deliberately no Runtime-owned lcr.
@@ -280,16 +280,16 @@ ln -sfn "$RUNTIME_NAMED" "$BIN_DIR/lemoncrow-runtime-client"
 
 if [[ "${LEMONCROW_INSTALL_NESTED:-0}" != 1 ]]; then
     lc_ui_printf '1;36' '\n◆ Verify installation\n'
-    lc_ui_printf progress 'Checking Runtime client...\n'
+    lc_ui_printf progress 'Checking Workspaces client...\n'
     LEMONCROW_HOME="$STATE_DIR" LEMONCROW_NO_LAZY_INSTALL=1 "$RUNTIME_CLIENT" --version >/dev/null
 fi
-lc_ui_printf '1;32' '\n✓ Runtime Lite ready\n'
+lc_ui_printf '1;32' '\n✓ Workspaces Lite ready\n'
 lc_ui_printf '36' '  hosts:    %s\n' "${AGENT:-none enabled by installer}"
 lc_ui_printf '36' '  review:   %s\n' "$review_state"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) lc_ui_printf '36' '  Shell setup: add %s to PATH\n' "$BIN_DIR" ;; esac
 lc_ui_printf '1;36' '\nNext:\n'
-lc_ui_printf command '  Check Runtime:' 'lc rt status'
+lc_ui_printf command '  Check Workspaces:' 'lc rt status'
 if [[ -z "$AGENT" ]]; then
     lc_ui_printf '1;36' '\nOptional:\n'
-    lc_ui_printf command '  Enable Runtime:' 'lc runtime enable codex' '   # or claude / opencode / auto'
+    lc_ui_printf command '  Enable Workspaces:' 'lc runtime enable codex' '   # or claude / opencode / auto'
 fi

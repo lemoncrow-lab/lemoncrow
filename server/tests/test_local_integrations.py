@@ -18,7 +18,12 @@ def test_local_integrations_expose_component_evidence_and_roadmap_hosts(
 
     (tmp_path / ".lemoncrow" / "hosts").mkdir(parents=True)
     (tmp_path / ".lemoncrow" / "hosts" / "status.json").write_text(
-        json.dumps({"claude": "not_installed", "pi": "not_installed", "lemoncode": "not_installed"}),
+        json.dumps(
+            {
+                "claude": "not_installed",
+                "pi": "not_installed",
+            }
+        ),
         encoding="utf-8",
     )
     (tmp_path / ".claude.json").write_text(
@@ -44,11 +49,6 @@ def test_local_integrations_expose_component_evidence_and_roadmap_hosts(
     pi_binary.write_text("managed pi\n", encoding="utf-8")
     pi_metadata = tmp_path / ".lemoncrow" / "hosts" / "pi-host.json"
     pi_metadata.write_text('{"version":"test"}\n', encoding="utf-8")
-
-    lemoncode_binary = tmp_path / ".lemoncrow" / "bin" / "lemoncode-host"
-    lemoncode_binary.write_text("managed lemoncode\n", encoding="utf-8")
-    lemoncode_metadata = tmp_path / ".lemoncrow" / "bin" / "lemoncode-host.json"
-    lemoncode_metadata.write_text('{"version":"test"}\n', encoding="utf-8")
 
     opencode_home = tmp_path / ".config" / "opencode"
     opencode_home.mkdir(parents=True)
@@ -93,23 +93,13 @@ def test_local_integrations_expose_component_evidence_and_roadmap_hosts(
     }
 
     pi = hosts["pi"]
-    assert pi["description"] == "Default LemonCrow-managed coding frontend."
+    assert pi["description"] == "The Pi coding agent, managed by LemonCrow. Start a session with `lc with pi`."
     assert pi["detected"] is True
     assert pi["configured"] is True
     pi_components = {component["id"]: component for component in pi["components"]}
     assert pi_components["binary"]["present"] is True
     assert pi_components["metadata"]["present"] is True
     assert pi_components["settings"]["present"] is False
-
-    lemoncode = hosts["lemoncode"]
-    assert (
-        lemoncode["description"] == "Public managed LemonCode host; Hosted execution chooses its frontend separately."
-    )
-    assert lemoncode["configured"] is True
-    lemoncode_components = {component["id"]: component for component in lemoncode["components"]}
-    assert lemoncode_components["binary"]["present"] is True
-    assert lemoncode_components["metadata"]["present"] is True
-    assert all(component["id"] not in {"mcp", "agent", "plugin"} for component in lemoncode["components"])
 
     for host_id in ("antigravity", "hermes"):
         assert hosts[host_id]["support"] == "coming_soon"

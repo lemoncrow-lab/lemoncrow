@@ -60,6 +60,11 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
     assert set(inputs) == {
         "anthropic-api-key",
         "openai-api-key",
+        "anthropic-federation-rule-id",
+        "anthropic-organization-id",
+        "anthropic-service-account-id",
+        "anthropic-workspace-id",
+        "claude-code-oauth-token",
         "github-token",
         "model-provider",
         "model",
@@ -138,6 +143,51 @@ def test_every_input_reference_is_declared_and_a_key_reaches_only_the_steps_that
         assert "api-key" not in str(step.get("if", ""))
 
 
+def test_the_keyless_routes_reach_only_the_gate_and_the_review_and_no_token_is_written_to_disk() -> None:
+    """Workload identity IDs and the subscription token go where the keys go; the OIDC token is fetched in Python."""
+
+    keyless = (
+        "claude-code-oauth-token",
+        "anthropic-federation-rule-id",
+        "anthropic-organization-id",
+        "anthropic-service-account-id",
+        "anthropic-workspace-id",
+    )
+    for name in keyless:
+        holders = [
+            step["name"]
+            for step in steps(manifest())
+            if any(f"inputs.{name} " in str(value) for value in (step.get("env") or {}).values())
+        ]
+        assert holders == ["Decide whether to review", "Review the pull request"], name
+        variable = "INPUT_" + name.upper().replace("-", "_")
+        assert variable in {**ci_env.KEY_INPUTS, **ci_env.FEDERATION_INPUTS}, variable
+    # The subscription token is a secret and is masked like a key; the federation IDs are not secrets.
+    assert "INPUT_CLAUDE_CODE_OAUTH_TOKEN" in ci_env.KEY_INPUTS
+    assert not set(ci_env.FEDERATION_INPUTS) & set(ci_env.KEY_INPUTS)
+    review = step_named("Review the pull request")
+    assert "unset INPUT_ANTHROPIC_API_KEY INPUT_OPENAI_API_KEY INPUT_CLAUDE_CODE_OAUTH_TOKEN" in review["run"]
+    # A GitHub OIDC token lives ~5 minutes and is single-use: never a one-shot file written by the workflow.
+    for step in steps(manifest()):
+        text = f"{step.get('run', '')}{step.get('env', '')}"
+        assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in text and "curl" not in text
+        assert "ANTHROPIC_IDENTITY_TOKEN_FILE" not in text
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert "## No API key" in guide and "id-token: write" in guide
+    assert "repo:<owner>/<repo>:pull_request" in guide and "repository_owner" in guide
+    assert "Connect workload" in guide and "Authentication history" in guide
+
+
+def test_the_claude_cli_is_installed_at_an_exact_version_only_for_its_route() -> None:
+    install = step_named("Install Claude Code")
+    assert install["if"] == "steps.gate.outputs.run == 'true' && steps.gate.outputs.agent == 'claude'"
+    assert re.search(r"@anthropic-ai/claude-code@\d+\.\d+\.\d+(\s|$)", install["run"]), install["run"]
+    names = [step["name"] for step in steps(manifest())]
+    assert (
+        names.index("Install LemonCrow") < names.index("Install Claude Code") < names.index("Review the pull request")
+    )
+
+
 def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> None:
     action = manifest()
     gate, *rest = steps(action)
@@ -160,7 +210,8 @@ def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> Non
     for step in middle:
         extra = step["if"][len(gated) :]
         assert extra == "" or re.fullmatch(
-            rf" && (inputs\.security-scan == 'auto'|steps\.cache_pin\.outputs\.key != '')| \|\| {re.escape(refreshing)}",
+            rf" && (inputs\.security-scan == 'auto'|steps\.cache_pin\.outputs\.key != ''"
+            rf"|steps\.gate\.outputs\.agent == 'claude')| \|\| {re.escape(refreshing)}",
             extra,
         ), step["name"]
     assert [step["name"] for step in middle if refreshing in step["if"]] == ["Set up uv", "Install LemonCrow"]
@@ -172,7 +223,7 @@ def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> Non
         "${{ steps.review.outcome }}",
     }
     read = set(re.findall(r"steps\.gate\.outputs\.(\w+)", ACTION.read_text(encoding="utf-8")))
-    assert read == {"run", "extra", "refresh"}
+    assert read == {"run", "extra", "refresh", "agent"}
     source = Path(ci_env.__file__).read_text(encoding="utf-8")
     assert all(f'"{name}=' in source for name in read)
 
@@ -359,7 +410,9 @@ def test_the_review_step_gives_the_key_and_the_git_credentials_to_the_review_and
         "#!/bin/sh\n"
         'echo "anthropic=${ANTHROPIC_API_KEY:-}"\n'
         'echo "openai=${OPENAI_API_KEY:-}"\n'
-        'echo "inputs=${INPUT_ANTHROPIC_API_KEY:-}${INPUT_OPENAI_API_KEY:-}"\n'
+        'echo "inputs=${INPUT_ANTHROPIC_API_KEY:-}${INPUT_OPENAI_API_KEY:-}${INPUT_CLAUDE_CODE_OAUTH_TOKEN:-}"\n'
+        'echo "claude=${CLAUDE_CODE_OAUTH_TOKEN:-}"\n'
+        'echo "federation=${ANTHROPIC_FEDERATION_RULE_ID:-}|${ANTHROPIC_ORGANIZATION_ID:-}|${ANTHROPIC_WORKSPACE_ID:-}"\n'
         'echo "git=${GIT_CONFIG_COUNT:-0}|${GIT_CONFIG_KEY_0:-}|${GIT_CONFIG_VALUE_0:-}"\n'
         'echo "args=$*"\n',
         encoding="utf-8",
@@ -402,6 +455,10 @@ def test_the_review_step_gives_the_key_and_the_git_credentials_to_the_review_and
     seen = run(INPUT_ANTHROPIC_API_KEY="sk-ant-from-the-input")
     assert seen["anthropic"] == "sk-ant-from-the-input" and seen["inputs"] == "" and seen["openai"] == ""
     assert run(INPUT_OPENAI_API_KEY="sk-openai-from-the-input")["openai"] == "sk-openai-from-the-input"
+    subscription = run(INPUT_CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-sub")
+    assert subscription["claude"] == "sk-ant-oat01-sub" and subscription["inputs"] == ""
+    federated = run(INPUT_ANTHROPIC_FEDERATION_RULE_ID="fdrl_x", INPUT_ANTHROPIC_ORGANIZATION_ID="org")
+    assert federated["federation"] == "fdrl_x|org|" and federated["anthropic"] == ""
     # No input: a key the calling step set as an environment variable is left alone.
     assert run(ANTHROPIC_API_KEY="sk-ant-from-env")["anthropic"] == "sk-ant-from-env"
     # No credential in the repository's config (persist-credentials: false, or a checkout this action made): git is given
@@ -590,7 +647,8 @@ def test_the_input_and_the_command_help_call_the_diagram_open_as_the_summary_ren
 
     described = " ".join(manifest()["inputs"]["diagram"]["description"].split())
     assert described.startswith('The "Diagram" section of the summary comment, open by default')
-    helped = " ".join(CliRunner().invoke(review_cmd, ["--help"]).output.split())
+    # --diagram lives in the advanced option group, exposed by --help-all.
+    helped = " ".join(CliRunner().invoke(review_cmd, ["--help-all"]).output.split())
     assert "the open Diagram section of the summary comment" in helped
     for text in (described, helped):
         assert "collapsed Change diagram" not in text and 'collapsed "Change diagram"' not in text

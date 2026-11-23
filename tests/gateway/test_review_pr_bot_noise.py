@@ -717,7 +717,7 @@ def test_the_policy_resolution_names_where_each_value_came_from() -> None:
     class Doc:
         content = review_yaml(strictness=3)
         state = "present"
-        source = "base Snapshot .lemoncrow/review.yaml"
+        source = "base revision .lemoncrow/review.yaml"
         path = CONFIG
 
     layer = parse_trusted_base_triage(Doc.content, source=Doc.source)
@@ -770,10 +770,8 @@ def test_the_threshold_the_impact_and_the_risks_examined_sit_together_in_one_sum
     body = "\n".join(lines[: next(i for i, row in enumerate(lines) if row.startswith("<!-- lemoncrow:state"))])
     verdict_line = next(row for row in lines if row.startswith("<h2>No must-fix"))
     assert "held back" in verdict_line and "1 should-fix" in verdict_line  # the held-back count rides the verdict line
-    label = next(
-        row for row in lines if row.startswith("**[") and " impact]**" in row
-    )  # the deterministic impact label
-    assert lines.index(verdict_line) < lines.index(label), "the verdict heading first, the impact label under it"
+    label = next(row for row in lines if row.startswith("**Risk: "))  # the deterministic Risk line
+    assert lines.index(verdict_line) < lines.index(label), "the verdict heading first, the Risk line under it"
     assert body.index("<sub>Reviewed ") > body.index(label)
     # The findings come first, then what was held back, then the risks that were examined, then the diagram.
     assert body.index("held back below strictness 3") < body.index("<summary>Risks examined")

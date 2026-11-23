@@ -57,7 +57,7 @@ const invokeHelper = (payload) => {
 
 
 // OpenCode V2 native plugin. Do not load this file in OpenCode V1.
-// Its Python helper deliberately remains shared with the legacy OpenCode/LemonCode bridge.
+// Its Python helper deliberately remains shared with the legacy OpenCode bridge.
 const failures = new Map();
 const pendingRescue = new Set();
 const phases = new Map();

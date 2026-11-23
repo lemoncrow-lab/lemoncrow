@@ -39,7 +39,7 @@ import socket
 import ssl
 import struct
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import urlencode, urlsplit
@@ -198,11 +198,13 @@ class HttpTransport:
         path: str,
         *,
         body: Mapping[str, Any] | None = None,
-        form: Mapping[str, str] | None = None,
+        form: Mapping[str, str | Sequence[str]] | None = None,
         headers: Mapping[str, str] | None = None,
         timeout_s: float | None = None,
     ) -> Response:
         """One request. Raises for no answer, for a redirect, or for a foreign origin.
+
+        A ``form`` value that is a sequence repeats its field once per item (RFC 8707 ``resource``).
 
         ``path`` is normally a path. A caller that passes a whole URL is not
         trusted to have picked the right one: it goes through the same origin
@@ -226,7 +228,7 @@ class HttpTransport:
             data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             request_headers["Content-Type"] = "application/json"
         elif form is not None:
-            data = urlencode(dict(form)).encode("ascii")
+            data = urlencode(dict(form), doseq=True).encode("ascii")
             request_headers["Content-Type"] = "application/x-www-form-urlencoded"
         budget = self._timeout_s if timeout_s is None else timeout_s
         parts = urlsplit(target)
@@ -417,7 +419,7 @@ class HttpTransport:
                 status = response.status
                 payload = response.read(max_bytes + 1)
                 if len(payload) > max_bytes:
-                    raise ClientError(ErrorCode.REQUEST_TOO_LARGE, "Snapshot source exceeded binary transfer cap")
+                    raise ClientError(ErrorCode.REQUEST_TOO_LARGE, "Revision source exceeded binary transfer cap")
                 if 300 <= status < 400:
                     raise _redirect_refused(status)
                 reusable = not response.will_close
@@ -430,7 +432,7 @@ class HttpTransport:
                     payload,
                 )
         except TimeoutError as exc:
-            raise _unreachable(self._url, "binary Snapshot request timed out", timed_out=True) from exc
+            raise _unreachable(self._url, "binary revision request timed out", timed_out=True) from exc
         except (OSError, http.client.HTTPException) as exc:
             raise _unreachable(self._url, exc) from exc
         finally:
@@ -440,7 +442,7 @@ class HttpTransport:
         self,
         path: str,
         *,
-        form: Mapping[str, str],
+        form: Mapping[str, str | Sequence[str]],
         timeout_s: float | None = None,
     ) -> Response:
         """POST an OAuth-style form to this transport's exact origin."""

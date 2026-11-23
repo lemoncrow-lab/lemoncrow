@@ -32,6 +32,8 @@ vi.mock("@pierre/diffs", () => ({
 const pierreReact = vi.hoisted(() => ({
   diffProps: new Map<string, any>(),
   fileProps: new Map<string, any>(),
+  /** A renderer instance a test hands the mocked FileDiff's onPostRender (else null). */
+  instances: new Map<string, any>(),
 }));
 
 vi.mock("./reviewApi", () => ({
@@ -71,6 +73,7 @@ vi.mock("./SurfacePluginPreview", async (importOriginal) => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  pierreReact.instances.clear();
   reviewApi.fetchSurfaceImpact.mockReset();
   reviewApi.fetchFileContents.mockReset();
   reviewApi.fetchRevisionComparisonFileContents.mockReset();
@@ -126,7 +129,7 @@ vi.mock("@pierre/diffs/react", () => ({
                 }
                 node.appendChild(host);
               }
-              props.options?.onPostRender?.(node, null, "mount");
+              props.options?.onPostRender?.(node, pierreReact.instances.get(path) ?? null, "mount");
             }
           }}
         >
@@ -303,7 +306,7 @@ function fileAnnotation(id: string, path: string, body: string, extra: Partial<A
 }
 
 describe("continuous review stream", () => {
-  it("remounts the diff renderer when one path switches from Full review to a Snapshot pair", () => {
+  it("remounts the diff renderer when one path switches from Full review to a revision pair", () => {
     const path = "src/same-path.py";
     const only = target("same-path", path, 1);
     const fullPatch = [
@@ -714,7 +717,7 @@ describe("continuous review stream", () => {
     expect(screen.queryByTestId(`mock-file-diff:${stylePath}`)).toBeNull();
   });
 
-  it("renders a dedicated web surface even without source targets", () => {
+  it("renders a dedicated web surface even without source parts", () => {
     const path = "src/standalone.tsx";
     const surface = {
       id: "/standalone",
@@ -742,7 +745,7 @@ describe("continuous review stream", () => {
     expect(screen.queryByRole("button", { name: /Load next files/ })).toBeNull();
   });
 
-  it("renders a frozen nested web surface even when its source path is outside parent review areas", () => {
+  it("renders a frozen nested web surface even when its source path is outside parent parts", () => {
     const parentPath = "src/parent.py";
     const nestedPath = "landing/src/pages/index.astro";
     const only = target("parent", parentPath, 1);
@@ -829,7 +832,7 @@ describe("continuous review stream", () => {
     open.mockRestore();
   });
 
-  it("shows runtime validation separately from preview runs and reuses Evidence/Ask target actions", async () => {
+  it("shows runtime validation separately from preview runs and reuses Evidence/Ask part actions", async () => {
     const path = "bruno/Checkout.bru";
     const only = target("checkout", path, 1);
     const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:checkout");
@@ -1496,7 +1499,7 @@ describe("continuous review stream", () => {
       .toEqual({ start: 3, end: 6, side: "additions", endSide: "additions" });
   });
 
-  it("keeps a review area's header sticky over its change once the original scrolls off", async () => {
+  it("keeps a part's header sticky over its change once the original scrolls off", async () => {
     const observers: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = [];
     class FakeIntersectionObserver {
       record: { callback: IntersectionObserverCallback; observed: Element[] };
@@ -1549,13 +1552,21 @@ describe("continuous review stream", () => {
       expect(sticky.dataset.stuck).toBe("true");
       expect(sticky.className).not.toContain("invisible");
       expect(within(sticky).getByText("sticky.py")).toBeTruthy();
-      expect(within(sticky).getByRole("group", { name: /review area/ })).toBeTruthy();
+      // A pointer-only copy: hidden from assistive tech, out of the tab order,
+      // so each action is announced once, by the inline header.
+      expect(sticky).toHaveAttribute("aria-hidden", "true");
+      expect(within(sticky).getByRole("group", { name: /part/, hidden: true })).toBeTruthy();
+      for (const button of within(sticky).getAllByRole("button", { hidden: true })) {
+        expect(button).toHaveAttribute("tabindex", "-1");
+      }
+      expect(screen.getAllByRole("button", { name: "Mark sticky reviewed" })).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Mark sticky needs changes" })).toHaveLength(1);
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("hides full-review hunk fallback headers in a Snapshot comparison", () => {
+  it("hides full-review hunk fallback headers in a revision comparison", () => {
     const path = "src/fallback.py";
     const fallback = {
       ...target("fallback", path, 3),
@@ -1580,7 +1591,7 @@ describe("continuous review stream", () => {
       />,
     );
 
-    expect(screen.queryByText(/Changes outside detected symbols/)).toBeNull();
+    expect(screen.queryByText(/Other changed lines/)).toBeNull();
     expect(screen.getByTestId(`mock-file-diff:${path}`)).toBeTruthy();
   });
 
@@ -1712,7 +1723,7 @@ describe("continuous review stream", () => {
     expect(screen.queryByTestId("review-selection-actions")).toBeNull();
   });
 
-  it("routes target review judgments through the selected-range action menu", async () => {
+  it("routes part review judgments through the selected-range action menu", async () => {
     const only = target("mark-range", "src/mark-range.py", 3);
     const onMark = vi.fn();
     render(
@@ -1763,7 +1774,7 @@ describe("continuous review stream", () => {
     expect(pierreReact.diffProps.get("src/shortcut-range.py")?.selectedLines).toBeNull();
   });
 
-  it("orders a range comment before the next review target when both share the same annotation slot", () => {
+  it("orders a range comment before the next part when both share the same annotation slot", () => {
     const path = "scripts/install.sh";
     const next = target("next", path, 462);
     const draft = {
@@ -1784,7 +1795,7 @@ describe("continuous review stream", () => {
     expect(markers.some((marker: any) => marker.lineNumber === 461)).toBe(true);
 
     const composer = screen.getByText(/Draft · New comment · L416-L461/).closest(".review-composer");
-    const nextHeader = screen.getByRole("group", { name: "next review area" });
+    const nextHeader = screen.getByRole("group", { name: "next part" });
     expect(composer).toBeTruthy();
     expect(nextHeader).toBeTruthy();
     expect(composer!.compareDocumentPosition(nextHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1833,7 +1844,7 @@ describe("continuous review stream", () => {
     }
   });
 
-  it("materializes review targets as compact actionable annotation rows", async () => {
+  it("materializes parts as compact actionable annotation rows", async () => {
     const targets = [target("a_one", "src/a.py", 1), target("a_two", "src/a.py", 2), target("b_one", "src/b.py", 1)];
     const onBulkReview = vi.fn();
     const onComment = vi.fn();
@@ -1864,19 +1875,17 @@ describe("continuous review stream", () => {
 
     expect(screen.getByTestId("code-item:src/a.py")).toBeTruthy();
     expect(screen.getByTestId("code-item:src/b.py")).toBeTruthy();
-    expect(screen.getByRole("group", { name: /a_one review area/i })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /a_two review area/i })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /b_one review area/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /a_one part/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /a_two part/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /b_one part/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark a_one reviewed" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark a_one needs changes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Comment on a_one" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Ask about a_one" })).toBeTruthy();
 
-    const aOneEnd = screen.getByRole("group", { name: "End actions for a_one" });
-    expect(aOneEnd).toBeTruthy();
-    expect(screen.getByRole("group", { name: "End actions for a_two" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "End actions for b_one" })).toBeTruthy();
-    await userEvent.click(within(aOneEnd).getByRole("button", { name: "Comment on a_one from end" }));
+    // Short parts keep one control set: the header's.
+    expect(document.querySelector("[data-review-target-end]")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Comment on a_one" }));
     expect(onComment).toHaveBeenCalledWith(targets[0]);
 
     expect(screen.getByText("2 left")).toBeTruthy();
@@ -1904,7 +1913,7 @@ describe("continuous review stream", () => {
     expect(onBulkReview).toHaveBeenCalledWith("src/a.py");
   });
 
-  it("opens a file in Code from its file actions, at its first review area", async () => {
+  it("opens a file in Code from its file actions, at its first part", async () => {
     const targets = [target("a_one", "src/a.py", 4)];
     const onOpenInCode = vi.fn();
     const { rerender } = render(
@@ -1923,7 +1932,7 @@ describe("continuous review stream", () => {
     expect(screen.queryByRole("menuitem", { name: "Open src/a.py in Code" })).toBeNull();
   });
 
-  it("renders review coverage as a scope overlay plus an actionable target header", () => {
+  it("renders review coverage as a scope overlay plus an actionable part header", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/scope.py") {
@@ -1948,9 +1957,9 @@ describe("continuous review stream", () => {
 
     render(<ReviewStream {...common} diffStyle="unified" targets={[scoped]} draft={null} />);
 
-    expect(screen.getByText(/covers lines 3–5/)).toBeTruthy();
-    expect(screen.getByRole("group", { name: "scope review area" })).toBeTruthy();
-    expect(pierreReact.diffProps.get("src/scope.py")?.lineAnnotations).toHaveLength(2);
+    expect(screen.getByText("· lines 3–5 · lines added")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "scope part" })).toBeTruthy();
+    expect(pierreReact.diffProps.get("src/scope.py")?.lineAnnotations).toHaveLength(1);
 
     const wrapper = screen.getByTestId("code-item:src/scope.py");
     const overlay = wrapper.querySelector<HTMLElement>('[data-lc-review-scope-overlay="target:scope"]');
@@ -1971,7 +1980,7 @@ describe("continuous review stream", () => {
     rect.mockRestore();
   });
 
-  it("moves the stronger scope emphasis when the active target changes", () => {
+  it("moves the stronger scope emphasis when the active part changes", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/active-scope.ts") {
@@ -2066,13 +2075,13 @@ describe("continuous review stream", () => {
     expect(childOverlay?.dataset.lcReviewCoverage).toBe("true");
     expect(childOverlay?.style.left).toBe("0px");
     expect(childOverlay?.style.width).toBe("800px");
-    expect(pierreReact.diffProps.get("src/parent.ts")?.lineAnnotations).toHaveLength(4);
-    expect(screen.getByRole("group", { name: "parent review area" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "parent.child review area" })).toBeTruthy();
+    expect(pierreReact.diffProps.get("src/parent.ts")?.lineAnnotations).toHaveLength(2);
+    expect(screen.getByRole("group", { name: "parent part" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "parent.child part" })).toBeTruthy();
     rect.mockRestore();
   });
 
-  it("keeps a completely added file full-width while preserving its actionable target header", () => {
+  it("keeps a completely added file full-width while preserving its actionable part header", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/new.ts") {
@@ -2101,7 +2110,7 @@ describe("continuous review stream", () => {
     const props = pierreReact.diffProps.get("src/new.ts");
     expect(props).toBeTruthy();
     expect(props.options.diffStyle).toBe("unified");
-    expect(props.lineAnnotations).toHaveLength(2);
+    expect(props.lineAnnotations).toHaveLength(1);
     const wrapper = screen.getByTestId("code-item:src/new.ts");
     const overlay = wrapper.querySelector<HTMLElement>('[data-lc-review-scope-overlay="target:new"]');
     expect(overlay).toBeTruthy();
@@ -2116,7 +2125,7 @@ describe("continuous review stream", () => {
     rect.mockRestore();
   });
 
-  it("outlines both sides of a modified scope and keeps its actionable target header", () => {
+  it("outlines both sides of a modified scope and keeps its actionable part header", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/modified.ts") {
@@ -2144,9 +2153,10 @@ describe("continuous review stream", () => {
 
     render(<ReviewStream {...common} diffStyle="split" targets={[modified]} draft={null} />);
 
-    expect(screen.getByText(/modified · old 3–4/)).toBeTruthy();
-    expect(screen.getByRole("group", { name: "modified review area" })).toBeTruthy();
-    expect(pierreReact.diffProps.get("src/modified.ts")?.lineAnnotations).toHaveLength(2);
+    expect(screen.getByText("· lines 3–5 · modified")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "modified part" })).toBeTruthy();
+    // A short part has its header only; no end-of-part row.
+    expect(pierreReact.diffProps.get("src/modified.ts")?.lineAnnotations).toHaveLength(1);
     const wrapper = screen.getByTestId("code-item:src/modified.ts");
     const oldOverlay = wrapper.querySelector<HTMLElement>(
       '[data-lc-review-scope-overlay="target:modified"][data-lc-review-scope-overlay-side="old"]',
@@ -2189,7 +2199,7 @@ describe("continuous review stream", () => {
     expect(reviewApi.fetchFileContents).not.toHaveBeenCalled();
   });
 
-  it("loads unchanged context from the exact Snapshot pair without disabling review actions", async () => {
+  it("loads unchanged context from the exact revision pair without disabling review actions", async () => {
     const path = "src/snapshot-context.py";
     const only = target("snapshot-context", path, 1);
     reviewApi.fetchRevisionComparisonFileContents.mockResolvedValueOnce({
@@ -2287,13 +2297,156 @@ describe("continuous review stream", () => {
     props.options.onPostRender(node, { expandHunk }, "update");
 
     expect(separator.style.cursor).toBe("pointer");
-    expect(separator.title).toBe("Show all 9 unmodified lines");
+    expect(separator.title).toBe("Show all 9 unchanged lines");
+    // The row names the action, never Pierre's vague count or "may be available".
+    expect(label.textContent).toBe("Show 9 more lines");
+    props.options.onPostRender(node, { expandHunk }, "update");
+    expect(label.textContent).toBe("Show 9 more lines");
     fireEvent.click(wrapper);
     expect(expandHunk).toHaveBeenCalledWith(0, "both", 9);
 
     expandHunk.mockClear();
     fireEvent.click(label);
     expect(expandHunk).toHaveBeenCalledWith(0, "both", 9);
+  });
+
+  it("names every gap row as what it does or hides, never 'may be available'", () => {
+    const path = "src/gaps.py";
+    const only = target("gaps", path, 1);
+    render(<ReviewStream {...streamProps({ [path]: detail(path) }, [[path, 1]], only.target_id)} targets={[only]} draft={null} />);
+    const props = pierreReact.diffProps.get(path);
+    const node = screen.getByTestId(`mock-file-diff:${path}`);
+    const gap = (text: string, expandable: boolean) => {
+      const separator = document.createElement("div");
+      separator.setAttribute("data-separator", "line-info");
+      if (expandable) separator.setAttribute("data-expand-index", "1");
+      const label = document.createElement("span");
+      label.setAttribute("data-unmodified-lines", "");
+      label.textContent = text;
+      separator.appendChild(label);
+      node.querySelector("diffs-container")!.appendChild(separator);
+      return label;
+    };
+    const unknown = gap("More unchanged context may be available", true);
+    const many = gap("45 unmodified lines", true);
+    const one = gap("1 unmodified line", true);
+    const fixed = gap("9 unmodified lines", false);
+    props.options.onPostRender(node, { expandHunk: vi.fn() }, "update");
+    expect(unknown.textContent).toBe("Show more context");
+    expect(many.textContent).toBe("Show 20 more lines · 45 hidden");
+    expect(one.textContent).toBe("Show 1 more line");
+    expect(fixed.textContent).toBe("9 lines unchanged");
+    // Assistive tech hears what is hidden, not the action twice.
+    expect(many.dataset.lcHiddenDescription).toBe("45 lines unchanged");
+    expect(document.body.textContent).not.toContain("may be available");
+  });
+
+  it("reveals a part's folded signature line, then seats its header right above it", () => {
+    const path = "app/auth.py";
+    // def can_view_order(user, order): is line 1; git's hunk starts at line 2.
+    const canView = {
+      ...target("can_view_order", path, 4),
+      start_line: 1,
+      end_line: 8,
+      spans: [{ side: "new" as const, start_line: 4, end_line: 5, hunk_ordinal: 0 }],
+    };
+    const original = pierre.parsePatchFiles.getMockImplementation()!;
+    pierre.parsePatchFiles.mockImplementation((patch: string, id: string) => (id === `lc:${path}`
+      ? [{ files: [{ id, name: path, hunks: [{ additionStart: 2, additionCount: 7, deletionStart: 2, deletionCount: 7 }] }] }]
+      : original(patch, id)) as any);
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const expandHunk = vi.fn();
+    const instance = { expandHunk, fileDiff: { isPartial: true } };
+    pierreReact.instances.set(path, instance);
+    try {
+      render(<ReviewStream {...streamProps({ [path]: detail(path) }, [[path, 1]], canView.target_id)} targets={[canView]} draft={null} />);
+      // Line 1 and the line the header needs above it: one line, the whole gap.
+      expect(expandHunk).toHaveBeenCalledWith(0, "down", 1);
+      expect(expandHunk).toHaveBeenCalledTimes(1);
+      // Until the contents land the header keeps a row the patch renders.
+      expect(within(screen.getByTestId(`marker:${path}:additions:3`)).getByRole("group", { name: "can_view_order part" })).toBeTruthy();
+
+      instance.fileDiff.isPartial = false;
+      const node = screen.getByTestId(`mock-file-diff:${path}`);
+      act(() => pierreReact.diffProps.get(path).options.onPostRender(node, instance, "update"));
+      // Now the signature row exists: the header sits above it, at the file top.
+      expect(within(screen.getByTestId(`marker:${path}:additions:0`)).getByRole("group", { name: "can_view_order part" })).toBeTruthy();
+      expect(screen.queryByTestId(`marker:${path}:additions:3`)).toBeNull();
+      expect(expandHunk).toHaveBeenCalledTimes(1);
+    } finally {
+      pierre.parsePatchFiles.mockImplementation(original);
+      raf.mockRestore();
+    }
+  });
+
+  it("pins a signature that sits too far above its change in the part header", async () => {
+    const path = "app/orders.py";
+    const long = {
+      ...target("long_function", path, 63),
+      start_line: 5,
+      end_line: 70,
+      spans: [{ side: "new" as const, start_line: 63, end_line: 63, hunk_ordinal: 0 }],
+    };
+    const lines = Array.from({ length: 70 }, (_, index) => (index === 4 ? "def long_function(order, user):" : `    step_${index + 1}()`));
+    reviewApi.fetchFileContents.mockImplementation(async (_id: string, file: string, revisionId: string) => ({
+      path: file, revision_id: revisionId || "rrv-1", old_path: file, status: "modified",
+      old_content: lines.join("\n"), new_content: lines.join("\n"),
+    }));
+    const original = pierre.parsePatchFiles.getMockImplementation()!;
+    pierre.parsePatchFiles.mockImplementation((patch: string, id: string) => (id === `lc:${path}`
+      ? [{ files: [{ id, name: path, hunks: [{ additionStart: 60, additionCount: 7, deletionStart: 60, deletionCount: 7 }] }] }]
+      : original(patch, id)) as any);
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const expandHunk = vi.fn();
+    const instance = { expandHunk, fileDiff: { isPartial: true } };
+    pierreReact.instances.set(path, instance);
+    try {
+      render(<ReviewStream {...streamProps({ [path]: detail(path) }, [[path, 1]], long.target_id)} targets={[long]} draft={null} />);
+      // Too far to unfold: only load the contents (a zero-line expansion).
+      expect(expandHunk).toHaveBeenCalledWith(0, "down", 0);
+      expect(screen.queryByTestId("target-signature")).toBeNull();
+      await act(async () => { await pierreReact.diffProps.get(path).options.loadDiffFiles(); });
+      instance.fileDiff.isPartial = false;
+      const node = screen.getByTestId(`mock-file-diff:${path}`);
+      act(() => pierreReact.diffProps.get(path).options.onPostRender(node, instance, "update"));
+      const signature = screen.getByTestId("target-signature");
+      expect(signature.textContent).toContain("def long_function(order, user):");
+      expect(within(signature).getByLabelText("line 5")).toBeTruthy();
+    } finally {
+      pierre.parsePatchFiles.mockImplementation(original);
+      raf.mockRestore();
+    }
+  });
+
+  it("gives a tall part one pointer shortcut at its end and every action one accessible control", async () => {
+    const path = "src/tall.py";
+    const tall = { ...target("tall", path, 3), start_line: 1, end_line: 60 };
+    const common = streamProps({ [path]: detail(path) }, [[path, 1]], tall.target_id);
+    render(<ReviewStream {...common} targets={[tall]} draft={null} onAsk={vi.fn()} />);
+
+    const end = document.querySelector<HTMLElement>(`[data-review-target-end="${tall.target_id}"]`)!;
+    expect(end).toBeTruthy();
+    expect(end).toHaveAttribute("aria-hidden", "true");
+    expect(end.textContent).not.toMatch(/\bEnd\b/);
+    expect(end.textContent).toContain("Needs changes");
+    const endButtons = [...end.querySelectorAll<HTMLButtonElement>("button")];
+    expect(endButtons.length).toBe(5);
+    for (const button of endButtons) expect(button).toHaveAttribute("tabindex", "-1");
+
+    for (const name of ["Mark tall reviewed", "Mark tall needs changes", "Comment on tall", "Ask about tall", "Open context for tall"]) {
+      expect(screen.getAllByRole("button", { name })).toHaveLength(1);
+    }
+    expect(screen.queryByRole("button", { name: /from end/ })).toBeNull();
+
+    // The pointer shortcut still judges the part.
+    await userEvent.click(endButtons.find((button) => button.dataset.mark === "reviewed")!);
+    expect(common.onMark).toHaveBeenCalledWith(tall, "reviewed", true);
   });
 
   it("shows a context fetch on the collapsed rows and offers a retry when it fails", async () => {
@@ -2479,7 +2632,7 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId("marker:src/stable.py:additions:2")).toBeTruthy();
   });
 
-  it("folds a judged target into a compact strip without hiding unresolved siblings", async () => {
+  it("folds a judged part into a compact strip without hiding unresolved siblings", async () => {
     const path = "src/folded.py";
     const reviewed = { ...target("done", path, 2), state: "reviewed" as const };
     const pending = target("pending", path, 10);
@@ -2507,7 +2660,7 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
   });
 
-  it("omits Ask target actions when Review Ask is unavailable", () => {
+  it("omits Ask part actions when Review Ask is unavailable", () => {
     const item = target("no_ask", "src/no-ask.py", 1);
     render(
       <ReviewStream
@@ -2534,7 +2687,7 @@ describe("continuous review stream", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Ask about no_ask" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Ask about no_ask from end" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-review-target-end]")).toBeNull();
   });
 
   it("keeps an area judged while active open until the reviewer moves on, then folds it", () => {
@@ -2558,7 +2711,7 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
   });
 
-  it("folds needs-changes targets but reopens them when the code changes", () => {
+  it("folds needs-changes parts but reopens them when the code changes", () => {
     const path = "src/rereview.py";
     const needsChanges = { ...target("fix_me", path, 2), state: "needs_changes" as const };
     const pending = target("pending", path, 10);
@@ -2566,7 +2719,7 @@ describe("continuous review stream", () => {
 
     const { rerender } = render(<ReviewStream {...common} targets={[needsChanges, pending]} draft={null} />);
     expect(screen.getByRole("button", { name: "Expand fix_me" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /fix_me review area · needs changes · folded/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /fix_me part · needs changes · folded/i })).toBeTruthy();
     expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
 
     rerender(
@@ -2582,7 +2735,7 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("");
   });
 
-  it("renders every target state: judged work folds, open work keeps a full header (plan §8.4)", () => {
+  it("renders every part state: judged work folds, open work keeps a full header (plan §8.4)", () => {
     const path = "src/states.py";
     const rows: ReviewTarget[] = [
       { ...target("done", path, 2), state: "reviewed" },
@@ -2597,8 +2750,8 @@ describe("continuous review stream", () => {
 
     // A partly judged file stays open; only its judged areas fold.
     expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByRole("group", { name: "done review area · reviewed · folded" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "asked review area · needs changes · folded" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "done part · reviewed · folded" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "asked part · needs changes · folded" })).toBeTruthy();
     expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
     expect(screen.getByTestId(`scope-row:${path}:5`).style.display).toBe("none");
 
@@ -2608,7 +2761,7 @@ describe("continuous review stream", () => {
       ["fresh", null, "unreviewed", 14],
     ];
     for (const [label, badge, spoken, line] of open) {
-      const group = screen.getByRole("group", { name: `${label} review area` });
+      const group = screen.getByRole("group", { name: `${label} part` });
       expect(within(group).getByText(spoken, { selector: ".sr-only" })).toBeTruthy();
       if (badge) expect(within(group).getByText(badge)).toBeTruthy();
       expect(within(group).queryByRole("button", { name: `Fold ${label}` })).toBeNull();
@@ -2616,10 +2769,10 @@ describe("continuous review stream", () => {
       expect(screen.getByTestId(`scope-row:${path}:${line}`).style.display).toBe("");
     }
     // The active changed area says why its old judgment no longer holds.
-    expect(within(screen.getByRole("group", { name: "moved review area" }))
-      .getByText("Changed since you reviewed · your earlier judgment no longer covers this review area.")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "moved part" }))
+      .getByText("Changed since you reviewed · your earlier judgment no longer covers this part.")).toBeTruthy();
 
-    fireEvent.click(within(screen.getByRole("group", { name: "uncertain review area" }))
+    fireEvent.click(within(screen.getByRole("group", { name: "uncertain part" }))
       .getByRole("button", { name: "Mark uncertain reviewed" }));
     expect(common.onMark).toHaveBeenCalledWith(expect.objectContaining({ target_id: "target:uncertain" }), "reviewed", true);
   });
@@ -2772,11 +2925,11 @@ describe("continuous review stream", () => {
     // prove the stream is showing a slice without being told a second time.
     const common = streamProps({ "src/a.py": detail("src/a.py") }, [["src/a.py", 7]], "target:a_one");
     render(<ReviewStream {...common} targets={[only]} draft={null} />);
-    expect(screen.queryByText("0/1 targets")).toBeNull();
+    expect(screen.queryByText("0/1 parts")).toBeNull();
     expect(screen.getByText("1 shown · 7 left in file")).toBeTruthy();
   });
 
-  it("keeps Pierre FileDiff options stable when only the active target changes", () => {
+  it("keeps Pierre FileDiff options stable when only the active part changes", () => {
     const targets = [target("a", "src/a.py", 1), target("b", "src/a.py", 20)];
     const common = {
       targets,
@@ -2898,7 +3051,7 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId("review-selection-actions")).toBeTruthy();
   });
 
-  it("updates the active target from manual scroll position", () => {
+  it("updates the active part from manual scroll position", () => {
     const targets = [
       target("a_one", "src/a.py", 1),
       target("a_two", "src/a.py", 2),
@@ -2984,7 +3137,7 @@ describe("continuous review stream", () => {
     raf.mockRestore();
   });
 
-  it("keeps a keyboard-selected target while its programmatic scroll settles", () => {
+  it("keeps a keyboard-selected part while its programmatic scroll settles", () => {
     const targets = [
       target("a_one", "src/a.py", 1),
       target("a_two", "src/a.py", 2),
@@ -3118,7 +3271,7 @@ describe("continuous review stream", () => {
     }
   });
 
-  it("lets the reviewer's own wheel scroll take the active target back from a programmatic navigation", () => {
+  it("lets the reviewer's own wheel scroll take the active part back from a programmatic navigation", () => {
     const targets = [
       target("a_one", "src/a.py", 1),
       target("a_two", "src/a.py", 2),

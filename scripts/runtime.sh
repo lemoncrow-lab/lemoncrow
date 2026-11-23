@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# runtime.sh — Install LemonCrow Runtime independently of Review.
+# runtime.sh — Install LemonCrow Workspaces independently of Review.
 #
 # Runtime lives in ~/.lemoncrow/runtime/client. It does not replace a Review-owned
 # lc launcher. If no lc exists yet, Runtime exposes its own lc until Review is installed.
@@ -86,16 +86,16 @@ usage() {
     cat <<'USAGE'
 usage: runtime.sh [OPTIONS]
 
-Install LemonCrow Runtime independently of Review.
+Install LemonCrow Workspaces independently of Review.
 
-  --lite                 install Local Lite: no server, daemon, listener, endpoint, or login dependency
-  --url URL              LemonCrow server for hosted/thin-client Runtime (default https://api.lemoncrow.com)
+  --lite                 install Workspaces Lite: no server, daemon, listener, endpoint, or login dependency
+  --url URL              LemonCrow server for hosted/thin-client Workspaces (default https://api.lemoncrow.com)
   --from-build [ARCHIVE] install local dist/lemoncrow-runtime-client.tar.gz
-  --agent NAME           explicitly enable Runtime for claude, codex, opencode, or auto
+  --agent NAME           explicitly enable Workspaces for claude, codex, opencode, or auto
   --no-hosts             compatibility no-op; host integration is already opt-in
   --dry-run              print the resolved installation plan and exit
 
-Without --agent, installation changes no coding-agent configuration. Local Lite
+Without --agent, installation changes no coding-agent configuration. Workspaces Lite
 is self-contained and uses only session-scoped stdio processes plus repo-local indexes.
 USAGE
 }
@@ -130,7 +130,7 @@ if [[ "$LITE" != "1" ]]; then
         https://*) ;;
         http://localhost|http://localhost/*|http://localhost:*|http://127.0.0.1|http://127.0.0.1/*|http://127.0.0.1:*|http://\[::1\]|http://\[::1\]/*|http://\[::1\]:*) ;;
         http://*) lc_ui_printf '1;31' '%s\n' "runtime.sh: plaintext HTTP is allowed only for literal loopback; use HTTPS: $RUNTIME_URL" >&2; exit 2 ;;
-        *) lc_ui_printf '1;31' '%s\n' "runtime.sh: Runtime URL must be absolute HTTPS (or loopback HTTP): $RUNTIME_URL" >&2; exit 2 ;;
+        *) lc_ui_printf '1;31' '%s\n' "runtime.sh: Workspaces server URL must be absolute HTTPS (or loopback HTTP): $RUNTIME_URL" >&2; exit 2 ;;
     esac
     RUNTIME_MODE="hosted"
     case "${LEMONCROW_DEPLOYMENT:-}:$RUNTIME_URL" in
@@ -138,7 +138,7 @@ if [[ "$LITE" != "1" ]]; then
         cloud:*|hosted:*) ;;
         # The local server executes no Runtime tools: local Runtime is Runtime Lite.
         *:http://localhost|*:http://localhost/*|*:http://localhost:*|*:http://127.0.0.1|*:http://127.0.0.1/*|*:http://127.0.0.1:*|*:http://\[::1\]|*:http://\[::1\]/*|*:http://\[::1\]:*)
-            lc_ui_printf '1;33' '%s\n' "runtime.sh: a loopback endpoint now installs Runtime Lite (no server needed)" >&2
+            lc_ui_printf '1;33' '%s\n' "runtime.sh: a loopback endpoint now installs Workspaces Lite (no server needed)" >&2
             RUNTIME_MODE="lite" ;;
     esac
 fi
@@ -205,11 +205,11 @@ verify_archive() {
             lc_ui_printf '1;33' '%s\n' "runtime.sh: WARNING: no valid SHA-256 checksum; proceeding because LEMONCROW_ALLOW_UNVERIFIED=1" >&2
             return 0
         fi
-        lc_ui_printf '1;31' '%s\n' "runtime.sh: missing or invalid SHA-256 checksum; refusing Runtime install" >&2
+        lc_ui_printf '1;31' '%s\n' "runtime.sh: missing or invalid SHA-256 checksum; refusing Workspaces install" >&2
         return 1
     fi
     actual="$(sha256_file "$archive")"
-    [[ "$actual" == "$expected" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: checksum mismatch; refusing Runtime install" >&2; return 1; }
+    [[ "$actual" == "$expected" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: checksum mismatch; refusing Workspaces install" >&2; return 1; }
 }
 
 write_env() {
@@ -240,9 +240,9 @@ fi
 ASSET="lemoncrow-runtime-client.tar.gz"
 
 if [[ "$DRY_RUN" == "1" ]]; then
-    lc_ui_printf '36' 'Product: LemonCrow Runtime\n'
-    lc_ui_printf '36' 'Runtime mode: %s\n' "$RUNTIME_MODE"
-    if [[ "$RUNTIME_MODE" == "lite" ]]; then lc_ui_printf '36' 'Runtime server: none (session-scoped stdio only)\n'; else lc_ui_printf '1;34' 'Runtime endpoint: %s\n' "$RUNTIME_URL"; fi
+    lc_ui_printf '36' 'Product: LemonCrow Workspaces\n'
+    lc_ui_printf '36' 'Workspaces mode: %s\n' "$RUNTIME_MODE"
+    if [[ "$RUNTIME_MODE" == "lite" ]]; then lc_ui_printf '36' 'Workspaces server: none (session-scoped stdio only)\n'; else lc_ui_printf '1;34' 'Workspaces endpoint: %s\n' "$RUNTIME_URL"; fi
     lc_ui_printf '36' 'Python: %s\n' "$PYTHON"
     lc_ui_printf '36' 'Install root: %s\n' "$INSTALL_ROOT"
     lc_ui_printf '36' 'CLI bin dir: %s\n' "$BIN_DIR"
@@ -257,11 +257,11 @@ archive="$TEMP/$ASSET"
 checksum="$TEMP/$ASSET.sha256"
 
 if [[ -n "$FROM_BUILD" ]]; then
-    [[ -s "$FROM_BUILD" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: local Runtime artifact not found: $FROM_BUILD" >&2; exit 1; }
+    [[ -s "$FROM_BUILD" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: local Workspaces artifact not found: $FROM_BUILD" >&2; exit 1; }
     cp "$FROM_BUILD" "$archive"
     if [[ -s "${FROM_BUILD}.sha256" ]]; then cp "${FROM_BUILD}.sha256" "$checksum"; else printf '%s\n' "$(sha256_file "$archive")" >"$checksum"; fi
 else
-    lc_ui_printf progress 'Fetching Runtime client...\n'
+    lc_ui_printf progress 'Fetching Workspaces client...\n'
     fetch_to "$BASE_URL/$ASSET" "$archive" || { lc_ui_printf '1;31' '%s\n' "runtime.sh: could not download $BASE_URL/$ASSET" >&2; exit 1; }
     if pin="$(pinned_sha256 "$ASSET")"; then
         printf '%s\n' "$pin" >"$checksum"
@@ -283,7 +283,7 @@ VENV_PY="$INSTALL_ROOT/bin/python"
 "$VENV_PY" -m pip install --disable-pip-version-check --no-index --no-deps --force-reinstall "$wheel" >/dev/null
 RUNTIME_CLIENT="$INSTALL_ROOT/bin/lemoncrow-client"
 RUNTIME_NAMED="$INSTALL_ROOT/bin/lemoncrow-runtime-client"
-[[ -x "$RUNTIME_CLIENT" && -x "$RUNTIME_NAMED" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: Runtime wheel did not provide its client" >&2; exit 1; }
+[[ -x "$RUNTIME_CLIENT" && -x "$RUNTIME_NAMED" ]] || { lc_ui_printf '1;31' '%s\n' "runtime.sh: Workspaces wheel did not provide its client" >&2; exit 1; }
 ln -sfn "$RUNTIME_NAMED" "$BIN_DIR/lemoncrow-runtime-client"
 # Runtime-only installations still get the stable lc identity. Review owns the
 # public launcher whenever it is already installed, and delegates back here.
@@ -305,7 +305,12 @@ fi
 
 # Migrate only existing LC connections; a fresh install still enables no hosts
 # unless --agent was explicitly requested. Use the installed wheel, not checkout imports.
-LEMONCROW_HOME="$STATE_DIR" PYTHONPATH= "$VENV_PY" -m lemoncrow_client.host_repair
+repair_status=0
+repair_output="$(LEMONCROW_HOME="$STATE_DIR" PYTHONPATH= "$VENV_PY" -m lemoncrow_client.host_repair)" || repair_status=$?
+while IFS= read -r repair_line; do
+    [[ -z "$repair_line" ]] || lc_ui_printf progress '%s\n' "$repair_line"
+done <<<"$repair_output"
+[[ "$repair_status" -eq 0 ]] || exit "$repair_status"
 if [[ -n "$AGENT" ]]; then
     PYTHONPATH= "$RUNTIME_CLIENT" runtime enable "$AGENT"
 fi
@@ -319,12 +324,12 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
 
 if [[ "${LEMONCROW_INSTALL_NESTED:-0}" != 1 ]]; then
     lc_ui_printf '1;36' '\n◆ Verify installation\n'
-    lc_ui_printf progress 'Checking Runtime client...\n'
+    lc_ui_printf progress 'Checking Workspaces client...\n'
     LEMONCROW_HOME="$STATE_DIR" LEMONCROW_NO_LAZY_INSTALL=1 "$RUNTIME_CLIENT" --version >/dev/null
 fi
-lc_ui_printf '1;32' '\n✓ Runtime ready\n'
+lc_ui_printf '1;32' '\n✓ Workspaces ready\n'
 if [[ "$RUNTIME_MODE" == "lite" ]]; then
-    lc_ui_printf '36' '  mode:     Local Lite\n'
+    lc_ui_printf '36' '  mode:     Lite\n'
     lc_ui_printf '36' '  server:   none (stdio processes only)\n'
 else
     lc_ui_printf '36' '  mode:     %s\n' "$RUNTIME_MODE"
@@ -333,8 +338,8 @@ fi
 lc_ui_printf '36' '  hosts:    %s\n' "${AGENT:-none enabled by installer}"
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) lc_ui_printf '36' '  Shell setup: add %s to PATH\n' "$BIN_DIR" ;; esac
 lc_ui_printf '1;36' '\nNext:\n'
-lc_ui_printf command '  Check Runtime:' 'lc rt status'
+lc_ui_printf command '  Check Workspaces:' 'lc rt status'
 if [[ -z "$AGENT" ]]; then
     lc_ui_printf '1;36' '\nOptional:\n'
-    lc_ui_printf command '  Enable Runtime:' 'lc runtime enable codex' '   # or claude / opencode / auto'
+    lc_ui_printf command '  Enable Workspaces:' 'lc runtime enable codex' '   # or claude / opencode / auto'
 fi

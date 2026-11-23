@@ -85,14 +85,14 @@ usage() {
     cat <<'USAGE'
 usage: hosted.sh [OPTIONS]
 
-Install LemonCrow Review only. Runtime and coding-agent integration are separate.
+Install LemonCrow Review only. Workspaces and coding-agent integration are separate.
 
   --url URL              LemonCrow server (default https://api.lemoncrow.com)
   --from-build [ARCHIVE] install local dist/lemoncrow-review-client.tar.gz
   --no-hosts             accepted compatibility no-op; Review never configures hosts
   --dry-run              print the resolved installation plan and exit
 
-Runtime moved to its own installer:
+Workspaces moved to its own installer:
   runtime.sh [--agent claude|codex|opencode|auto]
 
 Environment overrides:
@@ -112,10 +112,10 @@ while [[ $# -gt 0 ]]; do
         --from-build=*) FROM_BUILD="${1#--from-build=}"; shift ;;
         --no-hosts) shift ;; # Review never mutates host config; retained for upgrade scripts.
         --agent|--runtime-agent)
-            lc_ui_printf '1;31' '%s\n' "hosted.sh: Runtime is a separate product; install it with runtime.sh, then run 'lc runtime enable <host>'" >&2
+            lc_ui_printf '1;31' '%s\n' "hosted.sh: Workspaces is a separate product; install it with runtime.sh, then run 'lc runtime enable <host>'" >&2
             exit 2 ;;
         --agent=*|--runtime-agent=*)
-            lc_ui_printf '1;31' '%s\n' "hosted.sh: Runtime is a separate product; install it with runtime.sh, then run 'lc runtime enable <host>'" >&2
+            lc_ui_printf '1;31' '%s\n' "hosted.sh: Workspaces is a separate product; install it with runtime.sh, then run 'lc runtime enable <host>'" >&2
             exit 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help|help) usage; exit 0 ;;
@@ -247,7 +247,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
     lc_ui_printf '36' 'Install root: %s\n' "$INSTALL_ROOT"
     lc_ui_printf '36' 'CLI bin dir: %s\n' "$BIN_DIR"
     if [[ -n "$FROM_BUILD" ]]; then lc_ui_printf '36' 'Artifact: %s (local build)\n' "$FROM_BUILD"; else lc_ui_printf '36' 'Artifact: %s/%s (SHA-256 required)\n' "$BASE_URL" "$ASSET"; fi
-    printf 'Runtime/agent configuration: none\n'
+    printf 'Workspaces/agent configuration: none\n'
     exit 0
 fi
 

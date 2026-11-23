@@ -438,6 +438,30 @@ def test_static_test_statement_contract() -> None:
     assert not any(("rule", "assertions_removed") in delta.facts for delta in weakening_deltas(PRODUCER_ID, files))
 
 
+def test_a_new_test_file_disables_nothing_but_can_still_focus() -> None:
+    skipping = 'def test_a():\n    if not dsn():\n        pytest.skip("no database")\n    assert a()\n'
+    assert weakening_deltas(PRODUCER_ID, [_ct("tests/test_new.py", "", skipping)]) == []
+    assert weakening_deltas(PRODUCER_ID, [_ct("tests/test_old.py", "def test_a():\n    assert a()\n", skipping)])
+    [focused] = weakening_deltas(PRODUCER_ID, [_ct("src/new.test.ts", "", 'it.only("a", () => {});\n')])
+    assert ("rule", "test_focused") in focused.facts
+
+
+def test_a_renamed_test_is_compared_with_its_new_self() -> None:
+    checks = "".join(f"    assert check({index}) == {index}\n" for index in range(5))
+    base = f"def test_old_name():\n    setup()\n{checks}"
+
+    def lost(head: str) -> list[str]:
+        deltas = weakening_deltas(PRODUCER_ID, [_ct("tests/test_a.py", base, head)])
+        return [delta.title for delta in deltas if ("rule", "assertions_removed") in delta.facts]
+
+    # 2026-11-19, a real commit: renamed with one assertion edited, reported as every assertion removed.
+    assert lost(f"def test_new_name():\n    setup()\n{checks.replace('check(4) == 4', 'check(4) != 5')}") == []
+    dropped = checks.replace("    assert check(4) == 4\n", "")
+    assert lost(f"def test_new_name():\n    setup()\n{dropped}") == ["1 assertion removed in tests/test_a.py"]
+    # A different test taking the slot is no rename: the old checks are gone.
+    assert lost("def test_other():\n    assert unrelated() is True\n") == ["5 assertions removed in tests/test_a.py"]
+
+
 def test_static_instruction_classification_contract() -> None:
     """case: test_agent_instruction_and_tool_config_paths_are_classified"""
     for path, klass in [
@@ -626,7 +650,7 @@ def test_static_analysis_execution_contract() -> None:
     "case: test_a_deployment_that_places_static_analysis_on_a_worker_shows_why_it_does_not_run"
     plan, entry = _planned(default_run_on="worker", by_class={"static": ("worker",)})
     assert entry.status == "not_available" and entry.executor == "worker"
-    assert "runs only where the Snapshot is held" in entry.reason and "worker executor" in entry.reason
+    assert "runs only where the revision is held" in entry.reason and "worker executor" in entry.reason
     assert not plan.required_blockers()
     required, row = _planned(
         {"required": [{"id": STATIC_ENTRY_ID}]}, default_run_on="worker", by_class={"static": ("worker",)}
@@ -706,7 +730,6 @@ class _Recorder:
         recorder = self
 
         class _Snapshot:
-
             def record_compute(self, entry_id: str, executor: str, stage: str, seconds: float) -> None:
                 recorder.calls.append((revision_id, entry_id, executor, stage, seconds))
 
@@ -808,7 +831,7 @@ def _threaded_service(base_tree: Any, revision_files: dict[str, dict[str, tuple[
     return (service, store, recorder)
 
 
-_TRUSTED = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+_TRUSTED = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 
 
 def _planned(

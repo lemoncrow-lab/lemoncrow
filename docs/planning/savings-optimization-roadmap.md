@@ -47,6 +47,10 @@ can close the product acceptance gate.
 
 ### LemonCode control plane
 
+> `lc code` is reserved and not yet available in public builds: it says so and
+> exits. The control plane below runs only in LemonCrow's internal development
+> builds. For a local agent, use `lc with <host>`.
+
 LemonCrow does not need to build another terminal UI from scratch. It owns the
 expensive agent boundary while reusing a mature frontend:
 
@@ -111,7 +115,7 @@ The public matched Terminal-Bench 2.1 comparison is the baseline for claims:
 | Normalized cost, both at 1-hour cache-write rate | $61.98 | $73.75 | 16.0% lower |
 
 The detailed methodology and raw-run links are in
-[Terminal-Bench](../../BENCHMARKS.md#terminal-bench).
+[Terminal-Bench](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md#terminal-bench).
 
 ### Design estimates are not product claims
 

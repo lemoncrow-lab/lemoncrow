@@ -115,6 +115,73 @@ def test_protected_directories_are_refused(tmp_path: Path) -> None:
     assert not (tmp_path / ".git" / "config").exists()
 
 
+@pytest.mark.parametrize(
+    "relative",
+    [
+        ".lemoncrow/review.yaml",
+        ".lemoncrow/review-instructions.md",
+        ".lemoncrow/review.json",
+        ".lemoncrow/environment.toml",
+        ".lemoncrow/rules/team.md",
+        ".lemoncrow/rules/python/style.md",
+        "sub/.lemoncrow/environment.toml",
+    ],
+)
+def test_a_repositorys_committed_team_config_is_editable(tmp_path: Path, relative: str) -> None:
+    (tmp_path / relative.split(".lemoncrow/")[0] / ".git").mkdir(parents=True)
+
+    result = apply_edits([{"path": relative, "new_string": "x\n", "replace": True}], root=tmp_path)
+
+    assert not result["failed"], result["failed"]
+    assert (tmp_path / relative).read_text(encoding="utf-8") == "x\n"
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        ".lemoncrow/workspace/code_context.sqlite",
+        ".lemoncrow/state.txt",
+        ".lemoncrow/environment.toml.bak",
+        ".lemoncrow/review.yaml/inner",
+        ".lemoncrow/rules",
+        ".lemoncrow/.gitignore",
+        ".LEMONCROW/workspace/db",
+        ".lemoncrow/Review.yaml",
+        ".GIT/config",
+        "Node_Modules/x.js",
+        "node_modules/.lemoncrow/review.yaml",
+        ".lemoncrow/.lemoncrow/review.yaml",
+        ".git/.lemoncrow/review.yaml",
+    ],
+)
+def test_the_rest_of_lemoncrows_state_stays_protected(tmp_path: Path, relative: str) -> None:
+    (tmp_path / ".git").mkdir()
+
+    result = apply_edits([{"path": relative, "new_string": "x\n", "replace": True}], root=tmp_path)
+
+    assert "protected path denied" in result["failed"][0]["error"]
+
+
+def test_committed_config_outside_a_repository_stays_protected(tmp_path: Path) -> None:
+    """``~/.lemoncrow`` and a workspace folder's own store hold no team config."""
+    result = apply_edits([{"path": ".lemoncrow/review.yaml", "new_string": "x\n", "replace": True}], root=tmp_path)
+
+    assert "protected path denied" in result["failed"][0]["error"]
+    assert not (tmp_path / ".lemoncrow" / "review.yaml").exists()
+
+
+def test_a_config_name_linked_into_git_stays_protected(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+    (tmp_path / ".lemoncrow").mkdir()
+    (tmp_path / ".lemoncrow" / "review.yaml").symlink_to(tmp_path / ".git" / "config")
+
+    result = apply_edits([{"path": ".lemoncrow/review.yaml", "new_string": "x\n", "replace": True}], root=tmp_path)
+
+    assert "protected path denied" in result["failed"][0]["error"]
+    assert (tmp_path / ".git" / "config").read_text(encoding="utf-8") == "[core]\n"
+
+
 def test_paths_outside_the_root_are_refused(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()

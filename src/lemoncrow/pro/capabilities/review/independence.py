@@ -327,7 +327,7 @@ def assess_independence(
             "unknown_author", f"the author model {author.label} has no known model family", author, unique
         )
     if not unique:
-        return IndependenceAssessment("not_run", "no AI review has run on this Snapshot", author, unique)
+        return IndependenceAssessment("not_run", "no AI review has run on this revision", author, unique)
     for reviewer in unique:
         if reviewer.source == "unreported_default":
             return IndependenceAssessment(

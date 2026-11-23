@@ -1,17 +1,19 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import ReviewCompareReader from "./ReviewCompareReader";
+import ReviewCompareReader, { compareErrorText } from "./ReviewCompareReader";
 
 const api = vi.hoisted(() => ({
   fetchSourceComparison: vi.fn(),
+  fetchRevisions: vi.fn(),
 }));
 const stream = vi.hoisted(() => ({ lastProps: null as any }));
 
 vi.mock("./reviewApi", () => ({
   fetchSourceComparison: api.fetchSourceComparison,
+  fetchRevisions: api.fetchRevisions,
   reviewDirectoryHref: () => "/reviews",
   reviewHref: (id: string) => `/r/${id}`,
   sourceCompareHref: (from: string, to: string, scope = "") => {
@@ -31,6 +33,8 @@ describe("ReviewCompareReader", () => {
   beforeEach(() => {
     stream.lastProps = null;
     api.fetchSourceComparison.mockReset();
+    api.fetchRevisions.mockReset();
+    api.fetchRevisions.mockRejectedValue(new Error("404"));
     api.fetchSourceComparison.mockResolvedValue({
       from: { spec: "rr/11111111111171118111111111111111", label: "rev 1 · rr/11111111111171118111111111111111", kind: "review_revision" },
       to: { spec: "rr/22222222222272228222222222222222", label: "rev 2 · rr/22222222222272228222222222222222", kind: "review_revision" },
@@ -132,6 +136,13 @@ describe("ReviewCompareReader", () => {
     expect(screen.queryByTestId("compare-stream")).toBeNull();
   });
 
+  it("review-22.2: says a missing side in plain words instead of the server's raw reason", () => {
+    expect(compareErrorText("the comparison Review source is not available")).toBe(
+      "One of these two versions could not be found, so there is nothing to compare. Check both versions above, or go back to the review.",
+    );
+    expect(compareErrorText("unknown source spec 'rr/3'")).toBe("unknown source spec 'rr/3'");
+  });
+
   it("names a bare HTTP failure and retries the same source pair", async () => {
     api.fetchSourceComparison.mockRejectedValueOnce(new Error("502"));
     render(
@@ -168,6 +179,59 @@ describe("ReviewCompareReader", () => {
     expect(await screen.findByTestId("scoped-review")).toBeTruthy();
   });
 
+  it("review-22.2: a review's comparison picks its revisions by name, never by raw id", async () => {
+    const revision = (id: string, number: number) => ({ id, ref: `rr/${id.slice(0, 4)}`, revision_number: number, capture_kind: "revision" });
+    api.fetchRevisions.mockResolvedValue({ revisions: [
+      revision("33333333333373338333333333333333", 2), revision("11111111111171118111111111111111", 0), revision("22222222222272228222222222222222", 1),
+    ] });
+    function Where() {
+      const location = useLocation();
+      return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={["/r/aaaaaaaa/compare/1111..22222222222272228222222222222222"]}>
+        <Routes>
+          <Route path="/r/:reviewRef/compare/*" element={<><ReviewCompareReader /><Where /></>} />
+          <Route path="/r/x" element={<Where />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const from = await screen.findByRole("combobox", { name: "Compare from revision" });
+    await waitFor(() => expect(from.textContent).toBe("Revision 1"));
+    expect(screen.getByRole("combobox", { name: "Compare to revision" }).textContent).toBe("Revision 2");
+    expect(api.fetchRevisions).toHaveBeenCalledWith("aaaaaaaa");
+    // No source field, and no raw revision id anywhere on the page.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("compare-stream")).toBeTruthy());
+    expect(document.querySelector("header")?.textContent).not.toMatch(/rr\/|1111|2222/);
+    expect(document.title).toBe("Compare: Revision 1 → Revision 2");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Compare to revision" }));
+    const options = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["Revision 1", "Revision 2", "Revision 3"]);
+    await userEvent.click(screen.getByRole("option", { name: "Revision 3" }));
+    const where = new URLSearchParams((await screen.findByTestId("where")).textContent?.split("?")[1] ?? "");
+    expect(where.get("from")).toBe("rr/1111");
+    expect(where.get("to")).toBe("rr/3333");
+  });
+
+  it("review-22.2: a revision the review does not have reads Choose a revision, not its id", async () => {
+    api.fetchRevisions.mockResolvedValue({ revisions: [{ id: "11111111111171118111111111111111", ref: "rr/1111", revision_number: 0 }] });
+    api.fetchSourceComparison.mockRejectedValueOnce(new Error("the comparison Review source is not available"));
+    render(
+      <MemoryRouter initialEntries={["/r/aaaaaaaa/compare/1111..9999"]}>
+        <Routes>
+          <Route path="/r/:reviewRef/compare/*" element={<ReviewCompareReader />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain("One of these two versions could not be found");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Compare to revision" }).textContent).toBe("Choose a revision"));
+    expect(screen.getByRole("combobox", { name: "Compare from revision" }).textContent).toBe("Revision 1");
+    expect(document.body.textContent).not.toContain("rr/");
+  });
+
   it("says when two sources have no differences instead of rendering an empty stream", async () => {
     api.fetchSourceComparison.mockResolvedValueOnce({
       from: { spec: "git/HEAD", label: "git/HEAD", kind: "git" },
@@ -183,7 +247,7 @@ describe("ReviewCompareReader", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("No source differences between these snapshots.")).toBeTruthy();
+    expect(await screen.findByText("No source differences between these revisions.")).toBeTruthy();
     expect(screen.queryByTestId("compare-stream")).toBeNull();
   });
 

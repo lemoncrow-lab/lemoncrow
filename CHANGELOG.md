@@ -6,6 +6,31 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-23
+
+### Removed
+
+- Retire LemonCode, the maintained OpenCode fork: remove its managed host, automatic selection, source submodule, installers, session imports, benchmark driver, and public promotion. Pi remains the managed host; stock OpenCode keeps its independent integration.
+
+### Added
+
+- **Review Reader and Brief improvements.** A clearer first-screen summary, grounded risk and Understanding sections, guided navigation between changed parts, status and comment resolution, and improved mobile layouts. The Reader distinguishes measured callers, blind spots, agent work and reported CI evidence from information it has not verified.
+- **Multi-repository Runtime workspaces.** Discover nested Git checkouts inside non-Git project folders as well as submodules, keep each repository's own index, and show cross-repository dependencies and impact with explicit evidence and coverage. Installed Runtime and Review work together with the revised workspace navigation.
+- **Reproducible retrieval and performance evaluations.** Add source-derived file-level search ranking checks, repository-routing holdouts, workload and five-minute soak benchmarks, and reports that distinguish missing index coverage from ranking errors.
+
+### Improved
+
+- **Faster workspace search with truthful coverage.** Bounded concurrent SQLite readers, read-only repository-description hints for optional fast searches, a first wave of likely repositories, and expansion on a miss. Exhaustive search remains the default; fast responses list every skipped repository instead of claiming full coverage.
+- **More relevant cross-repository code results.** Preserve source-evidence scores when merging independent search indexes instead of equalizing every repository's top hit. On a source-derived 30-case cross-repository holdout, generated natural-language top-10 retrieval improved from 9 to 21 cases; these are synthetic/silver labels, not independently reviewed developer queries.
+- **Smaller on-demand Code viewer.** Trim the Monaco editor's core bundle by about 16.5% and load language grammars only when a source file requires them, retaining Find, read-only navigation and uncommon-language support. The Review Brief no longer downloads Code's heavy bundle before it is opened.
+- **Runtime operations.** Improve automatic Bash-code-search upgrades, avoid duplicate index reads after empty workspace matches, and support persistent remote MCP over an exact Cloudflare hostname with validated HTTPS OAuth metadata.
+
+### Fixed
+
+- **SQLite read-connection lifetime.** Close concurrent search readers immediately rather than relying on garbage collection. In a 64-repository stress fixture, the post-load descriptor count returned to its starting value; follow-on five-minute, eight-client testing completed 23,546 searches without errors.
+- **Safe repository metadata access.** Bounded README reads reject symlink/FIFO replacement races and never copy application files into an additional workspace-wide index.
+- **More accurate review messaging and evidence.** Treat unmeasured callers and index gaps as unknown rather than absence or low risk; improve the Review CLI handoff, link handling, caller fallbacks and mobile status copy.
+
 ## [0.8.2] - 2026-11-01
 
 0.8.1 was prepared but never published; this release is the first to carry its changes, listed under

@@ -39,7 +39,7 @@ class MaxUsd(click.ParamType["float | None"]):
     """``--max-usd-per-pr``: dollars above 0, or ``none`` (``off``, ``unlimited``) for no cap.
 
     ``none`` reaches the review the way the Action's input does, as :data:`MAX_USD_ENV`, and the option's value is
-    ``None``: a pull request review reads the variable, and a local review has no cap without a value anyway.
+    ``None``: a pull request review and a local review both read the variable.
     """
 
     name = "usd"
@@ -160,7 +160,7 @@ def _store_root() -> Path:
     metavar="USD",
     help=(
         "Stop reviewing once the reviews have cost this much in total (needs a known cost); `none` for no cap. With "
-        f"--pr N the default is ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request; for a working tree or range, no cap."
+        f"--pr N the default is ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request; for a working tree or range, the same amount per run."
     ),
 )
 @click.option(

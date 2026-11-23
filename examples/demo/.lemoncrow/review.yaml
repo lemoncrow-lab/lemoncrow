@@ -1,0 +1,75 @@
+version: 1
+
+runtimes:
+  - id: app-stack
+    runner: docker-compose
+    compose:
+      - compose.yml
+    services:
+      - api
+      - frontend
+
+  - id: backend-tests
+    runner: command
+    command:
+      - python3
+      - -m
+      - unittest
+      - discover
+      - -s
+      - backend/tests
+      - -t
+      - backend
+    timeout: 30
+
+  - id: demo-api
+    runner: http-service
+    command:
+      - python3
+      - backend/app.py
+    health: /health
+    port: 8765
+    port_env: PORT
+    timeout: 30
+
+surfaces:
+  - id: frontend
+    provider: web
+    root: frontend
+    framework: vite
+    routes: auto
+
+  # Only request files changed by the Review are listed (3 of 6 in the demo),
+  # ranked by how much each response changed. A `watch:` glob would also list
+  # every request whenever a matching implementation file changes.
+  - id: api-requests
+    provider: bruno
+    collection: bruno
+    environment: local
+    runtime: demo-api
+
+  - id: app-services
+    provider: service
+    runtime: app-stack
+
+  - id: backend-checks
+    provider: service
+    runtime: backend-tests
+    services:
+      - unit-tests
+
+  # Built-in preview plugin: changed stories, and components with a sibling
+  # *.stories.js file, become old/new Storybook screenshots.
+  - id: components
+    provider: storybook
+    root: frontend
+    preview:
+      timeout: 180
+
+  # Third-party preview plugin from demo/review-preview-plugin. Until it is
+  # installed, setup reports this provider as unavailable and the CSV stays
+  # reviewable as source.
+  - id: tables
+    provider: csv-table
+    paths:
+      - data/*.csv

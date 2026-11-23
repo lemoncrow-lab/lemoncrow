@@ -564,6 +564,20 @@ def driver_command(driver: str, payload: Mapping[str, Any]) -> tuple[tuple[str, 
     return argv, ""
 
 
+def trusted_environment(read_base: Any) -> tuple[Any, str]:
+    """The trusted base's ``.lemoncrow/environment.toml``: ``(definition or None, why it cannot be used)``."""
+
+    from lemoncrow_client.environment import ENVIRONMENT_FILE, DefinitionError, parse_environment
+
+    text = read_base(ENVIRONMENT_FILE)
+    if not (text or "").strip():
+        return None, f"the trusted base has no {ENVIRONMENT_FILE}"
+    try:
+        return parse_environment(text, source=ENVIRONMENT_FILE), ""
+    except DefinitionError as exc:
+        return None, str(exc)[:400]
+
+
 def payload_problem(driver: str, spec: AnalysisSpec, payload: Mapping[str, Any], *, reserve: int = 0) -> str:
     """Why *spec*'s command cannot fit the executor at its worst case, or ``""``.
 
@@ -596,13 +610,13 @@ R = {"v": 1, "entry": str(P.get("entry") or ""), "spec": str(P.get("spec") or ""
 LIMIT = int(P.get("limit") or 170000)
 TIMEOUT = max(5, int(P.get("timeout") or 300))
 STARTED = time.monotonic()
-# The whole Snapshot is the workspace (so a run reproduces from its commit); the spec's
+# The whole revision is the workspace (so a run reproduces from its commit); the spec's
 # trusted-base root is a directory inside it, never outside.
 TOP = os.path.realpath(os.getcwd())
 CWD = os.path.realpath(os.path.join(TOP, str(P.get("root") or ".")))
 if CWD != TOP and not CWD.startswith(TOP + os.sep):
     CWD = os.path.join(TOP, ".lemoncrow-invalid-root")
-# The sandbox's private /tmp; only a host-side driver test (never reviewed code) moves it.
+# This sandbox's private /tmp; Seatbelt has none, so its runner or a driver test moves it.
 WORK = os.environ.get("LEMONCROW_ANALYSIS_WORK") or "/tmp/lc-analysis"
 KEEP = ("PATH", "LANG", "LC_ALL", "TZ", "SOURCE_DATE_EPOCH", "VIRTUAL_ENV", "PYTHONDONTWRITEBYTECODE")
 os.makedirs(WORK + "/home", exist_ok=True)
@@ -678,7 +692,7 @@ def globre(pattern):
 
 
 def copy_root(limit=268435456):
-    # The Snapshot is read-only on hosted executors and never modified locally: work on a copy.
+    # The revision is read-only on hosted executors and never modified locally: work on a copy.
     total = 0
     for base, dirs, files in os.walk(CWD):
         dirs[:] = [d for d in dirs if d != ".git"]
@@ -791,12 +805,14 @@ def seal_start():
         isolated = False
     if not isolated:
         finish(2, "the sandbox cannot isolate the build's processes (prctl is unavailable)")
+    # Yama guards this process's ancestors. As PID 1 of its own PID namespace (a one-shot container) it has none
+    # that a descendant can see, and it is undumpable with no CAP_SYS_PTRACE in the container, so Yama adds nothing.
     try:
         with open("/proc/sys/kernel/yama/ptrace_scope") as handle:
             scope = int(handle.read().strip() or "0")
     except (OSError, ValueError):
         scope = 0
-    if scope < 1:
+    if scope < 1 and os.getpid() != 1:
         finish(2, "the sandbox kernel allows ptrace between the build's processes (Yama ptrace_scope < 1)")
     if not os.path.isdir("/proc/self/task"):
         finish(2, "the sandbox has no /proc to account for the build's processes")
@@ -924,7 +940,7 @@ def dir_identity(path):
 
 
 def require_same_dir(path, identity):
-    # The build may not swap its tree for another one (the pristine Snapshot) before the copy-out.
+    # The build may not swap its tree for another one (the pristine revision) before the copy-out.
     try:
         now = dir_identity(path)
     except OSError:
@@ -1144,4 +1160,5 @@ __all__ = [
     "sealed_inspection_problem",
     "sealed_problem",
     "side_state",
+    "trusted_environment",
 ]

@@ -71,14 +71,14 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
     <section className="border-t border-border pt-3" data-testid="review-code-peek">
       <div className="review-kicker mb-1.5">Code Peek</div>
       <p className="text-micro leading-4 text-muted-foreground">
-        Current index context · navigation only · not Snapshot-exact Review evidence.
+        Current index context · navigation only · not Review evidence exact for this revision.
       </p>
       {loading ? (
         <div className="mt-2 text-caption text-muted-foreground">Finding definition and usages…</div>
       ) : error ? (
         <div className="mt-2 text-caption text-amber-300">Current index unavailable.</div>
       ) : !definition ? (
-        <div className="mt-2 text-caption text-muted-foreground">No current-index definition matched this Snapshot symbol.</div>
+        <div className="mt-2 text-caption text-muted-foreground">No current-index definition matched this revision symbol.</div>
       ) : (
         <div className="mt-2 space-y-2">
           <div className="rounded border border-border/70 px-2 py-1.5">

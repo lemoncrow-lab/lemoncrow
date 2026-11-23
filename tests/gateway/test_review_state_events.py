@@ -68,3 +68,55 @@ def test_live_stream_suppresses_unchanged_state_and_does_not_probe_on_heartbeat(
         await stream.aclose()
 
     asyncio.run(run())
+
+
+def test_polled_streams_hold_no_request_thread_and_still_report_changes(tmp_path, monkeypatch):
+    """Many open polled streams leave the loop's shared thread limiter free for requests."""
+
+    import anyio.to_thread
+
+    monkeypatch.setattr(module, "POLL_SECONDS", 0.05)
+    monkeypatch.setattr(module, "HEARTBEAT_SECONDS", 0.1)
+    state = {"cursor": "1"}
+
+    async def run():
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        streams = [
+            module.state_events([tmp_path], lambda _: dict(state), event="live-state", filesystem=False)
+            for _ in range(limiter.total_tokens + 5)
+        ]
+        for stream in streams:
+            assert payload(await anext(stream)) == {"cursor": "1"}
+        await asyncio.sleep(0.12)
+        assert limiter.borrowed_tokens == 0
+        # A synchronous request handler still gets a thread at once.
+        assert await asyncio.wait_for(anyio.to_thread.run_sync(lambda: "served"), 1) == "served"
+        first = streams[0]
+        assert await asyncio.wait_for(anext(first), 1) == ": keepalive\n\n"
+        state["cursor"] = "2"
+        frame = await asyncio.wait_for(anext(first), 1)
+        while frame.startswith(":"):
+            frame = await asyncio.wait_for(anext(first), 1)
+        assert payload(frame) == {"cursor": "2"}
+        for stream in streams:
+            await stream.aclose()
+
+    asyncio.run(run())
+
+
+def test_polled_source_stream_settles_after_two_agreeing_reads(tmp_path, monkeypatch):
+    monkeypatch.setattr(module, "POLL_SECONDS", 0.02)
+    state = {"fingerprint": "before"}
+
+    async def run():
+        stream = module.state_events(
+            [tmp_path], lambda _: dict(state), event="source-state", settle=True, filesystem=False
+        )
+        assert payload(await anext(stream)) == {"fingerprint": "before", "settled": False}
+        assert payload(await asyncio.wait_for(anext(stream), 1)) == {"fingerprint": "before", "settled": True}
+        state["fingerprint"] = "after"
+        assert payload(await asyncio.wait_for(anext(stream), 1)) == {"fingerprint": "after", "settled": False}
+        assert payload(await asyncio.wait_for(anext(stream), 1)) == {"fingerprint": "after", "settled": True}
+        await stream.aclose()
+
+    asyncio.run(run())

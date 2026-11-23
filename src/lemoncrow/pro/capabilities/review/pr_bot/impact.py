@@ -1,4 +1,4 @@
-"""A deterministic impact label for the summary, and the named risks a review examined.
+"""A deterministic impact label, the summary's Risk line, and the named risks a review examined.
 
 Two things a reader wants before they read a single finding: *how much could this change break*, and *what did the
 review actually look at*. Both are answered here from the change itself, by fixed rules, with no model call and no model
@@ -6,8 +6,12 @@ text:
 
 * :class:`Impact` is ``Low``, ``Medium`` or ``High``. It is the blast radius of the pull request, not a judgment of its
   quality: a careful change to the auth code is still ``High impact``. It is derived from the Snapshot's changed targets
-  (how many files and lines, which path policy and risk signals they carry) and shown with the reasons, so a reader can
-  check it. It never feeds an approval, a status or ``fail-on``.
+  (how many files and lines, which path policy and risk signals they carry). It is kept in the hidden state and
+  ``--json`` and decides the human-review line, but the comment no longer shows it. It never feeds an approval, the
+  review's status or ``fail-on``.
+* :class:`ChangeRisk` is the Risk line the comment shows: the Review Reader's rule (``brief_summary.change_risk``) run
+  on the Snapshot (:class:`RiskBasis`), who calls the changed code at the head commit (:mod:`callers`) and the checks
+  CI finished on the head.
 * :class:`RiskRow` is one changed piece of code that carries a risk signal (the same deterministic signals that decide
   what the investigator is asked about, ``ai_review.generate_candidates``) with what became of it: ``found`` (an open
   finding is about it), ``cleared`` (a model call about it returned and the review reported nothing) or ``pending`` (no
@@ -44,6 +48,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 # lc-debt: the weights, thresholds and the payments word list are a first rule that no real pull request has tuned, and the
@@ -199,6 +204,77 @@ def assess(targets: Sequence[Any], candidates: Sequence[Any]) -> Impact:
         found.add("sizeable")
     reasons = tuple(reason for reason in POINTS if reason in found)
     return Impact(level_for(sum(POINTS[reason] for reason in reasons)), reasons, files, lines)
+
+
+# --------------------------------------------------------------------------- #
+# the Risk line: the Reader's rule, on what the Action measured
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeRisk:
+    """The change's Risk as the Reader states it (``brief_summary.change_risk``), and the size of the change it covers.
+
+    ``level`` is ``high``, ``medium``, ``low`` or ``not_measured``; ``reason`` is the top fact plus ``· and N more``;
+    ``not_measured`` names every input that could not be read. Code names and paths in it are the pull request's own.
+    """
+
+    level: str
+    label: str
+    reason: str
+    files: int
+    lines: int
+    not_measured: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RiskBasis:
+    """What the Risk rule reads from the Snapshot: its packet, every reviewed target and who calls the changed code.
+
+    ``context`` is ``consumer_inventory.consumer_inventory`` of the packet: the same projection context the Reader
+    builds. Where the Reader falls back to its current index because the capture had none, the Action searches the
+    head commit in *repo_root* (:func:`callers.checkout_callers`) and joins that answer the same way; symbols the
+    search could not finish read as not measured. With no *repo_root*, callers the capture could not ask about read as
+    not measured.
+    """
+
+    packet: Mapping[str, Any] | None
+    targets: tuple[Any, ...]
+    context: Mapping[str, Any]
+
+    @classmethod
+    def of(
+        cls, packet: Mapping[str, Any] | None, targets: Sequence[Any], *, repo_root: Path | None = None
+    ) -> RiskBasis:
+        from lemoncrow.pro.capabilities.review.consumer_inventory import callers_unmeasured, consumer_inventory
+
+        from .callers import checkout_callers
+
+        current = None
+        if repo_root is not None and packet is not None and callers_unmeasured(packet):
+            current = checkout_callers(repo_root, packet)
+        return cls(packet, tuple(targets), consumer_inventory(packet, targets, current=current))
+
+    def assess(self, recorded: Mapping[str, str], *, checks_unmeasured: str = "") -> ChangeRisk:
+        """The Risk for this change given the checks that ran (``proof_of_work.recorded_checks``). Pure."""
+
+        from lemoncrow.pro.capabilities.review.brief_summary import change_risk
+
+        found = change_risk(
+            {"context": self.context},
+            recorded,
+            packet=self.packet,
+            targets=self.targets,
+            checks_unmeasured=checks_unmeasured,
+        )
+        return ChangeRisk(
+            level=str(found["level"]),
+            label=str(found["label"]),
+            reason=str(found["reason"]),
+            files=len({target.path for target in self.targets}),
+            lines=sum(max(target.additions, 0) + max(target.deletions, 0) for target in self.targets),
+            not_measured=tuple(str(item) for item in found["not_measured"]),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -364,7 +440,9 @@ __all__ = [
     "OUTCOMES",
     "POINTS",
     "REASON_WORDS",
+    "ChangeRisk",
     "Impact",
+    "RiskBasis",
     "RiskRow",
     "Signal",
     "assess",

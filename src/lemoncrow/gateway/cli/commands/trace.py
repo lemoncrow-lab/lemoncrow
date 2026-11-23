@@ -49,7 +49,7 @@ def _call(root: Path, trace_id: str) -> Any:
     return assemble_calls(records)[0]
 
 
-@click.group("trace", short_help="Inspect per-call Runtime traces (lt_…).")
+@click.group("trace", short_help="Inspect per-call Workspaces traces (lt_…).")
 def trace_group() -> None:
     """Per-call runtime traces (lt_…): request, decisions, retrieval, outcome."""
 

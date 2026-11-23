@@ -1,0 +1,135 @@
+{
+  "calls": [
+    {
+      "driver": "openai",
+      "key": "a733291661def5fbf0e141449e49e733af91e433db68148a5f653dfd6692f0ae",
+      "model": "gpt-test",
+      "prompt_digest": "757d62213c56a40c2a00cf76cd6e386bd1052dcadc84c1c5cef13cd1a8e0ee16",
+      "response": {
+        "edges": [
+          {
+            "id": "e_6ec6617e6ceb",
+            "label": "lists the tiers"
+          }
+        ],
+        "flows": [
+          {
+            "participants": [
+              "n_8f8d39f1057e",
+              "n_90605eee99f1",
+              "n_5dfe5d8ed9d5",
+              "n_nowhere"
+            ],
+            "steps": [
+              {
+                "anchors": [
+                  {
+                    "end_line": 8,
+                    "path": "backend/app.py",
+                    "side": "head",
+                    "start_line": 7
+                  }
+                ],
+                "evidence": "recorded",
+                "from": "n_8f8d39f1057e",
+                "kind": "sync",
+                "label": "calls plans()",
+                "note": "Claims to be recorded; it is not.",
+                "to": "n_90605eee99f1"
+              },
+              {
+                "anchors": [
+                  {
+                    "end_line": 3,
+                    "path": "backend/db.py",
+                    "side": "head",
+                    "start_line": 1
+                  }
+                ],
+                "from": "n_5dfe5d8ed9d5",
+                "kind": "sync",
+                "label": "reads the database",
+                "note": "",
+                "to": "n_90605eee99f1"
+              }
+            ],
+            "summary": "The endpoint asks plans() for the tiers.",
+            "title": "Pricing lookup"
+          }
+        ],
+        "lanes": [
+          {
+            "id": "api",
+            "label": "Pricing API"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "n_8f8d39f1057e",
+            "label": "Plans endpoint",
+            "lane": "api"
+          },
+          {
+            "id": "n_invented",
+            "label": "Billing service",
+            "lane": "api"
+          }
+        ],
+        "summary": "plans() now returns two tiers; the recorded List plans call shows the new body.",
+        "title": "Raise the Team plan to 59 and add Enterprise",
+        "walkthrough": [
+          {
+            "body": "Two tiers instead of one.",
+            "focus_edges": [],
+            "focus_messages": [],
+            "focus_nodes": [
+              "n_8f8d39f1057e"
+            ],
+            "heading": "What changed",
+            "stage": "view:overview"
+          },
+          {
+            "body": "Base and head bodies differ.",
+            "focus_edges": [],
+            "focus_messages": [
+              "f_adfaedf6f0b8.s4",
+              "s99"
+            ],
+            "focus_nodes": [],
+            "heading": "The recorded response",
+            "stage": "flow:f_adfaedf6f0b8"
+          },
+          {
+            "body": "The endpoint calls the handler.",
+            "focus_edges": [],
+            "focus_messages": [
+              "s1"
+            ],
+            "focus_nodes": [],
+            "heading": "How plans() is reached",
+            "stage": "new_flow:0"
+          }
+        ]
+      },
+      "schema_digest": "1b9a239eb605782dce3cf96cab4fe7237ab1868867a86dd9c81fd242b45724ff",
+      "stage": "unknown",
+      "system_digest": "de73116996f878481aef8ad8cca26381c516e8af285fb42bb8320ce7ee2819da",
+      "usage": {
+        "cache_read_input_tokens": null,
+        "cache_write_input_tokens": null,
+        "calls": 1,
+        "currency": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "provider_cost": null,
+        "request_id": ""
+      }
+    }
+  ],
+  "case_id": "ai_enrichment",
+  "case_input_digest": "a822b7fb697c330be47dea34c0c36ed10fbf7203e5b815fce4fb62611176c4d3",
+  "recorded_with": {
+    "mode": "synthetic"
+  },
+  "version": 1
+}

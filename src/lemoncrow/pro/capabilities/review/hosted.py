@@ -32,6 +32,7 @@ from typing import Any
 from lemoncrow_client.config import ClientConfig
 from lemoncrow_client.errors import ClientError, ErrorCode
 from lemoncrow_client.liveview import load_live_view_binding
+from lemoncrow_client.review_words import revision_name
 from lemoncrow_client.session import RemoteSession, workspace_state_fingerprint
 
 from .gitdiff import (
@@ -50,7 +51,7 @@ from .live_runtime import (
     load_live_review_binding,
     write_live_review_binding,
 )
-from .models import ReviewPacket, review_packet_from_dict
+from .models import ReviewPacket, review_packet_from_dict, session_task_title
 from .packet import (
     PacketBuild,
     attach_changed_symbols,
@@ -129,7 +130,7 @@ def _materialize_capture_new_side(repo_root: Path, rng: RevRange, build: PacketB
                 _remove_snapshot_path(old_target)
         destination = (target / changed.path).resolve()
         if destination != root and root not in destination.parents:
-            raise ValueError(f"review snapshot path escapes repository: {changed.path}")
+            raise ValueError(f"review revision path escapes repository: {changed.path}")
         if changed.status == "deleted":
             _remove_snapshot_path(destination)
             continue
@@ -201,6 +202,8 @@ class ServerCapture:
     review_url: str
     response: dict[str, Any]
     preparation_id: str = ""
+    pending: tuple[str, ...] = ()
+    """Passes (``impact``, ``provenance``) handed to the background finalizer; ``build`` was published without them."""
 
     @property
     def canonical_url(self) -> str:
@@ -314,6 +317,16 @@ def _launch_local_finalize_job(job_path: Path) -> bool:
         return False
 
 
+def _finalize_detail(*, superseded: bool, failure: str) -> str:
+    """What the finished preparation says: a failed enrichment is never reported as available context."""
+
+    if superseded:
+        return "source is ready; enrichment was superseded by a newer live generation"
+    if failure:
+        return f"source is ready; impact and provenance were not applied: {failure[:200]}"
+    return "source and available review context are ready"
+
+
 def _run_local_finalize_job(job_path: Path) -> int:
     from lemoncrow_client.config import load_config
 
@@ -355,6 +368,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
         advance_claimed_binding = bool(payload.get("advance_claimed_binding"))
         publish_live_binding = bool(payload.get("publish_live_binding", True))
         enrichment_superseded = False
+        enrichment_failure = ""
         try:
             remote.handshake(timeout_s=config.request_timeout_s)
             remote.open_session(timeout_s=config.request_timeout_s)
@@ -424,8 +438,8 @@ def _run_local_finalize_job(job_path: Path) -> int:
                                 ),
                                 allow_advance_claimed=advance_claimed_binding,
                             )
-                except (ClientError, OSError, RuntimeError, TypeError, ValueError):
-                    pass
+                except (ClientError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                    enrichment_failure = str(exc)
                 finally:
                     with contextlib.suppress(ClientError):
                         remote.update_review_preparation(
@@ -433,11 +447,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
                             review_id=review_id,
                             preparation_id=preparation_id,
                             state="ready",
-                            detail=(
-                                "source is ready; enrichment was superseded by a newer live generation"
-                                if enrichment_superseded
-                                else "source and available review context are ready"
-                            ),
+                            detail=_finalize_detail(superseded=enrichment_superseded, failure=enrichment_failure),
                             timeout_s=config.request_timeout_s,
                         )
 
@@ -723,6 +733,33 @@ def _server_packet(config: ClientConfig, packet: ReviewPacket) -> dict[str, Any]
     return payload
 
 
+def _pending_passes(*, with_impact: bool, with_provenance: bool) -> tuple[str, ...]:
+    return ("impact",) * with_impact + ("provenance",) * with_provenance
+
+
+def _explicit_session_title(store_root: Path, session_id: str | None, session_id_is_hint: bool) -> str:
+    """The task of the session an explicit ``--session-id`` names, as a Review title; ``""`` otherwise.
+
+    An explicit id is an exact attribution by contract, so its task can title the
+    Review before the provenance pass runs. One indexed lookup; a hint, a missing
+    store or a session without a task falls back to the range title.
+    """
+
+    wanted = (session_id or "").strip()
+    if not wanted or session_id_is_hint:
+        return ""
+    try:
+        from lemoncrow.core.foundation.history_store import HistoryStore
+
+        store = HistoryStore(store_root)
+        if not store.db_path.exists():
+            return ""
+        trace = store.get_trace(wanted)
+    except Exception:
+        return ""
+    return session_task_title(trace.task) if trace is not None else ""
+
+
 def _workspace_scan(repo_root: Path, build: PacketBuild, *, enabled: bool) -> PendingWorkspaceImpact | None:
     """Start the workspace scan for *build*'s changed files on its own thread; ``None`` when not asked."""
 
@@ -766,10 +803,10 @@ def _local_source_build(
         progress=progress,
     )
     if report is not None:
-        report("packet_symbols", "Identifying changed symbols for stable Review targets")
+        report("packet_symbols", "Identifying changed symbols for stable parts")
     build = attach_changed_symbols(repo_root, build, limit=limit)
     if report is not None:
-        report("packet_symbols_done", "Stable Review targets ready")
+        report("packet_symbols_done", "Stable parts ready")
     return build
 
 
@@ -889,14 +926,14 @@ def capture_server_review(
     packet_stage: str | None = None
     packet_start = {
         "diff": "Reading changed files and diff",
-        "source": "Loading exact old/new source snapshots",
+        "source": "Loading exact old/new source revisions",
         "impact": "Analyzing symbols, callers, and change impact",
         "provenance": "Correlating the authoring agent session",
         "ranking": "Ranking the human review order",
     }
     packet_done = {
         "diff": "Diff captured",
-        "source": "Source snapshots loaded",
+        "source": "Source revisions loaded",
         "impact": "Impact analysis complete",
         "provenance": "Author provenance checked",
         "ranking": "Review order ready",
@@ -1022,9 +1059,12 @@ def capture_server_review(
                     # in the immutable Snapshot's background enrichment.
                     build = attach_changed_symbols(repo_root, build, limit=limit)
         else:
-            report("packet_source_done", "Prepared diff, source snapshots, and Review targets reused")
+            report("packet_source_done", "Prepared diff, source revisions, and parts reused")
         if packet_stage is not None:
             report(f"packet_{packet_stage}_done", packet_done.get(packet_stage, packet_stage))
+        session_title = "" if title_override else _explicit_session_title(store_root, session_id, session_id_is_hint)
+        if session_title and session_title != build.packet.title:
+            build = dataclass_replace(build, packet=dataclass_replace(build.packet, title=session_title))
         packet = build.packet
         report(
             "packet_ready_done",
@@ -1097,10 +1137,11 @@ def capture_server_review(
                     deleted_paths=deleted_paths,
                     timeout_s=config.tool_timeout_s,
                 )
+            remote.upload_large_review_source(timeout_s=config.tool_timeout_s)
 
             report(
                 "publish",
-                "Publishing new review" if force_new_review or not target_review_id else "Creating new snapshot",
+                "Publishing new review" if force_new_review or not target_review_id else "Creating new revision",
             )
             publication_guard = (
                 live_review_publication_guard(store_root, repo_root)
@@ -1124,7 +1165,7 @@ def capture_server_review(
                         reuse_closed_review=reuse_closed_review,
                         review_scope=review_scope,
                         timeout_s=config.tool_timeout_s,
-                        progress=lambda detail: report("publish", f"Creating new snapshot · {detail}"),
+                        progress=lambda detail: report("publish", f"Creating new revision · {detail}"),
                     )
                 except ClientError as exc:
                     if not reused_live_view or exc.code not in {ErrorCode.VIEW_UNKNOWN, ErrorCode.VIEW_REVISION_STALE}:
@@ -1144,7 +1185,8 @@ def capture_server_review(
                         deleted_paths=deleted_paths,
                         timeout_s=config.tool_timeout_s,
                     )
-                    report("sync_current_done", "Current source synchronized and Snapshot pinned")
+                    remote.upload_large_review_source(timeout_s=config.tool_timeout_s)
+                    report("sync_current_done", "Current source synchronized and revision pinned")
                     raw = remote.capture_review(
                         repo_id=repo_id,
                         source_ref=stable_source_ref,
@@ -1160,7 +1202,7 @@ def capture_server_review(
                         reuse_closed_review=reuse_closed_review,
                         review_scope=review_scope,
                         timeout_s=config.tool_timeout_s,
-                        progress=lambda detail: report("publish", f"Creating new snapshot · {detail}"),
+                        progress=lambda detail: report("publish", f"Creating new revision · {detail}"),
                     )
                 response = dict(raw)
                 review = response.get("review")
@@ -1188,7 +1230,7 @@ def capture_server_review(
                         review_id=review_id,
                         preparation_id=preparation_id,
                         state="impact_background",
-                        detail="exact source and Review targets are ready; analysis continues",
+                        detail="exact source and parts are ready; analysis continues",
                         timeout_s=config.request_timeout_s,
                     )
                     separator = "&" if "#" in review_url else "#"
@@ -1204,9 +1246,9 @@ def capture_server_review(
                 report(
                     "publish_done",
                     (
-                        f"Snapshot {revision_number} ready for reading"
+                        f"{revision_name(revision_number)} ready for reading"
                         if isinstance(revision_number, int)
-                        else "Snapshot ready for reading"
+                        else "Revision ready for reading"
                     ),
                 )
                 # Publish the reusable Review only after both the packet-build gate
@@ -1274,7 +1316,10 @@ def capture_server_review(
                 )
                 if _launch_local_finalize_job(job_path):
                     report("background_handoff_done", "Remaining Review context continues in background")
-                    return captured
+                    return dataclass_replace(
+                        captured,
+                        pending=_pending_passes(with_impact=with_impact, with_provenance=with_provenance),
+                    )
                 with contextlib.suppress(OSError):
                     job_path.unlink(missing_ok=True)
 
@@ -1381,7 +1426,7 @@ def capture_server_review(
                     except ClientError:
                         pass
 
-            report("freeze_base", "Freezing base snapshot in background")
+            report("freeze_base", "Freezing base revision in background")
             with base_snapshot(store_root, repo_root, rng, _materialize_capture_old_side) as base_root:
                 base_opened = remote.open_review_snapshot(
                     base_root,
@@ -1401,12 +1446,12 @@ def capture_server_review(
                     base_view_revision=base_view_revision,
                     timeout_s=config.tool_timeout_s,
                 )
-            report("freeze_base_done", "Base snapshot attached")
+            report("freeze_base_done", "Base revision attached")
             return captured
 
         # Hosted, staged and commit-range capture retain the conservative exact
         # two-snapshot path until their live-View equivalents are available.
-        report("freeze_base", "Freezing base snapshot")
+        report("freeze_base", "Freezing base revision")
         with base_snapshot(store_root, repo_root, rng, _materialize_capture_old_side) as base_root:
             base_opened = remote.open_review_snapshot(
                 base_root,
@@ -1415,8 +1460,8 @@ def capture_server_review(
             )
             base_view_id = str(base_opened.get("view_id") or "")
             base_view_revision = int(base_opened.get("view_revision") or 0)
-        report("freeze_base_done", "Base snapshot frozen")
-        report("freeze_current", "Freezing current snapshot")
+        report("freeze_base_done", "Base revision frozen")
+        report("freeze_current", "Freezing current revision")
         with tempfile.TemporaryDirectory(prefix="lemoncrow-review-snapshot-") as temporary:
             snapshot_root = Path(temporary)
             _materialize_capture_new_side(repo_root, rng, build, snapshot_root)
@@ -1425,7 +1470,7 @@ def capture_server_review(
                 source_revision=rng.head_sha or rng.base_sha or "review-snapshot",
                 timeout_s=config.tool_timeout_s,
             )
-        report("freeze_current_done", "Current snapshot frozen")
+        report("freeze_current_done", "Current revision frozen")
         repo_id = opened.get("repo_id")
         if not isinstance(repo_id, str) or not repo_id:
             raise ValueError("LemonCrow server opened a source View without a repository id")
@@ -1455,10 +1500,14 @@ def capture_server_review(
         revision_number = revision.get("revision_number") if isinstance(revision, dict) else None
         revision_id = str(revision.get("id") or "") if isinstance(revision, dict) else ""
         if progressive_commit_range and not revision_id:
-            raise ValueError("LemonCrow server captured the diff without returning a Snapshot id")
+            raise ValueError("LemonCrow server captured the diff without returning a revision id")
         report(
             "publish_done",
-            (f"Snapshot {revision_number} published" if isinstance(revision_number, int) else "Snapshot published"),
+            (
+                f"{revision_name(revision_number)} published"
+                if isinstance(revision_number, int)
+                else "Revision published"
+            ),
         )
         review_path = review.get("review_path")
         review_url = (
@@ -1516,7 +1565,10 @@ def capture_server_review(
                 )
                 if _launch_local_finalize_job(job_path):
                     report("background_handoff_done", "Commit-range intelligence continues in background")
-                    return captured
+                    return dataclass_replace(
+                        captured,
+                        pending=_pending_passes(with_impact=with_impact, with_provenance=with_provenance),
+                    )
                 with contextlib.suppress(OSError):
                     job_path.unlink(missing_ok=True)
             try:

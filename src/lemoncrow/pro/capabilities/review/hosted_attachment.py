@@ -248,7 +248,7 @@ def _snapshot_content(
     truncated = projection.get("truncated")
     if isinstance(truncated, Mapping) and truncated.get("targets"):
         raise HostedActionRefused(
-            "content_mismatch", "the hosted Snapshot is too large to confirm here; give the verdict on hosted"
+            "content_mismatch", "the hosted revision is too large to confirm here; give the verdict on hosted"
         )
     files = dict(projection.get("files") or {})
     targets = {
@@ -261,7 +261,7 @@ def _snapshot_content(
     ):
         raise HostedActionRefused(
             "content_mismatch",
-            "the local Review is not the hosted Snapshot's content; refresh it or give the verdict on hosted",
+            "the local Review is not the hosted revision's content; refresh it or give the verdict on hosted",
         )
     canonical = json.dumps({"files": files, "targets": targets}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
@@ -290,21 +290,26 @@ def prepare_action(
         raise HostedActionRefused("review_closed", "the hosted Review is not open")
     snapshot_id = str(dict(projection.get("snapshot") or {}).get("id") or "")
     if not snapshot_id:
-        raise HostedActionRefused("invalid_projection", "the hosted projection has no Snapshot")
+        raise HostedActionRefused("invalid_projection", "the hosted projection has no revision")
     if kind == "mark":
         unit_key = _text(body, "unit_key", limit=2048)
         state = _choice(body, "state", "reviewed")
         if state not in MARK_STATES:
             raise HostedActionRefused("invalid", f"unknown mark state {state!r}")
+        if state == "later" and projection.get("later_marks") is not True:
+            raise HostedActionRefused(
+                "invalid",
+                "Decide later is not available on hosted reviews yet; mark the part reviewed or needs_changes",
+            )
         target = dict(projection.get("targets") or {}).get(unit_key)
         if not isinstance(target, Mapping):
-            raise HostedActionRefused("unknown_target", "this unit is not a target of the hosted Snapshot")
+            raise HostedActionRefused("unknown_target", "this part is not in the hosted revision")
         local = local_units.get(unit_key)
         if local is None:
-            raise HostedActionRefused("unknown_target", "this unit is not in the local Snapshot")
+            raise HostedActionRefused("unknown_target", "this part is not in the local revision")
         if local != str(target.get("fingerprint") or ""):
             raise HostedActionRefused(
-                "content_mismatch", "the local unit differs from the hosted Snapshot; refresh or open hosted"
+                "content_mismatch", "the local part differs from the hosted revision; refresh or open hosted"
             )
         mine = dict(projection.get("my_marks") or {}).get(unit_key)
         return PreparedAction(
@@ -329,13 +334,13 @@ def prepare_action(
         end = 0 if file_level else _line(body, "end_line", start)
         hosted_fingerprint = dict(projection.get("files") or {}).get(path)
         if not isinstance(hosted_fingerprint, str):
-            raise HostedActionRefused("unknown_target", "this file is not in the hosted Snapshot")
+            raise HostedActionRefused("unknown_target", "this file is not in the hosted revision")
         local = local_files.get(path)
         if local is None:
-            raise HostedActionRefused("unknown_target", "this file is not in the local Snapshot")
+            raise HostedActionRefused("unknown_target", "this file is not in the local revision")
         if local != hosted_fingerprint:
             raise HostedActionRefused(
-                "content_mismatch", "the local file differs from the hosted Snapshot; refresh or open hosted"
+                "content_mismatch", "the local file differs from the hosted revision; refresh or open hosted"
             )
         # Hosted re-checks the anchor against its own frozen new side. Neither side
         # keeps old-side text, so a comment on a deletion cannot be confirmed later.
@@ -471,7 +476,7 @@ def reader_write_actions(route: str, body: Mapping[str, Any]) -> list[tuple[str,
     parent_id = body.get("parent_id")
     if parent_id:
         if body.get("mark_target"):
-            raise HostedActionRefused("invalid", "only a root request_change may mark a review target")
+            raise HostedActionRefused("invalid", "only a root request_change may mark a part")
         return [("reply", {"parent_id": parent_id, "body": body.get("body")})]
     nested = body.get("range")
     selection: Mapping[str, Any] = nested if isinstance(nested, Mapping) else body
@@ -495,7 +500,7 @@ def reader_write_actions(route: str, body: Mapping[str, Any]) -> list[tuple[str,
     actions: list[tuple[str, dict[str, Any]]] = [("comment", comment)]
     if body.get("mark_target"):
         if body.get("kind") != "request_change":
-            raise HostedActionRefused("invalid", "only a root request_change may mark a review target")
+            raise HostedActionRefused("invalid", "only a root request_change may mark a part")
         target = body.get("target_unit_key")
         if not target:
             raise HostedActionRefused("invalid", "target_unit_key is required when mark_target is true")

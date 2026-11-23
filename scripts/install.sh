@@ -5,8 +5,9 @@
 #
 # With no options it installs Local Review (`lc`, `lcr` and a loopback Review
 # service): no account and no sign-in. Hosted Review is opt-in with --hosted.
-# Runtime is fetched the first time `lc rt enable <host>` needs it.
-# Flags are non-interactive overrides: --product review|runtime|both,
+# Workspaces is fetched the first time `lc rt enable <host>` needs it.
+# Flags are non-interactive overrides: --product review|workspaces|both
+# (`runtime` is the internal product key and stays an alias of `workspaces`),
 # --local|--hosted (alias --cloud), --url, --port, --agent, --dry-run. It
 # delegates to the small auditable per-product installers (hosted.sh,
 # runtime.sh, local_review.sh, local_runtime.sh) and never enables a
@@ -117,21 +118,22 @@ _public_install_usage() {
 LemonCrow installer
 
 Usage:
-  install.sh [--product review|runtime|both] [--local|--hosted] [OPTIONS]
+  install.sh [--product review|workspaces|both] [--local|--hosted] [OPTIONS]
 
 Products:
-  review    Review code changes with Reader, evidence, comments, and Review Ask
-  runtime   Use LemonCrow code intelligence and tools inside coding agents
-  both      Install Review and Runtime together
+  review      Review code changes with Reader, evidence, comments, and Review Ask
+  workspaces  Workspaces: LemonCrow code intelligence and tools inside coding agents
+              (`runtime` is accepted as an alias)
+  both        Install Review and Workspaces together
 
 Deployment:
-  --local   Review uses a loopback service; Runtime uses serverless Local Lite.
+  --local   Review uses a loopback service; Workspaces runs as serverless Workspaces Lite.
             No account or sign-in. (default)
   --hosted  Use Hosted LemonCrow at api.lemoncrow.com; needs an invited account
             and `lc auth login`. --cloud is an alias.
 
 Options:
-  --agent NAME   Enable Runtime for claude, codex, opencode, or auto after install
+  --agent NAME   Enable Workspaces for claude, codex, opencode, or auto after install
   --url URL      Hosted server URL (default https://api.lemoncrow.com; implies --hosted
                  unless it is a loopback address)
   --port PORT    Local Review server port (default 7420)
@@ -142,13 +144,13 @@ Options:
 
 Examples:
   install.sh --product review
-  install.sh --product runtime --agent codex
+  install.sh --product workspaces --agent codex
   install.sh --product both
   install.sh --hosted
 
 With no options, install.sh asks nothing and installs Local Review (lc, lcr and
 a loopback Review service); re-running it keeps an existing Hosted Review
-install hosted. Runtime is fetched on first `lc rt enable <host>`. Runtime never modifies a coding-agent host unless --agent is
+install hosted. Workspaces is fetched on first `lc rt enable <host>`. Workspaces never modifies a coding-agent host unless --agent is
 provided or you later run `lc rt enable <host>`.
 USAGE
 }
@@ -382,11 +384,11 @@ _public_verify_install() {
         fi
     done
     if [[ "$product" != review ]]; then
-        lc_ui_printf progress 'Checking Runtime client...\n'
+        lc_ui_printf progress 'Checking Workspaces client...\n'
         if [[ "$preview" != 1 ]]; then
             exe="$home_hint/runtime/client/bin/lemoncrow-client"
             [[ -x "$exe" ]] && LEMONCROW_HOME="$home_hint" LEMONCROW_NO_LAZY_INSTALL=1 "$exe" --version >/dev/null || {
-                lc_ui_printf '1;31' 'Runtime client verification failed\n' >&2; return 1;
+                lc_ui_printf '1;31' 'Workspaces client verification failed\n' >&2; return 1;
             }
         fi
     fi
@@ -425,10 +427,10 @@ _public_show_summary() {
     case "$deployment:$product" in
         local:review) product_label="Local Review" ;;
         cloud:review) product_label="Hosted Review" ;;
-        local:runtime) product_label="Runtime Lite" ;;
-        cloud:runtime) product_label="Hosted Runtime" ;;
-        local:both) product_label="Local Review and Runtime Lite" ;;
-        cloud:both) product_label="Hosted Review and Runtime" ;;
+        local:runtime) product_label="Workspaces Lite" ;;
+        cloud:runtime) product_label="Workspaces with hosted retrieval" ;;
+        local:both) product_label="Local Review and Workspaces Lite" ;;
+        cloud:both) product_label="Hosted Review and Workspaces" ;;
     esac
     if [[ "$preview" == 1 ]]; then
         lc_ui_printf '1;36' '\n◆ Expected result: %s (not installed)\n' "$product_label"
@@ -461,13 +463,13 @@ _public_show_summary() {
         fi
     fi
     if [[ "$product" != review ]]; then
-        lc_ui_printf command '  Check Runtime:' 'lc rt status'
+        lc_ui_printf command '  Check Workspaces:' 'lc rt status'
     fi
     if [[ -z "$agent" || "$deployment" == local ]]; then
         lc_ui_printf '1;36' '\nOptional:\n'
     fi
     if [[ -z "$agent" ]]; then
-        lc_ui_printf command '  Enable Runtime for an agent:' 'lc runtime enable codex' '   # or claude / opencode / auto'
+        lc_ui_printf command '  Enable Workspaces for an agent:' 'lc runtime enable codex' '   # or claude / opencode / auto'
     fi
     if [[ "$deployment" == local ]]; then
         lc_ui_printf command '  Use Hosted LemonCrow instead:' 'curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --hosted' '   # invited account'
@@ -536,11 +538,12 @@ _public_install() {
         esac
     done
 
-    case "$product" in review|runtime|both|"") ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: --product must be review, runtime, or both" >&2; return 2;; esac
+    # `workspaces` is the user-facing name; `runtime` stays the internal product key.
+    case "$product" in workspaces) product="runtime";; review|runtime|both|"") ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: --product must be review, workspaces, or both" >&2; return 2;; esac
     case "$deployment" in cloud|hosted) deployment="cloud";; local|"") ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: deployment must be local or hosted" >&2; return 2;; esac
     case "$agent" in ""|auto|claude|codex|opencode) ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: --agent must be claude, codex, opencode, or auto" >&2; return 2;; esac
 
-    # No prompts: bare install is Local Review (no account). Runtime is fetched
+    # No prompts: bare install is Local Review (no account). Workspaces is fetched
     # the first time `lc rt enable <host>` needs it. Hosted is opt-in: --hosted,
     # a non-loopback --url, or an existing hosted install being re-run.
     [[ -z "$product" ]] && product="review"
@@ -559,7 +562,7 @@ _public_install() {
     [[ -n "$cloud_url" ]] || cloud_url="https://api.lemoncrow.com"
 
     if [[ -n "$agent" && "$product" == "review" ]]; then
-        lc_ui_printf '1;31' '%s\n' "install.sh: --agent requires Runtime; choose --product runtime or --product both" >&2
+        lc_ui_printf '1;31' '%s\n' "install.sh: --agent requires Workspaces; choose --product workspaces or --product both" >&2
         return 2
     fi
     if [[ "$deployment" == "local" && ( "$product" == "review" || "$product" == "both" ) ]]; then
@@ -577,7 +580,7 @@ _public_install() {
             lc_ui_printf progress 'Installing Review client...\n'
         fi
         if [[ "$product" != review ]]; then
-            lc_ui_printf progress 'Installing Runtime client...\n'
+            lc_ui_printf progress 'Installing Workspaces client...\n'
         fi
         if [[ "$deployment" == local && "$product" != runtime ]]; then
             lc_ui_printf progress 'Starting local Review server...\n'
@@ -594,7 +597,7 @@ _public_install() {
     fi
     if [[ "${LEMONCROW_VERBOSE:-0}" == 1 || "$dry_run" == 1 ]]; then
         if [[ "$deployment" == local && "$product" != review ]]; then
-            lc_ui_printf '36' '  Runtime:    Local Lite (no server/daemon)\n'
+            lc_ui_printf '36' '  Workspaces: Lite (no server/daemon)\n'
         fi
         if [[ "$product" != review ]]; then
             lc_ui_printf '36' '  Agent:      %s\n' "${agent:-not enabled}"
@@ -615,7 +618,7 @@ _public_install() {
             LEMONCROW_INSTALL_NESTED=1 LEMONCROW_DEPLOYMENT=cloud bash "$review_helper" "${review_args[@]}" || return $?
         fi
         if [[ "$product" == "runtime" || "$product" == "both" ]]; then
-            lc_ui_printf progress 'Installing Runtime client...\n'
+            lc_ui_printf progress 'Installing Workspaces client...\n'
             runtime_helper="$(_public_fetch_helper runtime.sh)" || return 1
             runtime_args=(--url "$cloud_url")
             [[ -n "$agent" ]] && runtime_args+=(--agent "$agent")
@@ -630,12 +633,13 @@ _public_install() {
             LEMONCROW_INSTALL_NESTED=1 bash "$review_helper" "${review_args[@]}" || return $?
         fi
         if [[ "$product" == "runtime" || "$product" == "both" ]]; then
-            lc_ui_printf progress 'Installing Runtime Lite...\n'
+            lc_ui_printf progress 'Installing Workspaces Lite...\n'
             runtime_helper="$(_public_fetch_helper local_runtime.sh)" || return 1
             runtime_args=()
             [[ -n "$agent" ]] && runtime_args+=(--agent "$agent")
             [[ "$dry_run" == "1" ]] && runtime_args+=(--dry-run)
-            LEMONCROW_INSTALL_NESTED=1 bash "$runtime_helper" "${runtime_args[@]}" || return $?
+            # Bash 3.2 needs a guarded expansion for an empty array under nounset.
+            LEMONCROW_INSTALL_NESTED=1 bash "$runtime_helper" ${runtime_args[@]+"${runtime_args[@]}"} || return $?
         fi
     fi
 

@@ -39,6 +39,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 
 import yaml
+from lemoncrow_client.review_words import revision_name
 
 from lemoncrow.pro.capabilities.review.freshness import format_timestamp, parse_timestamp
 from lemoncrow.pro.capabilities.review.intent import (
@@ -1050,7 +1051,7 @@ def _breaking_change(check: PremergeCheckDef, facts: PremergeFacts) -> PremergeC
         return PremergeCheckResult(
             check,
             "UNKNOWN",
-            f"Static contract analysis of this Snapshot is {facts.static.status}"
+            f"Static contract analysis of this revision is {facts.static.status}"
             + (f" ({facts.static.reason})" if facts.static.reason else "")
             + ", so whether it breaks a contract is not known.",
             evidence=citations,
@@ -1159,9 +1160,9 @@ def _required_verification(check: PremergeCheckDef, facts: PremergeFacts) -> Pre
         )
         missing = [name for name, status, _ in statuses if status != "PASS"]
         detail = (
-            f"All {len(names)} required verification result(s) passed on this Snapshot."
+            f"All {len(names)} required verification result(s) passed on this revision."
             if overall == "PASS"
-            else "Required verification not passing on this Snapshot: "
+            else "Required verification not passing on this revision: "
             + ", ".join(f"{name} ({status})" for name, status, _ in statuses if status != "PASS")[:400]
             + ". Human-recorded results never count."
         )
@@ -1194,7 +1195,7 @@ def _required_verification(check: PremergeCheckDef, facts: PremergeFacts) -> Pre
     return PremergeCheckResult(
         check,
         "UNKNOWN" if unresolved else "NOT_RUN",
-        "No passing CI/LemonCrow verification is recorded for this Snapshot. Human-recorded results never count.",
+        "No passing CI/LemonCrow verification is recorded for this revision. Human-recorded results never count.",
     )
 
 
@@ -1330,7 +1331,7 @@ def _migration_safety(check: PremergeCheckDef, facts: PremergeFacts) -> Premerge
         return PremergeCheckResult(
             check,
             "UNKNOWN",
-            f"{len(migration_paths)} migration file(s) changed, but static analysis of this Snapshot is "
+            f"{len(migration_paths)} migration file(s) changed, but static analysis of this revision is "
             f"{facts.static.status}; destructive operations are not known.",
             evidence=tuple(PremergeEvidence("path", path, "migration") for path in migration_paths[:_MAX_EVIDENCE]),
         )
@@ -1379,12 +1380,12 @@ def _not_run(facts: PremergeFacts, *, stale: bool = False) -> tuple[str, str]:
     if run is not None and run.status == "limited_by_budget":
         return "limited_by_budget", run.reason or "Limited by budget"
     if run is not None and run.status in {"skipped", "on_request", "inapplicable", "not_available"}:
-        return run.status, f"ai.premerge_checks is {run.status.replace('_', ' ')} in this Snapshot's run plan" + (
+        return run.status, f"ai.premerge_checks is {run.status.replace('_', ' ')} in this revision's run plan" + (
             f" ({run.reason})" if run.reason else ""
         )
     if run is not None and not run.status:
         return "not_planned", (
-            "ai.premerge_checks is not selected by this Snapshot's run plan"
+            "ai.premerge_checks is not selected by this revision's run plan"
             + (f" ({run.reason})" if run.reason else "")
             + "; evaluate it on request"
         )
@@ -1395,7 +1396,7 @@ def _not_run(facts: PremergeFacts, *, stale: bool = False) -> tuple[str, str]:
             "its inputs (bound intent, Change description, policy generation or prompt) changed since the last "
             "evaluation; the run plan evaluates it again"
         )
-    return "pending", "planned on this Snapshot; no result yet"
+    return "pending", "planned on this revision; no result yet"
 
 
 def _custom(
@@ -1510,13 +1511,13 @@ def waiver_lapse(waiver: PremergeWaiver, *, facts: PremergeFacts, generation: st
             f"the policy is now {short_generation(generation)}, so the check is re-evaluated"
         )
     if waiver.scope == "snapshot" and waiver.revision_id != facts.snapshot_id:
-        where = f"Snapshot {waiver.snapshot_number}" if waiver.snapshot_number is not None else "an earlier Snapshot"
+        where = revision_name(waiver.snapshot_number) if waiver.snapshot_number is not None else "an earlier revision"
         return f"the waiver by {waiver.actor} covers {where} only"
     if waiver.scope == "review":
         outside = [path for path in facts.changed_paths if path not in set(waiver.paths)]
         if outside:
             return (
-                f"the waiver by {waiver.actor} covered {len(waiver.paths)} path(s); this Snapshot also changes "
+                f"the waiver by {waiver.actor} covered {len(waiver.paths)} path(s); this revision also changes "
                 + ", ".join(outside[:3])
                 + ("…" if len(outside) > 3 else "")
             )
@@ -1819,7 +1820,7 @@ def build_nl_context(
         ],
         "changed_paths": sorted(shown),
         "excerpts": [
-            tagged(ContextAuthority.REVIEWED_SOURCE, {"path": path, "patch": text}, provenance="Snapshot patch")
+            tagged(ContextAuthority.REVIEWED_SOURCE, {"path": path, "patch": text}, provenance="Revision patch")
             for path, text in sorted(shown.items())
         ],
         "excluded_paths": sorted(excluded_paths),

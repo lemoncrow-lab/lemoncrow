@@ -1,12 +1,12 @@
 # OSS / private code-intelligence boundary
 
-Runtime Lite is the public local intelligence kernel. Advanced commercial code intelligence is physically owned by the proprietary enterprise runtime.
+Workspaces Lite is the public local intelligence kernel. Advanced commercial code intelligence is physically owned by the proprietary enterprise runtime.
 
 ## Public OSS source
 
 Public source contains:
 
-- `lemoncrow_client/lite/`: SQLite/FTS Runtime Lite, deterministic lexical search, exact/basic symbols/imports/relations;
+- `lemoncrow_client/lite/`: SQLite/FTS Workspaces Lite, deterministic lexical search, exact/basic symbols/imports/relations;
 - local filesystem/edit/shell primitives;
 - `lemoncrow.core.capabilities.code_context_contract`: DTOs and provider protocols;
 - `lemoncrow.core.capabilities.code_intelligence_provider`: the single optional private-provider discovery seam;
@@ -39,14 +39,14 @@ Substrates whose only consumer is private moved private on 2026-10-04: the engin
 
 An OSS-only install remains valid:
 
-- `lc with <host>` uses Runtime Lite;
-- `lc rt enable <host>` persists Runtime Lite;
-- `lc with <host>` and persistent local integrations use Runtime Lite locally; `lc code` is the Hosted owned-agent entry point;
+- `lc with <host>` uses Workspaces Lite;
+- `lc rt enable <host>` persists Workspaces Lite;
+- `lc with <host>` and persistent local integrations use Workspaces Lite locally; `lc code` is reserved for the hosted coding agent, which is not yet available;
 - `lc runtime index` builds the Lite index;
 - Review keeps its independent product boundary;
 - hosted thin-client protocol code remains importable.
 
-Advanced customer paths are explicit and remote/dedicated. The old `lc code --pro` mode is removed entirely. Local private-engine execution survives only as guarded LemonCrow engineering tooling; public Runtime Lite operates without the private package installed.
+Advanced customer paths are explicit and remote/dedicated. The old `lc code --pro` mode is removed entirely. Local private-engine execution survives only as guarded LemonCrow engineering tooling; public Workspaces Lite operates without the private package installed.
 
 ## Enforcement
 

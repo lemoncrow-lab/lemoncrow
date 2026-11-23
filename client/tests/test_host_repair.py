@@ -211,7 +211,6 @@ def test_temporary_install_cannot_repoint_normal_host_connections(tmp_path, monk
         (".claude.json", False),
         (".cursor/mcp.json", False),
         (".config/opencode/opencode.json", True),
-        (".config/lemoncode/opencode.jsonc", True),
     ]:
         path = home / relative
         path.parent.mkdir(parents=True, exist_ok=True)

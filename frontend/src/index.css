@@ -7,6 +7,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Touch screens: controls keep their natural size but never drop under the WCAG 2.2 AA 24 px target floor. */
+@layer base {
+  @media (pointer: coarse) {
+    button, summary, a[href], label, [role="button"], [role="tab"], [role="img"][tabindex] { min-height: 24px; min-width: 24px; }
+  }
+}
+
 /* The type scale as variables for the few CSS rules that cannot use a utility (keep in step with the preset's
    fontSize: the +1px shift of the dense scale; micro only for uppercase mono badges). */
 :root {
@@ -43,17 +50,17 @@ svg.lucide {
   --n-300: 64 64 64;
   --n-400: var(--subtle-foreground);
   --n-500: var(--muted-foreground); /* muted text: >= 4.5:1 on paper, white and the sunken surface */
-  --n-600: 163 160 150;
-  --n-700: 211 207 195;
+  --n-600: 153 161 175;
+  --n-700: 209 213 220;
   --n-800: var(--border);
   --n-900: var(--muted);
   --n-950: var(--background);
 
   --surface: var(--card);
   --surface-sunken: var(--muted);
-  --surface-code: 250 249 245;
+  --surface-code: var(--card);
   --surface-raised: var(--card);
-  --surface-tint: 250 248 244;
+  --surface-tint: var(--background);
   --surface-overlay: var(--popover);
 
   --secondary: var(--muted);
@@ -69,14 +76,14 @@ svg.lucide {
 }
 
 .dark {
-  --n-50: 250 248 243;
+  --n-50: 250 250 250;
   --n-100: var(--foreground);
-  --n-200: 229 227 220;
+  --n-200: 229 229 229;
   --n-300: var(--subtle-foreground);
-  --n-400: 187 184 174;
+  --n-400: 187 187 187;
   --n-500: var(--muted-foreground); /* muted text: >= 4.5:1 on every dark surface */
-  --n-600: 98 97 92;
-  --n-700: 66 67 71;
+  --n-600: 98 98 98;
+  --n-700: 66 66 66;
   --n-800: var(--border);
   --n-900: var(--muted);
   --n-950: var(--background);
@@ -99,7 +106,7 @@ body,
 body {
   background-color: rgb(var(--background));
   color: rgb(var(--foreground));
-  font-family: "Red Hat Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Inter, "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Custom scrollbar */
@@ -133,8 +140,8 @@ html {
 
 /* The Review visual system is the global application chrome. */
 .workbench-shell {
-  --workbench-ui-font: "Red Hat Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --workbench-code-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --workbench-ui-font: Inter, "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
+  --workbench-code-font: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-family: var(--workbench-ui-font);
   font-feature-settings: "kern" 1, "liga" 1;
   font-size: var(--fs-body); /* text-ui: the app's body size */
@@ -254,8 +261,9 @@ html {
   --violet-950: 46 16 101;
 }
 
-/* In light the 100 to 300 steps (the text steps of every themed ramp) are the token text colour, so a legacy
-   `text-amber-300` and the `p1` token render the same AA-checked colour in both themes. */
+/* This block also matches the dark root and comes after `.dark`, so both themes use these inverted ramps (P8-2 F).
+   Do not rely on a ramp class for contrast: light `text-amber-300` (180 83 9) is 4.33:1 on muted, and in dark it is
+   the same dark amber. Use the semantic tokens (`text-p1`, `text-ok`, ...) instead. */
 :root,
 .light {
   --emerald-50: 2 44 34;

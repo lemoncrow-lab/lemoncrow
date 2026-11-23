@@ -151,11 +151,9 @@ def test_codex_autonomous_execution_disables_shell_web_and_agents(
 def test_opencode_autonomous_execution_allows_only_lemoncrow_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from lemoncrow.core.foundation import managed_host
-
-    host = tmp_path / "lemoncode-host"
+    host = tmp_path / "opencode"
     host.write_text("host")
-    monkeypatch.setattr(managed_host, "resolve_managed_host_binary", lambda _root: str(host))
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: str(host) if name == "opencode" else None)
     captured: dict[str, Any] = {}
 
     def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):

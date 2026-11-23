@@ -53,6 +53,10 @@ def _session_dir(root: Path, host: str, sid: str, search_days: int = 3) -> Path:
         cand = base / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" / host / sid
         if cand.exists():
             return cand
+    # A session resumed days later keeps its newest existing partition.
+    existing = sorted(base.glob(f"*/*/*/{host}/{sid}"))
+    if existing:
+        return existing[-1]
     return base / f"{today:%Y}" / f"{today:%m}" / f"{today:%d}" / host / sid
 
 

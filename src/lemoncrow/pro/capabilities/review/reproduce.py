@@ -35,21 +35,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
-from lemoncrow.pro.capabilities.review.execution import (
-    EXECUTOR_FINGERPRINT_VERSION,
-    REPORT_DIR,
-    REPORT_ENV,
-    ExecutionResult,
-    ExecutionSubject,
-    ExecutorClass,
-    SinkCapture,
-    StageName,
-    StageOutcome,
-    canonical_digest,
-)
 from lemoncrow.pro.capabilities.review.hermetic import (
     REPRODUCE_COMMAND,
-    DependencyCache,
     HermeticPolicy,
     HermeticRefused,
     HermeticUnavailable,
@@ -65,7 +52,21 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     sinks_available,
     workspace_digest,
 )
+from lemoncrow.pro.capabilities.review.proof import wire
 from lemoncrow.pro.capabilities.review.run_evidence import protect_text
+from lemoncrow.pro.environment.dependency_cache import DependencyCache
+from lemoncrow.pro.environment.execution import (
+    EXECUTOR_FINGERPRINT_VERSION,
+    REPORT_DIR,
+    REPORT_ENV,
+    ExecutionResult,
+    ExecutionSubject,
+    ExecutorClass,
+    SinkCapture,
+    StageName,
+    StageOutcome,
+    canonical_digest,
+)
 
 _COMMIT: Final = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 # Recipes whose run stage is a Reader render, not a command line.
@@ -102,7 +103,7 @@ def load_execution_record(raw: Mapping[str, Any]) -> ExecutionResult:
 
 def _git(repo: Path, *args: str, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [wire.system_executable("git"), "-C", str(repo), *args],
         capture_output=True,
         check=False,
         env={**os.environ, **(env or {})},
@@ -472,7 +473,7 @@ def reproduce_execution(
         environment = None
         if original.fingerprint.version >= EXECUTOR_FINGERPRINT_VERSION and command:
             # The record names what its command ran; probe the same for the replay.
-            from lemoncrow.pro.capabilities.review.runtimes import command_identity, command_view
+            from lemoncrow.pro.capabilities.review.runner_host import command_identity, command_view
 
             environment = command_identity(
                 command,

@@ -276,7 +276,7 @@ describe("ContextDrawer", () => {
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   });
 
-  it("opens the target and each definition in Code when a local checkout is bound", async () => {
+  it("opens the part and each definition in Code when a local checkout is bound", async () => {
     const onOpenInCode = vi.fn();
     render(
       <ContextDrawer
@@ -523,7 +523,7 @@ describe("ContextDrawer", () => {
     expect(screen.queryByRole("tab", { name: /History/ })).toBeNull();
   });
 
-  it("loads append-only judgment transitions for the active semantic target", async () => {
+  it("loads append-only judgment transitions for the active semantic part", async () => {
     reviewApi.fetchTargetHistory.mockResolvedValue({
       review_id: "review-1",
       reviewer_id: "local",
@@ -549,7 +549,7 @@ describe("ContextDrawer", () => {
       ],
     });
     renderDrawer("activity");
-    await waitFor(() => expect(screen.getByText("reviewed → changed_since_review")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("reviewed → changed since review")).toBeTruthy());
     expect(reviewApi.fetchTargetHistory).toHaveBeenCalledWith("review-1", TARGET.unit_key);
     expect(screen.getByText("content changed")).toBeTruthy();
     expect(screen.queryByText(/synthetic event/i)).toBeNull();
@@ -663,7 +663,7 @@ describe("ContextDrawer", () => {
     expect(panel.textContent).toContain("review-wide");
   });
 
-  it("pairs exact Snapshot screenshots into an inspectable before/after diff", async () => {
+  it("pairs exact revision screenshots into an inspectable before/after diff", async () => {
     const evidence = (overrides: Partial<ReviewEvidence>): ReviewEvidence => ({
       id: "evd-after",
       review_id: "review-1",
@@ -719,7 +719,7 @@ describe("ContextDrawer", () => {
     await waitFor(() => expect(reviewApi.fetchReviewEvidenceContent).toHaveBeenCalledTimes(2));
     expect(screen.getByAltText("Before screenshot")).toBeTruthy();
     expect(screen.getByAltText("After screenshot")).toBeTruthy();
-    expect(screen.getByText(/older Snapshot and is not current proof/i)).toBeTruthy();
+    expect(screen.getByText(/older revision and is not current proof/i)).toBeTruthy();
     const divider = screen.getByRole("slider", { name: "Screenshot comparison divider" });
     expect(divider.getAttribute("aria-valuenow")).toBe("50");
     fireEvent.keyDown(divider, { key: "ArrowRight" });
@@ -727,7 +727,7 @@ describe("ContextDrawer", () => {
     expect((screen.getByAltText("After screenshot") as HTMLImageElement).style.clipPath).toBe("inset(0 49% 0 0)");
   });
 
-  it("can compare a semantically-current carried screenshot against an older Snapshot", async () => {
+  it("can compare a semantically-current carried screenshot against an older revision", async () => {
     const base: ReviewEvidence = {
       id: "evd-carried", review_id: "review-1", revision_id: "rrv-0", revision_number: 1,
       kind: "screenshot", title: "checkout.png", path: "src/checkout.tsx", url: "",
@@ -799,7 +799,7 @@ describe("ContextDrawer", () => {
     expect(screen.getByRole("tab", { name: /discussion/i }).textContent).toBe("Discussion2");
   });
 
-  it("drops a preview URL typed for one target when the drawer moves to the next", async () => {
+  it("drops a preview URL typed for one part when the drawer moves to the next", async () => {
     // The drawer is mounted without a key and survives j/k, so an uncommitted
     // URL left in the box would be filed against the file that happens to be on
     // screen when Add is clicked -- evidence on the wrong file, silently.
@@ -1008,7 +1008,7 @@ describe("ContextDrawer", () => {
     expect(within(panel).getByText("Codex")).toBeTruthy();
     expect(within(panel).queryByText("Claude")).toBeNull();
     expect(within(panel).getByText(/2 recorded edits/)).toBeTruthy();
-    expect(within(panel).getByRole("status").textContent).toContain("Changed again after this Snapshot by Claude");
+    expect(within(panel).getByRole("status").textContent).toContain("Changed again after this revision by Claude");
     expect(await within(panel).findByText("edited src/checkout.tsx (+4 -1)")).toBeTruthy();
     expect(reviewApi.fetchReviewDevelopmentEvents).toHaveBeenCalledWith("review-1", {
       revisionNumber: 52,

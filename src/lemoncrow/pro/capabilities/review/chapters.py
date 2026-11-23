@@ -63,7 +63,19 @@ _GENERIC_TOPIC_TOKENS = frozenset(
 )
 
 
+# A directory area names at most this many leading directories, so a deep tree does not become one area per folder.
+_AREA_MAX_DEPTH = 3
+
+
 def _path_label(path: str, category: str = "") -> str:
+    """The area a changed file belongs to, written exactly as the repository spells it.
+
+    Generic categories (generated, tests, docs) come from the file's category or
+    conventional names; anything else is its directory path (``lib/``,
+    ``src/billing/api/``), or the file path itself for a root-level file. A path is
+    never re-cased or re-spelled.
+    """
+
     parts = [part for part in path.split("/") if part]
     low = path.lower()
     if category == "generated" or any(part in {"generated", "vendor", "vendored"} for part in parts):
@@ -72,23 +84,11 @@ def _path_label(path: str, category: str = "") -> str:
         return "Tests"
     if category == "docs" or parts[:1] == ["docs"] or low.endswith((".md", ".mdx", ".rst")):
         return "Docs"
-    if parts[:1] == ["frontend"]:
-        return "Frontend"
-    if parts[:1] == ["integrations"]:
-        return "Host integrations"
-    if (
-        len(parts) >= 5
-        and parts[0] == "src"
-        and parts[1] == "lemoncrow"
-        and parts[2] == "pro"
-        and parts[3] == "capabilities"
-    ):
-        return parts[4].replace("_", " ").title()
-    if len(parts) >= 3 and parts[0] == "src" and parts[1] == "lemoncrow":
-        return parts[2].replace("_", " ").title()
-    if len(parts) >= 2 and parts[0] in {"src", "lib", "packages", "apps"}:
-        return parts[1].replace("_", " ").title()
-    return (parts[0] if parts else "Other").replace("_", " ").title()
+    if not parts:
+        return "Other"
+    if len(parts) == 1:
+        return parts[0]
+    return "/".join(parts[: min(len(parts) - 1, _AREA_MAX_DEPTH)]) + "/"
 
 
 def _chapter_key(prefix: str, label: str) -> str:
@@ -181,7 +181,8 @@ def _scope_label(scope: str) -> str:
     raw = scope.strip()
     if not raw or re.search(r"[,/+|]", raw):
         return ""
-    return raw.replace("_", " ").replace("-", " ").title()
+    words = raw.replace("_", " ").replace("-", " ")
+    return f"{words[:1].upper()}{words[1:]}"
 
 
 def _split_words(value: str) -> list[str]:
@@ -307,12 +308,19 @@ def _intent_assignments(rows: Sequence[Mapping[str, Any]], commits: Sequence[Map
     return assignments
 
 
+def _is_structural(label: str, rows: Sequence[Mapping[str, Any]]) -> bool:
+    """True when *label* is a repository area (a directory, file or category), not a concept."""
+
+    return any(_path_label(str(row.get("path") or ""), str(row.get("category") or "")) == label for row in rows)
+
+
 def _chapter_explanation(
     label: str,
     items: Sequence[Mapping[str, Any]],
     commits: Sequence[Mapping[str, Any]],
 ) -> str:
     paths = {str(row.get("path") or "") for row in items if str(row.get("path") or "")}
+    count = f"{len(paths)} file{'s' if len(paths) != 1 else ''}"
     best_summary = ""
     best_overlap = 0
     for commit in commits:
@@ -323,7 +331,9 @@ def _chapter_explanation(
     summary_label = _summary_concept_label(best_summary) if best_summary else ""
     if summary_label and best_overlap >= max(1, (len(paths) + 1) // 2):
         return f"Grounded in commit: {summary_label}."
-    return f"Groups related {label.lower()} source changes across {len(paths)} file{'s' if len(paths) != 1 else ''}."
+    if _is_structural(label, items):
+        return f"Changes in {label} across {count}."
+    return f"Groups related {label.lower()} source changes across {count}."
 
 
 def _intent_chapters(rows: Sequence[Mapping[str, Any]], commits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -348,12 +358,15 @@ def _intent_chapters(rows: Sequence[Mapping[str, Any]], commits: Sequence[Mappin
             grouped[structural].append(row)
 
     chapters = [
-        _rollup(
-            _chapter_key("intent", label),
-            label,
-            _chapter_explanation(label, items, commits),
-            items,
-        )
+        {
+            **_rollup(
+                _chapter_key("intent", label),
+                label,
+                _chapter_explanation(label, items, commits),
+                items,
+            ),
+            "structural": _is_structural(label, items),
+        }
         for label, items in grouped.items()
     ]
     chapters.sort(
@@ -402,11 +415,14 @@ def conceptual_chapters(chapters: Sequence[Mapping[str, Any]]) -> list[Mapping[s
 
     Broad source areas stay available in the full chapter lenses, but they do
     not displace more explanatory concepts in Change Story / Major changes.
+    When no concept exists, the repository areas themselves orient the reader,
+    so the story is never empty for a change that has source files.
     Implementation-shaped groups remain available but lose equal-size ties to
     product/behavior concepts.
     """
 
-    out = [chapter for chapter in chapters if str(chapter.get("label") or "") not in _STORY_UTILITY_LABELS]
+    useful = [chapter for chapter in chapters if str(chapter.get("label") or "") not in _STORY_UTILITY_LABELS]
+    out = [chapter for chapter in useful if not chapter.get("structural")] or useful
     out.sort(key=conceptual_chapter_sort_key)
     return out
 
@@ -507,10 +523,16 @@ def _target_context(chapters: Sequence[dict[str, Any]], targets: Sequence[Any]) 
     """Attach derived target navigation/progress without creating new review state."""
 
     out: list[dict[str, Any]] = []
+    # Targets by path once, with their place in ``targets``: a chapter picks its paths' targets instead of scanning
+    # every target (chapters x targets was the bulk of a 10,000-file Overview). Ties sort by that place, as the scan did.
+    by_path: dict[str, list[tuple[int, Any]]] = {}
+    for position, target in enumerate(targets):
+        by_path.setdefault(str(getattr(target, "path", "")), []).append((position, target))
     for raw in chapters:
         chapter = dict(raw)
         paths = {str(row.get("path") or "") for row in chapter.get("rows") or () if isinstance(row, Mapping)}
-        chapter_targets = [target for target in targets if str(getattr(target, "path", "")) in paths]
+        placed = sorted((item for path in paths for item in by_path.get(path, ())), key=lambda item: item[0])
+        chapter_targets = [target for _position, target in placed]
         chapter_targets.sort(
             key=lambda target: (
                 1 if int(getattr(target, "attention_rank", 0) or 0) == 0 else 0,
@@ -543,6 +565,7 @@ def _target_context(chapters: Sequence[dict[str, Any]], targets: Sequence[Any]) 
             "needs_changes": sum(getattr(target, "state", "") == "needs_changes" for target in chapter_targets),
             "unreviewed": sum(getattr(target, "state", "") == "unreviewed" for target in chapter_targets),
             "unknown": sum(getattr(target, "state", "") == "unknown" for target in chapter_targets),
+            "later": sum(getattr(target, "state", "") == "later" for target in chapter_targets),
         }
         explanation = str(chapter.get("reason") or "")
         named = []

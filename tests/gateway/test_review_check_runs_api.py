@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
+from lemoncrow.pro.capabilities.review.run_plan_service import RunPlanService
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from tests.gateway.test_review_hermetic import _Server, needs_bwrap
@@ -237,6 +239,96 @@ def _run(review: SimpleNamespace, entry: str, *, revision_id: str = "", pick: bo
     )
 
 
+def test_check_recipes_reads_the_snapshot_manifest_once_however_many_files_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The head recipe catalog reads every changed file; each read must not reload the Snapshot's source tree.
+
+    On a 10,000-file change the manifest reload per read made one GET take 6.5 minutes and starved the Reader's other
+    requests, and the catalog and the test impact each read every changed file's head. The Snapshot carries a real source-tree manifest here,
+    so the reads go through it rather than the blob-artifact fallback.
+    """
+
+    extra = {f"pkg/module_{index:03d}.py": f"VALUE = {index}\n" for index in range(60)}
+    head = {**_head_files(), **extra}
+    review = _review(tmp_path, head=head)
+    contents = {
+        path: text.encode()
+        for path, text in {**_base_files(), **{rel: text for rel, text in head.items() if text is not None}}.items()
+    }
+    by_digest = {hashlib.sha256(raw).hexdigest(): raw for raw in contents.values()}
+    review.store.write_source_tree_artifact(
+        review.review_id,
+        review.revision_id,
+        {
+            path: {"content_digest": hashlib.sha256(raw).hexdigest(), "mode": 0o100644, "size": len(raw)}
+            for path, raw in contents.items()
+        },
+        side="new",
+    )
+    manifest_reads: list[str] = []
+    content_reads: list[str] = []  # every content read of the request
+    original_tree = review.store.read_source_tree_artifact
+
+    def counting_tree(*args: Any, **kwargs: Any) -> Any:
+        manifest_reads.append(str(kwargs.get("side", "new")))  # the store's own default side
+        return original_tree(*args, **kwargs)
+
+    def counting_content(digest: str) -> bytes | None:
+        content_reads.append(digest)
+        return by_digest.get(digest)
+
+    review.store.read_source_tree_artifact = counting_tree
+    review.store.read_source_content = counting_content
+    check = _get(review)
+    assert check["revision_id"] == review.revision_id
+    # Each side's manifest is read exactly once, however many files changed.
+    assert sorted(manifest_reads) == ["new", "old"], f"source-tree manifest reads for one request: {manifest_reads}"
+    changed_digests = {hashlib.sha256(contents[path]).hexdigest(): path for path in head if path in contents}
+    head_reads = [digest for digest in content_reads if digest in changed_digests]
+    per_file = {path: head_reads.count(digest) for digest, path in changed_digests.items()}
+    assert per_file, "no changed file's head was read through the manifest"
+    # The head catalog and the test impact both need each changed file's head: the request reads it once.
+    reads_per_file = set(per_file.values())
+    assert reads_per_file == {1}, f"head reads per changed file: {dict(list(per_file.items())[:5])}"
+
+
+def test_part_run_uses_only_exact_trusted_base_mapping_and_revision(tmp_path: Path) -> None:
+    config = CONFIG.replace(
+        "    report: junit\n", "    report: junit\n    part_targets:\n      - {path: calc.py, symbol: sub}\n", 1
+    )
+    review = _review(tmp_path, base=_base_files(config))
+    check = _get(review)
+    mapped = [row for row in check["part_checks"] if row["symbol"] == "sub"]
+    assert len(mapped) == 1, check["part_checks"]
+    selected = mapped[0]
+    assert selected["coverage"] == "not_assessed" and selected["recipe_digest"].startswith("recipe:sha256:")
+    endpoint = f"/api/reviews/{review.review_id}/check-recipes/run"
+    body = {
+        "revision_id": review.revision_id,
+        "entry": selected["entry_id"],
+        "part_unit_key": selected["unit_key"],
+        "pick": True,
+    }
+    before = _compute_runs(review)
+    rejected = review.client.post(endpoint, headers=HEADERS, json={**body, "part_unit_key": "sym:forged"})
+    assert rejected.status_code == 422, rejected.text
+    assert _compute_runs(review) == before
+    wrong_recipe = review.client.post(endpoint, headers=HEADERS, json={**body, "entry": "checks.recipe:fmt"})
+    assert wrong_recipe.status_code == 422, wrong_recipe.text
+    assert _compute_runs(review) == before
+    executed = review.client.post(endpoint, headers=HEADERS, json=body)
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["revision_id"] == review.revision_id
+    assert selected["entry_id"] in executed.json()["verdicts"]
+    assert _compute_runs(review) != before
+    assert _get(review)["part_checks"] == check["part_checks"]
+    stale = _new_snapshot(review, {"calc.py": CALC_HEAD + "\n# later\n"})
+    assert stale != review.revision_id
+    refused = review.client.post(endpoint, headers=HEADERS, json=body)
+    assert refused.status_code == 409, refused.text
+
+
 def _result(payload: dict[str, Any], recipe_id: str) -> dict[str, Any]:
     return next(row for row in payload["results"] if row["recipe"]["id"] == recipe_id)
 
@@ -393,10 +485,10 @@ def test_execution_artifact_viewer_rejects_corrupted_retained_bytes(tmp_path: Pa
 @needs_bwrap
 def test_sandboxed_differential_classifies_flags_reconciles_and_reproduces(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.check_ingest import EquivalenceKey, equivalence_key_of
-    from lemoncrow.pro.capabilities.review.execution import ExecutorClass, executor_satisfies
     from lemoncrow.pro.capabilities.review.hermetic import REPRODUCE_COMMAND
     from lemoncrow.pro.capabilities.review.reproduce import load_execution_record, reproduce_execution
     from lemoncrow.pro.capabilities.review.session_models import CheckAttestation
+    from lemoncrow.pro.environment.execution import ExecutorClass, executor_satisfies
 
     review = _review(tmp_path)
     # What `lc review --check --run` posts: a caller-attested result, executed on the author's machine.
@@ -797,8 +889,8 @@ class _Scripted:
         return ()
 
     def run(self, context: Any, runtime: Any, surface: Any, *, side: str) -> Any:
-        from lemoncrow.pro.capabilities.review.execution import ExecutionSubject, StageOutcome
-        from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
+        from lemoncrow.pro.environment.execution import ExecutionSubject, StageOutcome
+        from lemoncrow.pro.environment.runners import SurfaceRunResult
         from tests.gateway.test_review_execution_contract import _result
 
         count = 1 + sum(1 for call in self.calls if call[:2] == (runtime.id, side))
@@ -832,7 +924,7 @@ def _scripted_review(
     config: str = CONFIG,
     shared_store: tuple[ReviewStore, Path] | None = None,
 ) -> tuple[SimpleNamespace, _Scripted]:
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+    from lemoncrow.pro.environment.runners import RunnerRegistry
 
     runner = _Scripted(script)
     review = _review(
@@ -1043,7 +1135,7 @@ def test_a_sandboxed_verdict_satisfies_its_entry_only_on_the_exact_head_and_reci
 
     # A self-consistent hash does not authorize a forged executor class in
     # verification metadata: the dispatcher-owned evidence record must agree.
-    from lemoncrow.pro.capabilities.review.execution import canonical_digest
+    from lemoncrow.pro.environment.execution import canonical_digest
 
     changed = json.loads(json.dumps(source))
     changed["data"]["execution"]["verification"]["executor_class"] = "managed_sandbox"
@@ -1256,7 +1348,7 @@ def test_failed_check_on_previous_snapshot_is_suggested_without_carrying_result(
     unit = next(row for row in recommendations if row["recipe_id"] == "unit")
     assert unit["previous_verdict"] == ""
     assert unit["prior_snapshot_verdict"] in {"FAIL", "UNKNOWN"}
-    assert "Previous Snapshot had" in unit["reason"]
+    assert "Previous revision had" in unit["reason"]
     assert unit["manual_authorization_required"] is True
     assert unit["can_run_now"] in {True, False}
 
@@ -1358,7 +1450,7 @@ def test_reverification_rejects_prior_pass_historical_source_and_unauthorized_ca
     initial = _run(review, "checks.recipe:unit")
     assert initial.status_code == 200 and initial.json()["verdicts"]["checks.recipe:unit"] == "PASS"
     original = review.revision_id
-    following = _new_snapshot(review, {"calc.py": CALC_HEAD + "# second Snapshot\n"})
+    following = _new_snapshot(review, {"calc.py": CALC_HEAD + "# second revision\n"})
     body = {
         "revision_id": following,
         "entry": "checks.recipe:unit",
@@ -1707,7 +1799,7 @@ def test_approved_autofix_agent_dispatch_has_two_attempt_limit(tmp_path: Path, m
         action_id = started.json()["action"]["id"]
         assert started.json()["action"]["status"] == "awaiting_snapshot"
         cancelled = review.client.post(
-            actions_url + f"/{action_id}/cancel", headers=HEADERS, json={"reason": "no corrected Snapshot"}
+            actions_url + f"/{action_id}/cancel", headers=HEADERS, json={"reason": "no corrected revision"}
         )
         assert cancelled.status_code == 200
     assert len(calls) == 2

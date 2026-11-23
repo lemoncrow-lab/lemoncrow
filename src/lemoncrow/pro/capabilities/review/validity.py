@@ -17,6 +17,7 @@ states, readiness condition states) are unchanged.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -67,6 +68,11 @@ REASONS: Final[Mapping[str, ValidityReason]] = _reasons(
         "preserved",
         "only the diff base moved under a patch-equivalent change, so the judgment is kept",
     ),
+    (
+        "deleted_text_no_longer_shown",
+        "preserved",
+        "the part shows the same body and no longer shows deleted lines the reviewer judged with it, so the judgment is kept",
+    ),
     ("fingerprint_restored", "preserved", "the content is identifiable again and matches what the reviewer judged"),
     (
         "behavior_mark_kept",
@@ -74,17 +80,37 @@ REASONS: Final[Mapping[str, ValidityReason]] = _reasons(
         "a behavior judgment is kept; the behavior target's fingerprint decides on read whether it still holds",
     ),
     ("no_attestation", "preserved", "the mark claimed nothing about the content, so nothing is invalidated"),
-    ("renamed", "preserved", "the unit moved with a file rename"),
+    ("renamed", "preserved", "the part moved with a file rename"),
+    (
+        "symbol_moved",
+        "preserved",
+        "the symbol moved to another file with exactly the same name and body, and nothing else matches it",
+    ),
+    (
+        "symbol_renamed",
+        "reopened",
+        "the symbol has what looks like the same body under a different name, so the judgment reopens; this is not proof the change is routine",
+    ),
     ("content_changed", "reopened", "the content differs from what the reviewer judged"),
+    (
+        "part_order_changed",
+        "reopened",
+        "the part has the same content but its position among the file's unchanged base lines changed, and in a shell or Make file the order decides what runs",
+    ),
+    (
+        "part_place_unverifiable",
+        "reopened",
+        "the part has the same content, but nothing recorded shows it still sits where the reviewer saw it in its shell or Make file (the file is too large or unreadable to check and it changed, or the verdict predates place checks), so it is read",
+    ),
     (
         "hunks_renumbered",
         "reopened",
         "the file's hunk count changed and hunk identity is ordinal, so hunk judgments reset",
     ),
     ("fingerprint_unknown", "unknown", "the content cannot be fingerprinted, so it cannot stay reviewed"),
-    ("unit_removed", "invalid", "the unit is not in this revision"),
+    ("unit_removed", "invalid", "the part is not in this revision"),
     # Evidence freshness (freshness.assess_freshness).
-    ("snapshot_bound", "preserved", "the evidence is bound to its Snapshot; the revision binding decides staleness"),
+    ("snapshot_bound", "preserved", "the evidence is bound to its revision; the revision binding decides staleness"),
     ("observation_current", "preserved", "the external observation is inside its validity window"),
     ("observation_expired", "expired", "the external observation passed its validity window"),
     (
@@ -94,14 +120,14 @@ REASONS: Final[Mapping[str, ValidityReason]] = _reasons(
     ),
     ("observation_time_unknown", "unknown", "the observation has no readable source timestamp"),
     ("valid_until_unreadable", "unknown", "the observation's valid_until is unreadable"),
-    ("evidence_not_on_snapshot", "unknown", "the cited evidence is not on this Snapshot"),
+    ("evidence_not_on_snapshot", "unknown", "the cited evidence is not on this revision"),
     # Cross-Snapshot check carry (incremental.explain_carry).
     (
         "carry_exact_key",
         "reused",
-        "an earlier Snapshot ran this check with exactly the same carry key in the same executor environment",
+        "an earlier revision ran this check with exactly the same carry key in the same executor environment",
     ),
-    ("replayed_on_snapshot", "reused", "this Snapshot already has this exact attempt's result, so it is replayed"),
+    ("replayed_on_snapshot", "reused", "this revision already has this exact attempt's result, so it is replayed"),
     ("fresh_run_requested", "reverify", "a fresh run was requested, so nothing is reused"),
     ("carry_disabled", "reverify", "carrying checks forward is turned off on this server, so the check runs again"),
     ("carry_not_plain_run", "reverify", "only a plain head run is carried forward"),
@@ -110,8 +136,8 @@ REASONS: Final[Mapping[str, ValidityReason]] = _reasons(
         "reverify",
         "the change list is incomplete or unreadable, so the run has no input digest to match",
     ),
-    ("carry_no_earlier_snapshot", "reverify", "there is no earlier Snapshot of this Review"),
-    ("carry_no_prior_run", "reverify", "no earlier Snapshot has a carriable run of this check"),
+    ("carry_no_earlier_snapshot", "reverify", "there is no earlier revision of this Review"),
+    ("carry_no_prior_run", "reverify", "no earlier revision has a carriable run of this check"),
     ("carry_prior_key_unrecorded", "reverify", "the earlier run predates recorded carry keys"),
     ("carry_policy_changed", "reverify", "the trusted policy changed since the earlier run"),
     ("carry_recipe_changed", "reverify", "the check recipe changed since the earlier run"),
@@ -134,8 +160,8 @@ REASONS: Final[Mapping[str, ValidityReason]] = _reasons(
     # Typed check equivalence (check_ingest.EquivalenceKey).
     ("equivalent_result", "reused", "a current result of the same work satisfies the requirement"),
     ("equivalence_disabled", "reverify", "CI equivalence is turned off on this server, so no other result stands in"),
-    ("snapshot_not_reusable", "reverify", "the Snapshot is uncommitted or has no head commit"),
-    ("no_current_result", "reverify", "no current result of this check is on the Snapshot"),
+    ("snapshot_not_reusable", "reverify", "the revision is uncommitted or has no head commit"),
+    ("no_current_result", "reverify", "no current result of this check is on the revision"),
     ("equivalence_head_changed", "reverify", "the result is for another head commit"),
     ("equivalence_tool_differs", "reverify", "the result is from another check"),
     ("equivalence_recipe_differs", "reverify", "the result covers another recipe"),
@@ -252,11 +278,36 @@ def mark_subject(reviewer_id: str, unit_key: str) -> str:
     return f"mark:{reviewer_id}:{unit_key}"
 
 
-def mark_event_reason(code: str, *, renamed: bool = False) -> str:
-    """The audited reconciliation reason persisted with a mark event."""
+_SYMBOL_MOVE_LEADS: Final[Mapping[str, str]] = {"moved": "symbol moved from ", "renamed": "symbol renamed from "}
+
+
+def mark_event_reason(code: str, *, renamed: bool = False, symbol_move: tuple[str, str, str] | None = None) -> str:
+    """The audited reconciliation reason persisted with a mark event.
+
+    *symbol_move* is ``("moved" | "renamed", previous path, previous qualified name)``. It is
+    persisted as a JSON tail after a fixed lead so :func:`parse_symbol_move_reason` can read the
+    provenance back from the event log without any new column.
+    """
 
     text = f"revision reconciliation: {summary(code)}"
-    return f"unit identity migrated across rename; {text}" if renamed else text
+    if symbol_move is not None:
+        kind, path, symbol = symbol_move
+        return f"{_SYMBOL_MOVE_LEADS[kind]}{json.dumps([path, symbol])}; {text}"
+    return f"part identity migrated across rename; {text}" if renamed else text
+
+
+def parse_symbol_move_reason(reason: str) -> tuple[str, str, str] | None:
+    """``(kind, previous path, previous qualified name)`` from a mark event reason, or ``None``."""
+
+    for kind, lead in _SYMBOL_MOVE_LEADS.items():
+        if reason.startswith(lead):
+            try:
+                payload, _end = json.JSONDecoder().raw_decode(reason[len(lead) :])
+            except ValueError:
+                return None
+            if isinstance(payload, list) and len(payload) == 2 and all(isinstance(item, str) for item in payload):
+                return (kind, payload[0], payload[1])
+    return None
 
 
 def mark_results(reconciliation: Reconciliation, *, current_revision: str = "") -> tuple[ValidityResult, ...]:
@@ -268,7 +319,8 @@ def mark_results(reconciliation: Reconciliation, *, current_revision: str = "") 
     """
 
     codes = {(reviewer, key): code for reviewer, key, code in reconciliation.reasons}
-    moved_from = {new: old for old, new in reconciliation.aliases}
+    followed = {(move.old_key, move.new_key) for move in reconciliation.moves}
+    moved_from = {new: old for old, new in reconciliation.aliases if (old, new) not in followed}
     out: list[ValidityResult] = []
     for mark in reconciliation.marks:
         code = codes.get((mark.reviewer_id, mark.unit_key))
@@ -284,9 +336,11 @@ def mark_results(reconciliation: Reconciliation, *, current_revision: str = "") 
                 current_revision=current_revision,
             )
         )
-    aliased = {old for old, _new in reconciliation.aliases}
+    # A file rename moves every reviewer's marks; a symbol move only the reviewers whose mark followed it.
+    aliased = {old for old, _new in reconciliation.aliases if (old, _new) not in followed}
+    followed_by = {(move.reviewer_id, move.old_key) for move in reconciliation.moves}
     for mark in reconciliation.dropped:
-        if mark.unit_key in aliased:
+        if mark.unit_key in aliased or (mark.reviewer_id, mark.unit_key) in followed_by:
             continue
         out.append(
             result(
@@ -403,6 +457,7 @@ __all__ = [
     "mark_event_reason",
     "mark_results",
     "mark_subject",
+    "parse_symbol_move_reason",
     "result",
     "summary",
 ]

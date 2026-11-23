@@ -32,7 +32,6 @@ from lemoncrow.core.capabilities.workspace_host_overrides import (
     write_workspace_codex_agents,
     write_workspace_copilot_agents,
     write_workspace_cursor_rules,
-    write_workspace_lemoncode_agents,
     write_workspace_opencode_agents,
 )
 from lemoncrow.core.foundation.models import Playbook, Rubric
@@ -282,9 +281,7 @@ def _detected_workspace_hosts(workspace_root: Path) -> tuple[str, ...]:
                 or (workspace_root / ".opencode").exists()
             ),
         ),
-        # LemonCode shares opencode's `.opencode/` workspace dir, so only the
         # binary distinguishes it.
-        ("lemoncode", bool(shutil.which("lemoncode"))),
         ("antigravity", bool(shutil.which("antigravity") or shutil.which("agy"))),
         ("cursor", bool((workspace_root / ".cursor").exists())),
         (
@@ -303,7 +300,6 @@ def _host_label(host: str) -> str:
         "claude": "Claude Code",
         "codex": "Codex CLI",
         "opencode": "OpenCode",
-        "lemoncode": "LemonCode",
         "antigravity": "Antigravity",
         "cursor": "Cursor",
         "hermes": "Hermes",
@@ -381,12 +377,6 @@ def _apply_workspace_model_config(
     if "opencode" in detected:
         opencode_agents = write_workspace_opencode_agents(workspace_root)
         results["opencode"] = [f"updated {_counted(len(opencode_agents), 'workspace-local OpenCode agent')}"]
-    if "lemoncode" in detected:
-        lemoncode_agents = write_workspace_lemoncode_agents(workspace_root)
-        results["lemoncode"] = [f"updated {_counted(len(lemoncode_agents), 'workspace-local LemonCode agent')}"]
-    if "codex" in detected:
-        codex_agents = write_workspace_codex_agents(workspace_root)
-        results["codex"] = [f"updated {_counted(len(codex_agents), 'workspace-local Codex agent')}"]
     if "cursor" in detected:
         cursor_rules = write_workspace_cursor_rules(workspace_root)
         results["cursor"] = [f"updated {_counted(len(cursor_rules), 'workspace-local Cursor rule file')}"]
@@ -411,7 +401,7 @@ _ATTRIBUTION_HOOK_BODY = r"""lemoncrow_json_value() {
 }
 lemoncrow_own_model() {
   for LEMONCROW_PASS in agent any; do
-    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex LEMONCODE_SESSION_ID:lemoncode OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
+    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
       LEMONCROW_HOST="${LEMONCROW_PAIR#*:}"
       if [ "$LEMONCROW_PASS" = agent ] && [ "$LEMONCROW_HOST" != "${LEMONCROW_AGENT:-}" ]; then continue; fi
       eval "LEMONCROW_SID=\"\${${LEMONCROW_PAIR%%:*}:-}\""
@@ -731,7 +721,7 @@ def init(
                 click.echo(
                     f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
                     + click.style(
-                        f"Code index ready (Runtime Lite): {lite['files_indexed']} changed, "
+                        f"Code index ready (Workspaces Lite): {lite['files_indexed']} changed, "
                         f"generation {lite['generation']}",
                         dim=True,
                     )
@@ -915,7 +905,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
                     else (
                         "not running — restart the local loopback server"
                         if needed
-                        else "only LemonCrow Review runs it; Runtime Lite works without it"
+                        else "only LemonCrow Review runs it; Workspaces Lite works without it"
                     )
                 ),
             },
@@ -1256,15 +1246,17 @@ def reset_cmd(ctx: click.Context, all_flag: bool, force: bool, dry_run: bool) ->
 
 
 @click.command("uninstall")
-@click.argument("product", required=False, type=click.Choice(["review", "runtime", "all"]))
+@click.argument("product", required=False, type=click.Choice(["review", "workspaces", "runtime", "all"]))
 @click.option("--dry-run", is_flag=True, help="Print planned actions and exit.")
-@click.option("--no-hosts", is_flag=True, help="With Runtime/all, leave coding-agent registrations untouched.")
+@click.option("--no-hosts", is_flag=True, help="With Workspaces/all, leave coding-agent registrations untouched.")
 @click.option("--purge", is_flag=True, help="Compatibility flag for `all`; all already removes managed state.")
 @click.option("--workspace", type=click.Path(path_type=Path), help="With `all`, scope workspace host cleanup.")
 def uninstall(product: str | None, dry_run: bool, no_hosts: bool, purge: bool, workspace: Path | None) -> None:
-    """Remove Review, Runtime, or all LemonCrow products."""
+    """Remove Review, Workspaces (old name: runtime), or all LemonCrow products."""
     if product is None:
-        raise click.UsageError("usage: lc uninstall review|runtime|all [--dry-run]")
+        raise click.UsageError("usage: lc uninstall review|workspaces|all [--dry-run]")
+    if product == "workspaces":
+        product = "runtime"  # the installer's script still names it runtime
 
     root = _project_root()
     script = root / "scripts" / "uninstall_product.sh"
@@ -1495,7 +1487,8 @@ def plugin_settings_get(ctx: click.Context, key: str, as_json: bool) -> None:
     _echo_lines(detail_lines(store, key, width=_settings_width()))
 
 
-@plugin_settings_group.command("set", short_help="Set one setting.")
+# A VALUE may start with a dash: -1 is the "no limit" of the budget and call ceilings.
+@plugin_settings_group.command("set", short_help="Set one setting.", context_settings={"ignore_unknown_options": True})
 @click.argument("key")
 @click.argument("value")
 @click.option("--json", "as_json", is_flag=True, help="Output the full settings payload as JSON after the write.")

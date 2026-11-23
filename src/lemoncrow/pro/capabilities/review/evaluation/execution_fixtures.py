@@ -17,7 +17,8 @@ from typing import Any, Final, Literal, Protocol
 
 from lemoncrow.pro.capabilities.review.evaluation.corpus import EvalCase, digest
 from lemoncrow.pro.capabilities.review.evaluation.fixtures import FixtureEvent, FixtureFormatError
-from lemoncrow.pro.capabilities.review.execution import (
+from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
+from lemoncrow.pro.environment.execution import (
     EnvironmentFingerprint,
     ExecutionRecipe,
     ExecutionResult,
@@ -26,8 +27,7 @@ from lemoncrow.pro.capabilities.review.execution import (
     StageOutcome,
     VerificationEnvironment,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
-from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
+from lemoncrow.pro.environment.runners import SurfaceRunResult
 
 EXECUTION_FIXTURE_VERSION: Final[int] = 1
 RunSide = Callable[[RuntimeConfigEntry, ReviewSurface, str], SurfaceRunResult]
@@ -275,7 +275,7 @@ class LocalExecutionRunner:
         changed_paths: tuple[str, ...],
         store: Any,
     ) -> None:
-        from lemoncrow.pro.capabilities.review.runtimes import built_in_runner_registry
+        from lemoncrow.pro.capabilities.review.runner_host import built_in_runner_registry
         from lemoncrow.pro.capabilities.review.surfaces import ReviewSurfaceConfig, SurfaceContext
 
         self._registry = built_in_runner_registry(include_entrypoints=False)
@@ -292,7 +292,7 @@ class LocalExecutionRunner:
     def for_entry(self, _entry_id: str) -> RunSide:
         def run(runtime: RuntimeConfigEntry, surface: ReviewSurface, side: str) -> SurfaceRunResult:
             if self._registry is None or self._context is None:
-                raise RuntimeError("local execution recorder was not bound to the evaluation Snapshot")
+                raise RuntimeError("local execution recorder was not bound to the evaluation revision")
             from dataclasses import replace
 
             from lemoncrow.pro.capabilities.review.surfaces import ReviewSurfaceConfig

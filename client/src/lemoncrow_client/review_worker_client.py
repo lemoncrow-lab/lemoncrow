@@ -177,7 +177,7 @@ def validate_lease(
     for field in ("review_id", "revision_id", "snapshot_id"):
         raw = spec.get(field)
         if not isinstance(raw, str) or not _REPO.fullmatch(raw):
-            raise ValueError("Review worker lease is not bound to an immutable Review Snapshot")
+            raise ValueError("Review worker lease is not bound to an immutable Review revision")
     if expected_class == "runtime_validation" and spec.get("requires_repository_execution") is not True:
         raise ValueError("independent execution must be explicitly identified by its signed job")
     if not isinstance(document.get("lease_token"), str) or not document["lease_token"]:
@@ -276,6 +276,50 @@ class ReviewWorkerClient:
             raise ValueError("signed lease is not the explicitly requested author-agent job")
         return lease
 
+    def claim_unattended(self, *, model_route_id: str, task_kinds: tuple[str, ...]) -> tuple[WorkerLease | None, str]:
+        """Claim the next queued author-agent task under the machine's admin-granted unattended budget.
+
+        Returns ``(lease, "")``, ``(None, "")`` when nothing is queued, or ``(None, code)`` when the server refused
+        (``organization_off``, ``device_off``, ``daily_cost_cap``, ``daily_task_cap``, ``stopped``). A lease must carry
+        the server's signed per-task cap; the server reserved it before leasing.
+        """
+        kinds = sorted(set(task_kinds))
+        if not model_route_id or not kinds or any(kind not in {"investigate", "propose_fix"} for kind in kinds):
+            raise ValueError("unattended claims need one model route and known task kinds")
+        reply = self.transport.post(
+            "/v1/review-workers/claim",
+            body={
+                "repository_ids": [self.binding.repo_id],
+                "execution_class": "review_intelligence",
+                "model_route_ids": [model_route_id],
+                "max_concurrency": 1,
+                "unattended": {"task_kinds": kinds},
+            },
+            headers=self._headers(),
+        ).require()
+        job = reply.get("job")
+        if job is None:
+            refusal = reply.get("unattended_refusal", "")
+            if not isinstance(refusal, str) or len(refusal) > 64:
+                raise ValueError("Review unattended claim returned a malformed refusal")
+            return None, refusal
+        envelope = reply.get("envelope")
+        if not isinstance(job, Mapping) or not isinstance(envelope, str):
+            raise ValueError("Review worker claim returned a malformed job")
+        lease = validate_lease(envelope, self.binding, now=self.clock(), expected_class="review_intelligence")
+        signed = (lease.model_assignment or {}).get("unattended")
+        if (
+            job.get("job_id") != lease.job_id
+            or lease.capability != "review_intelligence:agent_task"
+            or not isinstance(signed, Mapping)
+            or not isinstance(signed.get("run_id"), str)
+            or type(signed.get("max_task_cost_micros")) is not int
+            or not 1 <= signed["max_task_cost_micros"] <= 100_000_000
+            or lease.spec.get("scope", {}).get("task_kind") not in kinds
+        ):
+            raise ValueError("signed lease is not a budgeted unattended author-agent task")
+        return lease, ""
+
     def heartbeat(self, lease: WorkerLease) -> str:
         """Reconfirm durable lease, cancellation, currentness before every operation."""
         self._require_lease(lease)
@@ -309,7 +353,7 @@ class ReviewWorkerClient:
                 ("snapshot_id", lease.snapshot_id),
             )
         ):
-            raise ValueError("Review context is not for the exact claimed Snapshot")
+            raise ValueError("Review context is not for the exact claimed revision")
         return reply
 
     def content(self, lease: WorkerLease, digest: str, *, side: str = "new") -> bytes:
@@ -330,13 +374,13 @@ class ReviewWorkerClient:
             headers=self._headers(),
         )
         if status != 200:
-            raise ValueError("Review Snapshot content is unavailable for the active lease")
+            raise ValueError("Review revision content is unavailable for the active lease")
         if metadata.get("content-type", "").split(";", 1)[0] != "application/octet-stream":
-            raise ValueError("Review Snapshot content type mismatch")
+            raise ValueError("Review revision content type mismatch")
         if metadata.get("content-digest") != digest:
-            raise ValueError("Review Snapshot content digest header mismatch")
+            raise ValueError("Review revision content digest header mismatch")
         if len(data) > 16 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != digest:
-            raise ValueError("Review Snapshot source content is oversized or corrupt")
+            raise ValueError("Review revision source content is oversized or corrupt")
         return data
 
     def _require_lease(self, lease: WorkerLease) -> None:

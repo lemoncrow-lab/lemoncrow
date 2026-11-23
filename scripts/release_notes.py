@@ -49,6 +49,12 @@ The setup guide is `docs/setup/github-action.md`, "Pin the Action".
 """
 
 
+def render_commit_message(text: str, version: str, tag: str) -> str:
+    """The message of the public mirror's one commit for a release: the tag, then the version's CHANGELOG section."""
+
+    return f"Release {tag}\n\n{extract_section(text, version)}\n"
+
+
 def render_release_notes(text: str, version: str, action_sha: str = "") -> str:
     changes = extract_section(text, version)
     return f"""## LemonCrow {version}
@@ -96,14 +102,14 @@ lc runtime enable codex  # optional; or claude / opencode / auto
 
 - `hosted.sh` — hosted LemonCrow Review installer
 - `lemoncrow-review-client.tar.gz` — architecture-neutral zero-dependency Review client
-- `lemoncrow-review-engine.tar.gz` — Review-only local engine + shared product-aware frontend; no Runtime/MCP implementation
-- `runtime.sh` — LemonCrow Runtime client installer (agent integration remains opt-in)
+- `lemoncrow-review-engine.tar.gz` — Review-only local engine + shared product-aware frontend; no Workspaces/MCP implementation
+- `runtime.sh` — Workspaces client installer (agent integration remains opt-in)
 - `local_review.sh` — install and compose the isolated local Review engine + Review client
-- `local_runtime.sh` — install serverless Runtime Lite; no local API server, frontend, daemon, or listener
-- `lemoncrow-runtime-client.tar.gz` — architecture-neutral zero-dependency Runtime client carrying the Lite kernel
-- `uninstall_product.sh` — unified backend for `lc uninstall review|runtime|all`
+- `local_runtime.sh` — install serverless Workspaces Lite; no local API server, frontend, daemon, or listener
+- `lemoncrow-runtime-client.tar.gz` — architecture-neutral zero-dependency Workspaces client carrying the Lite kernel
+- `uninstall_product.sh` — unified backend for `lc uninstall review|workspaces|all`
 - `uninstall_review.sh` / `uninstall_runtime.sh` — independent low-level product uninstallers
-- `install.sh` — unified public installer for Review, Runtime, or both; cloud or local
+- `install.sh` — unified public installer for Review, Workspaces, or both; cloud or local
 - `sessions.sh` — session management utility for managed/full local distributions
 - `lemoncrow-distribution-*.tar.gz` — internal full local-mode bundles for supported platforms
 """
@@ -118,10 +124,18 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="the full SHA of the tagged public commit: adds the ready-to-copy GitHub Action pin line to the notes",
     )
+    parser.add_argument(
+        "--commit-message",
+        metavar="TAG",
+        help="print the public mirror's release commit message for TAG instead of the release notes",
+    )
     args = parser.parse_args(argv)
     try:
         text = args.changelog.read_text(encoding="utf-8")
-        sys.stdout.write(render_release_notes(text, args.version, args.action_sha))
+        if args.commit_message:
+            sys.stdout.write(render_commit_message(text, args.version, args.commit_message))
+        else:
+            sys.stdout.write(render_release_notes(text, args.version, args.action_sha))
     except (OSError, ValueError) as exc:
         print(f"release notes failed: {exc}", file=sys.stderr)
         return 1

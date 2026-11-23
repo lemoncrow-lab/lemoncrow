@@ -562,7 +562,7 @@ def record_disposition(
     current, _stale, _checks = snapshot_findings(store, revision)
     row = next((item for item in current if item.finding.id == finding_id), None)
     if row is None:
-        raise LookupError("no current static finding with that id on this Snapshot")
+        raise LookupError("no current static finding with that id on this revision")
     detail = {
         "finding_id": finding_id,
         "fingerprint": row.fingerprint,

@@ -148,7 +148,7 @@ def _side_execution(item: ReviewEvidence, record: Mapping[str, Any]) -> tuple[st
     and would turn each delta into the same three manual checks.
     """
 
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.environment.execution import (
         DEFAULT_UNVERIFIED_INTEGRATIONS,
         ExecutionResult,
         parse_executor_class,
@@ -276,7 +276,7 @@ class RuntimeValidationBehaviorProducer:
         old: tuple[ReviewEvidence, Mapping[str, Any]],
         new: tuple[ReviewEvidence, Mapping[str, Any]],
     ) -> list[BehaviorDelta]:
-        from lemoncrow.pro.capabilities.review.runtimes import (
+        from lemoncrow.pro.environment.runners import (
             _VOLATILE_HTTP_HEADERS,
             SurfaceRunResult,
             api_response_diff_score,

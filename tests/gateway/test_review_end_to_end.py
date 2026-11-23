@@ -237,7 +237,8 @@ def test_no_impact_still_produces_a_whole_packet(tmp_path: Path) -> None:
     assert "ATTENTION" not in text
     # The index was never consulted, so the footer must not report it missing.
     assert "index:" not in text
-    assert "impact_disabled" in text
+    assert "Map and caller impact were not analyzed." in text
+    assert "impact_disabled" not in text
 
 
 # --- the rendering ----------------------------------------------------------
@@ -373,7 +374,7 @@ def test_execution_evidence_says_unknown_rather_than_guessing(tmp_path: Path) ->
     # An unknown attribution still states why it is unknown.
     assert packet.provenance.match_reason in evidence
     assert "PASS" not in evidence
-    assert text.rstrip().splitlines()[-1].startswith("index: absent")
+    assert any(line.startswith("index: absent") for line in text.splitlines())
 
 
 @pytest.mark.private_engine

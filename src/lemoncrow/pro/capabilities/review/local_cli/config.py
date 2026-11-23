@@ -194,6 +194,12 @@ def _trim(text: str, limit: int) -> str:
     return compact if len(compact) <= limit else compact[: limit - 1].rstrip() + "…"
 
 
+def _origin(origin: str, base: BaseCommit | None) -> str:
+    """The resolver names a trust class; read from your working tree, nothing shown is a trusted base yet."""
+
+    return origin if base is not None else origin.replace("trusted-base repository", "repository")
+
+
 def render_effective_text(wire: dict[str, Any], base: BaseCommit | None) -> str:
     rules = wire["rules"]
     critical = sum(1 for row in rules if row["severity"] == "critical")
@@ -224,13 +230,13 @@ def render_effective_text(wire: dict[str, Any], base: BaseCommit | None) -> str:
         out.append("  none")
     for row in rules:
         out.append(f"  {row['key']}  [{row['severity']}]  scope: {_scope(row['paths'])}")
-        out.append(f"      from {row['source']} ({row['origin']})")
+        out.append(f"      from {row['source']} ({_origin(row['origin'], base)})")
         out.append(f"      {_trim(row['instruction'], 160)}")
     out += ["", "AI content access (paths the model may not read)"]
     if not wire["content_access"]:
         out.append("  none")
     for row in wire["content_access"]:
-        out.append(f"  {row['mode']} from {row['source'] or row['origin']}: {_scope(row['paths'])}")
+        out.append(f"  {row['mode']} from {row['source'] or _origin(row['origin'], base)}: {_scope(row['paths'])}")
     out += ["", "Project conventions (context for the investigator, never a rule)"]
     if not wire["conventions"]:
         out.append("  none")

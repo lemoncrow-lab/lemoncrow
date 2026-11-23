@@ -42,6 +42,8 @@ export interface InteractivePreviewSession {
   compute_seconds: number;
   events: number;
   recording_evidence_id: string;
+  /** The environment.toml preview it runs ("": review.yaml or a static build). */
+  preview?: string;
   /** Live sessions only: each side's own origin. */
   origins?: Partial<Record<InteractivePreviewSide, string>>;
   /** Live sessions only, by the server's clock. */
@@ -55,6 +57,10 @@ export interface InteractivePreviewOffer {
   run_on: string | null;
   executor_class: string | null;
   recipe: { mode: string; source: string; framework: string } | null;
+  /** The trusted base's environment.toml previews, in declaration order; the first is the default. */
+  previews: string[];
+  /** The preview this offer describes; null without environment.toml previews. */
+  preview: string | null;
   budget: { remaining_minutes: number | null; minutes_per_minute: number };
   ttl: { default_seconds: number; max_seconds: number; min_seconds: number };
   opens_from: string[];
@@ -79,11 +85,15 @@ export function fetchInteractivePreview(
   return requestBrowserJson<InteractivePreviewOffer>(base(reviewId));
 }
 
-/** Start base and head (a manual run-plan amendment); refused (409) when the plan would not run it. */
+/**
+ * Start base and head (a manual run-plan amendment); refused (409) when the plan would not run it.
+ * `preview` names one of the offer's `previews`; without it the server runs the first declared.
+ */
 export function startInteractivePreview(
   reviewId: string,
   expectedRevisionId: string,
-  ttlSeconds?: number
+  ttlSeconds?: number,
+  preview?: string
 ): Promise<InteractivePreviewStart> {
   return requestBrowserJson<InteractivePreviewStart>(
     `${base(reviewId)}/sessions`,
@@ -92,6 +102,7 @@ export function startInteractivePreview(
       body: JSON.stringify({
         expected_revision_id: expectedRevisionId,
         ...(ttlSeconds === undefined ? {} : { ttl_seconds: ttlSeconds }),
+        ...(preview === undefined ? {} : { preview }),
       }),
     }
   );

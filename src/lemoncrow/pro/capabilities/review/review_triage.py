@@ -89,7 +89,7 @@ _EVIDENCE_ORDER: Final[Mapping[str, int]] = {"missing": 0, "stale": 1, "current"
 #: A priority floor that criticality policy implies; never a severity.
 _CRITICALITY_PRIORITY: Final[Mapping[str, PriorityLevel]] = {"critical": "high", "high": "normal"}
 
-EVIDENCE_ORIGIN: Final[PolicyOrigin] = PolicyOrigin("evidence", "current Snapshot evidence")
+EVIDENCE_ORIGIN: Final[PolicyOrigin] = PolicyOrigin("evidence", "current revision evidence")
 
 
 def _canonical(value: object) -> bytes:
@@ -547,25 +547,25 @@ def finding_evidence_state(ai_status: str, *, stale_findings: int, stale_signals
     """
 
     not_rerun = (
-        f"{stale_signals} behavior/vulnerability/static signal(s) from an earlier Snapshot were not re-run here"
+        f"{stale_signals} behavior/vulnerability/static signal(s) from an earlier revision were not re-run here"
         if stale_signals
         else ""
     )
     current = {
-        "ready": "AI review ran on this Snapshot",
-        "skipped_unnecessary": "deterministic triage found nothing to investigate on this Snapshot",
+        "ready": "AI review ran on this revision",
+        "skipped_unnecessary": "deterministic triage found nothing to investigate on this revision",
     }.get(ai_status)
     if current is not None:
         return ("stale", f"{current}; {not_rerun}") if not_rerun else ("current", current)
     why = {
-        "pending": "AI review is still running on this Snapshot",
-        "failed": "AI review failed on this Snapshot",
-        "cancelled": "AI review was cancelled on this Snapshot",
-    }.get(ai_status, "AI review has not run on this Snapshot")
+        "pending": "AI review is still running on this revision",
+        "failed": "AI review failed on this revision",
+        "cancelled": "AI review was cancelled on this revision",
+    }.get(ai_status, "AI review has not run on this revision")
     stale = [
         part
         for part in (
-            f"{stale_findings} finding(s) from an earlier Snapshot are not revalidated" if stale_findings else "",
+            f"{stale_findings} finding(s) from an earlier revision are not revalidated" if stale_findings else "",
             not_rerun,
         )
         if part
@@ -1117,7 +1117,7 @@ def derive_review_triage(
                 Explanation(
                     "required_verification",
                     str(required_failures),
-                    f"{required_failures} required check(s) failing on this Snapshot",
+                    f"{required_failures} required check(s) failing on this revision",
                     EVIDENCE_ORIGIN,
                 ),
             )
@@ -1141,7 +1141,7 @@ def derive_review_triage(
                 Explanation(
                     "dependency",
                     str(dependency_changes),
-                    f"{dependency_changes} dependency change(s) on this Snapshot",
+                    f"{dependency_changes} dependency change(s) on this revision",
                     EVIDENCE_ORIGIN,
                 ),
             )
@@ -1151,7 +1151,7 @@ def derive_review_triage(
             Explanation(
                 "severity",
                 "stale",
-                f"{summary.stale} finding(s) from an earlier Snapshot ({_breakdown(by_source, 'stale')}) no longer"
+                f"{summary.stale} finding(s) from an earlier revision ({_breakdown(by_source, 'stale')}) no longer"
                 " drive priority until revalidated",
                 EVIDENCE_ORIGIN,
             )
@@ -1277,10 +1277,10 @@ def missing_triage(review_id: str, revision_id: str) -> ReviewTriage:
             Explanation(
                 "priority",
                 "normal",
-                "no triage was derived for this Snapshot yet; current evidence missing, so it is never lowered",
+                "no triage was derived for this revision yet; current evidence missing, so it is never lowered",
                 BUILT_IN_ORIGIN,
             ),
-            Explanation("evidence", "missing", "no projection for this Snapshot", EVIDENCE_ORIGIN),
+            Explanation("evidence", "missing", "no projection for this revision", EVIDENCE_ORIGIN),
         ),
     )
 

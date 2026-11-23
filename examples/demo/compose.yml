@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      PORT: "8000"
+    volumes:
+      # The API reads data/plans.csv next to its own directory (/app/app.py -> /data/plans.csv).
+      - ./data:/data:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      API_ORIGIN: "http://api:8000"
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy

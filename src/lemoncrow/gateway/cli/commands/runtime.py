@@ -128,7 +128,9 @@ def _query_integration(host: str, workspace: Path | None) -> dict[str, Any]:
 
     output = f"{completed.stdout}\n{completed.stderr}"
     mode = _integration_mode(output, enabled=enabled)
-    detail = "" if enabled else (completed.stderr or completed.stdout or "Runtime integration not configured").strip()
+    detail = (
+        "" if enabled else (completed.stderr or completed.stdout or "Workspaces integration not configured").strip()
+    )
     return {
         "host": host,
         "installed": True,
@@ -157,7 +159,7 @@ def _run_host_script(
     script_name = f"{'install' if action == 'enable' else 'uninstall'}_{host}.sh"
     script = _repo_root() / "scripts" / script_name
     if not script.is_file():
-        raise click.ClickException(f"Runtime {action} script not found: {script}")
+        raise click.ClickException(f"Workspaces {action} script not found: {script}")
 
     argv = ["bash", str(script)]
     if dry_run:
@@ -172,22 +174,22 @@ def _run_host_script(
     try:
         subprocess.run(argv, check=True)
     except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"Runtime {action} for {host} failed with exit code {exc.returncode}") from exc
+        raise click.ClickException(f"Workspaces {action} for {host} failed with exit code {exc.returncode}") from exc
     if dry_run:
         return
     label = _HOST_LABELS.get(host, host)
     click.echo("")
     if action == "enable":
-        mode = "Hosted" if hosted else "Local Lite"
-        click.echo(style.success(f"Runtime enabled for {style.bold(label)} {style.dim('· ' + mode)}"))
+        mode = "Hosted" if hosted else "Lite"
+        click.echo(style.success(f"Workspaces enabled for {style.bold(label)} {style.dim('· ' + mode)}"))
         click.echo(style.next_step(f"Restart {label} to load the lc tools, then check with", "lc rt status"))
     else:
-        click.echo(style.success(f"Runtime removed from {style.bold(label)}"))
+        click.echo(style.success(f"Workspaces removed from {style.bold(label)}"))
 
 
 @click.group("runtime", cls=RuntimeProductGroup)
 def runtime_group() -> None:
-    """Use LemonCrow tools in coding agents and manage Runtime."""
+    """Use LemonCrow tools in coding agents and manage Workspaces."""
 
 
 @runtime_group.command("status", short_help="Which coding agents have LemonCrow's tools.")
@@ -195,7 +197,7 @@ def runtime_group() -> None:
 @click.option("--workspace", type=click.Path(path_type=Path, file_okay=False), default=None)
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status.")
 def runtime_status_cmd(host: str | None, workspace: Path | None, as_json: bool) -> None:
-    """Show Runtime installation and host-integration state."""
+    """Show Workspaces installation and host-integration state."""
 
     hosts = (host,) if host else SUPPORTED_RUNTIME_HOSTS
     integrations = query_integrations(hosts, workspace)
@@ -210,7 +212,7 @@ def runtime_status_cmd(host: str | None, workspace: Path | None, as_json: bool) 
         click.echo(json.dumps(payload, sort_keys=True))
         return
 
-    click.echo(style.title(f"LemonCrow Runtime {__version__}"))
+    click.echo(style.title(f"LemonCrow Workspaces {__version__}"))
     click.echo("")
     for line in integration_rows(integrations, width=10):
         click.echo(line)
@@ -224,7 +226,7 @@ def runtime_status_cmd(host: str | None, workspace: Path | None, as_json: bool) 
 
 
 _HOST_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
-_MODE_LABELS = {"local_lite": "Local Lite", "hosted": "Hosted", "unknown": "Unknown mode"}
+_MODE_LABELS = {"local_lite": "Lite", "hosted": "Hosted", "unknown": "Unknown mode"}
 
 
 def integration_rows(integrations: list[dict[str, Any]], *, width: int, indent: int = 2) -> list[str]:
@@ -266,11 +268,11 @@ def _host_action_options(command: Any) -> Any:
 @click.option(
     "--hosted",
     is_flag=True,
-    help="Explicitly register the hosted/thin-client Runtime instead of Local Lite.",
+    help="Explicitly register hosted retrieval (the thin client) instead of Workspaces Lite.",
 )
 @_host_action_options
 def runtime_enable_cmd(host: str, workspace: Path | None, dry_run: bool, hosted: bool) -> None:
-    """Enable Runtime for HOST. Local Lite is the default.
+    """Enable Workspaces for HOST. Workspaces Lite is the default.
 
     HOST is claude, codex or opencode.
     """
@@ -281,7 +283,7 @@ def runtime_enable_cmd(host: str, workspace: Path | None, dry_run: bool, hosted:
 @runtime_group.command("disable", short_help="Remove LemonCrow's tools from a coding agent.")
 @_host_action_options
 def runtime_disable_cmd(host: str, workspace: Path | None, dry_run: bool) -> None:
-    """Remove LemonCrow Runtime integration from HOST without touching Review.
+    """Remove LemonCrow Workspaces integration from HOST without touching Review.
 
     HOST is claude, codex or opencode.
     """
@@ -292,7 +294,7 @@ def runtime_disable_cmd(host: str, workspace: Path | None, dry_run: bool) -> Non
 @runtime_group.command("lite-mcp", hidden=True)
 @click.option("--host", default=None, help="Calling host identifier for attribution.")
 def runtime_lite_mcp_cmd(host: str | None) -> None:
-    """Internal Local Lite stdio entrypoint used by local Runtime integrations."""
+    """Internal Workspaces Lite stdio entrypoint used by local Workspaces integrations."""
 
     if host:
         import os
@@ -302,6 +304,6 @@ def runtime_lite_mcp_cmd(host: str | None) -> None:
         from lemoncrow_client.lite.mcp import serve
     except ImportError as exc:
         raise click.ClickException(
-            "Runtime Lite is unavailable in this installation; reinstall the Runtime product"
+            "Workspaces Lite is unavailable in this installation; reinstall the Workspaces product"
         ) from exc
     raise SystemExit(serve())

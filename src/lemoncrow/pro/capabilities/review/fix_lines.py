@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from lemoncrow_client.review_words import revision_name
+
 from lemoncrow.core.foundation.paths import confine_to_root
 from lemoncrow.core.foundation.run_file_io import RunFileLock
 from lemoncrow.pro.capabilities.review.session_models import (
@@ -256,7 +258,7 @@ def _blob_at(repo_root: Path, commit: str, path: str) -> bytes | None:
 def _safe_target(root: Path, rel: str) -> Path:
     pure = PurePosixPath(rel)
     if not rel or pure.is_absolute() or ".." in pure.parts:
-        raise FixLineError("The Snapshot contains an unsafe path", files=(rel,))
+        raise FixLineError("The revision contains an unsafe path", files=(rel,))
     target = confine_to_root(root / rel, root)
     if target.is_symlink():
         raise FixLineError(
@@ -301,7 +303,7 @@ def _validate_snapshot_file_types(
         else set()
     )
     if {"symlink_change", "file_mode_change"} & degraded or "mode_only" in degraded:
-        raise FixLineError("This Snapshot changes a symlink or file mode; exact fix worktrees do not support that yet")
+        raise FixLineError("This revision changes a symlink or file mode; exact fix worktrees do not support that yet")
 
     new_tree = store.read_source_tree_artifact(snapshot.review_id, snapshot.id, side="new")
     old_tree = store.read_source_tree_artifact(snapshot.review_id, snapshot.id, side="old")
@@ -330,7 +332,7 @@ def _validate_snapshot_file_types(
             unsupported.append(path)
     if unsupported:
         raise FixLineError(
-            "This Snapshot changes a symlink or file mode; exact fix worktrees do not support that yet",
+            "This revision changes a symlink or file mode; exact fix worktrees do not support that yet",
             files=tuple(sorted(set(unsupported))),
         )
 
@@ -350,14 +352,14 @@ def _snapshot_content(
     packet = read_packet_json(store, snapshot)
     rows = packet.get("files") if isinstance(packet, Mapping) else None
     if not isinstance(rows, list) or not snapshot.base_sha:
-        raise FixLineError(f"Snapshot {number} can't be rebuilt exactly: its stored files are missing")
+        raise FixLineError(f"{revision_name(number)} can't be rebuilt exactly: its stored files are missing")
     if any(isinstance(row, Mapping) and row.get("submodule_pointer") is not None for row in rows):
-        raise FixLineError(f"Snapshot {number} changes a submodule; fixing it in a worktree is not supported yet")
+        raise FixLineError(f"{revision_name(number)} changes a submodule; fixing it in a worktree is not supported yet")
     assert isinstance(packet, Mapping)
     _validate_snapshot_file_types(store, snapshot, packet)
     overlay = snapshot_module.frozen_revision_overlay(store.root, snapshot, store=store)
     if overlay is None:
-        raise FixLineError(f"Snapshot {number} can't be rebuilt exactly: some changed files were not stored")
+        raise FixLineError(f"{revision_name(number)} can't be rebuilt exactly: some changed files were not stored")
     return snapshot.base_sha, overlay
 
 
@@ -448,9 +450,9 @@ def start_fix_line(
     from lemoncrow.pro.capabilities.review.sources.local import review_subject, worktree_key
 
     if snapshot.review_id != parent.id:
-        raise FixLineError("That Snapshot belongs to another Review")
+        raise FixLineError("That revision belongs to another Review")
     if parent.status != "open":
-        raise FixLineError("Reopen this Review before fixing one of its Snapshots")
+        raise FixLineError("Reopen this Review before fixing one of its revisions")
     root = repo_root.resolve()
     with RunFileLock(store.root / "fix-lines"):
         for line in list_fix_lines(store, parent.id):
@@ -464,7 +466,9 @@ def start_fix_line(
             _exclude_fix_worktrees(root)
             path.parent.mkdir(parents=True, exist_ok=True)
             _git(root, "worktree", "add", "-q", "-b", branch, str(path), base_sha)
-            heading = f"Snapshot {snapshot_number} · {parent.title}" if parent.title else f"Snapshot {snapshot_number}"
+            heading = (
+                f"{revision_name(snapshot_number)} · {parent.title}" if parent.title else revision_name(snapshot_number)
+            )
             base_commit = _commit_overlay(path, overlay, heading)
             subject = review_subject(
                 repository_identity,
@@ -475,9 +479,9 @@ def start_fix_line(
             if subject is None:
                 raise FixLineError("This Review has no repository identity to bind a fix branch to")
             title = (
-                f"Fix of Snapshot {snapshot_number} · {parent.title}"
+                f"Fix of {revision_name(snapshot_number)} · {parent.title}"
                 if parent.title
-                else f"Fix of Snapshot {snapshot_number}"
+                else f"Fix of {revision_name(snapshot_number)}"
             )
             created_child, created = store.create_bound_session(
                 ReviewSession(
@@ -556,7 +560,7 @@ def merge_text(ours: bytes, base: bytes, theirs: bytes) -> tuple[bytes, bool]:
                 "-L",
                 "main worktree",
                 "-L",
-                "Snapshot",
+                "Revision",
                 "-L",
                 "fix",
                 *paths,
@@ -686,7 +690,7 @@ def plan_fix_apply(
     child = store.get_session(line.child_review_id)
     latest = store.latest_revision(line.child_review_id)
     if child is None or latest is None:
-        raise FixLineError("Capture the fix first: this fix line has no Snapshot yet")
+        raise FixLineError("Capture the fix first: this fix line has no revision yet")
     fix_path = Path(line.worktree_path)
     if fix_path.is_dir() and latest.source_fingerprint:
         current = source_state(
@@ -694,12 +698,12 @@ def plan_fix_apply(
             range_for_session(fix_path, child),
         )
         if not current.matches(latest.source_fingerprint):
-            raise FixLineError("Capture the fix first: the fix worktree has changes that are not in a Snapshot")
+            raise FixLineError("Capture the fix first: the fix worktree has changes that are not in a revision")
     if latest.base_sha != line.base_commit:
-        raise FixLineError("Capture the fix first: its latest Snapshot is not based on the Snapshot it fixes")
+        raise FixLineError("Capture the fix first: its latest revision is not based on the revision it fixes")
     overlay = snapshot_module.frozen_revision_overlay(store.root, latest, store=store)
     if overlay is None:
-        raise FixLineError("The latest fix Snapshot can't be read exactly")
+        raise FixLineError("The latest fix revision can't be read exactly")
     _require_quiet_checkout(root)
     files: list[FileOutcome] = []
     for rel, theirs in sorted(overlay.items()):
@@ -976,12 +980,12 @@ def recreate_fix_worktree(
             return line
         overlay = snapshot_module.frozen_revision_overlay(store.root, latest, store=store)
         if overlay is None:
-            raise FixLineError("The latest fix Snapshot can't be rebuilt exactly; discard this fix line")
+            raise FixLineError("The latest fix revision can't be rebuilt exactly; discard this fix line")
         _git(path, "reset", "--hard", "-q", line.base_commit)
         _commit_overlay(
             path,
             overlay,
-            f"Recreated fix Snapshot {line.snapshot_number}.{latest.revision_number}",
+            f"Recreated fix {line.snapshot_number + 1}.{latest.revision_number}",
         )
         return line
     except BaseException:

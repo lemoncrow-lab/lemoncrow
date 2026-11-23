@@ -1176,7 +1176,6 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
     grant_oauth_pro(monkeypatch)
 
     class _FakePullRecord:
-
         def __init__(self, file_path: str, symbol_name: str) -> None:
             self.file_path = file_path
             self.symbol_name = symbol_name
@@ -1188,7 +1187,6 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
             self.score = 0.9
 
     class _FakePullEngine:
-
         def __init__(self) -> None:
             self.index_version = 0
 
@@ -1488,28 +1486,10 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
 
 
 def test_detect_agent_supports_all_cli_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    for host in ("claude", "codex", "copilot", "opencode", "lemoncode", "antigravity"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         monkeypatch.setenv("LEMONCROW_AGENT", host)
         assert mcp_server._detect_agent() == host
         monkeypatch.delenv("LEMONCROW_AGENT", raising=False)
-
-
-def test_detect_host_prefers_lemoncode_over_opencode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LemonCode forks OpenCode, so a LemonCode session must never be labelled
-    ``opencode`` -- its env vars are checked first."""
-    from lemoncrow.core.foundation.paths import detect_host
-
-    for var in ("LEMONCROW_AGENT", "CLAUDE_CODE", "CODEX_SESSION_ID", "CODEX_CLI"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("LEMONCODE_SESSION_ID", "ses_1")
-    assert detect_host() == "lemoncode"
-    monkeypatch.setenv("OPENCODE_SESSION_ID", "ses_2")
-    assert detect_host() == "lemoncode"
-    monkeypatch.delenv("LEMONCODE_SESSION_ID")
-    assert detect_host() == "opencode"
-    monkeypatch.delenv("OPENCODE_SESSION_ID")
-    monkeypatch.setenv("LEMONCODE_CLI", "1")
-    assert detect_host() == "lemoncode"
 
 
 def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> None:

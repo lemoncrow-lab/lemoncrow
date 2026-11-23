@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, status
+from lemoncrow_client.review_words import revision_name
 
+from lemoncrow.pro.capabilities.review import viewer_lens
 from lemoncrow.pro.capabilities.review.fix_agent import FIX_AGENT_UNSET_REASON, FixAgentPreference
 from lemoncrow.pro.capabilities.review.review_actions import (
     CODE_CHANGING_KINDS,
@@ -100,7 +102,7 @@ class ReviewActionDeps:
     """Exact author of one path, or of the revision when the path is empty (``_delivery_capability``)."""
     behavior_targets: Callable[[Any, Any], Sequence[Any]]
     run_plan: Callable[[Any, Any], Mapping[str, Any]]
-    """The effective R1 plan wire for a Snapshot: the same plan GET run-plan shows."""
+    """The effective R1 plan wire for a revision: the same plan GET run-plan shows."""
     apply_proposal: Callable[[str], Awaitable[Mapping[str, Any]]]
     """The existing proposal apply route: its source-mutation policy, unchanged."""
     display_number: Callable[[Any], int]
@@ -116,6 +118,9 @@ class ReviewActionDeps:
     production_outcomes: Callable[[Any], Sequence[Any] | None] | None = None
     """A merged Review's production problems (P15-OBS Revert / Fix forward subjects); ``None`` -- or a
     callable returning ``None`` -- when no deployment or observability connector is configured."""
+    hidden: Callable[[Any], frozenset[str]] | None = None
+    """Whose work this viewer may not read yet (a second reviewer who has not answered): their notes are not subjects
+    she can act on, and their actions are not listed to her (SPEC 7.1 P9-4 A)."""
 
 
 @dataclass(frozen=True)
@@ -219,7 +224,26 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         return [item.id for item in store.list_revisions(review_id)]
 
     def actions_for(review_id: str) -> tuple[ReviewAction, ...]:
+        """Every action of the Review, whoever started it: what decides (which subjects are busy, which attempt this
+        is) reads all of them. What a viewer is shown goes through :func:`shown_actions`."""
+
         return ledger.list(revision_ids(review_id))
+
+    def shown_actions(review_id: str, actions: Sequence[ReviewAction]) -> tuple[ReviewAction, ...]:
+        """The actions a viewer may read: not those a person hidden from her started (under a lens)."""
+
+        return viewer_lens.visible(review_id, actions, lambda action: action.created_by)
+
+    def hidden_of(session: Any) -> frozenset[str]:
+        return frozenset() if deps.hidden is None else deps.hidden(session)
+
+    def prepare_as_read(session: Any, revision: Any, body: Mapping[str, Any]) -> _Prepared:
+        """``prepare`` with its subjects read as this viewer may read them: a note of someone hidden from her is no
+        subject (a preview would quote it back). The decisions it makes (which subjects are busy, which attempt this
+        is) read every action, his in-flight ones included, and the action's id carries who asks."""
+
+        with viewer_lens.scoped(session.id, hidden_of(session)):
+            return prepare(session, revision, body)
 
     # ------------------------------------------------------------------ #
     # subjects
@@ -379,7 +403,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                                 subject_id,
                                 "behavior_target",
                                 "unknown_subject",
-                                "no such behavior change on the current Snapshot",
+                                "no such behavior change on the current revision",
                             ),
                         )
                     )
@@ -483,7 +507,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                 exclusion = None
                 if check.revision_id != revision.id:
                     exclusion = SubjectExclusion(
-                        subject_id, "check", "stale_anchor", "recorded on an older Snapshot", subject.title
+                        subject_id, "check", "stale_anchor", "recorded on an older revision", subject.title
                     )
                 elif str(check.verification_status or "").upper() not in {"FAIL", "FAILED", "ERROR"}:
                     exclusion = SubjectExclusion(
@@ -630,7 +654,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                         subject_id,
                         "proposal",
                         "stale_anchor",
-                        "made on an older Snapshot; recreate it on this one",
+                        "made on an older revision; recreate it on this one",
                         subject.title,
                     )
                 elif subject_id in busy:
@@ -732,7 +756,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         kind, ids, requested, directive = parse_request(body)
         ids = default_subjects(session, revision, kind, ids)
         if not ids:
-            raise _refuse(status.HTTP_409_CONFLICT, f"there is nothing for {KIND_LABELS[kind]} on this Snapshot")
+            raise _refuse(status.HTTP_409_CONFLICT, f"there is nothing for {KIND_LABELS[kind]} on this revision")
         actions = actions_for(session.id)
         candidates, items, exact, failures = candidates_for(session, revision, kind, ids, requested, actions)
         limit = 1 if kind in {"fix", "apply_suggestion"} else FIX_ALL_LIMIT
@@ -771,6 +795,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
             items=included_items or partition.included,
             directive=directive,
             change_description=str(session.title or ""),
+            actor=str(session.reviewer_id),
         )
         attempt = sum(1 for item in actions if item.identity == identity)
         action_id = action_id_for(identity, attempt)
@@ -781,7 +806,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                     action_kind=kind,
                     operation_id=action_id,
                     reviewer_id=str(session.reviewer_id),
-                    snapshot_label=f"Snapshot {deps.display_number(revision)}",
+                    snapshot_label=revision_name(deps.display_number(revision)),
                     items=included_items,
                     directive=directive,
                     change_description=str(session.title or ""),
@@ -954,7 +979,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         return wire
 
     def listing(session: Any, revision: Any) -> dict[str, Any]:
-        actions = reconcile(session, actions_for(session.id))
+        actions = shown_actions(session.id, reconcile(session, actions_for(session.id)))
         revisions = store.list_revisions(session.id)
         by_id = {item.id: item for item in revisions}
         numbers = {item.id: deps.display_number(item) for item in revisions}
@@ -1050,9 +1075,9 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                     now_iso(),
                     "human",
                     str(session.reviewer_id),
-                    detail="applied in the trusted checkout; capture a Snapshot to review it",
+                    detail="applied in the trusted checkout; capture a revision to review it",
                 ),
-                message="applied in your checkout; the next Snapshot carries it",
+                message="applied in your checkout; the next revision carries it",
             )
         if route.mode == "new_session":
             result = await asyncio.to_thread(
@@ -1137,7 +1162,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         body = await _json_object(request)
         _strict_body(body, _PREVIEW_KEYS)
         deps.require_expected_revision(body, revision, "preparing this action")
-        prepared = await run_in_threadpool(prepare, session, revision, body)
+        prepared = await run_in_threadpool(prepare_as_read, session, revision, body)
         return preview_payload(revision, prepared)
 
     @router.post("/reviews/{review_id}/actions")
@@ -1154,13 +1179,17 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         expected_digest = str(body.get("expected_handoff_digest") or "").strip()
         if not operation_id:
             raise _refuse(status.HTTP_400_BAD_REQUEST, "starting an action requires operation_id from its preview")
-        existing = ledger.get(revision_ids(session.id), operation_id)
+        # An action of someone she may not read yet is unknown to her: the id then takes the path of an id nobody
+        # holds, so it ends where one that was never prepared ends ("changed since its preview").
+        existing = viewer_lens.reachable(
+            hidden_of(session), ledger.get(revision_ids(session.id), operation_id), lambda action: action.created_by
+        )
         if existing is not None:
             # Idempotent replay: one prepared action dispatches once, ever.
             numbers = {item.id: deps.display_number(item) for item in store.list_revisions(session.id)}
             return {"action": action_payload(existing, numbers=numbers, states={}), "replayed": True}
         deps.require_expected_revision(body, revision, "starting this action")
-        prepared = await run_in_threadpool(prepare, session, revision, body)
+        prepared = await run_in_threadpool(prepare_as_read, session, revision, body)
         if prepared.action_id != operation_id or (
             prepared.handoff and text_digest(prepared.handoff) != expected_digest
         ):
@@ -1207,7 +1236,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
             handoff_digest=text_digest(prepared.handoff) if prepared.handoff else "",
             identity=prepared.identity,
             message=(
-                "copied for the fixer; the next Snapshot returns this Review for re-review"
+                "copied for the fixer; the next revision returns this Review for re-review"
                 if route.mode == "copy"
                 else ""
             ),
@@ -1227,7 +1256,9 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
         raw = await request.body()
         body = await _json_object(request) if raw.strip() else {}
         _strict_body(body, _CANCEL_KEYS)
-        action = ledger.get(revision_ids(session.id), action_id)
+        action = viewer_lens.reachable(
+            hidden_of(session), ledger.get(revision_ids(session.id), action_id), lambda found: found.created_by
+        )
         if action is None or action.review_id != session.id:
             raise _refuse(status.HTTP_404_NOT_FOUND, "no such Review action")
         reason = str(body.get("reason") or "").strip()[:500]
@@ -1239,7 +1270,7 @@ def register_review_action_routes(router: APIRouter, deps: ReviewActionDeps) -> 
                 allowed_from=IN_FLIGHT_STATUSES,
                 event=ActionEvent("cancelled", now_iso(), "human", str(session.reviewer_id), detail=reason),
                 message=(
-                    "cancelled in LemonCrow; a running agent is not stopped, and a later Snapshot "
+                    "cancelled in LemonCrow; a running agent is not stopped, and a later revision "
                     "is not linked to this action"
                 ),
             )

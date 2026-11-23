@@ -111,6 +111,34 @@ def test_every_gate_exit_posts_a_status_naming_why(
     assert [row[:3] for row in posted] == [expected], name
 
 
+@pytest.mark.parametrize(
+    ("variable", "value", "words"),
+    [
+        ("INPUT_FAIL_ON", "p9", "fail-on must be one of none, p0, p1"),
+        ("INPUT_DEPTH", "max", "depth must be one of auto, thorough, deep"),
+        ("INPUT_DIAGRAM", "on", "diagram must be one of auto, off"),
+        ("INPUT_MAX_RUNS", "many", "max-runs-per-pr must be a whole number"),
+    ],
+)
+def test_a_bad_option_input_stops_at_the_gate_with_a_status_naming_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    variable: str,
+    value: str,
+    words: str,
+) -> None:
+    """The command would refuse it with a usage error after the install, and the status would only say it crashed."""
+
+    code, posted, output = gate_run(
+        monkeypatch, tmp_path, "pull_request", pull_event(), OPENAI_API_KEY="sk-x", **{variable: value}
+    )
+    assert code == 1 and "run=false" in output
+    assert [row[:2] for row in posted] == [("error", posted[0][1])] and words in posted[0][1]
+    assert len(posted[0][1]) <= 140
+    assert f"::error title=LemonCrow Review::Review not run: {words}" in capsys.readouterr().out
+
+
 def test_the_missing_key_status_names_the_secret_the_sample_workflow_reads() -> None:
     sample = (Path(ci_env.__file__).parent / "lemoncrow-review.workflow.yml").read_text(encoding="utf-8")
     assert "secrets.ANTHROPIC_API_KEY" in sample and "ANTHROPIC_API_KEY" in ci_env.NO_KEY_STATUS
@@ -246,6 +274,16 @@ def test_a_refusal_before_the_review_started_still_posts_its_reason(world: World
     state, description = last_status(world)
     assert state == "error" and description.startswith("Review not run: fail-on must be one of")
     assert len(world.github.statuses) == 1, "one status, posted once"
+
+
+def test_a_refusal_before_the_review_started_is_annotated_once(
+    world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.origin.push(FIRST_PUSH)
+    monkeypatch.setenv("LEMONCROW_REVIEW_MAX_USD", "lots")
+    with pytest.raises(runner.PrReviewError):
+        world.review()
+    assert capsys.readouterr().out.count("::error title=LemonCrow Review::max-usd-per-pr must be") == 1
 
 
 def test_a_crash_is_an_error_status_naming_the_exception(world: World, monkeypatch: pytest.MonkeyPatch) -> None:

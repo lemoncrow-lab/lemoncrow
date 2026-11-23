@@ -243,7 +243,7 @@ export default function CsvReviewPreview({
   const deleted = status === "deleted";
   const badge = revisionId ? (
     <div className="border-b border-border bg-background px-3 py-1.5 font-mono text-micro text-muted-foreground" title={revisionId}>
-      Snapshot {revisionId} · rendered CSV
+      Revision · rendered CSV
     </div>
   ) : null;
 

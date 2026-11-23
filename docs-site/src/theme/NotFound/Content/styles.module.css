@@ -1,0 +1,20 @@
+.main {
+  max-width: 40rem;
+}
+
+.eyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: rgb(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+}
+
+.links {
+  padding-left: 1.25rem;
+}
+
+.links a {
+  text-decoration: underline;
+}

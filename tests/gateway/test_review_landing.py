@@ -12,12 +12,13 @@ from lemoncrow.pro.capabilities.review.landing import (
     landing_metadata,
     landing_relationship,
     local_github_landing,
-    owe_discard_withdrawal,
+    owe_landing_withdrawal,
     reconcile_local_github_landing,
     record_landing_state,
 )
 from lemoncrow.pro.capabilities.review.session_models import ReviewRelationship, ReviewRevision, ReviewSession
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
+from lemoncrow.pro.capabilities.review.sources.local import set_review_status
 from lemoncrow.pro.capabilities.review.store import ReviewStore, new_revision_id, new_session_id
 
 
@@ -488,7 +489,7 @@ def test_a_discarded_changes_failed_withdrawal_stays_armed_until_github_confirms
     store, session = _armed_pull_request(tmp_path)
     archived = _discarded(store, session)
     # What the Reader's discard records before it asks the provider.
-    owe_discard_withdrawal(store, session.id)
+    owe_landing_withdrawal(store, session.id, reason="discarded")
     fake = _use(monkeypatch, _FakeGitHub(mergeStateStatus="CLEAN"))
     fake.on_state_query = _github_outage
 
@@ -506,6 +507,72 @@ def test_a_discarded_changes_failed_withdrawal_stays_armed_until_github_confirms
     assert status == "cancelled"
     assert "discarded" in detail
     assert fake.merges() == []
+
+
+def _reopened(store: ReviewStore, session: ReviewSession) -> ReviewSession:
+    """Finish, then reopen, through the status core every caller (Reader, CLI, hosted) uses."""
+
+    revision = store.latest_revision(session.id)
+    set_review_status(store, session, revision, status="finished")
+    finished = store.get_session(session.id)
+    assert finished is not None and finished.status == "finished"
+    set_review_status(store, finished, revision, status="open")
+    reopened = store.get_session(session.id)
+    assert reopened is not None and reopened.status == "open"
+    return reopened
+
+
+def test_reopening_a_finished_review_owes_the_withdrawal_and_the_watch_never_merges_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, session = _armed_pull_request(tmp_path)
+    reopened = _reopened(store, session)
+
+    # Owed before any provider is asked, worded and audited as a reopen.
+    owed = landing_relationship(store, session.id)
+    assert owed is not None and owed.status == "armed"
+    assert landing_metadata(owed)["provider_cancel"] == "pending"
+    assert landing_metadata(owed)["cancel_reason"] == "reopened"
+    assert "reopened" in landing_metadata(owed)["detail"]
+    withdrawn = list(store.list_activity_events(session.id, kinds=("landing.withdrawn",)))
+    assert [item.summary for item in withdrawn] == ["Merge when ready withdrawn: the review was reopened"]
+
+    fake = _use(monkeypatch, _FakeGitHub(mergeStateStatus="CLEAN", isInMergeQueue=True))
+    fake.on_state_query = _github_outage
+    reconcile_local_github_landing(store, reopened)
+
+    # A provider failure leaves it owed (and still armed, so Cancel is offered).
+    still = landing_relationship(store, session.id)
+    assert still is not None and still.status == "armed"
+    assert landing_metadata(still)["provider_cancel"] == "pending"
+    assert "The review was reopened, but withdrawing provider landing FAILED" in landing_metadata(still)["detail"]
+    assert fake.merges() == []
+
+    fake.on_state_query = None
+    reconcile_local_github_landing(store, reopened)
+
+    status, detail = _landing_status(store, reopened)
+    assert status == "cancelled"
+    assert detail.startswith("The review was reopened; Merge when ready was withdrawn.")
+    assert "discarded" not in detail
+    settled = landing_relationship(store, session.id)
+    assert settled is not None and landing_metadata(settled)["provider_cancel"] == "done"
+    assert any("dequeuePullRequest" in " ".join(args) for args in fake.calls)
+    assert fake.merges() == []
+
+
+def test_reopening_owes_nothing_without_an_armed_landing(tmp_path: Path) -> None:
+    store, session = _armed_pull_request(tmp_path)
+    landing = landing_relationship(store, session.id)
+    assert landing is not None
+    record_landing_state(store, landing, status="cancelled", metadata_updates={"detail": "Landing intent cancelled."})
+
+    _reopened(store, session)
+
+    after = landing_relationship(store, session.id)
+    assert after is not None and after.status == "cancelled"
+    assert "provider_cancel" not in landing_metadata(after)
+    assert not list(store.list_activity_events(session.id, kinds=("landing.withdrawn",)))
 
 
 def test_an_owed_cancel_that_finds_an_unreviewed_head_merged_says_so(

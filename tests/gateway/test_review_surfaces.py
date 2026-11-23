@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -10,19 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lemoncrow.pro.capabilities.review import runtimes as review_runtimes
-from lemoncrow.pro.capabilities.review import sandbox_limits
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.review_setup import inspect_review_setup
-from lemoncrow.pro.capabilities.review.runtimes import (
-    CommandRunner,
-    DockerComposeRunner,
-    HttpServiceRunner,
-    RunnerRegistry,
-    SurfaceRunResult,
-    api_response_diff_score,
-)
 from lemoncrow.pro.capabilities.review.snapshot import materialize_review_side
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, record_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
@@ -33,10 +24,21 @@ from lemoncrow.pro.capabilities.review.surface_providers import (
 )
 from lemoncrow.pro.capabilities.review.surfaces import (
     ReviewSurface,
+    RuntimeConfigEntry,
     SurfaceContext,
     SurfaceRegistry,
     load_review_surface_config,
     write_review_surface_config,
+)
+from lemoncrow.pro.environment import runners as review_runtimes
+from lemoncrow.pro.environment import sandbox_limits
+from lemoncrow.pro.environment.runners import (
+    CommandRunner,
+    DockerComposeRunner,
+    HttpServiceRunner,
+    RunnerRegistry,
+    SurfaceRunResult,
+    api_response_diff_score,
 )
 
 
@@ -478,12 +480,12 @@ def test_docker_compose_runner_validates_frozen_runtime_without_starting_service
         return subprocess.CompletedProcess(command, 0, stdout="app\n")
 
     monkeypatch.setattr("sys.platform", "linux")
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: {"docker-compose": "/usr/bin/docker-compose", "bwrap": "/usr/bin/bwrap"}.get(name),
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: {"docker-compose": "/usr/bin/docker-compose", "bwrap": "/usr/bin/bwrap"}.get(name),
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
 
     result = RunnerRegistry((DockerComposeRunner(),)).run(context, surface, side="new")
     missing_result = RunnerRegistry((DockerComposeRunner(),)).run(context, missing_surface, side="new")
@@ -512,16 +514,16 @@ def test_docker_compose_validation_refuses_to_run_without_a_sandbox(
 ) -> None:
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/docker-compose" if name == "docker-compose" else None,
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/docker-compose" if name == "docker-compose" else None,
     )
 
     def run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
         raise AssertionError("reviewed compose files must never be parsed unsandboxed")
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
     context = SimpleNamespace(repo_root=tmp_path, store_root=tmp_path / "store", source_root=None, store=None)
-    runtime = review_runtimes.RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
+    runtime = RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
     surface = SimpleNamespace(id="app", provider="service", kind="service", metadata={"service": "app"})
 
     result = DockerComposeRunner().run(context, runtime, surface, side="new")  # type: ignore[arg-type]
@@ -561,12 +563,12 @@ def test_docker_compose_validation_cannot_read_host_files_outside_the_snapshot(
     monkeypatch.setattr(review_runtimes, "materialize_review_side", materialize)
     surface = SimpleNamespace(id="app", provider="service", kind="service", metadata={"service": "app"})
 
-    escaping = review_runtimes.RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
+    escaping = RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
     result = DockerComposeRunner().run(context, escaping, surface, side="new")  # type: ignore[arg-type]
     assert "leaked" not in result.data.get("services", ())
     assert result.status == "failed", result.summary
 
-    plain = review_runtimes.RuntimeConfigEntry("plain", "docker-compose", {"compose": ["ok.yml"]})
+    plain = RuntimeConfigEntry("plain", "docker-compose", {"compose": ["ok.yml"]})
     result = DockerComposeRunner().run(context, plain, surface, side="new")  # type: ignore[arg-type]
     assert result.status == "passed", result.output or result.summary
 
@@ -581,7 +583,7 @@ def test_command_runner_refuses_to_execute_without_sandbox(tmp_path: Path, monke
     )
     context = SurfaceContext(tmp_path, tmp_path / "store", _revision(), ("x.py",), load_review_surface_config(tmp_path))
     surface = ServiceSurfaceProvider().discover(context)[0]
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.shutil.which", lambda _name: None)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.shutil.which", lambda _name, **_kwargs: None)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="new")
 
@@ -590,6 +592,66 @@ def test_command_runner_refuses_to_execute_without_sandbox(tmp_path: Path, monke
     assert "refusing to run reviewed code unsandboxed" in result.summary
 
 
+@pytest.mark.parametrize(
+    ("platform", "returncode", "stderr", "expected"),
+    [
+        ("linux", 1, "bwrap: execvp nope: No such file or directory\n", "unavailable"),
+        ("darwin", 71, "sandbox-exec: execvp() of 'nope' failed: No such file or directory\n", "unavailable"),
+        ("linux", 127, "command could not start: [Errno 2] No such file or directory: 'nope'\n", "unavailable"),
+        ("linux", 127, "sh: 1: nope: not found\n", "failed"),
+        # The command itself ran and failed, even if it printed something similar earlier.
+        ("linux", 1, "bwrap: execvp nope: No such file or directory\nthen it ran\nassert failed\n", "failed"),
+        ("linux", 2, "bwrap: execvp nope: No such file or directory\n", "failed"),
+        ("darwin", 1, "assertion failed\n", "failed"),
+    ],
+)
+def test_a_command_the_sandbox_could_not_start_is_not_a_failed_check(
+    platform: str, returncode: int, stderr: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.environment.runners import _sandbox_start_failure
+
+    monkeypatch.setattr("sys.platform", platform)
+    assert bool(_sandbox_start_failure(returncode, stderr)) is (expected == "unavailable")
+
+
+def test_a_missing_service_executable_is_unavailable_and_carries_no_duration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.platform", "linux")
+    (tmp_path / ".lemoncrow").mkdir()
+    (tmp_path / ".lemoncrow" / "review.yaml").write_text(
+        "version: 1\n"
+        "runtimes:\n  - id: api\n    runner: http-service\n    command: [nope]\n    health: /health\n    port: 8765\n"
+        "surfaces:\n  - id: api\n    provider: bruno\n    collection: bruno\n    runtime: api\n"
+    )
+    (tmp_path / "bruno").mkdir()
+    (tmp_path / "bruno" / "Hello.bru").write_text("meta {\n  name: Hello\n}\nget {\n  url: {{baseUrl}}/x\n}\n")
+    context = SurfaceContext(
+        tmp_path, tmp_path / "store", _revision(), ("bruno/Hello.bru",), load_review_surface_config(tmp_path)
+    )
+    surface = BrunoSurfaceProvider().discover(context)[0]
+
+    def materialize(*_args: object, target: Path, side: str, **_kwargs: object) -> str:
+        target.mkdir(parents=True, exist_ok=True)
+        return side
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 127, stdout="service-not-started: No such file or directory\n")
+
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
+    monkeypatch.setattr(
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
+    )
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
+
+    result = RunnerRegistry((HttpServiceRunner(),)).run(context, surface, side="new")
+
+    assert result.status == "unavailable" and "could not start" in result.summary
+    assert not result.duration_ms  # normalized to NOT_RUN, not to an interrupted (UNKNOWN) run
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="records the Linux executor probe (kernel, /usr toolchain)")
 def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -637,12 +699,12 @@ def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
         assert kwargs["timeout"] == 45
         return subprocess.CompletedProcess(command, 0, stdout="2 passed\n")
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.run_limited_bounded", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.run_limited_bounded", run)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="old")
 
@@ -665,8 +727,8 @@ def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
     assert command[-4:] == ["python", "-m", "pytest", "-q"]
     # Trust T3 item 1: the probe read before dispatch for this command names the executor
     # environment this run recorded (what actually ran), and the local registry carries that probe.
-    from lemoncrow.pro.capabilities.review.execution import ExecutionResult
-    from lemoncrow.pro.capabilities.review.runtimes import built_in_runner_registry, command_environment
+    from lemoncrow.pro.capabilities.review.runner_host import built_in_runner_registry, command_environment
+    from lemoncrow.pro.environment.execution import ExecutionResult
 
     fingerprint = ExecutionResult.from_wire(result.data["execution"]).fingerprint
     recorded = fingerprint.executor_digest
@@ -738,12 +800,12 @@ def test_http_service_runner_executes_api_surface_inside_isolated_loopback(
             stdout='{"status_code":200,"headers":{"Content-Type":"application/json"},"body":{"message":"Hello, Ada"},"truncated":false,"duration_ms":18}\n',
         )
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
 
     result = RunnerRegistry((HttpServiceRunner(),)).run(context, surface, side="new")
 
@@ -848,12 +910,12 @@ def test_concurrent_runs_of_one_runtime_side_never_replace_each_others_workspace
         )
 
     monkeypatch.setattr(review_runtimes, "RunFileLock", ObservedRunFileLock)
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
 
     registry = RunnerRegistry((HttpServiceRunner(),))
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -861,6 +923,215 @@ def test_concurrent_runs_of_one_runtime_side_never_replace_each_others_workspace
 
     assert [result.status for result in results] == ["passed", "passed"]
     assert overlapped == [False, False]
+
+
+def _bru(name: str, method: str, url: str, pre_request: str = "") -> str:
+    script = f"\nscript:pre-request {{\n{pre_request}}}\n" if pre_request else ""
+    return f"meta {{\n  name: {name}\n}}\n\n{method} {{\n  url: {url}\n}}\n{script}"
+
+
+def _api_context(tmp_path: Path, changed: tuple[str, ...]) -> SurfaceContext:
+    (tmp_path / ".lemoncrow").mkdir(exist_ok=True)
+    (tmp_path / ".lemoncrow" / "review.yaml").write_text(
+        "version: 1\n"
+        "runtimes:\n  - id: api-runtime\n    runner: http-service\n    command: [python3, app.py]\n"
+        "surfaces:\n  - id: api\n    provider: bruno\n    collection: bruno\n    runtime: api-runtime\n"
+    )
+    return SurfaceContext(tmp_path, tmp_path / "store", _revision(), changed, load_review_surface_config(tmp_path))
+
+
+def test_bruno_run_request_steps_become_setup_requests_in_bruno_order(tmp_path: Path) -> None:
+    folder = tmp_path / "bruno" / "invoices"
+    folder.mkdir(parents=True)
+    (folder / "List.bru").write_text(_bru("List", "get", "{{baseUrl}}/api/invoices?tenant=acme"))
+    (folder / "Edit.bru").write_text(
+        _bru("Edit", "post", "{{baseUrl}}/api/invoices/update?id=1", '  await bru.runRequest("invoices/List");\n')
+    )
+    (folder / "Export.bru").write_text(_bru("Export", "get", "{{baseUrl}}/api/export?tenant=acme"))
+    (folder / "AfterEdit.bru").write_text(
+        _bru(
+            "After edit",
+            "get",
+            "{{baseUrl}}/api/invoices?tenant=acme",
+            "  // Bruno runs these first, on the same server.\n"
+            '  await bru.runRequest("invoices/Edit");\n'
+            '  const exported = await bru.runRequest("invoices/Export")\n',
+        )
+    )
+    (folder / "ReadOnly.bru").write_text(
+        _bru(
+            "Read only", "get", "{{baseUrl}}/api/invoices?tenant=globex", '  await bru.runRequest("invoices/Export");\n'
+        )
+    )
+    context = _api_context(tmp_path, ("bruno/invoices/AfterEdit.bru", "bruno/invoices/ReadOnly.bru"))
+
+    surfaces = {surface.id: surface for surface in BrunoSurfaceProvider().discover(context)}
+
+    after_edit = surfaces["bruno/invoices/AfterEdit.bru"]
+    # The nested step (Edit runs List) comes first, exactly as Bruno runs them.
+    assert after_edit.metadata["setup"] == [
+        {"request": "invoices/List", "method": "GET", "url": "{{baseUrl}}/api/invoices?tenant=acme"},
+        {"request": "invoices/Edit", "method": "POST", "url": "{{baseUrl}}/api/invoices/update?id=1"},
+        {"request": "invoices/Export", "method": "GET", "url": "{{baseUrl}}/api/export?tenant=acme"},
+    ]
+    # A run replays the POST, so it is executable but never automatic.
+    assert "execute" in after_edit.capabilities and "auto_compare" not in after_edit.capabilities
+    read_only = surfaces["bruno/invoices/ReadOnly.bru"]
+    assert [row["request"] for row in read_only.metadata["setup"]] == ["invoices/Export"]
+    assert "auto_compare" in read_only.capabilities
+
+
+@pytest.mark.parametrize(
+    ("script", "refusal"),
+    [
+        ('  await bru.runRequest("invoices/Missing");\n', 'bru.runRequest("invoices/Missing") names no request'),
+        ('  await bru.runRequest("../outside");\n', 'bru.runRequest("../outside") names no request'),
+        ('  req.setHeader("x-tenant", "acme");\n  await bru.runRequest("invoices/Self");\n', "does more than"),
+        ('  await bru.runRequest("invoices/Self");\n', "already running"),
+    ],
+)
+def test_bruno_setup_requests_it_cannot_replay_exactly_are_refused_not_dropped(
+    tmp_path: Path, script: str, refusal: str
+) -> None:
+    folder = tmp_path / "bruno" / "invoices"
+    folder.mkdir(parents=True)
+    (tmp_path / "bruno" / "outside.bru").write_text(_bru("Outside", "get", "{{baseUrl}}/x"))
+    (folder / "Self.bru").write_text(_bru("Self", "get", "{{baseUrl}}/api/invoices", script))
+    surface = BrunoSurfaceProvider().discover(_api_context(tmp_path, ("bruno/invoices/Self.bru",)))[0]
+
+    assert "setup" not in surface.metadata
+    assert refusal in surface.metadata["setup_error"]
+    assert "auto_compare" not in surface.capabilities
+
+    runtime = SimpleNamespace(id="api-runtime", strings=lambda _key: ("python3", "app.py"))
+    result = HttpServiceRunner().run(SimpleNamespace(), runtime, surface, side="new")
+    assert result.status == "unavailable"
+    assert result.summary.startswith("pre-request steps cannot run:") and refusal in result.summary
+
+
+def test_bruno_setup_chain_past_the_cap_is_refused(tmp_path: Path) -> None:
+    folder = tmp_path / "bruno"
+    folder.mkdir()
+    from lemoncrow.pro.capabilities.review.surface_providers import MAX_SETUP_REQUESTS
+
+    for index in range(MAX_SETUP_REQUESTS + 2):
+        script = f'  await bru.runRequest("Step{index - 1}");\n' if index else ""
+        (folder / f"Step{index}.bru").write_text(_bru(f"Step {index}", "get", f"{{{{baseUrl}}}}/s/{index}", script))
+    at_cap = f"bruno/Step{MAX_SETUP_REQUESTS}.bru"
+    past_cap = f"bruno/Step{MAX_SETUP_REQUESTS + 1}.bru"
+    surfaces = {
+        surface.id: surface for surface in BrunoSurfaceProvider().discover(_api_context(tmp_path, (at_cap, past_cap)))
+    }
+
+    assert len(surfaces[at_cap].metadata["setup"]) == MAX_SETUP_REQUESTS
+    assert f"more than {MAX_SETUP_REQUESTS} requests" in surfaces[past_cap].metadata["setup_error"]
+
+
+def test_http_service_runner_sends_setup_requests_to_the_supervisor_and_keeps_their_statuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sys.platform", "linux")
+    (tmp_path / "bruno").mkdir()
+    (tmp_path / "bruno" / "Seed.bru").write_text(_bru("Seed", "post", "{{baseUrl}}/seed?n=1"))
+    (tmp_path / "bruno" / "Read.bru").write_text(
+        _bru("Read", "get", "{{baseUrl}}/read", '  await bru.runRequest("Seed");\n')
+    )
+    context = _api_context(tmp_path, ("bruno/Read.bru",))
+    surface = BrunoSurfaceProvider().discover(context)[0]
+
+    def materialize(_store: Path, _repo: Path, _revision: object, *, target: Path, **_kwargs: object) -> str:
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "app.py").write_text("print('fixture')\n")
+        return "new"
+
+    configs: list[dict[str, object]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        configs.append(json.loads(command[-1]))
+        stdout = json.dumps(
+            {
+                "status_code": 200,
+                "headers": {},
+                "body": {"seeded": 1},
+                "truncated": False,
+                "duration_ms": 3,
+                "setup": [{"method": "POST", "path": "/seed?n=1", "status_code": 201}],
+            }
+        )
+        return subprocess.CompletedProcess(command, 0, stdout=stdout + "\n")
+
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
+    monkeypatch.setattr(
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
+    )
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.subprocess.run", run)
+
+    result = RunnerRegistry((HttpServiceRunner(),)).run(context, surface, side="old")
+
+    assert configs[0]["setup"] == [{"method": "POST", "path": "/seed?n=1"}]
+    assert configs[0]["path"] == "/read"
+    assert result.status == "passed"
+    assert result.summary == "GET /read returned HTTP 200"
+    assert result.data["setup"] == [{"method": "POST", "path": "/seed?n=1", "status_code": 201}]
+
+
+def test_http_service_supervisor_runs_setup_requests_on_the_same_service_first(tmp_path: Path) -> None:
+    # The supervisor itself, without a sandbox: a stateful service sees the setup requests before the request.
+    (tmp_path / "server.py").write_text(
+        "import json, os\n"
+        "from http.server import BaseHTTPRequestHandler, HTTPServer\n"
+        "seen = []\n"
+        "class H(BaseHTTPRequestHandler):\n"
+        "    def _reply(self, status):\n"
+        "        body = json.dumps({'seen': seen}).encode()\n"
+        "        self.send_response(status)\n"
+        "        self.send_header('Content-Type', 'application/json')\n"
+        "        self.send_header('Content-Length', str(len(body)))\n"
+        "        self.end_headers()\n"
+        "        self.wfile.write(body)\n"
+        "    def do_GET(self):\n"
+        "        if self.path != '/health':\n"
+        "            seen.append('GET ' + self.path)\n"
+        "        self._reply(404 if self.path == '/missing' else 200)\n"
+        "    def do_POST(self):\n"
+        "        seen.append('POST ' + self.path)\n"
+        "        self._reply(201)\n"
+        "    def log_message(self, *args):\n"
+        "        pass\n"
+        "HTTPServer(('127.0.0.1', int(os.environ['PORT'])), H).serve_forever()\n"
+    )
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    config = {
+        "command": [sys.executable, str(tmp_path / "server.py")],
+        "port": port,
+        "port_env": "PORT",
+        "health": "/health",
+        "health_timeout": 10,
+        "request_timeout": 5,
+        "max_body_bytes": 256_000,
+        "method": "GET",
+        "path": "/read?x=1",
+        "setup": [{"method": "POST", "path": "/seed"}, {"method": "GET", "path": "/missing"}],
+    }
+    completed = subprocess.run(
+        [sys.executable, "-c", review_runtimes._HTTP_SERVICE_SUPERVISOR, json.dumps(config)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert payload["body"] == {"seen": ["POST /seed", "GET /missing", "GET /read?x=1"]}
+    assert payload["setup"] == [
+        {"method": "POST", "path": "/seed", "status_code": 201},
+        {"method": "GET", "path": "/missing", "status_code": 404},
+    ]
 
 
 def test_runner_materializes_a_side_without_frozen_tree_from_the_source_checkout(
@@ -913,10 +1184,10 @@ def test_runner_materializes_a_side_without_frozen_tree_from_the_source_checkout
         return subprocess.CompletedProcess(command, 0, stdout="before\n")
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+        "lemoncrow.pro.environment.runners.shutil.which",
+        lambda name, **_kwargs: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.run_limited_bounded", run)
+    monkeypatch.setattr("lemoncrow.pro.environment.runners.run_limited_bounded", run)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="old")
 

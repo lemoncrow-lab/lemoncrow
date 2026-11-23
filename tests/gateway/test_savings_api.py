@@ -359,6 +359,9 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
     ]
     assert data["session_proof"][0]["session_id"] == "run-live-1"
     assert data["session_proof"][0]["agent"] == "codex"
+    # The Savings sheet's per-session card reads these two counts.
+    assert data["session_proof"][0]["tracked_tool_calls"] == 1
+    assert data["session_proof"][0]["live_calls_saved"] == 2
     assert data["session_proof"][0]["items"][0]["tool_name"] == "edit"
     assert data["session_proof"][0]["items"][0]["saved_tokens"] == 400
     assert data["verification"] == {

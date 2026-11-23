@@ -55,6 +55,7 @@ from lemoncrow.pro.capabilities.review.capability_catalog import (
     When,
     applicability,
     expand_wildcard,
+    is_dynamic,
     paths_match,
     preset_entry,
     resolve_entry,
@@ -674,7 +675,7 @@ def parse_review_config_layer(text: str, *, source: str) -> RunSettingsLayer | N
     never passed here: it is proposed future policy for later Reviews only.
     """
 
-    origin = SettingOrigin("trusted_base_repository", source or "base Snapshot .lemoncrow/review.yaml")
+    origin = SettingOrigin("trusted_base_repository", source or "base revision .lemoncrow/review.yaml")
     try:
         decoded = yaml.safe_load(text) if text.strip() else None
     except yaml.YAMLError as exc:
@@ -689,8 +690,9 @@ def parse_review_config_layer(text: str, *, source: str) -> RunSettingsLayer | N
     if not isinstance(section, Mapping):
         return RunSettingsLayer(origin=origin, errors=("review must be a mapping",))
     # ``review.auto`` is the trigger model owned by the hosted behavior contract; ``focus``/``finding_threshold``/
-    # ``strictness`` are triage policy (``criticality.py``); the rest are the pull request reviewer's noise controls
-    # (``pr_bot/settings.py``), which have no effect on what runs.
+    # ``strictness`` are triage policy (``criticality.py``); ``fail_on`` is the Workspaces land gate's
+    # (``sources/workspaces.py``); the rest are the pull request reviewer's noise controls (``pr_bot/settings.py``),
+    # which have no effect on what runs.
     return parse_run_settings(
         section,
         origin=origin,
@@ -703,6 +705,7 @@ def parse_review_config_layer(text: str, *, source: str) -> RunSettingsLayer | N
             "inline_comments",
             "max_files",
             "rules",
+            "fail_on",
         ),
     )
 
@@ -1165,6 +1168,15 @@ class PlanInputs:
     #: P11-ESC: one question per authoritative Review rule applying to the Change.
     rule_questions: tuple[RuleQuestion, ...] = ()
 
+    #: Loci this deployment adds to a locus-restricted executor (``{"render_diff":
+    #: ("worker",)}``), stated from what it actually wired; never the catalog's claim.
+    executor_loci: Mapping[str, tuple[ExecutorLocus, ...]] = field(default_factory=dict)
+
+    def runs_on(self, entry: CatalogEntry, locus: ExecutorLocus) -> bool:
+        """Whether *entry* executes on *locus* here: the catalog's loci plus the deployment's."""
+
+        return not entry.loci or locus in entry.loci or locus in self.executor_loci.get(entry.executor, ())
+
     def unavailable_reason(self, entry_id: str, locus: ExecutorLocus) -> str:
         """Why *entry_id* cannot execute on *locus* in this deployment, or ``""``."""
 
@@ -1202,6 +1214,12 @@ class PlanInputs:
             if any(self.unavailable_run_on_by_class.values())
             else {}
         )
+        # Only when a deployment adds a locus: every other plan keeps its digest.
+        extended = (
+            {"executor_loci": {name: sorted(loci) for name, loci in sorted(self.executor_loci.items()) if loci}}
+            if any(self.executor_loci.values())
+            else {}
+        )
         # P11-FED: only when present, so plans without ingestion keep their identity.
         federation: dict[str, Any] = {}
         if self.ingested:
@@ -1227,6 +1245,7 @@ class PlanInputs:
                 **by_class,
                 **floor_scope,
                 **unwired,
+                **extended,
                 **federation,
                 "version": RUN_PLAN_VERSION,
                 "review_id": self.review_id,
@@ -1549,6 +1568,8 @@ _RUNTIME_PREFIXES: Final[tuple[str, ...]] = (
     "compat.",
     "browser:",
     "surface:",
+    # P10-7: runs a third-party binary over the Snapshot, so an organization's execution block stops it too.
+    "data_path.",
 )
 _EXECUTION_CLASS_LABEL: Final[Mapping[str, str]] = {"ai": "AI", "runtime": "runtime", "static": "static analysis"}
 
@@ -1949,7 +1970,7 @@ def build_run_plan(
     def initial_status(draft: _Draft) -> tuple[EntryStatus, str]:
         entry = draft.catalog
         state, why = (
-            ("applicable", "discovered on this Snapshot") if draft.discovered else applicability(entry, detected)
+            ("applicable", "discovered on this revision") if draft.discovered else applicability(entry, detected)
         )
         if state == "inapplicable":
             return "inapplicable", why
@@ -1959,12 +1980,14 @@ def build_run_plan(
             # Unavailable: configured, but no spec of it can run (``Command too large``).
             return "not_available", why
         if not entry.executor:
+            # A trusted-base target that cannot run says why (an invalid environment.toml: its parse error).
+            own = why if is_dynamic(entry.id) and why else ""
             if draft.required:
-                return "not_available", f"{REQUIRED_NO_EXECUTOR} ({draft.floor_reason})"
-            return "not_available", "no executor for this capability in this build yet"
-        if entry.loci and draft.executor not in entry.loci:
+                return "not_available", f"{REQUIRED_NO_EXECUTOR} ({draft.floor_reason})" + (f": {own}" if own else "")
+            return "not_available", own or "no executor for this capability in this build yet"
+        if not inputs.runs_on(entry, draft.executor):
             placed = (
-                f"{entry.title} runs only where the Snapshot is held; this deployment places it on the "
+                f"{entry.title} runs only where the revision is held; this deployment places it on the "
                 f"{draft.executor} executor, which does not run it"
                 + (
                     f". {entry.locus_hint} {_locus_action(entry, inputs.allowed_for(entry.id))}"
@@ -1989,7 +2012,7 @@ def build_run_plan(
         if draft.when == "manual" and not forced:
             return "on_request", "runs only when requested"
         if draft.when == "open" and inputs.trigger == "push" and not forced:
-            return "skipped", "runs when the Review opens; this Snapshot came from a push"
+            return "skipped", "runs when the Review opens; this revision came from a push"
         if draft.escalate and not forced:
             signal = inputs.ai_candidates > 2 if entry.family == "ai" else inputs.risk_signal
             if not signal:

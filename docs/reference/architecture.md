@@ -9,15 +9,15 @@ LemonCrow is infrastructure around coding agents. The architecture is split by p
                             |
           +-----------------+-----------------+
           |                 |                 |
-       Runtime            Review          Enterprise
+      Workspaces         Review          Enterprise
           |                 |                 |
   agent context/tools   human review     shared policy,
   + optional Pro loop   + evidence       workspaces, audit
 ```
 
-Runtime comes first in the coding flow; Review is the human inspection surface after or during that work. Enterprise adds shared infrastructure and organization controls without changing that basic model.
+Workspaces comes first in the coding flow; Review is the human inspection surface after or during that work. Enterprise adds shared infrastructure and organization controls without changing that basic model.
 
-## Runtime: keep your agent
+## Workspaces: keep your agent
 
 Claude Code, Codex, OpenCode, and Cursor can keep owning their normal agent/model UX while LemonCrow adds repository intelligence and tools around them.
 
@@ -31,24 +31,24 @@ local repository intelligence
      your repo
 ```
 
-The local Runtime path:
+The local Workspaces path:
 
 - keeps the host's model/provider account and saved settings;
 - builds/reuses an incremental repository index under `.lemoncrow/workspace/`;
 - does not require a LemonCrow account;
 - does not upload repository source to LemonCrow;
-- does not require a resident Runtime daemon or listening Runtime port.
+- does not require a resident Workspaces daemon or listening port.
 
 Claude Code, Codex, and OpenCode support `lc with <host>` for a temporary launch and `lc rt enable <host>` for persistent integration. Cursor uses its installed IDE/CLI integration.
 
-See [Runtime Lite architecture](../architecture/runtime-lite.md).
+See [Workspaces Lite architecture](../architecture/runtime-lite.md).
 
-## Runtime: LemonCrow owns the coding loop
+## Workspaces: LemonCrow owns the coding loop
 
-`lc code` is the Hosted LemonCrow-owned coding agent. Runtime Lite stays local through existing-agent integrations such as `lc with`, persistent host integration, and `lc runtime index`.
+`lc code` is reserved for LemonCrow's hosted coding agent, which is not yet available. Workspaces Lite stays local through existing-agent integrations such as `lc with`, persistent host integration, and `lc runtime index`.
 
 ```text
-        Pi / LemonCode / Codex / Claude
+        Pi / Codex / Claude
                  |
         LemonCrow-owned loop
           /       |        \
@@ -57,11 +57,11 @@ See [Runtime Lite architecture](../architecture/runtime-lite.md).
               your repo
 ```
 
-Hosted/Enterprise owned execution may use Pi, LemonCode, Codex, or Claude as implementation/frontends. Pi and LemonCode themselves remain public managed hosts; Pro is a Hosted access plan.
+Hosted/Enterprise owned execution may use Pi, Codex, or Claude as implementation/frontends. Pi remains a public managed host; Pro is a Hosted access plan.
 
-`lc code` always means the Hosted owned agent. Local Runtime Lite uses the agent integrations instead. Hosted Runtime is the remote/private path for deeper retrieval, richer relationships, cross-workspace context, model routing, cache policy, spend ceilings, and managed execution. Enterprise Runtime places that private capability in customer-controlled or dedicated infrastructure. Pro is a commercial plan, not an engine.
+`lc code` always means the Hosted owned agent, which is not yet available. Local Workspaces Lite uses the agent integrations instead. Hosted retrieval, which a Pro plan grants, is the remote/private path for deeper retrieval and richer relationships; cross-workspace context, model routing, cache policy, spend ceilings, and managed execution are not yet available. Enterprise Workspaces places that private capability in customer-controlled or dedicated infrastructure. Pro is a commercial plan, not an engine.
 
-The owned loop can start short-lived local helper/gateway processes as implementation details. Those are not the same thing as requiring a persistent LemonCrow Runtime service.
+The owned loop can start short-lived local helper/gateway processes as implementation details. Those are not the same thing as requiring a persistent LemonCrow Workspaces service.
 
 ## Review
 
@@ -70,14 +70,14 @@ Review is a separate product boundary.
 ```text
 working tree / commit / PR
           |
-       Snapshot
+       Revision
           |
   Review Reader + evidence
           |
    human judgment/state
 ```
 
-A Review is durable across revisions of the same change. Each capture creates an immutable Snapshot. Human review state is reconciled against the next Snapshot: unchanged reviewed work can stay reviewed; changed or new work returns to the queue.
+A Review is durable across revisions of the same change. Each capture creates an immutable revision. Human review state is reconciled against the next revision: unchanged reviewed work can stay reviewed; changed or new work returns to the queue.
 
 Review stores and renders:
 
@@ -89,18 +89,18 @@ Review stores and renders:
 - durable human review state;
 - author/reviewer handoff state.
 
-Local and hosted Review can use shared HTTP/application services because Review is a collaborative browser product. That service boundary should not be confused with the local Runtime plugin path.
+Local and hosted Review can use shared HTTP/application services because Review is a collaborative browser product. That service boundary should not be confused with the local Workspaces plugin path.
 
 See [Review reference](review.md).
 
 ## Enterprise
 
-Enterprise adds shared infrastructure around Runtime and Review:
+Enterprise adds shared infrastructure around Workspaces and Review:
 
 ```text
 developer clients / agents
           |
- enterprise Runtime + server plane
+ enterprise Workspaces + server plane
    /          |             \
 identity    workspaces      policy/audit
    \          |             /
@@ -112,17 +112,17 @@ Enterprise capabilities include:
 - remote/shared code intelligence;
 - identity and access control;
 - organization policy and provider boundaries;
-- managed workspaces;
+- the Workspaces server, which runs agent tasks in sandboxes and lands them through Review (offered within Enterprise);
 - usage attribution and chargeback;
 - audit/evidence retention;
 - customer-controlled or dedicated deployment;
-- Runtime controls around broader long-running agent workloads.
+- Workspaces controls around broader long-running agent workloads.
 
-Coding is the shipped and measured workload for Runtime today. Broader agent workloads belong to the Enterprise scope rather than the core `/runtime` story.
+Coding is the shipped and measured workload for Workspaces today. Broader agent workloads belong to the Enterprise scope rather than the core `/runtime` story.
 
 ## Public and private code-intelligence boundary
 
-Runtime Lite is public/open-source and intentionally lightweight. It includes deterministic local lexical/indexed repository intelligence and local coding tools.
+Workspaces Lite is public/open-source and intentionally lightweight. It includes deterministic local lexical/indexed repository intelligence and local coding tools.
 
 The private/Pro engine can add capabilities that are deliberately absent from Lite, including advanced semantic/hybrid retrieval, learned ranking, richer graph/lineage, and cross-workspace intelligence.
 
@@ -138,11 +138,10 @@ Different hosts expose different evidence. Claude Code, Codex, OpenCode, Cursor,
 
 There is no single network story for all LemonCrow products:
 
-- **Local Runtime plugin:** repository intelligence and tool execution stay local; model traffic follows the external host/provider.
-- **`lc code`:** Hosted LemonCrow-owned coding agent.
-- **Hosted Runtime:** remote private Runtime; LemonCrow can own provider/tool execution and advanced intelligence.
-- **Enterprise Runtime:** the private Runtime in customer-controlled/dedicated infrastructure.
-- **Hosted Runtime:** uses the managed deployment explicitly selected by the user.
+- **Local Workspaces plugin:** repository intelligence and tool execution stay local; model traffic follows the external host/provider.
+- **`lc code`:** LemonCrow's hosted coding agent (not yet available).
+- **Workspaces Pro:** hosted retrieval, a remote private engine for search and code relationships, explicitly selected by the user.
+- **Enterprise Workspaces:** the private engine in customer-controlled/dedicated infrastructure.
 - **Review:** local or hosted depending on configured Review deployment.
 - **Enterprise:** uses the customer-controlled or dedicated infrastructure chosen for that deployment.
 

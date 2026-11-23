@@ -65,7 +65,7 @@ def _optional_modules() -> tuple[Any, Any, Any]:
         from tree_sitter_language_pack import get_parser
     except ImportError as exc:
         raise RuntimeError(
-            "Runtime Lite semantic support requires the public lite-semantic extra "
+            "Workspaces Lite semantic support requires the public lite-semantic extra "
             "(model2vec + numpy + tree-sitter-language-pack)"
         ) from exc
     return np, StaticModel, get_parser
@@ -239,7 +239,7 @@ class _CompactSemanticIndex:
     def _lite_snapshot(repo_root: Path) -> tuple[int, list[tuple[str, str]]]:
         db_path = _CompactSemanticIndex._lite_db(repo_root)
         if not db_path.is_file():
-            raise RuntimeError("Runtime Lite lexical index is not prepared")
+            raise RuntimeError("Workspaces Lite lexical index is not prepared")
         # A worktree overlay's files include those it inherits from its base.
         connection = open_index_reader(db_path, timeout=30)
         try:
@@ -431,7 +431,7 @@ class _CompactSemanticIndex:
         np, _StaticModel, get_parser = self._modules()
         root = repo_root.resolve()
         if not (root / ".git").exists():
-            raise RuntimeError(f"Runtime Lite semantic helper requires a Git worktree: {root}")
+            raise RuntimeError(f"Workspaces Lite semantic helper requires a Git worktree: {root}")
 
         for attempt in range(2):
             lite_generation, current_files = self._lite_snapshot(root)
@@ -612,7 +612,7 @@ class _CompactSemanticIndex:
                             temp_path.unlink()
                     if attempt == 0:
                         continue
-                    raise RuntimeError("Runtime Lite lexical index changed during semantic preparation")
+                    raise RuntimeError("Workspaces Lite lexical index changed during semantic preparation")
 
                 os.replace(vector_tmp, vector_path)
                 os.replace(start_tmp, start_path)

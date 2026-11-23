@@ -128,6 +128,8 @@ class _Status:
     drift: bool | None = None
     recorded: str | None = None
     error: str | None = None
+    #: Checkouts inside this one that it does not track (worktrees, clones): never part of its changes.
+    nested: tuple[str, ...] = ()
 
     @property
     def dirty(self) -> bool:
@@ -155,6 +157,7 @@ class _Status:
             "recorded": self.recorded,
             "changed": self.changed,
             "error": self.error,
+            "nested": list(self.nested),
         }
 
     def line(self) -> str:
@@ -173,6 +176,8 @@ class _Status:
             parts.append(f"drifted: HEAD {self.commit[:7]}, parent records {(self.recorded or '?')[:7]}")
         elif self.drift is False:
             parts.append("in sync with parent")
+        if self.nested:
+            parts.append(f"checkouts inside it, left out: {', '.join(self.nested)}")
         return f"{self.path}: " + "; ".join(parts)
 
     def _counts(self) -> list[tuple[int, str]]:
@@ -247,6 +252,22 @@ class _Scope:
         return sorted(members, key=lambda member: (-self.depth(member.relpath), member.relpath))
 
 
+def _separate_nested(status: _Status, member: WorkspaceRepo) -> None:
+    """Take checkouts inside this one (worktrees, clones) out of its untracked files.
+
+    Git counts one as untracked, and ``git add`` would record it as a submodule nothing can clone. ``git ls-files
+    --others`` lists each as a single ``path/`` entry and never descends, so those entries are exactly the checkouts.
+    """
+
+    listed = _git(member.root, "ls-files", "--others", "--exclude-standard", "-z")
+    if not listed.ok:
+        status.error = listed.reason
+        return
+    entries = [entry for entry in listed.out.split("\0") if entry]
+    status.nested = tuple(sorted(entry.rstrip("/") for entry in entries if entry.endswith("/")))
+    status.untracked = len(entries) - len(status.nested)
+
+
 def _status_of(member: WorkspaceRepo, scope: _Scope) -> _Status:
     status = _Status(path=member.relpath, parent=member.parent)
     # ``dirty`` keeps a submodule's own changes out of its parent's counts while still showing a moved pointer.
@@ -255,6 +276,8 @@ def _status_of(member: WorkspaceRepo, scope: _Scope) -> _Status:
         status.error = result.reason
         return status
     _parse_status(status, result.out)
+    if status.untracked:
+        _separate_nested(status, member)
     if member.parent is not None:
         parent = scope.by_path().get(member.parent)
         if parent is not None:
@@ -478,7 +501,8 @@ def _commit_one(member: WorkspaceRepo, status: _Status, message: str) -> _Outcom
             # nothing to commit here, and the repository holding it may record that commit.
             return _skip(path, f"nothing to commit, detached @{status.commit[:7]} is on a remote branch")
         return _fail(path, f"refused, detached HEAD @{status.commit[:7]}; run `lc workspace branch NAME` first")
-    added = _git(member.root, "add", "-A")
+    leave_out = [f":(top,exclude,literal){nested}" for nested in status.nested]
+    added = _git(member.root, "add", "-A", "--", ".", *leave_out)
     if not added.ok:
         return _fail(path, added.reason)
     staged = _git(member.root, "diff", "--cached", "--quiet")
@@ -490,7 +514,8 @@ def _commit_one(member: WorkspaceRepo, status: _Status, message: str) -> _Outcom
     if not committed.ok:
         return _fail(path, committed.reason)
     short = _git(member.root, "rev-parse", "--short", "HEAD").out.strip()
-    return _ok(path, f"committed {short} on {status.branch}")
+    left_out = f"; left out checkouts inside it: {', '.join(status.nested)}" if status.nested else ""
+    return _ok(path, f"committed {short} on {status.branch}{left_out}")
 
 
 def _commit(scope: _Scope, namespace: argparse.Namespace, sink: TextIO) -> int:

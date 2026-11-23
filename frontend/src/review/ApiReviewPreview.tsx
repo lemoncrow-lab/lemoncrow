@@ -56,7 +56,7 @@ function ResultPane({ label, result }: { label: string; result?: ReviewSurfaceRu
         <span className="font-mono uppercase tracking-tag text-muted-foreground">{label}</span>
         <span className={tone}>{result.status}</span>
         {statusCode != null && <span className="font-mono text-muted-foreground">HTTP {String(statusCode)}</span>}
-        <span className="font-mono text-muted-foreground" title={result.revision_id}>Snapshot {result.revision_id} · {result.side}</span>
+        <span className="font-mono text-muted-foreground" title={result.revision_id}>Revision · {result.side}</span>
         <span className="ml-auto font-mono text-muted-foreground">{result.duration_ms} ms</span>
       </div>
       <div className="px-3 py-2 text-caption text-muted-foreground">{result.summary}</div>
@@ -132,7 +132,7 @@ export default function ApiReviewPreview({
 
       {!executable && (
         <div className="mb-3 text-caption leading-4 text-amber-300/70">
-          Response execution needs a Snapshot-pinned runtime. The request definition is still reviewable.
+          Response execution needs a revision-pinned runtime. The request definition is still reviewable.
         </div>
       )}
       {run?.error && (

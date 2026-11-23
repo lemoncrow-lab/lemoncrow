@@ -23,8 +23,8 @@ usage() {
     cat <<'EOF'
 usage: uninstall_product.sh review|runtime|all [OPTIONS]
 
-  review            remove Review, preserve Runtime and account
-  runtime           remove Runtime, preserve Review and account
+  review            remove Review, preserve Workspaces and account
+  runtime           remove Workspaces, preserve Review and account
   all               remove all LemonCrow products and managed state
 
 Options:
@@ -53,7 +53,7 @@ done
 case "$PRODUCT" in
     review)
         [[ "$NO_HOSTS" == "0" && "$PURGE" == "0" && -z "$WORKSPACE" ]] || {
-            echo "review uninstall accepts only --dry-run; it never touches Runtime hosts or shared account state" >&2; exit 2;
+            echo "review uninstall accepts only --dry-run; it never touches Workspaces hosts or shared account state" >&2; exit 2;
         }
         args=(); [[ "$DRY_RUN" == "1" ]] && args+=(--dry-run)
         exec bash "$SCRIPT_DIR/uninstall_review.sh" "${args[@]}"

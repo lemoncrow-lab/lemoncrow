@@ -616,7 +616,7 @@ def draw(
         [
             SECTION_OPEN,
             "",
-            f"Relationships between {plural(touched, 'file')}: {said}. From the Snapshot's architecture delta, "
+            f"Relationships between {plural(touched, 'file')}: {said}. From the revision's architecture delta, "
             f"which compares the base and the head; {basis}.",
             "",
             f"{fence}mermaid",

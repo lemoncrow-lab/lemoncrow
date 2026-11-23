@@ -42,6 +42,7 @@ def _run_drill(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], dict[s
   echo "lemoncrow_home=$LEMONCROW_HOME"
   echo "supervisor=${{LEMONCROW_LOCAL_SERVER_SUPERVISOR:-}}"
   echo "port=${{LEMONCROW_LOCAL_SERVER_PORT:-}}"
+  echo "rtk_opt_in=${{LEMONCROW_INSTALL_RTK:-<unset>}}"
   for name in {" ".join((*_XDG_HOMES, *_SESSION))}; do
     echo "$name=${{!name-<unset>}}"
   done
@@ -93,6 +94,7 @@ def test_no_installer_reaches_the_host_service_manager_or_its_default_port(tmp_p
     assert {tool: seen.get(tool) for tool in _MANAGERS} == dict.fromkeys(_MANAGERS, "refused")
     assert not (tmp_path / "host-manager-calls").exists()
     assert seen["supervisor"] == "none"
+    assert seen["rtk_opt_in"] == "0"  # no optional Rust/rtk compilation in release upgrade drills
     assert seen["port"].isdigit() and int(seen["port"]) != 7420
     work = Path(seen["home"]).parent
     assert work.parent == tmp_path / "tmp" and Path(seen["pwd"]) == work

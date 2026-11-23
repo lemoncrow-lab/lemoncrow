@@ -26,18 +26,13 @@ SERVER_VERSION: Final[str] = lemoncrow_version
 # Injected into hosts that honor MCP initialize instructions. Keep this generic:
 # host-specific delegation/tool-name text belongs in the host integration.
 SERVER_INSTRUCTIONS: Final[str] = (
-    "LemonCrow replaces the grep→read→re-read loop.\n"
-    "- Lead with `code_search`: one call = ranked matches (top source inline, "
-    "rest as path:Lx-Ly pointers) + related_symbols + candidate_files. Inline "
-    "source = already read; never shell-grep or re-verify indexed results.\n"
-    "- Known path/symbols → `read`: ONE call, files=[...], exact :Lx-Ly ranges, "
-    "never the same file twice. Need, not might-need: a speculative :full costs "
-    "more than the turn it saves. Never cat/sed/head/tail.\n"
-    "- ALL edits in ONE `edit` edits[] array; prefer {path: 'f.py:Lx-Ly', new} over old/new.\n"
-    "- Independent calls (any tools) → ONE message.\n"
-    "- `bash` = execution only (tests, git, builds). Large output → a file, never inline prose.\n"
-    "- Graphical data (plots, pixel grids, UI) → write a PNG and `read` it; "
-    "don't infer visuals from raw bytes."
+    "Git source discovery → `code_search` first; combine terms. Returns ranked inline "
+    "source, path:Lx-Ly pointers and related symbols. Don't embed source grep/rg "
+    "in compound Bash.\n"
+    "Known files/symbols → `read` once with exact ranges. Batch edits in one `edit` "
+    "call and independent tool calls together.\n"
+    "`bash` for Git, tests, builds, logs, non-Git searches and exact shell output. "
+    "Index misses fall back to grep. Large output → file; visuals → PNG then `read`."
 )
 
 # Direct host integrations can advertise this eager core without making normal

@@ -105,6 +105,11 @@ function cost(minutes: number, calls: number): string {
   return parts.length > 0 ? parts.join(" · ") : "no compute";
 }
 
+/** A planned cost-class budget, not a timing: "up to 6 min", or "no compute". */
+function ceiling(minutes: number, calls: number): string {
+  return minutes > 0 || calls > 0 ? `up to ${cost(minutes, calls)}` : cost(minutes, calls);
+}
+
 /** Required work that will not run is never shown as an ordinary skip. */
 function isRequiredBlocker(entry: RunPlanEntry): boolean {
   return (
@@ -146,7 +151,8 @@ function EntryRow({ entry }: { entry: RunPlanEntry }) {
       <div className="mt-0.5 flex flex-wrap gap-x-2 text-micro text-muted-foreground">
         <span className="font-mono">{entry.id}</span>
         <span>{ORIGIN_LABEL[entry.origin] ?? entry.origin}</span>
-        {entry.status === "run" && <span>{cost(entry.estimated_minutes, entry.estimated_model_calls)}</span>}
+        {/* Cost-class budgets, not timings: a small repository finishes far sooner. */}
+        {entry.status === "run" && <span>{ceiling(entry.estimated_minutes, entry.estimated_model_calls)}</span>}
         {entry.sides === "base+head" && <span>base + head</span>}
         {entry.base_on_demand && <span>head first · base on demand</span>}
       </div>
@@ -344,7 +350,7 @@ export default function RunPlanPanel({
           {selectionLabel(plan)}
           <span className="text-muted-foreground">
             {" "}
-            · depth from {LAYER_LABEL[effortOrigin] ?? effortOrigin} · runs on {plan.run_on} · est. {cost(plan.budget.planned.minutes, plan.budget.planned.model_calls)}
+            · depth from {LAYER_LABEL[effortOrigin] ?? effortOrigin} · runs on {plan.run_on} · budget {ceiling(plan.budget.planned.minutes, plan.budget.planned.model_calls)}
           </span>
         </div>
         {pathDefaultLabel(plan) && (
@@ -365,7 +371,7 @@ export default function RunPlanPanel({
             Review policy invalid: {plan.policy_error}. Nothing runs until the trusted-base config is fixed.
           </div>
         )}
-        {data.historical && <div className="text-micro text-muted-foreground">Plan for an earlier Snapshot.</div>}
+        {data.historical && <div className="text-micro text-muted-foreground">Plan for an earlier revision.</div>}
         {data.future_settings.changed && (
           <div className="text-micro leading-relaxed text-cyan-300/80">
             This Change edits Review settings. They apply to later Reviews after it lands, not to this one.

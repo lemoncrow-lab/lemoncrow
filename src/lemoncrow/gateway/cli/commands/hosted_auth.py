@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import time
-import webbrowser
 from collections.abc import Mapping
 from typing import Any
 
 import click
 from lemoncrow_client.authward import AuthwardClient, discover_authward
+from lemoncrow_client.browser import launch_browser_url
 from lemoncrow_client.config import ClientConfig, load_config
 from lemoncrow_client.credentials import (
     clear_managed_credentials,
@@ -85,12 +85,9 @@ def auth_login(no_browser: bool) -> None:
     click.echo(f"Open {verification_uri}")
     click.echo(f"Code: {user_code}")
     if not no_browser:
-        try:
-            webbrowser.open(browser_url)
-        except Exception:
-            # The URL/code are already visible; a browser-launch failure is not
-            # an authentication failure and must not discard the device code.
-            pass
+        # The URL/code are already visible; a browser that cannot open is not
+        # an authentication failure and must not discard the device code.
+        launch_browser_url(browser_url)
 
     deadline = time.monotonic() + max(1, expires_in)
     while time.monotonic() < deadline:

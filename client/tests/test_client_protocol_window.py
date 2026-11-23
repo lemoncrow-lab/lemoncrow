@@ -250,6 +250,8 @@ _REQUESTED_OPTIONS: dict[str, object] = {
     "review_scope": "agent-1",
     "workspace_branch": "main",
     "capture_intent": "intent-1",
+    "with_workspace": True,
+    "workspace_root": "/projects",
 }
 
 #: What counts as requesting an option (the server's table in

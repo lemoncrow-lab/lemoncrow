@@ -99,19 +99,16 @@ class _Runner:
     def environment(self, command: Sequence[str]) -> str:
         """The registry's pre-dispatch probe: the real command probe, on this runner's image."""
 
-        from lemoncrow.pro.capabilities.review.runtimes import command_environment
+        from lemoncrow.pro.capabilities.review.runner_host import command_environment
 
         if self.environment_state == "broken":
             raise RuntimeError("probe failed")
         return command_environment(command, image_digest=self.image) if self.environment_state == "known" else ""
 
     def run(self, context: Any, runtime: Any, surface: Any, *, side: str) -> Any:
-        from lemoncrow.pro.capabilities.review.execution import ExecutionRecipe, ExecutionSubject, StageOutcome
-        from lemoncrow.pro.capabilities.review.runtimes import (
-            SurfaceRunResult,
-            command_identity,
-            revision_snapshot_identity,
-        )
+        from lemoncrow.pro.capabilities.review.runner_host import command_identity, revision_snapshot_identity
+        from lemoncrow.pro.environment.execution import ExecutionRecipe, ExecutionSubject, StageOutcome
+        from lemoncrow.pro.environment.runners import SurfaceRunResult
         from tests.gateway.test_review_execution_contract import _result
 
         command = tuple(str(part) for part in runtime.values["command"])
@@ -179,7 +176,7 @@ class _World:
         runner: _Runner | None = None,
         base: dict[str, str] | None = None,
     ) -> None:
-        from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+        from lemoncrow.pro.environment.runners import RunnerRegistry
 
         self.root = tmp_path / "repo"
         self.root.mkdir(parents=True)

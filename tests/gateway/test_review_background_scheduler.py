@@ -629,7 +629,7 @@ def test_background_off_refuses_and_an_invalid_policy_pauses(tmp_path: Path) -> 
     # An unreadable policy is fixed, not waited out forever: the job pauses (no attempt spent).
     settings.unset_setting(settings_root_path(), "intelligence.background.enabled")
     queued = scheduler.originate(NARRATION, _event("generation-3"), {"repository": "r1"})
-    settings._write_json(settings.settings_path(settings_root_path()), {"intelligence.enabled": "yes please"})
+    settings._write_json(settings.settings_path(settings_root_path()), {"intelligence.driver": "yes please"})
     with pytest.raises(JobPaused, match="policy_invalid"):
         scheduler.run_job(_job(bundle, queued.job_id)["payload"])
     _worker(bundle, scheduler).run_once()
@@ -722,6 +722,69 @@ def test_a_queued_job_runs_in_a_new_process(tmp_path: Path, settings_root: Path)
     assert queue.get(timeout=10) == (origination.job_id, 1)
     assert _job(bundle, origination.job_id)["status"] == "succeeded"
     assert _usage(root)["background"]["model_calls_used"] == 1
+
+
+class _LogsEachRun(_Executor):
+    """An executor that appends one line per execution to a file every process shares."""
+
+    def __init__(self, log: str) -> None:
+        super().__init__(calls=1)
+        self.log = log
+
+    def execute(self, subject: Mapping[str, Any], *, max_calls: int) -> BackgroundOutcome:
+        with open(self.log, "a", encoding="utf-8") as sink:
+            sink.write(f"{subject['repository']}\n")
+        return super().execute(subject, max_calls=max_calls)
+
+
+def _drain_in_child(root: str, settings_root: str, barrier: Any, log: str) -> None:
+    from lemoncrow.pro.capabilities.model_setup.transport import set_active_store_root
+
+    set_active_store_root(Path(settings_root))
+    bundle = _bundle(Path(root))
+    worker = _worker(bundle, _scheduler(bundle, Path(root), _LogsEachRun(log)))
+    barrier.wait(60)
+    while worker.run_once() is not None:
+        pass
+
+
+def _race_two_workers(root: Path, settings_root: Path, log: Path) -> None:
+    context = multiprocessing.get_context("spawn")
+    barrier = context.Barrier(2)
+    workers = [
+        context.Process(target=_drain_in_child, args=(str(root), str(settings_root), barrier, str(log)))
+        for _ in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(120)
+        assert worker.exitcode == 0
+
+
+def test_two_workers_racing_run_each_queued_job_once(tmp_path: Path, settings_root: Path) -> None:
+    root, log = tmp_path / "store", tmp_path / "runs.log"
+    bundle = _bundle(root)
+    scheduler = _scheduler(bundle, root, _Executor())
+    jobs = [scheduler.originate(NARRATION, _event(f"g-{n}"), {"repository": f"r{n}"}).job_id for n in range(8)]
+    _race_two_workers(root, settings_root, log)
+    assert sorted(log.read_text().split()) == sorted(f"r{n}" for n in range(8)), "each job ran exactly once"
+    rows = [_job(bundle, job_id) for job_id in jobs]
+    assert {row["status"] for row in rows} == {"succeeded"} and {row["attempts"] for row in rows} == {1}
+    usage = _usage(root)["background"]
+    assert (usage["model_calls_used"], usage["model_calls_held"]) == (8, 0)
+
+
+def test_two_workers_racing_at_the_limit_pause_every_job_without_a_call(tmp_path: Path, settings_root: Path) -> None:
+    root, log = tmp_path / "store", tmp_path / "runs.log"
+    bundle = _bundle(root)
+    settings.write_setting(settings_root, "intelligence.background.monthly_model_calls", 0)
+    scheduler = _scheduler(bundle, root, _Executor())
+    jobs = [scheduler.originate(NARRATION, _event(f"g-{n}"), {"repository": f"r{n}"}).job_id for n in range(4)]
+    _race_two_workers(root, settings_root, log)
+    assert not log.exists(), "no model call past the limit"
+    rows = [_job(bundle, job_id) for job_id in jobs]
+    assert {row["status"] for row in rows} == {"paused"} and {row["attempts"] for row in rows} == {0}
 
 
 class _DiesMidCall:

@@ -106,6 +106,7 @@ def test_reason_codes_are_stable_tokens() -> None:
         "hosted_quota_exhausted",
         "policy_invalid",
         "managed_unavailable",
+        "ai_budget_exhausted",
     }
 
 
@@ -485,6 +486,24 @@ def test_concurrent_processes_cannot_overspend_the_envelope_or_double_charge(tmp
     with sqlite3.connect(tmp_path / "background_budget.db") as conn:
         total = conn.execute("SELECT SUM(granted_calls) FROM background_budget_reservations").fetchone()[0]
     assert total == _CAP
+
+
+@pytest.mark.parametrize(
+    ("spent", "granted"),
+    [(6, 4), (7, 3), (9, 1), (10, 0), (15, 0)],
+    ids=["room-for-all", "one-call-short", "the-last-call", "at-the-limit", "past-the-limit"],
+)
+def test_the_local_envelope_at_and_past_its_limit(tmp_path: Path, spent: int, granted: int) -> None:
+    wide = LocalBackgroundBudgetStore(tmp_path, policy=_policy(monthly_model_calls=100), clock=_fixed_clock)
+    assert wide.reserve(_req("earlier", max_calls=spent)).granted_calls == spent
+    wide.settle("earlier", calls=spent)
+    store = LocalBackgroundBudgetStore(tmp_path, policy=_policy(monthly_model_calls=10), clock=_fixed_clock)
+    admission = store.reserve(_req("next", max_calls=4))
+    assert admission.granted_calls == granted
+    if granted == 0:
+        assert admission.reason is AdmissionReason.BACKGROUND_EXHAUSTED
+    usage = store.status()["background"]
+    assert (usage["model_calls_used"], usage["model_calls_held"]) == (spent, granted)
 
 
 # --------------------------------------------------------------------------- #

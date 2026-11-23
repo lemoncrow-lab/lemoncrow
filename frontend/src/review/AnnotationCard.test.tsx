@@ -185,11 +185,11 @@ describe("AnnotationCard", () => {
     expect(onDraftChange).toHaveBeenLastCalledWith({ body: "Keep this request" });
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
     expect(onDraftChange).toHaveBeenLastCalledWith({ kind: "request_change" });
-    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark target needs changes" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark part needs changes" }));
     expect(onDraftChange).toHaveBeenLastCalledWith({ markTarget: false });
   });
 
-  it("defaults Request change to marking the current target needs changes", async () => {
+  it("defaults Request change to marking the current part needs changes", async () => {
     const onSubmit = vi.fn();
     render(
       <AnnotationCard
@@ -207,13 +207,13 @@ describe("AnnotationCard", () => {
     );
     await userEvent.type(screen.getByPlaceholderText("Leave feedback…"), "Guard the retry path.");
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
-    const checkbox = screen.getByRole("checkbox", { name: "Also mark target needs changes" }) as HTMLInputElement;
+    const checkbox = screen.getByRole("checkbox", { name: "Also mark part needs changes" }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "Request changes" }));
     expect(onSubmit).toHaveBeenCalledWith("Guard the retry path.", "request_change", "", true);
   });
 
-  it("lets the reviewer leave a blocking comment without changing target state", async () => {
+  it("lets the reviewer leave a blocking comment without changing part state", async () => {
     const onSubmit = vi.fn();
     render(
       <AnnotationCard
@@ -231,7 +231,7 @@ describe("AnnotationCard", () => {
     );
     await userEvent.type(screen.getByPlaceholderText("Leave feedback…"), "Question this behavior.");
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark target needs changes" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark part needs changes" }));
     await userEvent.click(screen.getByRole("button", { name: "Request changes" }));
     expect(onSubmit).toHaveBeenCalledWith("Question this behavior.", "request_change", "", false);
   });
@@ -435,7 +435,8 @@ describe("AnnotationCard", () => {
       }),
     ]);
     expect(screen.getByText("AUTHOR")).toBeTruthy();
-    expect(screen.getByText("claude/session-7")).toBeTruthy();
+    // The agent is named; its session id stays on hover.
+    expect(screen.getByText("Claude Code")).toHaveAttribute("title", expect.stringContaining("claude/session-7"));
     expect(screen.getByText("Why context became required")).toBeTruthy();
     expect(screen.queryByText("Request change")).toBeNull();
     expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
@@ -470,7 +471,9 @@ describe("AnnotationCard", () => {
       }),
     ]);
     expect(screen.getByText(/marked addressed · re-review/)).toBeTruthy();
-    expect(screen.getByText(/addressed by claude\/session-7/)).toBeTruthy();
+    // The agent session id is not printed; the reviewer is told who acted and what is left to them.
+    expect(screen.getByText("The coding agent marked this addressed; only you can resolve it.")).toBeTruthy();
+    expect(screen.queryByText(/claude\/session-7/)).toBeNull();
     expect(screen.getByRole("button", { name: "Resolve" })).toBeTruthy();
     expect(screen.queryByText(/^resolved$/)).toBeNull();
   });

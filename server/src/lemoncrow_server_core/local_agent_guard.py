@@ -32,11 +32,18 @@ logger = logging.getLogger(__name__)
 
 _JUDGMENT_POST = re.compile(
     r"^/api/reviews/[^/]+/"
-    r"(?:marks|marks/bulk|finish|outcome|annotations|verification/waivers|landing/arm|github/publish)$"
+    r"(?:marks|marks/bulk|finish|outcome|annotations|verification/waivers|landing/arm|github/publish"
+    # Flow send schedules a verdict the server worker later records and finishes
+    # without passing this guard; seen-coverage is signed into the record.
+    r"|flow-send|flow-send/[^/]+/undo|seen-coverage)$"
 )
-_JUDGMENT_PATCH = re.compile(r"^/api/annotations/[^/]+$")
+_JUDGMENT_PATCH = re.compile(r"^/api/(?:annotations/[^/]+|review-settings)$")
+# The reviewer's own settings (keys, reading view, theme): an agent must not change how the reviewer works.
+_JUDGMENT_DELETE = re.compile(r"^/api/review-settings$")
 # Where a Review's fixes go: an agent must not point the feedback at itself.
-_JUDGMENT_PUT = re.compile(r"^/api/reviews/[^/]+/destination$")
+# The viewer's queue (snooze hides a Review from their own Your turn): a person's call, never an agent's.
+# The machine's AI settings (provider, model, on/off, where jobs run) are the reviewer's to change too.
+_JUDGMENT_PUT = re.compile(r"^/api/(?:reviews/[^/]+/(?:destination|queue-state)|review-intelligence/settings)$")
 
 _MARKER_HOSTS: dict[str, str] = dict(AGENT_SESSION_ENVS)
 #: Agent CLIs by executable name (Linux ``comm`` or argv[0] basename).
@@ -44,7 +51,6 @@ _AGENT_EXECUTABLES: dict[str, str] = {
     "claude": "claude",
     "codex": "codex",
     "opencode": "opencode",
-    "lemoncode": "lemoncode",
     "cursor-agent": "cursor",
     "copilot": "copilot",
     "hermes": "hermes",
@@ -84,6 +90,8 @@ def is_judgment_request(method: str, path: str) -> bool:
         return bool(_JUDGMENT_PATCH.match(path))
     if verb == "PUT":
         return bool(_JUDGMENT_PUT.match(path))
+    if verb == "DELETE":
+        return bool(_JUDGMENT_DELETE.match(path))
     return False
 
 

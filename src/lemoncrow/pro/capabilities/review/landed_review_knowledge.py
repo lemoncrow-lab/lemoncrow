@@ -59,7 +59,7 @@ def landed_review_facts(
         or not revisions
         or revisions[-1].id != revision_id
     ):
-        raise ValueError("landed Review facts require the exact current Review Snapshot")
+        raise ValueError("landed Review facts require the exact current Review revision")
 
     refs = (f"review:{review_id}", f"revision:{revision_id}")
     facts: list[KnowledgeFact] = []
@@ -83,7 +83,7 @@ def landed_review_facts(
                 subject=KnowledgeSubject("concept", f"review-decision:{review_id}:{fingerprint}"),
                 knowledge_kind="landed_review_decision",
                 body=(
-                    f"Human reviewer {action} a recorded decision in Review Snapshot {revision_id} "
+                    f"Human reviewer {action} a recorded decision in Review revision {revision_id} "
                     f"(decision hash {fingerprint}; event {event.id}; final disposition {event.disposition}). "
                     "Historical reviewer disposition, not code evidence, active acceptance or governing policy; "
                     "read decision details only through the authorized Review."
@@ -128,7 +128,7 @@ def landed_review_facts(
                 subject=KnowledgeSubject("concept", f"review-check:{review_id}:{evidence_id}"),
                 knowledge_kind="landed_review_observation",
                 body=(
-                    f"Review Snapshot {revision_id} check identity {scenario_digest} ({scope}) recorded "
+                    f"Review revision {revision_id} check identity {scenario_digest} ({scope}) recorded "
                     f"{receipt['status']} on {executor}; execution artifact verified by digest. "
                     "This local observation is not proof of production safety or independent evaluation."
                 ),
@@ -196,7 +196,7 @@ def build_landed_review_knowledge(
     ):
         raise ValueError("provider merge observation does not match the exact reviewed head")
     if not facts:
-        raise ValueError("no eligible verified Review history for this landed Snapshot")
+        raise ValueError("no eligible verified Review history for this landed revision")
     return build_merged_change_projection(
         previous,
         current,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from lemoncrow.pro.capabilities.review.consumer_inventory import OutsideReach
 from lemoncrow.pro.capabilities.review.review_priority import (
     TIER_DONE,
     TIER_POLICY_BLOCKER,
@@ -14,6 +15,9 @@ from lemoncrow.pro.capabilities.review.review_priority import (
     QueueReason,
     assign_review_priority,
     legacy_group_for_tier,
+    reach_phrase,
+    safeguard_reasons,
+    wide_reach_reasons,
 )
 from lemoncrow.pro.capabilities.review.routine import RoutineProof
 from lemoncrow.pro.capabilities.review.targets import ReviewTarget, TargetAnnotationCounts, TargetVerification
@@ -283,3 +287,124 @@ def test_review_priority_idempotence_contract() -> None:
 
 
 _PROOF = RoutineProof("src/a.py", "comment_only", "python", "Comment-only change; code is byte-identical (Python)")
+
+
+def _reach(target_id: str, change: str, files: tuple[str, ...], tests: tuple[str, ...] = ()) -> OutsideReach:
+    return OutsideReach(
+        target_id=target_id,
+        path="invoices/list.ts",
+        symbol="listInvoices",
+        change=change,
+        files=files,
+        tests=tests,
+        calls_only=True,
+        at_least=False,
+    )
+
+
+def test_a_changed_symbol_called_from_outside_the_change_ranks_review_first() -> None:
+    outside = ("api/v1/invoices.ts", "jobs/exportInvoices.ts", "web/Dashboard.tsx")
+    reasons = wide_reach_reasons(
+        {
+            "target:list": _reach("target:list", "modified", outside, ("invoices/list.test.ts",)),
+            # Nothing outside can depend on an added symbol's old behavior.
+            "target:wrap": _reach("target:wrap", "added", ("x.ts",)),
+            # Tests alone do not widen reach.
+            "target:tested": _reach("target:tested", "modified", (), ("a.test.ts",)),
+        }
+    )
+    assert reasons == {"target:list": [QueueReason("wide_reach", "Called from 3 files outside this change")]}
+
+    targets = (_target("wrap", path="lib/cache.ts"), _target("list", path="invoices/list.ts"))
+    ordered = assign_review_priority(targets, policy_reasons=reasons)
+    assert [t.unit_key for t in ordered] == ["list", "wrap"]
+    first = ordered[0].priority
+    assert first.tier == TIER_REVIEW_FIRST and first.attention == "review_first"
+    assert first.reasons[0].detail == "Called from 3 files outside this change"
+    # A judgment is never reopened by reach.
+    reviewed = assign_review_priority((_target("list", state="reviewed"),), policy_reasons=reasons)
+    assert reviewed[0].priority.tier == TIER_DONE
+
+
+def test_more_reasons_to_look_first_sort_earlier_inside_one_class() -> None:
+    """An auth path that outside files call outranks code they only call, whatever the file order."""
+
+    reach = [QueueReason("wide_reach", "Called from 1 file outside this change")]
+    auth = [QueueReason("sensitive_path_attention", "Access-control code changed"), *reach]
+    targets = (
+        _target("order_total", path="app/orders.py", rank=1),
+        _target("apply_discount", path="app/orders.py", start=8, rank=2),
+        _target("can_view_order", path="app/auth.py", rank=3),
+    )
+    ordered = assign_review_priority(
+        targets,
+        policy_reasons={"target:order_total": reach, "target:apply_discount": reach, "target:can_view_order": auth},
+    )
+    assert [t.unit_key for t in ordered] == ["can_view_order", "order_total", "apply_discount"]
+    assert ordered[0].priority.reasons[0].code == "sensitive_path_attention"
+
+
+def test_reach_wording_follows_what_was_listed() -> None:
+    single = replace(_reach("t", "deleted", ("a.ts",)), calls_only=False)
+    assert reach_phrase(single) == "used in 1 file outside this change"
+    assert reach_phrase(replace(single, at_least=True)) == "used in at least 1 file outside this change"
+
+
+def test_a_removed_safeguard_ranks_review_first_with_its_fact_while_untested_parts_stay_understand() -> None:
+    """The demo: apply_discount's narrowed guard joins the auth part in Review first; order_total does not."""
+
+    phrase = (
+        "no longer rejects a percent over 100 (check narrowed from `percent < 0 or percent > 100` to `percent < 0`)"
+    )
+    fact = "No longer rejects a percent over 100 (check narrowed from percent < 0 or percent > 100 to percent < 0)"
+    policy = safeguard_reasons({"target:apply_discount": [phrase], "target:empty": []})
+    assert policy == {"target:apply_discount": [QueueReason("removed_safeguard", fact)]}
+    auth = [
+        QueueReason("sensitive_path_attention", "Access-control code changed"),
+        QueueReason("wide_reach", "Called from 1 file outside this change"),
+    ]
+    targets = (
+        _target("order_total", path="app/orders.py", rank=1),
+        _target("apply_discount", path="app/orders.py", start=8, rank=2),
+        _target("can_view_order", path="app/auth.py", rank=3),
+    )
+    ordered = assign_review_priority(targets, policy_reasons={**policy, "target:can_view_order": auth})
+    assert [(t.unit_key, t.priority.attention) for t in ordered] == [
+        ("can_view_order", "review_first"),
+        ("apply_discount", "review_first"),
+        ("order_total", "understand"),
+    ]
+    assert ordered[1].priority.reasons[0] == QueueReason("removed_safeguard", fact)
+    # A judgment is never reopened by a safeguard fact.
+    reviewed = assign_review_priority((_target("apply_discount", state="reviewed"),), policy_reasons=policy)
+    assert reviewed[0].priority.tier == TIER_DONE
+
+
+def test_review_first_membership_survives_a_judgment_and_never_comes_from_the_reviewers_own_marks() -> None:
+    """The Brief's Understanding counts these parts: a mark moves a part's tier, never its membership."""
+
+    from lemoncrow.pro.capabilities.review.review_priority import priority_payload
+
+    policy = {
+        "target:view": [QueueReason("sensitive_path_attention", "Access-control code changed")],
+        "target:wide": [QueueReason("wide_reach", "Called from 1 file outside this change")],
+        "target:disc": [QueueReason("removed_safeguard", "No longer rejects a percent over 100")],
+    }
+    targets = (
+        _target("view", state="reviewed"),
+        _target("wide", state="needs_changes"),
+        _target("disc"),
+        _target("total", state="needs_changes"),
+        _target("again", state="changed_since_review"),
+        _target("failed", fail=1, state="reviewed"),
+    )
+    by_key = {t.unit_key: t.priority for t in assign_review_priority(targets, policy_reasons=policy)}
+    assert by_key["view"].tier == TIER_DONE and by_key["view"].review_first
+    assert by_key["wide"].tier == TIER_POLICY_BLOCKER and by_key["wide"].review_first
+    assert by_key["disc"].tier == TIER_REVIEW_FIRST and by_key["disc"].review_first
+    # The reviewer's own objection or a re-review is not a reason to look first at the change.
+    assert by_key["total"].tier == TIER_POLICY_BLOCKER and not by_key["total"].review_first
+    assert by_key["again"].tier == TIER_RE_REVIEW and not by_key["again"].review_first
+    # A failing linked check is the part's own evidence.
+    assert by_key["failed"].review_first
+    assert priority_payload(by_key["view"])["review_first"] is True

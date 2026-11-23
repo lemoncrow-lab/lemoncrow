@@ -684,7 +684,7 @@ def _scan(captured: Captured, binary: str, scratch: Path, environ: Mapping[str, 
     store, revision = captured.store, captured.revision
     packet = read_packet_json(store, revision)
     if packet is None:
-        return SecurityScan("unavailable", reason="the change could not be read back from the Snapshot")
+        return SecurityScan("unavailable", reason="the change could not be read back from the revision")
     ranges = changed_lines(packet.get("files"))
     config = _base_config(captured)
     wanted = sorted(

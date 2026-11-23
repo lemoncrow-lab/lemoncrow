@@ -180,7 +180,7 @@ def _source_prompt(root: Path, *, limit: int) -> tuple[str, tuple[str, ...]]:
             continue
         relative = file.relative_to(root).as_posix()
         if _HIGH_CONFIDENCE_SECRET.search(body):
-            raise ModelBrokerRefused("Snapshot includes credential-like source; external call refused")
+            raise ModelBrokerRefused("Revision includes credential-like source; external call refused")
         excerpt = f"\n--- BEGIN UNTRUSTED SOURCE {relative} ---\n{body}\n--- END SOURCE ---\n"
         size = len(excerpt.encode("utf-8"))
         if total + size > limit:

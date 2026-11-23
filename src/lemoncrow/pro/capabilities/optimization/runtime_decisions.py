@@ -1,4 +1,4 @@
-"""Local, redacted decision traces for the LemonCode optimization control plane."""
+"""Local, redacted decision traces for the Runtime optimization control plane."""
 
 from __future__ import annotations
 

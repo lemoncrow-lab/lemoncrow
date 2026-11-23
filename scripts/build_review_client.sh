@@ -103,13 +103,13 @@ set +e
 review_runtime_message="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" runtime status 2>&1)"
 review_runtime_status=$?
 set -e
-[[ "$review_runtime_status" == "2" && "$review_runtime_message" == *"Runtime is not installed"* ]] \
+[[ "$review_runtime_status" == "2" && "$review_runtime_message" == *"Workspaces is not installed"* ]] \
     || { echo "build_review_client.sh: Review wheel did not refuse absent Runtime cleanly" >&2; exit 1; }
 set +e
 review_rt_message="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" rt status 2>&1)"
 review_rt_status=$?
 set -e
-[[ "$review_rt_status" == "2" && "$review_rt_message" == *"Runtime is not installed"* ]] \
+[[ "$review_rt_status" == "2" && "$review_rt_message" == *"Workspaces is not installed"* ]] \
     || { echo "build_review_client.sh: lc rt did not delegate to absent Runtime cleanly" >&2; exit 1; }
 HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" status >/dev/null
 for expected in -- --ai "hook install" init-action "review config"; do
@@ -122,17 +122,29 @@ review_ai_status=$?
 set -e
 [[ "$review_ai_status" == "2" && "$review_ai_message" == *"needs the local Review engine"* && "$review_ai_message" != *Traceback* ]] \
     || { echo "build_review_client.sh: lc review --ai did not report a missing engine cleanly (status $review_ai_status): $review_ai_message" >&2; exit 1; }
+# Terminal verbs load lazily (review_verbs once missed the allowlist and every `lc review` crashed): reach one.
+set +e
+review_verb_message="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" review undo 2>&1)"
+set -e
+[[ "$review_verb_message" != *Traceback* ]] \
+    || { echo "build_review_client.sh: lc review undo crashed in the Review wheel: $review_verb_message" >&2; exit 1; }
 set +e
 promoted_output="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" code --help 2>&1)"
 promoted_status=$?
 set -e
-[[ "$promoted_status" == "2" && "$promoted_output" == *"Runtime is not installed"* ]] \
+[[ "$promoted_status" == "2" && "$promoted_output" == *"Workspaces is not installed"* ]] \
     || { echo "build_review_client.sh: Review artifact did not delegate lc code to absent Runtime cleanly" >&2; exit 1; }
+set +e
+workspace_output="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" workspace status 2>&1)"
+workspace_status=$?
+set -e
+[[ "$workspace_status" == "2" && "$workspace_output" == *"lc workspace is part of LemonCrow Workspaces. Add it:"* && "$workspace_output" == *"--product runtime"* && "$workspace_output" != *Traceback* ]] \
+    || { echo "build_review_client.sh: Review artifact did not delegate lc workspace to absent Runtime cleanly" >&2; exit 1; }
 set +e
 review_with_message="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lc" with claude 2>&1)"
 review_with_status=$?
 set -e
-[[ "$review_with_status" == "2" && "$review_with_message" == *"Runtime is not installed"* ]] \
+[[ "$review_with_status" == "2" && "$review_with_message" == *"Workspaces is not installed"* ]] \
     || { echo "build_review_client.sh: Review wheel did not refuse lc with without Runtime" >&2; exit 1; }
 for removed_alias in mcp install routes; do
     set +e

@@ -27,7 +27,7 @@ from typing import Any
 from lemoncrow.gateway.hosts.session_parsers._session_parser import parse_session_turns
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import estimate_tokens
 
-SUPPORTED_HOSTS = ("claude", "codex", "opencode", "lemoncode", "pi", "copilot", "hermes", "cursor", "antigravity")
+SUPPORTED_HOSTS = ("claude", "codex", "opencode", "pi", "copilot", "hermes", "cursor", "antigravity")
 
 # Argument keys that indicate a *ranged* (targeted) read rather than a whole-file
 # read. A ranged read means the agent already knew where to look, so it is not
@@ -827,20 +827,8 @@ def _opencode_db_path() -> Path | None:
     return None
 
 
-def _lemoncode_db_path() -> Path | None:
-    """Current LemonCode session store (SQLite), or None when absent.
-
-    The fork rebranded the XDG app dir but kept upstream's ``opencode.db``
-    filename and schema.
-    """
-    from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
-
-    path = default_lemoncode_db_path()
-    return path if path.is_file() else None
-
-
 def _opencode_db_entries(session_id: str | None, last: int, db: Path | None = None) -> list[_ReplayEntry]:
-    """Enumerate opencode/lemoncode sessions from their opencode.db (newest first)."""
+    """Enumerate opencode sessions from their opencode.db (newest first)."""
     if db is None:
         db = _opencode_db_path()
     if db is None:
@@ -944,7 +932,6 @@ def _path_entries(host: str, session_id: str | None, last: int) -> list[_ReplayE
 
 
 # "hermes" stands in for every normalized-JSONL source (cursor, antigravity, …)
-# and "opencode" for lemoncode: they share one parser, so the FORMAT is
 # detectable but not the exact host.
 _DETECTABLE_SOURCES = ("claude", "codex", "opencode", "copilot", "hermes")
 
@@ -978,7 +965,7 @@ def load_replays(
 
     Per-host discovery: claude / codex / copilot read JSONL transcripts off
     disk; opencode enumerates opencode.db (falling back to the legacy *.jsonl
-    layout) and lemoncode the same DB under its own data root; hermes reads
+    layout); hermes reads
     ~/.hermes/state.db; cursor / antigravity read the
     normalized session artifacts their importers stored in the LemonCrow store
     (``store_root``, default ``~/.lemoncrow``).
@@ -993,8 +980,6 @@ def load_replays(
         entries = [(parsed_session_id or session_id or _session_id_from_path(file), content, str(file))]
     elif host == "opencode":
         entries = _opencode_db_entries(session_id, last) or _path_entries(host, session_id, last)
-    elif host == "lemoncode":
-        entries = _opencode_db_entries(session_id, last, _lemoncode_db_path())
     elif host == "hermes":
         entries = _hermes_entries(session_id, last)
     elif host in ("cursor", "antigravity"):

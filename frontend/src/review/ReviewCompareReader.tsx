@@ -1,5 +1,6 @@
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
+import { Select, SelectItem } from "../components/ui/select";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import { ArrowLeft, ArrowRight, GitCompareArrows } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -8,8 +9,9 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./reviewUi.css";
 import type { DiffStyle } from "./diffModel";
 import ReviewStream from "./ReviewStream";
-import { fetchSourceComparison, reviewDirectoryHref, reviewHref, sourceCompareHref } from "./reviewApi";
-import type { FileDetail, ReviewTarget, SourceComparison } from "./types";
+import { fetchRevisions, fetchSourceComparison, reviewDirectoryHref, reviewHref, sourceCompareHref } from "./reviewApi";
+import { revisionLabel } from "./revisionLabel";
+import type { FileDetail, ReviewTarget, RevisionInfo, SourceComparison } from "./types";
 
 function decodeCompareSpec(raw: string): { from: string; to: string } {
   const marker = raw.indexOf("..");
@@ -50,6 +52,29 @@ function fileTarget(path: string, additions: number, deletions: number): ReviewT
   };
 }
 
+/** The revision a review-scoped source names: its short ref, its id, or the one id that starts with the short id. */
+export function revisionForSpec(revisions: readonly RevisionInfo[], spec: string): RevisionInfo | undefined {
+  if (!spec.startsWith("rr/")) return undefined;
+  const token = spec.slice(3);
+  const exact = revisions.find((revision) => revision.ref === spec || revision.id === token);
+  if (exact || !token) return exact;
+  const prefixed = revisions.filter((revision) => revision.id.startsWith(token));
+  return prefixed.length === 1 ? prefixed[0] : undefined;
+}
+
+const specOf = (revision: RevisionInfo): string => (revision.ref?.startsWith("rr/") ? revision.ref : `rr/${revision.id}`);
+
+/** The server's reason in words a reviewer can act on (review-22.2): a missing side says so plainly; anything else keeps
+ * the server's own text. */
+export function compareErrorText(message: string): string {
+  // A bare status code (non-JSON error body) tells the reviewer nothing.
+  if (/^\d{3}$/.test(message)) return `The server could not compare these sources (HTTP ${message}).`;
+  if (/\bnot available\b|\bno such\b|\bnot found\b/i.test(message)) {
+    return "One of these two versions could not be found, so there is nothing to compare. Check both versions above, or go back to the review.";
+  }
+  return message;
+}
+
 export default function ReviewCompareReader() {
   const params = useParams<{ "*": string; reviewRef?: string }>();
   const wildcard = params["*"] ?? "";
@@ -75,6 +100,33 @@ export default function ReviewCompareReader() {
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("split");
   const [activeTargetId, setActiveTargetId] = useState("");
   const [attempt, setAttempt] = useState(0);
+  // A review-scoped comparison picks among the review's own revisions by name, never by raw id (review-22.2). Only when
+  // the review's revisions cannot be read does it fall back to the source fields.
+  const [revisions, setRevisions] = useState<RevisionInfo[] | null>(null);
+  const [revisionsFailed, setRevisionsFailed] = useState(false);
+  const picking = Boolean(scopedReviewRef) && !revisionsFailed;
+
+  useEffect(() => {
+    setRevisions(null);
+    setRevisionsFailed(false);
+    if (!scopedReviewRef) return;
+    let live = true;
+    fetchRevisions(scopedReviewRef)
+      .then((history) => {
+        if (!live) return;
+        const list = [...(history.revisions ?? [])].sort((a, b) => a.revision_number - b.revision_number);
+        if (list.length) setRevisions(list); else setRevisionsFailed(true);
+      })
+      .catch(() => { if (live) setRevisionsFailed(true); });
+    return () => { live = false; };
+  }, [scopedReviewRef]);
+  const fromRevision = revisions ? revisionForSpec(revisions, routePair.from) : undefined;
+  const toRevision = revisions ? revisionForSpec(revisions, routePair.to) : undefined;
+  const fromName = fromRevision ? revisionLabel(fromRevision) : comparison?.from.label ?? "";
+  const toName = toRevision ? revisionLabel(toRevision) : comparison?.to.label ?? "";
+  useEffect(() => {
+    if (comparison) document.title = `Compare: ${fromName} → ${toName}`;
+  }, [comparison, fromName, toName]);
 
   useEffect(() => {
     setFromInput(routePair.from);
@@ -94,14 +146,11 @@ export default function ReviewCompareReader() {
         if (!live) return;
         setComparison(result);
         setActiveTargetId(result.files[0] ? `compare:${result.files[0].path}` : "");
-        document.title = `Compare: ${result.from.label} → ${result.to.label}`;
       })
       .catch((reason: unknown) => {
         if (!live) return;
         setComparison(null);
-        const message = String(reason instanceof Error ? reason.message : reason);
-        // A bare status code (non-JSON error body) tells the reviewer nothing.
-        setError(/^\d{3}$/.test(message) ? `The server could not compare these sources (HTTP ${message}).` : message);
+        setError(compareErrorText(String(reason instanceof Error ? reason.message : reason)));
       })
       .finally(() => {
         if (live) setLoading(false);
@@ -138,6 +187,25 @@ export default function ReviewCompareReader() {
     if (!from || !to) return;
     navigate(sourceCompareHref(from, to, scope));
   };
+  const pickRevision = (side: "from" | "to", spec: string) => {
+    const from = side === "from" ? spec : fromRevision ? specOf(fromRevision) : "";
+    const to = side === "to" ? spec : toRevision ? specOf(toRevision) : "";
+    if (side === "from") setFromInput(spec); else setToInput(spec);
+    if (from && to) navigate(sourceCompareHref(from, to, scope));
+  };
+  const revisionPicker = (side: "from" | "to", picked: RevisionInfo | undefined) => (
+    <Select
+      uiSize="xs"
+      aria-label={side === "from" ? "Compare from revision" : "Compare to revision"}
+      value={picked ? specOf(picked) : ""}
+      placeholder={revisions ? "Choose a revision" : "Loading revisions…"}
+      disabled={!revisions}
+      onValueChange={(spec) => pickRevision(side, spec)}
+      className="min-w-[160px] flex-1 sm:flex-none"
+    >
+      {(revisions ?? []).map((revision) => <SelectItem key={revision.id} value={specOf(revision)}>{revisionLabel(revision)}</SelectItem>)}
+    </Select>
+  );
 
   const goBack = () => {
     const historyIndex = window.history.state?.idx;
@@ -157,28 +225,34 @@ export default function ReviewCompareReader() {
           </UiButton>
           <GitCompareArrows size={16} className="shrink-0 text-cyan-300" aria-hidden="true" />
           <span className="shrink-0 text-label font-semibold text-foreground">Compare</span>
-          <UiInput
-            uiSize="xs"
-            aria-label="Compare from source"
-            value={fromInput}
-            onChange={(event) => setFromInput(event.currentTarget.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
-            placeholder="git/HEAD~1 or rr/<revision-id>"
-            spellCheck={false}
-          />
-          <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-          <UiInput
-            uiSize="xs"
-            aria-label="Compare to source"
-            value={toInput}
-            onChange={(event) => setToInput(event.currentTarget.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
-            placeholder="git/HEAD, worktree, index, rr/<revision-id>"
-            spellCheck={false}
-          />
-          <UiButton variant="solid" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
+          {picking ? <>
+            {revisionPicker("from", fromRevision)}
+            <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+            {revisionPicker("to", toRevision)}
+          </> : <>
+            <UiInput
+              uiSize="xs"
+              aria-label="Compare from source"
+              value={fromInput}
+              onChange={(event) => setFromInput(event.currentTarget.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
+              className="min-w-[180px] flex-1 font-mono text-meta"
+              placeholder="git/HEAD~1 or rr/<revision-id>"
+              spellCheck={false}
+            />
+            <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+            <UiInput
+              uiSize="xs"
+              aria-label="Compare to source"
+              value={toInput}
+              onChange={(event) => setToInput(event.currentTarget.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
+              className="min-w-[180px] flex-1 font-mono text-meta"
+              placeholder="git/HEAD, worktree, index, rr/<revision-id>"
+              spellCheck={false}
+            />
+            <UiButton variant="solid" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
+          </>}
           <ToggleGroup
             variant="segment"
             aria-label="Diff layout"
@@ -193,9 +267,12 @@ export default function ReviewCompareReader() {
         </div>
         {comparison && (
           <div className="mt-1.5 flex items-center gap-2 pl-10 text-caption text-muted-foreground">
-            <span className="font-mono text-muted-foreground">{comparison.from.label}</span>
-            <ArrowRight size={14} aria-hidden="true" />
-            <span className="font-mono text-subtle">{comparison.to.label}</span>
+            {/* With the pickers above, the names are not said twice; a source field gets the server's labels. */}
+            {!picking && <>
+              <span className="font-mono text-muted-foreground">{comparison.from.label}</span>
+              <ArrowRight size={14} aria-hidden="true" />
+              <span className="font-mono text-subtle">{comparison.to.label}</span>
+            </>}
             <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-red-400">-{comparison.summary.deletions}</span></span>
           </div>
         )}
@@ -214,7 +291,7 @@ export default function ReviewCompareReader() {
         </div>
       )}
       {!loading && !error && comparison && comparison.files.length === 0 && (
-        <div className="px-4 py-10 text-center text-body text-muted-foreground">No source differences between these snapshots.</div>
+        <div className="px-4 py-10 text-center text-body text-muted-foreground">No source differences between these revisions.</div>
       )}
       {!loading && !error && comparison && comparison.files.length > 0 && (
         <div className="min-h-0 flex-1">

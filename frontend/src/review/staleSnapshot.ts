@@ -7,7 +7,7 @@
  */
 
 export const STALE_SNAPSHOT_NOTICE =
-  "The Review advanced to a newer Snapshot, so your change was not saved. Reload the review, then redo it on the current Snapshot.";
+  "The Review advanced to a newer revision, so your change was not saved. Reload the review, then redo it on the current revision.";
 
 export function isStaleSnapshotError(reason: unknown): boolean {
   const status = (reason as { status?: unknown } | null)?.status;

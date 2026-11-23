@@ -132,7 +132,7 @@ def _excerpt(text: str, line: int, end: int) -> dict[str, Any]:
 
 def _file_diff(repo: Path, base: str, head: str, path: str) -> str:
     done = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--no-color", "-U3", base, head, "--", path],
+        [wire.system_executable("git"), "-C", str(repo), "diff", "--no-color", "-U3", base, head, "--", path],
         capture_output=True,
         timeout=60,
         check=False,

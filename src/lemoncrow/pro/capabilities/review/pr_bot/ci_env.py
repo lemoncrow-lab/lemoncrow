@@ -49,7 +49,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 BACKEND_ENV = "LEMONCROW_LLM_BACKEND"
@@ -59,9 +59,31 @@ PROVIDER_ENV = "LEMONCROW_REVIEW_PROVIDER"
 #: review quality and cost per catch are measured. The OpenAI default stays the
 #: driver's own (``gpt-4o-mini``).
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
+#: The model a review asks the signed-in ``claude`` CLI for when none was chosen. Left to the CLI, the review runs on
+#: whatever that CLI defaults to, and the same small commit went from a complete $0.49 review on this model to a run
+#: stopped by a $1.00 cap after one call.
+DEFAULT_CLAUDE_CLI_MODEL = "sonnet"
 PROVIDERS = ("auto", "anthropic", "openai", "litellm")
 #: The Action's key inputs, as ``action.yml`` passes them to a step, and the standard variable each one stands for.
-KEY_INPUTS = {"INPUT_ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY", "INPUT_OPENAI_API_KEY": "OPENAI_API_KEY"}
+KEY_INPUTS = {
+    "INPUT_ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY",
+    "INPUT_OPENAI_API_KEY": "OPENAI_API_KEY",
+    "INPUT_CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN",
+}
+#: The Workload Identity Federation inputs: IDs, not secrets, so they are merged like the keys but never masked.
+FEDERATION_INPUTS = {
+    "INPUT_ANTHROPIC_FEDERATION_RULE_ID": "ANTHROPIC_FEDERATION_RULE_ID",
+    "INPUT_ANTHROPIC_ORGANIZATION_ID": "ANTHROPIC_ORGANIZATION_ID",
+    "INPUT_ANTHROPIC_SERVICE_ACCOUNT_ID": "ANTHROPIC_SERVICE_ACCOUNT_ID",
+    "INPUT_ANTHROPIC_WORKSPACE_ID": "ANTHROPIC_WORKSPACE_ID",
+}
+#: A federation with no identity token to exchange: the job was not given one.
+NO_ID_TOKEN_FIX = (
+    "Workload identity federation is configured (anthropic-federation-rule-id and anthropic-organization-id) but this "
+    "job cannot request a GitHub OIDC token: add `id-token: write` to the workflow's `permissions:` block. (A "
+    "pull_request run from a fork never gets one.)"
+)
+NO_ID_TOKEN_STATUS = "No model credential: the workflow needs permissions: id-token: write for workload identity"
 #: What a person does about a missing key; the one wording every "no key" message uses.
 NO_KEY_FIX = (
     "Add your model key as a repository secret (Settings > Secrets and variables > Actions) and pass it to the "
@@ -82,7 +104,14 @@ _MODEL_VARIABLE = {
     "litellm": "LEMONCROW_LITELLM_MODEL",
     "openai": "LEMONCROW_OPENAI_MODEL",
     "ollama": "LEMONCROW_OLLAMA_MODEL",
+    "claude": "LEMONCROW_CLAUDE_MODEL",
 }
+
+
+def agent_cli_model(backend: str, review_model: str = "") -> str:
+    """The model to run agent CLI *backend* on: the one asked for, else the review default (``""``: the CLI's own)."""
+
+    return review_model or (DEFAULT_CLAUDE_CLI_MODEL if backend == "claude" else "")
 
 
 @dataclass(frozen=True)
@@ -107,7 +136,7 @@ def key_environment(env: Mapping[str, str]) -> dict[str, str]:
     """
 
     merged = dict(env)
-    for source, target in KEY_INPUTS.items():
+    for source, target in {**KEY_INPUTS, **FEDERATION_INPUTS}.items():
         if _present(env, source):
             merged[target] = str(env[source]).strip()
     return merged
@@ -139,7 +168,26 @@ def _anthropic_credential(env: Mapping[str, str]) -> str:
     for name in ("ANTHROPIC_API_KEY", "LEMONCROW_ANTHROPIC_API_KEY"):
         if _present(env, name):
             return name
+    if federation_configured(env) and _id_token_source(env):
+        return "ANTHROPIC_FEDERATION_RULE_ID"
     return ""
+
+
+def federation_configured(env: Mapping[str, str]) -> bool:
+    """Whether *env* names a Workload Identity Federation: a rule and an organization (the IDs every exchange sends).
+
+    The same test as ``direct_http.federation_config``, which makes the exchange; this file cannot import it.
+    """
+
+    return _present(env, "ANTHROPIC_FEDERATION_RULE_ID") and _present(env, "ANTHROPIC_ORGANIZATION_ID")
+
+
+def _id_token_source(env: Mapping[str, str]) -> bool:
+    """An identity token file, or a GitHub job that may request OIDC tokens (``permissions: id-token: write``)."""
+
+    return _present(env, "ANTHROPIC_IDENTITY_TOKEN_FILE") or (
+        _present(env, "ACTIONS_ID_TOKEN_REQUEST_URL") and _present(env, "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    )
 
 
 def _openai_credential(env: Mapping[str, str]) -> str:
@@ -153,10 +201,12 @@ def resolve_model_route(env: Mapping[str, str], provider: str = "auto") -> Model
     """The route the environment selects, or ``None`` when it holds no credential for one.
 
     An explicit ``LEMONCROW_LLM_BACKEND`` is the user's own choice and is never
-    replaced. Otherwise ``ANTHROPIC_API_KEY`` selects LiteLLM on an ``anthropic/``
-    model and ``OPENAI_API_KEY`` selects the OpenAI route; with both set, Anthropic
-    wins unless ``provider`` names the other. ``LEMONCROW_REVIEW_MODEL`` overrides
-    the model on either.
+    replaced. Otherwise ``ANTHROPIC_API_KEY`` (or, with no key, a Workload Identity
+    Federation) selects LiteLLM on an ``anthropic/`` model and ``OPENAI_API_KEY``
+    selects the OpenAI route; with both set, Anthropic wins unless ``provider`` names
+    the other. ``LEMONCROW_REVIEW_MODEL`` overrides the model on either. With neither
+    an Anthropic key nor a federation, ``CLAUDE_CODE_OAUTH_TOKEN`` (a Claude
+    subscription) selects the ``claude`` agent CLI, ahead of an OpenAI key.
     """
 
     wanted = (provider or "auto").strip().lower()
@@ -164,11 +214,14 @@ def resolve_model_route(env: Mapping[str, str], provider: str = "auto") -> Model
     backend = str(env.get(BACKEND_ENV) or "").strip().lower()
     if backend in _KNOWN_BACKENDS and wanted in {"auto", ""}:
         canonical = "openai" if backend == "openai_compatible" else backend
-        return ModelRoute(canonical, canonical, review_model, BACKEND_ENV)
+        return ModelRoute(canonical, canonical, agent_cli_model(canonical, review_model), BACKEND_ENV)
     anthropic = _anthropic_credential(env)
     if wanted in {"auto", "anthropic"} and anthropic:
         model = review_model or DEFAULT_ANTHROPIC_MODEL
         return ModelRoute("anthropic", "litellm", model if "/" in model else f"anthropic/{model}", anthropic)
+    if wanted in {"auto", "anthropic"} and _present(env, "CLAUDE_CODE_OAUTH_TOKEN"):
+        # The CLI picks its own default model; LEMONCROW_REVIEW_MODEL is not passed to it.
+        return ModelRoute("claude", "claude", "", "CLAUDE_CODE_OAUTH_TOKEN")
     if wanted in {"auto", "openai"}:
         credential = _openai_credential(env)
         if credential:
@@ -336,6 +389,8 @@ def decide(
                 "statuses: write, as for any other pull request.",
                 skip="Dependabot run without a model key",
             )
+        if federation_configured(env):
+            return Gate(False, NO_ID_TOKEN_FIX, "error", 1, error_status=NO_ID_TOKEN_STATUS)
         return Gate(
             False,
             f"No model key. {NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider variables.)",
@@ -571,6 +626,8 @@ def decide_chat(
         )
     if require_credentials and resolve_model_route(env, provider) is None:
         # A comment has no check to answer, so there is no status to set: the red job and the annotation say it.
+        if federation_configured(env):
+            return Gate(False, NO_ID_TOKEN_FIX, "error", 1)
         return Gate(
             False,
             f"No model key. {NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider variables.)",
@@ -583,6 +640,36 @@ def decide_chat(
 _LEVEL_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
 #: The LemonCrow extra (``pyproject.toml`` optional dependencies) each backend's client library comes from.
 _EXTRA_FOR_BACKEND = {"litellm": "litellm", "openai": "cloud", "ollama": "smart"}
+
+
+#: The Action's inputs the review step passes as command options, which the command would refuse with a usage error
+#: only after the install: ``(input, variable the gate reads it from, allowed values)``. Empty means the default.
+_CHOICE_INPUTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("fail-on", "INPUT_FAIL_ON", ("none", "p0", "p1")),
+    ("depth", "INPUT_DEPTH", ("auto", "thorough", "deep")),
+    ("diagram", "INPUT_DIAGRAM", ("auto", "off")),
+)
+
+
+def invalid_input(env: Mapping[str, str]) -> str:
+    """What is wrong with the Action's option inputs, in one sentence; ``""`` when nothing is."""
+
+    for name, variable, allowed in _CHOICE_INPUTS:
+        value = str(env.get(variable) or "").strip()
+        if value and value not in allowed:
+            return f"{name} must be one of {', '.join(allowed)} (got {value[:40]!r})"
+    runs = str(env.get("INPUT_MAX_RUNS") or "").strip()
+    if runs and not (runs.isascii() and runs.isdigit() and int(runs) >= 1):
+        return f"max-runs-per-pr must be a whole number of at least 1 (got {runs[:40]!r})"
+    return ""
+
+
+def _install_extra(route: ModelRoute | None) -> str:
+    """The extra the install step adds for *route*. A federated token is sent by the SDK-free route, never LiteLLM."""
+
+    if route is None or route.credential == "ANTHROPIC_FEDERATION_RULE_ID":
+        return ""
+    return _EXTRA_FOR_BACKEND.get(route.backend, "")
 
 
 def _truthy(value: str, default: bool) -> bool:
@@ -818,6 +905,17 @@ def main(argv: list[str] | None = None) -> int:
             provider=str(env.get(PROVIDER_ENV) or "auto"),
             pr_number=int(raw_number) if raw_number.isdigit() else 0,
         )
+    problem = invalid_input(env) if gate.run else ""
+    if problem:
+        chatting = str(env.get("GITHUB_EVENT_NAME") or "") in CHAT_EVENTS
+        gate = replace(
+            gate,
+            run=False,
+            reason=f"Review not run: {problem}. Fix it under `with:` in the workflow.",
+            level="error",
+            exit_code=1,
+            error_status="" if chatting else f"Review not run: {problem}"[:140],
+        )
     if gate.reason:
         print(f"::{_LEVEL_COMMAND.get(gate.level, 'notice')} title=LemonCrow Review::{gate.reason}")
     if not gate.run and gate.exit_code == 0:
@@ -837,7 +935,10 @@ def main(argv: list[str] | None = None) -> int:
         route = resolve_model_route(env, str(env.get(PROVIDER_ENV) or "auto")) if gate.run else None
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"run={'true' if gate.run else 'false'}\n")
-            handle.write(f"extra={_EXTRA_FOR_BACKEND.get(route.backend, '') if route is not None else ''}\n")
+            handle.write(f"extra={_install_extra(route)}\n")
+            # The claude CLI is not on a hosted runner: the Action installs it only for the route that runs it.
+            if route is not None and route.backend == "claude":
+                handle.write("agent=claude\n")
             if gate.refresh:
                 handle.write("refresh=true\n")
     return gate.exit_code

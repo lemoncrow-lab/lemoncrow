@@ -45,6 +45,14 @@ _WEB_DEPENDENCIES = ("next", "astro", "vite")
 _HTTP_METHOD_RE = re.compile(r"(?m)^\s*(get|post|put|patch|delete|head|options)\s*\{\s*$", re.IGNORECASE)
 _URL_RE = re.compile(r"(?m)^\s*url:\s*(.+?)\s*$")
 _NAME_RE = re.compile(r"(?m)^\s*name:\s*(.+?)\s*$")
+_PRE_REQUEST_RE = re.compile(r"(?ms)^script:pre-request\s*\{\s*$(.*?)^\}\s*$")
+_RUN_REQUEST_RE = re.compile(r"\bbru\.runRequest\b")
+_RUN_REQUEST_STATEMENT_RE = re.compile(
+    r'^(?:(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*)?await\s+bru\.runRequest\(\s*"([^"\\]+)"\s*\)\s*;?$'
+)
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+#: Requests a Bruno request may run before itself, nested ones included. A longer chain is refused, not cut.
+MAX_SETUP_REQUESTS = 8
 
 
 def _walk_named(repo_root: Path, names: set[str], *, max_depth: int = 5) -> tuple[Path, ...]:
@@ -282,9 +290,21 @@ class BrunoSurfaceProvider:
                     # configured watch pattern.
                     continue
                 affected_paths = tuple(dict.fromkeys((rel, *watched_changes)))
-                concrete_url_value = url.replace("{{baseUrl}}", "")
-                concrete_url = "{{" not in concrete_url_value and re.search(r"/:([^/?]+)", concrete_url_value) is None
-                safe_auto_compare = runtime is not None and method in {"GET", "HEAD", "OPTIONS"} and concrete_url
+                setup, setup_error = _setup_requests(collection_path, request_path)
+                # A run replays the setup requests too, so it is automatic only when every request is safe.
+                safe_auto_compare = (
+                    runtime is not None
+                    and not setup_error
+                    and all(
+                        row["method"] in _SAFE_METHODS and _concrete_url(row["url"])
+                        for row in ({"method": method, "url": url}, *setup)
+                    )
+                )
+                extra: dict[str, Any] = {}
+                if setup:
+                    extra["setup"] = [dict(row) for row in setup]
+                if setup_error:
+                    extra["setup_error"] = setup_error
                 capabilities = (
                     ("source", "execute", "results", "compare", "auto_compare")
                     if safe_auto_compare
@@ -308,6 +328,7 @@ class BrunoSurfaceProvider:
                             "surface_id": entry.id,
                             "runner": runtime.runner if runtime is not None else "",
                             "runtime_required": runtime is None,
+                            **extra,
                         },
                         comparison=(
                             ComparisonDescriptor(
@@ -356,6 +377,75 @@ def _parse_bru_request(path: Path) -> tuple[str, str, str] | None:
     name_match = _NAME_RE.search(text)
     name = name_match.group(1).strip() if name_match is not None else path.stem
     return method_match.group(1).upper(), url_match.group(1).strip(), name
+
+
+def _concrete_url(url: str) -> bool:
+    value = url.replace("{{baseUrl}}", "")
+    return "{{" not in value and re.search(r"/:([^/?]+)", value) is None
+
+
+def _pre_request_runs(text: str) -> tuple[tuple[str, ...], str]:
+    """The requests a pre-request script runs, in order, as ``await bru.runRequest("<path>")`` statements.
+
+    Only a script that is nothing but such statements (and comments) is understood: anything else beside a
+    ``bru.runRequest`` call would change what Bruno sends, so it is refused instead of half-replayed. A script
+    without ``bru.runRequest`` is ignored, as before.
+    """
+
+    block = _PRE_REQUEST_RE.search(text)
+    if block is None or _RUN_REQUEST_RE.search(block.group(1)) is None:
+        return (), ""
+    names: list[str] = []
+    for line in re.sub(r"(?s)/\*.*?\*/", "", block.group(1)).splitlines():
+        statement = line.strip()
+        if not statement or statement.startswith("//"):
+            continue
+        matched = _RUN_REQUEST_STATEMENT_RE.match(statement)
+        if matched is None:
+            return (), "its pre-request script does more than run other requests"
+        names.append(matched.group(1).strip())
+    return tuple(names), ""
+
+
+def _setup_requests(collection: Path, request_path: Path) -> tuple[tuple[dict[str, str], ...], str]:
+    """The requests a Bruno request runs before itself, flattened in run order; ``(steps, refusal)``.
+
+    ``bru.runRequest("folder/name")`` names ``folder/name.bru`` under the collection root. A named request's own
+    pre-request steps run first, as Bruno runs them. A path outside the collection, a missing or non-HTTP request,
+    a cycle, or more than :data:`MAX_SETUP_REQUESTS` steps refuses the whole request (no steps).
+    """
+
+    root = collection.resolve()
+    steps: list[dict[str, str]] = []
+
+    def visit(path: Path, chain: tuple[Path, ...]) -> str:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return f"{path.name} cannot be read"
+        names, refusal = _pre_request_runs(text)
+        if refusal:
+            return f"{path.name}: {refusal}"
+        for name in names:
+            target = (root / f"{name}.bru").resolve()
+            if root not in target.parents or not target.is_file():
+                return f'bru.runRequest("{name}") names no request in the collection'
+            if target in chain:
+                return f'bru.runRequest("{name}") runs a request that is already running'
+            nested = visit(target, (*chain, target))
+            if nested:
+                return nested
+            parsed = _parse_bru_request(target)
+            if parsed is None:
+                return f'bru.runRequest("{name}") names no HTTP request'
+            if len(steps) >= MAX_SETUP_REQUESTS:
+                return f"more than {MAX_SETUP_REQUESTS} requests run before it"
+            steps.append({"request": name, "method": parsed[0], "url": parsed[1]})
+        return ""
+
+    start = request_path.resolve()
+    refusal = visit(start, (start,))
+    return ((), refusal) if refusal else (tuple(steps), "")
 
 
 __all__ = ["BrunoSurfaceProvider", "ServiceSurfaceProvider", "WebSurfaceProvider"]

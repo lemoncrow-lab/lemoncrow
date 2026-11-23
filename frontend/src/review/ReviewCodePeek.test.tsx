@@ -93,7 +93,7 @@ describe("ReviewCodePeek product-capability gating (isolation §25)", () => {
 });
 
 describe("ReviewCodePeek", () => {
-  it("labels current-index definition/usages as navigation context, not Snapshot evidence", async () => {
+  it("labels current-index definition/usages as navigation context, not revision evidence", async () => {
     api.codeMapSearch.mockResolvedValue({
       query: "checkout",
       text_results: [],
@@ -135,7 +135,7 @@ describe("ReviewCodePeek", () => {
       />,
     );
 
-    expect(screen.getByText(/Current index context · navigation only · not Snapshot-exact Review evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/Current index context · navigation only · not Review evidence exact for this revision/)).toBeInTheDocument();
     expect(await screen.findByText("payments.checkout")).toBeInTheDocument();
     expect(screen.getByText("Usages · 1")).toBeInTheDocument();
     await userEvent.click(screen.getByText("src/api.py"));

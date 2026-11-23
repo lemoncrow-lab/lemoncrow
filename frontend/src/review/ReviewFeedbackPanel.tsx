@@ -68,6 +68,19 @@ function plural(count: number, word = "comment"): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
+function was(count: number): string {
+  return count === 1 ? "was" : "were";
+}
+
+function them(count: number): string {
+  return count === 1 ? "it" : "them";
+}
+
+/** "this comment" or "these 3 comments". */
+function these(count: number): string {
+  return count === 1 ? "this comment" : `these ${plural(count)}`;
+}
+
 export default function ReviewFeedbackPanel({
   feedback,
   delivery,
@@ -134,31 +147,31 @@ export default function ReviewFeedbackPanel({
               : reachable ? `Send feedback to ${destination}` : `${destination} is unavailable`
           : status.addressed > 0 ? "Re-review addressed feedback" : status.in_flight > 0 ? "Delivery pending" : "No feedback to send";
   const detail = consumed
-    ? `${plural(sentCount)} were consumed by the exact ${destination} coding session. The agent was told to fix, verify, and mark addressed items; you still resolve them after re-review.`
+    ? `${plural(sentCount)} ${was(sentCount)} consumed by the exact ${destination} coding session. The agent was told to fix, verify, and mark addressed items; you still resolve ${them(sentCount)} after re-review.`
     : sent
     ? toAuthor
-      ? `${plural(sentCount)} were copied for the author. The next Snapshot returns this Review to you for re-review.`
-      : `${plural(sentCount)} were sent to the exact ${destination} coding session. Consumption was not separately acknowledged; you still resolve them after re-review.`
+      ? `${plural(sentCount)} ${was(sentCount)} copied for the author. The next revision returns this Review to you for re-review.`
+      : `${plural(sentCount)} ${was(sentCount)} sent to the exact ${destination} coding session. Consumption was not separately acknowledged; you still resolve ${them(sentCount)} after re-review.`
     : queued
       ? `${plural(sentCount)} queued to the exact ${destination} coding session. LemonCrow will not create a duplicate session; the handoff is waiting for that exact session to consume it.`
       : working
-        ? `${plural(sentCount)} are being handled by the exact ${destination} coding session. Consumption is not yet separately acknowledged.`
+        ? `${plural(sentCount)} ${sentCount === 1 ? "is" : "are"} being handled by the exact ${destination} coding session. Consumption is not yet separately acknowledged.`
       : deliveryNeedsInspection
         ? `${delivery?.message || "LemonCrow cannot prove whether the exact coding-agent session received this handoff."} Do not resend this prepared operation until its delivery state is understood.`
         : publishable
           ? toAuthor
             ? recordsCopy
-              ? `Nothing is recorded until you copy. Copying ${plural(unsent)} records the handoff, and this Review waits on the author until the next Snapshot.${fallbackNote}`
+              ? `Nothing is recorded until you copy. Copying ${plural(unsent)} records the handoff, and this Review waits on the author until the next revision.${fallbackNote}`
               : `Nothing is sent automatically. ${plural(unsent)} ready to copy. ${feedback.delivery.reason || "Direct coding-agent delivery is unavailable."}`
             : toPullRequest
               ? `Nothing is posted until you confirm the GitHub preview of ${plural(unsent)}.${fallbackNote}`
               : reachable
                 ? route === "new_session"
-                  ? `Nothing is sent automatically. Send starts a ${destination} in this worktree with these ${plural(unsent)}.`
-                  : `Nothing is sent automatically. Review these ${plural(unsent)}, then click Send to hand them off together to the exact ${destination} coding session.`
+                  ? `Nothing is sent automatically. Send starts a ${destination} in this worktree with ${these(unsent)}.`
+                  : `Nothing is sent automatically. Review ${these(unsent)}, then click Send to hand ${unsent === 1 ? "it off" : "them off together"} to the exact ${destination} coding session.`
                 : `${feedback.delivery.reason || "This destination cannot receive feedback."} Change where fixes go, or copy the feedback.`
           : status.addressed > 0
-            ? `${plural(status.addressed)} were marked addressed by the ${toAuthor ? "author" : "coding agent"} and need your re-review.`
+            ? `${plural(status.addressed)} ${was(status.addressed)} marked addressed by the ${toAuthor ? "author" : "coding agent"} and ${status.addressed === 1 ? "needs" : "need"} your re-review.`
             : status.in_flight > 0
               ? "This handoff has a delivery attempt that is still active or is not safe to resend automatically."
               : status.published > 0

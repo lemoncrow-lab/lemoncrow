@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AUTO_SPLIT_MIN_WIDTH, getInitialDiffStylePreference, motionSafeScrollBehavior, nextDiffStylePreference, persistDiffStylePreference, resolveDiffStyle } from "./diffModel";
+import { AUTO_SPLIT_MIN_WIDTH, getInitialDiffStylePreference, initialDiffOverflow, motionSafeScrollBehavior, nextDiffStylePreference, persistDiffStylePreference, resolveDiffStyle, WRAP_DEFAULT_MAX_WIDTH } from "./diffModel";
+
+describe("review diff overflow", () => {
+  it("soft-wraps long code lines on a phone unless the reviewer chose otherwise", () => {
+    expect(initialDiffOverflow(null, 390)).toBe("wrap");
+    expect(initialDiffOverflow(null, WRAP_DEFAULT_MAX_WIDTH - 1)).toBe("wrap");
+    expect(initialDiffOverflow(null, WRAP_DEFAULT_MAX_WIDTH)).toBe("scroll");
+    expect(initialDiffOverflow(null, 1440)).toBe("scroll");
+    expect(initialDiffOverflow("scroll", 390)).toBe("scroll");
+    expect(initialDiffOverflow("wrap", 1440)).toBe("wrap");
+    // An unknown width (no layout yet) keeps one line per row.
+    expect(initialDiffOverflow(null, 0)).toBe("scroll");
+  });
+});
 
 const originalMatchMedia = window.matchMedia;
 

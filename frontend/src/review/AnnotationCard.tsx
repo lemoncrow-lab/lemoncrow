@@ -1,4 +1,5 @@
 import { Badge } from "../components/ui/badge";
+import { fmtWhen } from "../lib/format";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
@@ -47,12 +48,14 @@ import {
   locationLabel,
   repliesFor,
 } from "./annotationModel";
+import { usePrincipalLabel } from "./plainWords";
 import { BelowThresholdList } from "./findingThreshold";
 import type { Annotation, AnnotationKind, FindingDismissalReason, FindingDisposition } from "./types";
 import { useReviewCorrectionsContext } from "./reviewCorrections";
 import { actionProvenance, isActionInFlight, type ActionTone } from "./reviewActionsModel";
 import { PublishedFeedbackControls } from "./feedbackSync";
 import { ThreadSummary } from "./ThreadSummary";
+import { revisionName } from "./revisionLabel";
 
 const ACTION_TONE: Record<ActionTone, string> = {
   progress: "border-p2-line bg-p2-bg text-p2",
@@ -259,7 +262,7 @@ function Composer({
               }}
               className="accent-red-500"
             />
-            Also mark target needs changes
+            Also mark part needs changes
           </label>
         )}
       <div className="review-composer-footer">
@@ -310,7 +313,8 @@ function Comment({
   const [dismissing, setDismissing] = useState(false);
   const source = annotationSource(comment);
   const human = isHumanJudgment(comment);
-  const sourceDetail = annotationProducerDetail(comment);
+  const principalName = usePrincipalLabel();
+  const sourceDetail = annotationProducerDetail(comment, principalName);
   const severity = annotationSeverity(comment);
   const aiFinding = source === "ai_review";
   const findingDisposition = comment.finding_disposition || (comment.anchored ? "open" : "superseded_stale");
@@ -341,9 +345,9 @@ function Comment({
         {comment.origin_revision_number != null && (
           <span
             className="review-thread-symbol font-mono"
-            title={`Created on Snapshot ${comment.origin_revision_number}`}
+            title={`Created on ${revisionName(comment.origin_revision_number)}`}
           >
-            {comment.relation_to_revision === "inherited" ? "from " : ""}Snapshot {comment.origin_revision_number}
+            {comment.relation_to_revision === "inherited" ? "from " : ""}{revisionName(comment.origin_revision_number)}
           </span>
         )}
         {!comment.file_level && comment.end_line > comment.start_line && (
@@ -366,11 +370,11 @@ function Comment({
           )
         )}
         <span className="flex-1" />
-        {comment.created_at && <time dateTime={comment.created_at} className="review-thread-date">{new Date(comment.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}
+        {comment.created_at && <time dateTime={comment.created_at} className="review-thread-date">{fmtWhen(comment.created_at)}</time>}
         {resolved && (
           <span className="inline-flex items-center gap-1 text-ok">
             <Check size={14} aria-hidden="true" />
-            Resolved{comment.resolved_revision_number != null ? ` · Snapshot ${comment.resolved_revision_number}` : ""}
+            Resolved{comment.resolved_revision_number != null ? ` · ${revisionName(comment.resolved_revision_number)}` : ""}
           </span>
         )}
       </div>
@@ -392,7 +396,7 @@ function Comment({
       )}
       {human && comment.author_response === "addressed" && !resolved && (
         <div className="w-fit rounded-md border border-p2-line bg-p2-bg px-2 py-1 text-meta font-medium text-p2">
-          marked addressed{comment.author_addressed_revision_number != null ? ` in Snapshot ${comment.author_addressed_revision_number}` : ""} · re-review
+          marked addressed{comment.author_addressed_revision_number != null ? ` in ${revisionName(comment.author_addressed_revision_number)}` : ""} · re-review
         </div>
       )}
       {comment.evidence && comment.evidence.length > 0 && (
@@ -422,8 +426,8 @@ function Comment({
         </details>
       )}
       {human && comment.author_response === "addressed" && !resolved && comment.author_response_source_id && (
-        <div className="font-mono text-caption text-muted-foreground">
-          addressed by {comment.author_response_source_id}; only you can resolve this comment
+        <div className="text-caption text-muted-foreground">
+          The coding agent marked this addressed; only you can resolve it.
         </div>
       )}
       {replies.length > 0 && (
@@ -432,7 +436,7 @@ function Comment({
             <div key={reply.id} className="review-thread-reply">
               <div className="mb-1 flex items-center gap-2 text-body font-medium text-muted-foreground">
                 <Badge tone={annotationSourceTone(reply)}>{annotationIdentityLabel(reply)}</Badge>
-                <span title={annotationProducerTitle(reply)}>{annotationProducerDetail(reply)}</span>
+                <span title={annotationProducerTitle(reply)}>{annotationProducerDetail(reply, principalName)}</span>
                 {reply.kind !== "comment" && (
                   <Badge tone={KIND_BADGE_TONES[reply.kind]}>{KIND_LABELS[reply.kind]}</Badge>
                 )}

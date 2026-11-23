@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import Memory from "./Memory";
+import { MemoryRouter } from "react-router-dom";
+import Memory, { factSourceLabel } from "./Memory";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -23,7 +24,18 @@ describe("Memory page", () => {
           url.includes("/v1/memory/facts") &&
           !url.includes("/v1/memory/facts/")
         ) {
-          return Promise.resolve(jsonResponse([]));
+          return Promise.resolve(
+            jsonResponse([
+              {
+                fact_id: "claude-b1c2d3e4",
+                vendor: "claude",
+                source_kind: "claude-md-global",
+                content: "Prefer small, reviewable diffs.",
+                source_path: "/Users/dev/.claude/CLAUDE.md",
+                line_number: 4,
+              },
+            ])
+          );
         }
         if (url.includes("/api/traces")) {
           return Promise.resolve(
@@ -94,9 +106,18 @@ describe("Memory page", () => {
       }
     );
 
-    render(<Memory />);
+    render(
+      <MemoryRouter>
+        <Memory />
+      </MemoryRouter>
+    );
 
-    // Default tab is "Cross-vendor" — switch to the Lessons (knowledge blocks) tab
+    // The default tab lists what each agent's own memory files say, by plain source name.
+    expect(await screen.findByRole("radio", { name: "From your agents" })).toBeInTheDocument();
+    expect(await screen.findByText("Global CLAUDE.md")).toBeInTheDocument();
+    expect(screen.getByText("Prefer small, reviewable diffs.")).toBeInTheDocument();
+    expect(screen.queryByText("claude-b")).not.toBeInTheDocument();
+
     const knowledgeTab = await screen.findByRole("radio", {
       name: /Lessons/i,
     });
@@ -110,5 +131,12 @@ describe("Memory page", () => {
     expect(
       await screen.findByText("A useful archived passage.")
     ).toBeInTheDocument();
+  });
+
+  it("names every source kind the adapters write and passes unknown ones through", () => {
+    for (const kind of ["claude-md-global", "claude-md", "auto-memory", "codex-mem", "gemini-md-global", "gemini-md-project", "gemini-md-subdir"]) {
+      expect(factSourceLabel(kind)).not.toBe(kind);
+    }
+    expect(factSourceLabel("cursor-rules")).toBe("cursor-rules");
   });
 });

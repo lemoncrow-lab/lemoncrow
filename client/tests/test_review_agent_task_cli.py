@@ -149,6 +149,182 @@ def test_local_consent_and_price_validation_occurs_before_claim(
     assert not invoked and "refused" in output.getvalue().lower()
 
 
+_ROUTE_ARGS = [
+    "--route",
+    "route-1",
+    "--provider",
+    "openai",
+    "--model",
+    "safe-model-1",
+    "--generation",
+    "g-1",
+    "--input-price",
+    "1000000",
+    "--output-price",
+    "2000000",
+    "--max-cost",
+    "500000",
+    "--allow-external-source",
+]
+
+
+def _unattended_lease(authority: tuple[WorkerBinding, Ed25519PrivateKey], *, cap: Any = 250_000, **scope: Any) -> str:
+    _binding, private = authority
+    base = {
+        "trigger": "manual",
+        "task_id": "author-1",
+        "task_kind": "investigate",
+        "max_model_calls": 1,
+        "max_runtime_ms": 60_000,
+        "external_source_approved": True,
+    }
+    base.update(scope)
+    return sign(
+        private,
+        spec_overrides={
+            "execution_class": "review_intelligence",
+            "capability": "review_intelligence:agent_task",
+            "requires_repository_execution": False,
+            "scope": base,
+        },
+        document_overrides={
+            "assignment": {
+                "model_route_id": "route-1",
+                "driver": "openai",
+                "model": "safe-model-1",
+                "configuration_generation": "g-1",
+                "model_data_locus": "external",
+                "provider_identity": "openai",
+                "unattended": {"run_id": "run-1", "max_task_cost_micros": cap},
+            }
+        },
+    )
+
+
+def _job() -> dict[str, str]:
+    return {"job_id": "job-1", "review_id": "review-1", "revision_id": "revision-1"}
+
+
+def test_unattended_claim_sends_task_kinds_and_requires_the_signed_cap(
+    authority: tuple[WorkerBinding, Ed25519PrivateKey],
+) -> None:
+    binding, _ = authority
+    wire = MemoryTransport({"job": _job(), "envelope": _unattended_lease(authority)})
+    client = ReviewWorkerClient(binding, transport=wire, clock=lambda: NOW)
+    lease, refusal = client.claim_unattended(model_route_id="route-1", task_kinds=("investigate",))
+    assert lease is not None and refusal == ""
+    body = wire.calls[-1][1]
+    assert body["unattended"] == {"task_kinds": ["investigate"]} and "exact_job_id" not in body
+    # A lease without a server-signed budget, or for an unrequested task kind, is refused.
+    for envelope in (
+        sign(
+            authority[1],
+            spec_overrides={
+                "execution_class": "review_intelligence",
+                "capability": "review_intelligence:agent_task",
+                "requires_repository_execution": False,
+            },
+        ),
+        _unattended_lease(authority, cap=0),
+        _unattended_lease(authority, cap="250000"),
+        _unattended_lease(authority, task_kind="propose_fix"),
+    ):
+        refusing = ReviewWorkerClient(
+            binding, transport=MemoryTransport({"job": _job(), "envelope": envelope}), clock=lambda: NOW
+        )
+        with pytest.raises(ValueError):
+            refusing.claim_unattended(model_route_id="route-1", task_kinds=("investigate",))
+    off = ReviewWorkerClient(
+        binding, transport=MemoryTransport({"job": None, "unattended_refusal": "device_off"}), clock=lambda: NOW
+    )
+    assert off.claim_unattended(model_route_id="route-1", task_kinds=("investigate",)) == (None, "device_off")
+    with pytest.raises(ValueError):
+        off.claim_unattended(model_route_id="route-1", task_kinds=("verify_recipe",))
+
+
+def test_unattended_start_refuses_before_any_claim_without_local_approval(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow_client import review_agent_task_cli as cli
+
+    monkeypatch.setattr(cli, "load_config", lambda **_: pytest.fail("must refuse before config/claim"))
+    out = io.StringIO()
+    assert cli.run_unattended_agent_tasks(_ROUTE_ARGS[:-1], sink=out, read_secret=lambda _p: "never") == 2
+    assert "--allow-external-source" in out.getvalue()
+    assert cli.run_unattended_agent_tasks([*_ROUTE_ARGS, "--poll", "1"], sink=io.StringIO()) == 2
+    assert cli.run_unattended_agent_tasks([], sink=io.StringIO()) == 2
+
+
+def test_unattended_start_runs_under_the_signed_cap_and_exits_when_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+    authority: tuple[WorkerBinding, Ed25519PrivateKey],
+    tmp_path: Any,
+) -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow_client import review_agent_task_cli as cli
+
+    binding, _ = authority
+    leases = [validate_lease(_unattended_lease(authority), binding, now=NOW, expected_class="review_intelligence")]
+    replies: list[tuple[Any, str]] = [
+        (leases[0], ""),
+        (leases[0], ""),
+        (None, "daily_cost_cap"),
+        (None, ""),
+        (None, "stopped"),
+    ]
+    caps: list[int] = []
+    failed: list[str] = []
+    sleeps: list[float] = []
+
+    class Transport:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class Client:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def claim_unattended(self, *, model_route_id: str, task_kinds: tuple[str, ...]) -> Any:
+            assert model_route_id == "route-1" and task_kinds == ("investigate",)
+            return replies.pop(0)
+
+        def fail(self, lease: Any, *, reason: str, retryable: bool) -> None:
+            assert retryable is False
+            failed.append(reason)
+
+    def submit(*args: Any, **kwargs: Any) -> Any:
+        assert kwargs["explicit_external_source_approval"] is True
+        caps.append(args[4].route.max_cost_micros)
+        if len(caps) == 2:
+            raise cli.ModelBrokerRefused("over cap", may_have_charged=False)
+        return SimpleNamespace(job_id=args[1].job_id, observation=SimpleNamespace(estimated_cost_micros=1200))
+
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda **_: SimpleNamespace(hosted=True, review_state_dir=tmp_path / "review", request_timeout_s=3.0),
+    )
+    monkeypatch.setattr(cli, "_paired_binding", lambda _: binding)
+    monkeypatch.setattr(cli, "HttpTransport", Transport)
+    monkeypatch.setattr(cli, "check_machine_keys", lambda *a, **kw: None)
+    monkeypatch.setattr(cli, "ReviewWorkerClient", Client)
+    monkeypatch.setattr(cli, "submit_approved_model_investigation", submit)
+    out = io.StringIO()
+    code = cli.run_unattended_agent_tasks(
+        _ROUTE_ARGS, sink=out, read_secret=lambda _: "explicit-secret-with-length-12345", sleep=sleeps.append
+    )
+    assert code == 0 and not replies
+    # The smaller of the local --max-cost (500000) and the signed per-task cap (250000) bounds every call.
+    assert caps == [250_000, 250_000]
+    assert failed == ["execution_failed"]
+    assert sleeps == [30.0, 30.0]
+    text = out.getvalue()
+    assert "spending limit" in text and "stopped by an administrator" in text
+    assert "explicit-secret" not in text
+
+
 def _batch_args(job_ids: list[str], *, total: int | None = None) -> list[str]:
     args = [
         *job_ids,

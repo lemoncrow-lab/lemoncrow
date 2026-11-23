@@ -296,7 +296,7 @@ function LiveFrame({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken text-caption text-muted-foreground">
-          <div className="text-center">Preparing preview for this Snapshot…</div>
+          <div className="text-center">Preparing preview for this revision…</div>
         </div>
       )}
     </section>
@@ -324,7 +324,7 @@ function FrozenScreenshotCompare({
     setUrls(null);
     setError("");
     if (!revisionId) {
-      setError("Snapshot identity is unavailable for frozen screenshot comparison.");
+      setError("Revision identity is unavailable for frozen screenshot comparison.");
       return () => { live = false; };
     }
     void Promise.all([
@@ -356,7 +356,7 @@ function FrozenScreenshotCompare({
     );
   }
   if (!urls) {
-    return <div className="flex min-h-[420px] items-center justify-center bg-muted text-caption text-muted-foreground">Rendering exact Snapshot screenshots…</div>;
+    return <div className="flex min-h-[420px] items-center justify-center bg-muted text-caption text-muted-foreground">Rendering exact revision screenshots…</div>;
   }
   return (
     <div className="bg-muted p-3" data-testid="web-frozen-screenshot-compare">
@@ -367,7 +367,7 @@ function FrozenScreenshotCompare({
         afterLabel="After · new source"
       />
       <div className="mt-2 text-micro text-muted-foreground">
-        Frozen PNGs rendered independently from the old/new sides of the same immutable Snapshot. Source remains authoritative.
+        Frozen PNGs rendered independently from the old/new sides of the same immutable revision. Source remains authoritative.
       </div>
     </div>
   );
@@ -692,7 +692,7 @@ export default function WebReviewPreview({
 
         {revisionId && (
           <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground" title={revisionId}>
-            Snapshot {revisionId}
+            Revision
           </span>
         )}
 
@@ -706,7 +706,7 @@ export default function WebReviewPreview({
                   ? "border-red-900/50 text-red-300"
                   : "border-amber-900/50 text-amber-300"
             }`}
-            title={`${check.name}${check.required ? " · required" : " · optional"} — ${check.detail || check.status}. Full browser evidence is in Overview → Snapshot verification.`}
+            title={`${check.name}${check.required ? " · required" : " · optional"} — ${check.detail || check.status}. Full browser evidence is in Overview → revision verification.`}
           >
             Browser {check.status}
           </span>

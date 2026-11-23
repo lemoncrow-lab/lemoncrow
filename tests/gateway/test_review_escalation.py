@@ -38,7 +38,7 @@ from lemoncrow.pro.capabilities.review.run_plan import (
 )
 
 ORG = SettingOrigin("organization", "organization policy")
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 AI = ("ai.investigators", "ai.hypotheses")
 NO_FACTS = EscalationFacts()
 INVESTIGATOR_EXTRA = STATIC_CATALOG["ai.investigators"].model_calls("thorough") - STATIC_CATALOG[
@@ -302,7 +302,7 @@ def test_escalation_depth_and_budget_contract() -> None:
     facts, _org, changed, _label = TRIGGERS["security_chains"]
     off = _plan(_settings(repo={"escalation": False}), facts=facts, changed=changed)
     assert off.escalation["state"] == "disabled"
-    assert off.escalation["reason"] == "deep review escalation is turned off (base Snapshot .lemoncrow/review.yaml)"
+    assert off.escalation["reason"] == "deep review escalation is turned off (base revision .lemoncrow/review.yaml)"
     assert _entry(off, "ai.investigators").depth == "auto"
     floored = _plan(
         _settings(

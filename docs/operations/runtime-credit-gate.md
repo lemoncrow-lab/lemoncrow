@@ -1,8 +1,8 @@
-# Runtime Lite token and credit regression gate
+# Workspaces Lite token and credit regression gate
 
 This public release policy is self-contained. Historical consumption analysis and unqualified internal planning notes are intentionally excluded from the public mirror.
 
-The Runtime Lite release gate must compare **the same coding tasks at the same
+The Workspaces Lite release gate must compare **the same coding tasks at the same
 model** before and after an implementation change. Daily usage, search output
 length, savings sidecars, and benchmark guesses are not substitutes for provider
 usage plus verified task outcomes.
@@ -16,15 +16,19 @@ if the case/prompt/model/price basis changes, if recorded cost rises by over
 by over 15%. Both constraints are *aggregate across identical previously
 successful tasks*. Cache reads and output tokens appear separately in the report.
 
-The gate is registered as `runtime-credit` in `scripts/release_gate.py`.
-It **fails closed when baseline or current recordings are missing**, rather
-than treating missing measurements as $0 or green. The threshold does not
-claim 30% savings; the gate prevents unapproved regressions.
+The `runtime-credit` component remains in the extended diagnostic catalog
+(`scripts.release_gate --diagnostics`) and in the manual `runtime-credit`
+GitHub workflow option. It **fails closed when evidence is absent**, never
+converts missing measurements to zero or green. Its unchanged 10%/15% bounds
+still flag real cost regressions for investigation, but short stochastic
+five-pair provider runs can change verdicts on unchanged product code, so this
+metric no longer vetoes the 46-component security/correctness release stamp.
 
-A second release component, `runtime-credit-tests`, checks failure modes and
-the Runtime Lite compatibility guards without making model calls. The gate
-requires real coding-agent usage from **both** Runtime Lite builds; a provider
-CLI connection probe or fabricated usage is not qualified task evidence.
+The **mandatory** release component `runtime-credit-tests` still checks
+pairing, attribution, fail-closed behavior and Workspaces Lite compatibility
+without making model calls. A separate provider-cost diagnostic requires real
+coding-agent usage from **both** Workspaces Lite builds; a provider CLI connection
+probe or fabricated usage is not qualified task evidence.
 
 ## Obtaining evidence
 
@@ -39,7 +43,7 @@ usage, about $0.10.
 
 1. Pin a repository fixture, task instructions, acceptance tests, tool policy,
    and model. Use independent verification with recorded output/artifacts.
-2. Run the baseline Runtime Lite commit and the candidate build against the
+2. Run the baseline Workspaces Lite commit and the candidate build against the
    same five or more tasks. Use fresh coding sessions, comparable cache state,
    identical model and independent acceptance tests.
 3. For each task, collect **provider-reported** ordinary input, cache-read
@@ -52,11 +56,21 @@ usage, about $0.10.
    Store the two evidence manifests outside tracked source files at
    `evals/runtime-credit/baseline.json` and
    `evals/runtime-credit/current.json`.
-   The release gate runs a detached clean checkout; **give it absolute paths**
-   to these untracked manifests with `LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE`
-   and `LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT`. Their contents must be genuine
-   and the gate validates them against the **exact release commit SHA**; never
-   copy fabricated fixtures into the checkout.
+   The independent diagnostic can run from a detached checkout: **give it
+   absolute paths** to these untracked manifests with
+   `LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE` and
+   `LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT`. They must be genuine and match the
+   **exact inspected commit SHA**; never copy fabricated fixtures into checkout.
+   For the protected manual GitHub `runtime-credit` diagnostic, base64-encode
+   the two measured manifests and store them as **environment secrets**:
+   `LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE_B64` and
+   `LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT_B64` on environment
+   `release-qualification`. CI decodes them into private `RUNNER_TEMP` files,
+   passes their paths only to the **separate credit diagnostic**, never a
+   release-stamping command. Missing or over-budget input fails that diagnostic,
+   not the core release. Generate new current evidence for each inspected
+   commit; the diagnostic validates exact commit identity. No provider API/OAuth credential is
+   stored in the release runner or GitHub environment.
 5. Run:
 
    ```bash

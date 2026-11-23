@@ -164,6 +164,12 @@ def test_build_swarm_spec_payload_surfaces_knobs(tmp_path: Path) -> None:
     assert payload["fitness"]["metric_command"] == "cat value"
 
 
+def test_build_swarm_spec_payload_title_drops_markdown_heading_marker(tmp_path: Path) -> None:
+    state = _measured_state(tmp_path)
+    (tmp_path / "program.md").write_text("## Cut LCP on /products\n\nBody\n", encoding="utf-8")
+    assert build_swarm_spec_payload(state)["title"] == "Cut LCP on /products"
+
+
 def test_best_reducer_falls_back_to_heuristic_without_fitness(tmp_path: Path) -> None:
     state = _measured_state(tmp_path)
     state.fitness_spec = None  # no measured fitness -> heuristic deterministic selection

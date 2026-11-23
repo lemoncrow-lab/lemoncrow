@@ -1,81 +1,73 @@
 import { Button as UiButton } from "../components/ui/button";
-import { isDialogOpen } from "../components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { escapeDismissedTooltip } from "../components/ui/tooltip";
 import { focusReturnTarget } from "../lib/focus";
 import { classifyWriteFailure, isStaleSnapshotError } from "./staleSnapshot";
 import { readReviewPage, reviewPages } from "./reviewPagination";
 import { retainTargetsOnSameRevision } from "./reviewTargetHydration";
+import { ReviewStoreProvider, useReviewStoreDispatch, useReviewStoreState } from "./reviewStoreContext";
+import { applyStableOrder } from "./reviewStore";
+import { PrincipalNamesContext, ViewerContext, type PrincipalNames } from "./plainWords";
 import { lazyPanel } from "./lazyPanel";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SetStateAction } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import "./reviewUi.css";
 
 import type { ContextDrawerTab } from "./ContextDrawer";
 import { revealBriefDecision } from "./investigate/revealDecision";
+import type { BehaviorJudgmentState, ManualCheckStatus } from "./brief/BehaviorChanges";
 import type { ReviewAskSelection } from "./ReviewAskDrawer";
-import { codeHref, currentReturnPath, RETURN_PARAM, returnPathFrom, type CodeTarget } from "../lib/codeLinks";
-import ReaderHeader from "./ReaderHeader";
-import ReviewFrontierNotes from "./ReviewFrontierNotes";
-import ReviewSnapshotControl from "./ReviewSnapshotControl";
-import { Clock3, Cloud, FileDiff, ListTree, LoaderCircle, Lock, PencilLine, Puzzle, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
-import type { ReaderDevelopmentSummary, ReviewPersistentView, ReviewView } from "./ReaderHeader";
-import ReviewBrief from "./ReviewBrief";
-import InteractivePreviewPanel from "./InteractivePreview";
-import { AgentApprovalPanel } from "./AgentActions";
-import ReviewTour from "./ReviewTour";
+import { codeHref, currentReturnPath, RETURN_PARAM, type CodeTarget } from "../lib/codeLinks";
 import { PreparationProgress } from "./ReviewPreparation";
 import { useReviewPreparation, type PreparationStep } from "./reviewPreparationContext";
-import { attentionState, readinessControl, ROUTINE_ATTENTION_LABELS } from "./ReviewAttentionBar";
-import ReviewContextStrip, { type ContextSignal } from "./ReviewContextStrip";
-import { HostedQueuePanel, useHostedQueue } from "./ReviewHostedQueue";
-import { isQueuedWrite, queuedWriteNotice } from "./hostedQueue";
-import { reviewBlockingNoticeKind, reviewContextSignalPriority } from "./reviewNoticeArbitration";
-import { useReviewFixOf } from "./ReviewFixOfBanner";
+import { useHostedQueue } from "./ReviewHostedQueue";
+import { isQueuedWrite, queuedWriteNotice, unresolvedHostedActions } from "./hostedQueue";
 import { feedbackRoute } from "./ReviewFeedbackPanel";
-import ReviewSendSheet from "./ReviewSendSheet";
 import { ReviewCorrectionsProvider, useReviewCorrections } from "./reviewCorrections";
 import { FeedbackSyncProvider, useFeedbackSync } from "./feedbackSync";
-import ReviewAutomationSection from "./ReviewAutomationSection";
-import ReviewDeploymentSection from "./ReviewDeploymentSection";
-import ReviewProductionSection from "./ReviewProductionSection";
-import { ReviewDestinationPicker, ReviewHandoffControls } from "./ReviewDestinationPicker";
+import { ReviewDestinationPicker } from "./ReviewDestinationPicker";
 import type { FinishOptions } from "./FinishSheet";
-import ReviewRecordExport from "./ReviewRecordExport";
-import ReviewReadinessSheet, {
-  deriveReviewReadiness,
-  scmRequirementBlockers,
-  type ReviewReadinessBlocker,
-} from "./ReviewReadinessSheet";
-import type { ReviewPaletteAction } from "./ReviewCommandPalette";
-import type { CommentsFilter } from "./ReviewCommentsSheet";
+import { finishRecordFacts } from "./finishRecord";
+import { downloadDecisionRecord } from "./ReviewRecordExport";
+import { deriveReviewReadiness, scmRequirementBlockers, type ReviewReadinessBlocker } from "./ReviewReadinessSheet";
 import type { Theme } from "../lib/theme";
-import { applyReviewCodeTheme, getInitialReviewCodeTheme, reviewCodeThemeDefinition, type ReviewCodeTheme } from "./reviewCodeTheme";
-import RevisionDeltaBar from "./RevisionDeltaBar";
-import ReviewerSuggestionsPanel from "./ReviewerSuggestions";
-import RevisionCompareBar, { type ReviewCompareBase } from "./RevisionCompareBar";
-import ReviewOutline from "./ReviewOutline";
-import ReviewStream, { type ReviewStreamHandle, type ReviewStreamFileSemantics } from "./ReviewStream";
-import type { ReviewFileRole } from "./ReviewFileSemantics";
+import { applyReviewCodeTheme, getInitialReviewCodeTheme, reviewCodeThemeDefinition } from "./reviewCodeTheme";
+import { type ReviewCompareBase } from "./RevisionCompareBar";
+import type { ReviewStreamHandle } from "./ReviewStream";
 import {
   backtrailQuery,
+  type ReviewView,
   pushReviewBacktrail,
   readReviewBacktrail,
   REVIEW_BACKTRAIL_PARAM,
   writeReviewBacktrail,
   type ReviewBacktrailEntry,
 } from "./reviewBacktrail";
-import { useProductCapabilitiesResolution, useResolvedProductCapabilities } from "../lib/RuntimeCapabilities";
-import { ReviewLockReason } from "./ReviewTargetHeader";
-import { DEDICATED_REVIEW_ITEM_PARAMS, REVIEW_RETURN_PARAMS, dedicatedReviewItemUrl, fullReviewUrlFromDedicatedItem, readDedicatedReviewItem, readReviewReturnPath, readReviewReturnSurface } from "./reviewItemNavigation";
+import { useResolvedProductCapabilities } from "../lib/RuntimeCapabilities";
+import { flowDocumentTitle } from "./flowDocumentTitle";
+import { onFlowScreen, keepFlowScreen, parseReviewFlowLocation, readerSearchHref } from "./reviewRoutes";
+import { ReviewOverviewScreen } from "./overview/ReviewOverviewScreen";
+import { ReviewFocusScreen } from "./focus/ReviewFocusScreen";
+import type { LineComment } from "./focus/FocusCode";
+import { CodeViewProvider, useCodeView } from "./codeView";
+import { ReviewAllFilesScreen } from "./allFiles/ReviewAllFilesScreen";
+
+import { SeenCoverageProvider } from "./seen/SeenCoverageProvider";
+import { ReviewQuickCheckScreen } from "./quickCheck/ReviewQuickCheckScreen";
+import type { QuickConfirmActions } from "./quickCheck/ConfirmAllQuickChecks";
+import { rounds, type QuickConfirmResult } from "./quickCheck/confirmAllModel";
+import { ReviewWrapScreen } from "./wrap/ReviewWrapScreen";
+import { ReviewDoneScreen } from "./done/ReviewDoneScreen";
+import { SecondSignatureScreen } from "./second/SecondSignatureScreen";
+import { TeamNoticeAnchor, useReviewPresence } from "./team/useReviewPresence";
+import { FlowToastHost } from "./flowToast";
+import { ReviewWelcomeBackScreen } from "./back/ReviewWelcomeBackScreen";
+import { targetAnswer } from "./answerModel";
+import { partSlug } from "./overview/overviewModel";
+import { overviewReady } from "./overview/overviewModel";
+import { DEDICATED_REVIEW_ITEM_PARAMS, REVIEW_RETURN_PARAMS, readDedicatedReviewItem, readReviewReturnPath, readReviewReturnSurface } from "./reviewItemNavigation";
 import { loadCommentDraft, saveCommentDraft } from "./reviewDraftPersistence";
-import { isCompactReviewViewport, useCompactReviewLayout } from "./reviewLayout";
-import {
-  ReviewFrictionProbe,
-  ReviewFrictionRecorder,
-  activeReviewFriction,
-  setActiveReviewFriction,
-} from "./reviewFriction";
+import { isCompactReviewViewport, isNarrowReviewViewport, useCompactReviewLayout, useNarrowReviewLayout } from "./reviewLayout";
+import { ReviewFrictionProbe, ReviewFrictionRecorder, activeReviewFriction, setActiveReviewFriction } from "./reviewFriction";
+import { countMapOpen, countWaiting } from "./reviewFrictionCounts";
 import {
   REVIEW_MAP_OVERVIEW,
   REVIEW_MAP_PARAMS,
@@ -85,192 +77,24 @@ import {
   type ReviewMapLocation,
 } from "./reviewMapLocation";
 import { withTransientRetry } from "./transientRetry";
-import { unavailableFeaturesNotice, useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
+import { useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
 import type { Draft } from "./annotationModel";
 import { markBelowThreshold } from "./findingThreshold";
-import { selectedNewSideTextFromPatch } from "./selectedNewSideText";
-import { getInitialDiffStylePreference, nextDiffStylePreference, persistDiffStylePreference, type DiffOverflow, type DiffStylePreference } from "./diffModel";
-import {
-  bestTargetAfterRevision,
-  fileAttention,
-  firstActionable,
-  filterTargets,
-  isActionable,
-  type ReaderOrder,
-  orderedPaths,
-  progressFromTargets,
-  nextReviewGuideTarget,
-  reviewAttentionPath,
-  stepQueueTarget,
-  stepFile,
-  stepTarget,
-  targetScrollLocation,
-} from "./readerModel";
-import { ManualChecklist, type BehaviorJudgmentState } from "./BehaviorChanges";
+import { bestTargetAfterRevision, firstActionable, filterTargets, orderedPaths, progressFromTargets, stepTarget, targetScrollLocation } from "./readerModel";
+import { shouldApplyProjection } from "./projectionRequests";
 import { requestScopeTargetIds } from "./requestScope";
-import {
-  adaptiveReviewLanding,
-  cohortForTarget,
-  guidedReviewUseful,
-  isTinyMechanicalReview,
-  LARGE_REVIEW_TARGET_THRESHOLD,
-  persistentReviewViews,
-  projectionSearchTextByTarget,
-  reviewCohorts,
-} from "./reviewSurfaceModel";
-import {
-  deriveReviewPrimaryAction,
-  finishAvailableInMenu,
-  handoffCounts,
-  handoffDestinationLabel,
-  handoffToCodingAgent,
-  primaryActionDestination,
-} from "./reviewPrimaryAction";
-import {
-  adoptBootstrapFragment,
-  armReviewLanding,
-  applyChangeProposal,
-  createChangeProposal,
-  deliverFeedback,
-  exportFeedback,
-  fetchAnnotations,
-  fetchFile,
-  fetchFinishReview,
-  fetchHistoricalAnnotations,
-  fetchHistoricalFile,
-  fetchHistoricalOverview,
-  fetchHistoricalProjection,
-  fetchHistoricalRelatedSource,
-  fetchHistoricalTargets,
-  fetchOverview,
-  fetchStartupOverview,
-  fetchStartupTargets,
-  fetchProjection,
-  fetchBriefPreparation,
-  type BriefPreparationProgress,
-  postAiReview,
-  cancelAiReview,
-  postAiReviewFresh,
-  postBehaviorJudgment,
-  postBehaviorNarrative,
-  postDecisionEvent,
-  postManualCheckResult,
-  postSynthesis,
-  postTourSynthesis,
-  fetchBehaviorTarget,
-  fetchProposalSelection,
-  fetchChangeProposals,
-  fetchRelatedSource,
-  fetchReviewEvidence,
-  fetchReviewJournal,
-  fetchReviewReadiness,
-  waiveReviewPremergeCheck,
-  rebindReviewIntent,
-  evaluateReviewPremergeChecks,
-  subscribeLiveState,
-  fetchHistoricalReviewJournal,
-  fetchHistoricalReviewDevelopment,
-  fetchReviewDevelopment,
-  fetchReviewOutcome,
-  fetchReviewPreparation,
-  fetchReviewPatch,
-  fetchRevisionLocator,
-  fetchRevisionComparison,
-  fetchRevisions,
-  fetchReviewSurfaces,
-  runReviewSurface,
-  runRuntimeValidation,
-  fetchRuntimeValidationJob,
-  cancelRuntimeValidationJob,
-  fetchSourceComparison,
-  subscribeSourceState,
-  fetchTargets,
-  fetchTargetsForPath,
-  finishReview,
-  linkReviewEvidence,
-  cancelReviewLanding,
-  patchAnnotation,
-  postAnnotation,
-  postBulkReviewed,
-  undoBulkReviewed,
-  postMark,
-  postRefresh,
-  publishReviewSnapshot,
-  postReviewOutcome,
-  historicalReviewHref,
-  reviewCompareHref,
-  reviewDirectoryHref,
-  reviewHref,
-  sourceCompareHref,
-  selectReviewId,
-  uploadReviewEvidence,
-  fetchHistoricalReviewMap,
-  fetchReviewDependencies,
-  fetchReviewProjectContext,
-} from "./reviewApi";
+import { adaptiveReviewLanding, guidedReviewUseful, isTinyMechanicalReview, LARGE_REVIEW_TARGET_THRESHOLD, projectionSearchTextByTarget } from "./reviewSurfaceModel";
+import { handoffCounts, handoffDestinationLabel, handoffToCodingAgent } from "./reviewPrimaryAction";
+import { adoptBootstrapFragment, fetchBehaviorTarget, postBehaviorJudgment, postBehaviorNarrative, postManualCheckResult, postDecisionEvent, deliverFeedback, exportFeedback, queueReviewFlowSend, fetchAnnotations, fetchFile, fetchHistoricalAnnotations, fetchHistoricalFile, fetchHistoricalOverview, fetchHistoricalProjection, fetchHistoricalRelatedSource, fetchHistoricalTargets, fetchOverview, fetchStartupOverview, fetchStartupTargets, fetchProjection, fetchBriefPreparation, type BriefPreparationProgress, fetchChangeProposals, fetchRelatedSource, fetchReviewEvidence, fetchReviewJournal, fetchReviewReadiness, subscribeLiveState, fetchHistoricalReviewJournal, fetchHistoricalReviewDevelopment, fetchReviewDevelopment, fetchReviewOutcome, fetchReviewPreparation, fetchRevisionLocator, fetchRevisionComparison, fetchRevisions, fetchReviewSurfaces, fetchSourceComparison, subscribeSourceState, fetchTargets, fetchTargetsForPath, finishReview, linkReviewEvidence, patchAnnotation, postAnnotation, postBulkReviewed, postMark, postRefresh, postReviewOutcome, postTourSynthesis, historicalReviewHref, reviewCompareHref, reviewHref, selectReviewId, undoBulkReviewed, uploadReviewEvidence, fetchHistoricalReviewMap, fetchReviewDependencies } from "./reviewApi";
 import { isLocalBrowserUnpaired } from "./localBrowser";
-import type {
-  Annotation,
-  AnnotationDraft,
-  AnnotationState,
-  FeedbackDelivery,
-  FeedbackDeliveryCapability,
-  FeedbackExport,
-  FeedbackRouteKind,
-  FeedbackStatus,
-  FileDetail,
-  FindingDismissalReason,
-  FindingDisposition,
-  MarkResult,
-  MarkState,
-  RefreshInfo,
-  RelatedSource,
-  ReviewAiReviewRunResult,
-  ReviewChangeProposal,
-  ReviewClosure,
-  ReviewEvidence,
-  ReviewJournal,
-  ReviewDevelopment,
-  ReviewLandingReadiness,
-  ReviewDecisionEventInput,
-  ReviewProjection,
-  ReviewMapSelection,
-  ReviewOutlineItem,
-  ReviewOutcome,
-  ReviewOutcomeKind,
-  ReviewOverview,
-  ReviewProposalSelection,
-  ReviewRequestScope,
-  ReviewAskReference,
-  ReviewArchitectureDelta,
-  ReviewProjectContext,
-  ReviewProjectContextSelection,
-  ReviewDependencyProjection,
-  ReviewRevisionComparison,
-  ReviewRevisionHistory,
-  ReviewSurfaceInfo,
-  ReviewSurfacePluginIssue,
-  ReviewSurfaceRunResult,
-  ReviewRuntimeValidationResponse,
-  ReviewTarget,
-  ReviewTargetPriority,
-  ReviewTargetList,
-  SourceComparison,
-  SourceState,
-} from "./types";
-
+import type { ReviewDecisionEventInput, Annotation, AnnotationDraft, AnnotationState, FeedbackDelivery, FeedbackDeliveryCapability, FeedbackExport, FeedbackRouteKind, FeedbackStatus, FileDetail, MarkState, RelatedSource, ReviewChangeProposal, ReviewClosure, ReviewEvidence, ReviewJournal, ReviewDevelopment, ReviewLandingReadiness, ReviewProjection, ReviewMapSelection, ReviewOutcome, ReviewOutcomeKind, ReviewOverview, ReviewRequestScope, ReviewAskReference, ReviewArchitectureDelta, ReviewDependencyProjection, ReviewRevisionComparison, ReviewRevisionHistory, ReviewSurfaceInfo, ReviewSurfacePluginIssue, ReviewRuntimeValidationResponse, ReviewTarget, ReviewTargetList, SourceComparison, SourceState } from "./types";
+import { revisionName } from "./revisionLabel";
 const ContextDrawer = lazyPanel("Context", () => import("./ContextDrawer"));
 const ReviewAskDrawer = lazyPanel("Ask", () => import("./ReviewAskDrawer"));
-const FinishSheet = lazyPanel("Finish", () => import("./FinishSheet"));
 const GitHubPublishSheet = lazyPanel("GitHub publish", () => import("./GitHubPublishSheet"));
-const ReviewCommandPalette = lazyPanel("Command palette", () => import("./ReviewCommandPalette"));
 
 const READER_VIEW_KEY = "lc.review.view.";
 const SYNTHESIS_POLL_MS = 2500;
-// Browser lifecycle never originates Auto work. Explicit reviewer actions may
-// choose an Auto-like effort elsewhere, but their durable trigger is manual.
-const BROWSER_AI_REVIEW_TRIGGER = "manual" as const;
-const BRIEF_KEYS: ReadonlySet<string> = new Set(["p", "?", "/", "j", "k", "J", "K", "]", "["]);
 
 /** The reviewer's last explicit persistent surface choice for one Review. */
 type StoredView = "brief" | "implementation";
@@ -294,22 +118,44 @@ function storeView(reviewId: string, view: StoredView): void {
 }
 /** Landing condition states that do not block; mirrors the server's SATISFIED_CONDITION_STATES. */
 const SATISFIED_LANDING_STATES: ReadonlySet<string> = new Set(["pass", "not_applicable", "waived"]);
-const ReviewMapSheet = lazyPanel("Map", () => import("./ReviewMapSheet"));
+const ReviewFlowMapScreen = lazyPanel("Review map", () => import("./mapFlow/ReviewFlowMapScreen"));
+const ReviewFlowPreviewScreen = lazyPanel("Review preview", () => import("./previewFlow/ReviewFlowPreviewScreen"));
+const ReviewTourScreen = lazyPanel("Walkthrough", () => import("./ReviewTourScreen"));
+const ReviewBriefScreen = lazyPanel("Brief", () => import("./brief/ReviewBriefScreen"));
+const ReviewXRayScreen = lazyPanel("X-Ray", () => import("./xray/ReviewXRayScreen"));
 /** URL params for the Brief/Guided mode; the Map is named by its own location params. */
 const REVIEW_VIEW_PARAM = "view";
 const GUIDED_COHORT_PARAM = "guided";
-const ReviewCommentsSheet = lazyPanel("Comments", () => import("./ReviewCommentsSheet"));
-const ReviewHistorySheet = lazyPanel("History", () => import("./ReviewHistorySheet"));
-const ReviewDevelopmentSheet = lazyPanel("Activity", () => import("./ReviewDevelopmentSheet"));
 
 const INITIAL_CHANGE_BUDGET = 400;
 const INITIAL_MAX_FILES = 5;
 const LOAD_MORE_CHANGE_BUDGET = 800;
-const LOAD_MORE_MAX_FILES = 30;
 const PREFETCH_AHEAD_FILES = 2;
 const BACKGROUND_PREFETCH_FILES = 10;
 const CONTEXT_PIN_KEY = "lemoncrow.review.reader.contextPinned";
-const DIFF_OVERFLOW_KEY = "lemoncrow.review.reader.diffOverflow";
+
+/**
+ * An inline comment written on a frozen line or range keeps exactly that anchor. It joins (and may mark) the part
+ * only when the whole range lies inside one of the part's spans on the same side; whole-function context lines
+ * outside them stay plain line comments rather than being moved onto the part's range.
+ */
+function lineCommentDraft(target: ReviewTarget, body: string, line: LineComment, reconsidered: boolean): AnnotationDraft {
+  const inside = target.spans.some((span) => span.start_line <= line.start && line.end <= span.end_line
+    && (span.side === "old" ? line.side === "deletions" : line.side === "additions"));
+  const linked = inside && !line.parentId && target.fingerprint_method !== "revision_compare";
+  return {
+    path: target.path,
+    start_line: line.start,
+    end_line: line.end,
+    side: line.side,
+    body,
+    kind: line.kind,
+    ...(line.parentId ? { parent_id: line.parentId } : {}),
+    target_unit_key: linked ? target.unit_key : undefined,
+    mark_target: linked && line.kind === "request_change" && line.markTarget,
+    ...(reconsidered ? { reconsidered_after_structure: true } : {}),
+  };
+}
 
 function queryRevisionNumber(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
@@ -342,8 +188,8 @@ function comparisonTarget(
     attention_level: "normal",
     reasons: [
       baseRevision === "head"
-        ? `Changed between Source and Snapshot ${targetRevision}`
-        : `Changed between Snapshot ${baseRevision} and Snapshot ${targetRevision}`,
+        ? `Changed between Source and ${revisionName(targetRevision)}`
+        : `Changed between ${revisionName(baseRevision)} and ${revisionName(targetRevision)}`,
     ],
     additions,
     deletions,
@@ -401,6 +247,13 @@ interface ActiveFeedbackHandoff {
   destination: string;
 }
 
+/** The fields of a delivery route the Reader shows and sends by; a fresh copy with the same ones changes nothing. */
+function sameDeliveryRoute(current: FeedbackDeliveryCapability | null, next: FeedbackDeliveryCapability): boolean {
+  return current !== null && current.kind === next.kind && current.supported === next.supported && current.host === next.host
+    && current.session_id === next.session_id && current.target_ref === next.target_ref && current.label === next.label
+    && current.reason === next.reason;
+}
+
 function fallbackFeedbackStatus(annotations: readonly Annotation[]): FeedbackStatus {
   const roots = annotations.filter(
     (item) => item.source === "human" && !item.parent_id && item.state !== "resolved" && item.state !== "obsolete",
@@ -418,7 +271,7 @@ function fallbackFeedbackStatus(annotations: readonly Annotation[]): FeedbackSta
 function preparationLabel(stage: string): string {
   return {
     diff: "Reading changed files",
-    source: "Capturing source snapshot",
+    source: "Capturing source revision",
     impact: "Analyzing change impact",
     provenance: "Reading agent provenance",
     ranking: "Prioritizing review",
@@ -430,42 +283,12 @@ function preparationLabel(stage: string): string {
   }[stage] ?? "Preparing review";
 }
 
-/** Apply the server's fresh queue to every target; the client never recomputes it. */
-function withPriorities(
-  targets: ReviewTarget[],
-  priorities: Record<string, ReviewTargetPriority> | null | undefined,
-): ReviewTarget[] {
-  if (!priorities) return targets;
-  return targets.map((target) => {
-    const priority = priorities[target.target_id];
-    return priority ? { ...target, priority } : target;
-  });
-}
-
-function mergeOutline(
-  current: ReviewOutlineItem[],
-  updates: ReviewOutlineItem[] | undefined,
-): ReviewOutlineItem[] {
-  if (!updates?.length) return current;
-  const byPath = new Map(updates.map((item) => [item.path, item]));
-  const seen = new Set<string>();
-  const out = current.map((item) => {
-    const replacement = byPath.get(item.path);
-    if (replacement) seen.add(item.path);
-    return replacement ?? item;
-  });
-  for (const update of updates) if (!seen.has(update.path)) out.push(update);
-  return out;
-}
-
 type RelatedPanel = RelatedSource | { path: string; line: number; pending: true };
 
-/** The element whose scroll offset is a view's place: the Code stream, or the Brief/Guided page. */
-function reviewScrollRoot(view: ReviewView): HTMLElement | null {
+/** The element whose scroll offset is a view's place: the Code stream, or the document (flow screens scroll the window). */
+function reviewScrollRoot(view: ReviewView): Element | null {
   if (typeof document === "undefined" || view === "map") return null;
-  return document.querySelector<HTMLElement>(
-    view === "implementation" ? '[data-testid="review-stream"]' : `[data-review-scroll-root="${view}"]`,
-  );
+  return view === "implementation" ? document.querySelector('[data-testid="review-stream"]') : document.scrollingElement;
 }
 
 /** Architecture deltas kept per Reader; one per Snapshot is enough. */
@@ -499,33 +322,6 @@ function clipboardWriteInGesture(): { written: Promise<void>; fill(text: string 
   // Observed by the caller when it copies; an abandoned write must not surface.
   written.catch(() => undefined);
   return { written, fill };
-}
-
-function primaryBusyLabel(busy: string, sessionStatus: string): string | undefined {
-  switch (busy) {
-    case "refresh": return "Updating review…";
-    case "reload": return "Reloading…";
-    case "order": return "Reordering…";
-    case "finish-preview": return "Preparing finish…";
-    case "feedback": return "Preparing feedback…";
-    case "finish":
-      return sessionStatus === "archived" ? "Restoring…" : sessionStatus === "finished" ? "Reopening…" : "Finishing…";
-    default: return undefined;
-  }
-}
-
-// Moves one target between state buckets in its file's outline row, so a mark
-// shown before the server answers keeps the outline counts in step with it.
-function shiftOutlineState(
-  outline: ReviewOutlineItem[],
-  path: string,
-  from: MarkState,
-  to: MarkState,
-): ReviewOutlineItem[] {
-  if (from === to) return outline;
-  return outline.map((row) => row.path === path
-    ? { ...row, [from]: Math.max(0, row[from] - 1), [to]: row[to] + 1 }
-    : row);
 }
 
 function frozenPatchDetail(detail: FileDetail): FileDetail {
@@ -598,28 +394,6 @@ function pathsForChangeBudget(
     if (changedLines >= budget) break;
   }
   return selected;
-}
-function targetForPath(targets: ReviewTarget[], path: string): ReviewTarget | null {
-  const rows = targets.filter((target) => target.path === path);
-  return rows.find((target) => target.state !== "reviewed") ?? rows[0] ?? null;
-}
-function targetForAnnotation(targets: readonly ReviewTarget[], annotation: Annotation): ReviewTarget | null {
-  const exact = annotation.unit_key
-    ? targets.find((target) => target.unit_key === annotation.unit_key)
-    : undefined;
-  if (exact) return exact;
-  if (!annotation.path || annotation.start_line < 1) {
-    return targets.find((target) => target.path === annotation.path) ?? null;
-  }
-  const side = annotation.side === "old" ? "old" : "new";
-  return targets.find((target) =>
-    target.path === annotation.path
-    && target.spans.some((span) =>
-      span.side === side
-      && span.start_line <= annotation.start_line
-      && annotation.start_line <= span.end_line,
-    ),
-  ) ?? targets.find((target) => target.path === annotation.path) ?? null;
 }
 
 function targetStillNeedsAttention(target: ReviewTarget): boolean {
@@ -697,27 +471,23 @@ function targetCommentRange(target: ReviewTarget): {
   return null;
 }
 
-/** One reviewer-facing line naming every preview/surface plugin that failed. */
-function surfacePluginIssueMessage(issues: readonly ReviewSurfacePluginIssue[] | undefined): string | undefined {
-  if (!issues?.length) return undefined;
-  return `Review plugins unavailable (source review is unaffected): ${issues
-    .map((issue) => `${issue.kind} ${issue.plugin}: ${issue.reason}`)
-    .join("; ")}`;
+/** One loss of review context: what the reviewer cannot see, and the technical cause for hover. */
+interface ContextFailure {
+  text: string;
+  cause: string;
 }
 
-function automaticSurfaceRunKey(surface: ReviewSurfaceInfo, reviewPaths: ReadonlySet<string>): string {
-  if (!surface.runtime || !surface.capabilities.includes("execute")) return "";
-  const runner = String(surface.metadata.runner ?? "");
-  if (surface.kind === "service" && runner === "docker-compose") {
-    return `surface:${surface.provider}:${surface.id}`;
-  }
-  if (surface.kind !== "api.request" || runner !== "http-service") return "";
-  if (!surface.affected_paths.some((path) => reviewPaths.has(path))) return "";
-  const method = String(surface.metadata.method ?? "").toUpperCase();
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) return "";
-  const url = String(surface.metadata.url ?? surface.locator ?? "").replace("{{baseUrl}}", "");
-  if (url.includes("{{") || /\/:([^/?]+)/.test(url)) return "";
-  return `surface:${surface.provider}:${surface.id}`;
+function contextFailure(text: string, reason: unknown): ContextFailure {
+  return { text, cause: String(reason instanceof Error ? reason.message : reason) };
+}
+
+/** One reviewer-facing line naming every preview/surface plugin that failed. */
+function surfacePluginIssueMessage(issues: readonly ReviewSurfacePluginIssue[] | undefined): ContextFailure | undefined {
+  if (!issues?.length) return undefined;
+  return {
+    text: `${issues.length === 1 ? "A preview plugin" : `${issues.length} preview plugins`} couldn't load. The code review is unaffected.`,
+    cause: issues.map((issue) => `${issue.kind} ${issue.plugin}: ${issue.reason}`).join("; "),
+  };
 }
 
 function annotationSearchTextByTarget(
@@ -767,7 +537,6 @@ export interface ReviewReaderExtensionContext {
 export interface ReviewReaderExtensions {
   environmentFallbackMode?: ReviewDeploymentMode;
   forceReadOnly?: boolean;
-  hidePrimaryAction?: boolean;
   readOnlyReason?: string;
   outcome?: ReviewOutcome | null;
   /**
@@ -776,16 +545,19 @@ export interface ReviewReaderExtensions {
    */
   recordOutcome?: (outcome: ReviewOutcomeKind, summary: string, expectedRevisionId: string) => Promise<ReviewOutcome>;
   authorship?: { prefix: string; label: string };
+  /** Stored display names by principal id (people and agents); anyone missing reads as today, from the id. */
+  principalNames?: PrincipalNames;
   context?: { label: string; title?: string };
   readinessBlockers?: readonly ReviewReadinessBlocker[];
+  /** A readiness panel drawn on Wrap up above its footer (the hosted policy and progress). */
   readinessSections?: ReactNode;
-  /** Where reviewer suggestions live: Review Status (default) or a host surface ("external"). */
-  reviewerSuggestions?: "reader" | "external";
   /** The reviewer's scoped request: its targets are the default queue and Brief. */
   requestScope?: ReviewRequestScope | null;
   renderHeaderActions?: (context: ReviewReaderExtensionContext) => ReactNode;
   renderOverlays?: (context: ReviewReaderExtensionContext) => ReactNode;
 }
+
+const NO_PRINCIPAL_NAMES: PrincipalNames = {};
 
 export interface ReviewReaderProps {
   /** Stream reconnect delay; tests may override the shipped value. */
@@ -799,11 +571,6 @@ function reviewErrorStatus(reason: unknown): number {
   const status = (reason as { status?: unknown } | null)?.status;
   return typeof status === "number" ? status : 0;
 }
-
-const ACCESS_LOST_NOTICE = {
-  forbidden: "You no longer have access to this review, so it is read-only. Ask your administrator to restore access, or go back to All reviews.",
-  gone: "This review was deleted or archived elsewhere, so it is read-only. Go back to All reviews to find its current version.",
-} as const;
 
 /** What a live stream's terminal status means for the open Review. */
 function streamAccessLoss(status: number): "forbidden" | "gone" {
@@ -821,11 +588,16 @@ function missingReviewState(reason: unknown): "" | "not_found" | "no_access" | "
   return "";
 }
 
-export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, extensions }: ReviewReaderProps = {}) {
+function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, extensions }: ReviewReaderProps = {}) {
+  const navigateTo = useNavigate();
+  // Kept in a ref: `useNavigate` returns a new function on every location change, and the address effect must not re-run for that.
+  const navigateRef = useRef(navigateTo);
+  navigateRef.current = navigateTo;
+  const reviewStore = useReviewStoreState();
+  const reviewDispatch = useReviewStoreDispatch();
   const reviewEnvironment = useReviewEnvironment(extensions?.environmentFallbackMode ?? "local");
   // Settled manifest only: null while product discovery is pending.
   const productCapabilities = useResolvedProductCapabilities();
-  const productCapabilitiesResolution = useProductCapabilitiesResolution();
   const {
     reviewId: routeReviewId = "",
     reviewRef: routeReviewRef = "",
@@ -854,7 +626,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     if (typeof window === "undefined") return;
     const next = update(new URLSearchParams(window.location.search));
     const query = next.toString();
-    const href = `${window.location.pathname}${query ? `?${query}` : ""}`;
+    const href = readerSearchHref(window.location, query, onFlowScreen());
     if (options.replace) window.history.replaceState(null, "", href);
     else window.history.pushState(null, "", href);
     setLocationSearch(window.location.search);
@@ -887,7 +659,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const returnPathRef = useRef(readReviewReturnPath());
   const returnSurfaceRef = useRef(readReviewReturnSurface());
   const [reviewId, setReviewId] = useState("");
-  const fixOf = useReviewFixOf(reviewId, reviewEnvironment.review.local_workspace);
   const [locatedRevision, setLocatedRevision] = useState<{ reviewId: string; revisionNumber: number } | null>(null);
   const historicalRevisionNumber = (
     comparisonQueryValid ? requestedTargetRevision : null
@@ -905,10 +676,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const [firstReviewableReady, setFirstReviewableReady] = useState(false);
   const [preparationRefresh, setPreparationRefresh] = useState(0);
   const firstContentPaintedRef = useRef(false);
-  const markFirstContentPainted = useCallback(() => {
-    firstContentPaintedRef.current = true;
-  }, []);
-  const [overview, setOverview] = useState<ReviewOverview | null>(null);
+  const { overview } = reviewStore;
   // A revision URL is only historical when it points behind the Review's
   // current head. Opening /rr/<latest> should behave exactly like /r/<review>:
   // no historical ribbon, writable latest-state actions, and source probing.
@@ -927,24 +695,27 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // historical checkpoint; otherwise writing the default ?base=&target= query
   // would reload the already-rendered latest Reader for no reason.
   const historicalRevisionKey = historical ? selectedHistoricalRevisionNumber : -1;
-  const [targetList, setTargetList] = useState<ReviewTargetList | null>(null);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [commentsState, setCommentsState] = useState<"loading" | "ready" | "failed">("loading");
+  const { targetList } = reviewStore;
+  const { annotations, commentsState } = reviewStore;
   const [revisionHistory, setRevisionHistory] = useState<ReviewRevisionHistory | null>(null);
   const [revisionComparison, setRevisionComparison] = useState<ReviewRevisionComparison | null>(null);
   const [sourceComparison, setSourceComparison] = useState<SourceComparison | null>(null);
-  const [revisionComparisonLoading, setRevisionComparisonLoading] = useState(false);
-  const [revisionComparisonError, setRevisionComparisonError] = useState("");
+  const [, setRevisionComparisonLoading] = useState(false);
+  const [, setRevisionComparisonError] = useState("");
 
   useEffect(() => {
     const titleReviewId = overview?.session.ref || routeReviewId || routeReviewRef || overview?.session.id;
-    if (!titleReviewId) return;
+    if (!titleReviewId || flowDocumentTitle()) return;
     document.title = `Review: ${titleReviewId}`;
   }, [overview?.session.ref, overview?.session.id, routeReviewId, routeReviewRef]);
 
   useEffect(() => {
     if (!overview || typeof window === "undefined") return;
     const reviewRef = overview.session.ref || overview.session.id;
+    // On a review's own route the store may still hold the previous review's overview for a moment (A to B without a remount):
+    // that overview is stale for this address and must not rewrite it.
+    const named = routeReviewRef;
+    if (named && ![overview.session.id, overview.session.ref, reviewRef.replace(/^r\//, "")].some((value) => value && value.replace(/^r\//, "") === named)) return;
     const canonical = comparisonQueryValid
       ? reviewCompareHref(
           reviewRef,
@@ -958,8 +729,13 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     // returns are view state, not identity: keep them so a reload lands on the
     // same view.
     const next = new URL(canonical, window.location.origin);
+    // The redesigned flow's screens live under the review's address
+    // (`/r/<review>/one/<part>`): renaming the review part must not drop them.
+    const flowSuffix = keepFlowScreen(next, window.location);
     const currentParams = new URLSearchParams(window.location.search);
-    const comparisonMode = currentParams.get("compare");
+    // A flow navigation drops the query from the address before this runs: the mode the Reader holds must survive it, or
+    // its own automatic comparison would come back looking like one the reviewer pinned.
+    const comparisonMode = currentParams.get("compare") ?? (automaticComparison ? "auto" : fullReviewRequested ? "full" : null);
     if (comparisonMode === "auto" || comparisonMode === "full") {
       next.searchParams.set("compare", comparisonMode);
     }
@@ -967,9 +743,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       const value = currentParams.get(key);
       if (value !== null) next.searchParams.set(key, value);
     }
-    const nextHref = `${next.pathname}${next.search}`;
-    const current = `${window.location.pathname}${window.location.search}`;
+    const nextHref = `${next.pathname}${next.search}${next.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${flowSuffix ? window.location.hash : ""}`;
     if (current !== nextHref) {
+      if (!routeReviewRef && next.pathname !== window.location.pathname) {
+        // An old address (/rr/<revision>, /reviews/<id>, /review) moves to the review's own address through the router, so the
+        // route layer mounts the redesigned flow there; a bare history write would leave the router on the old route.
+        navigateRef.current(nextHref, { replace: true });
+        return;
+      }
       window.history.replaceState(null, "", nextHref);
       setLocationSearch(window.location.search);
     }
@@ -980,47 +762,52 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     requestedHeadBase,
     requestedBaseRevision,
     requestedTargetRevision,
+    automaticComparison,
+    fullReviewRequested,
+    routeReviewRef,
   ]);
 
-  const [contextFailures, setContextFailures] = useState<Partial<Record<"comments" | "evidence" | "journal" | "development" | "outcome" | "surfaces" | "plugins", string>>>({});
-  const [retryingSurfaceIdentity, setRetryingSurfaceIdentity] = useState("");
+  // Each value is what the reviewer lost, in plain words; the transport error stays in `contextFailureCause` for hover.
+  const [, setContextFailures] = useState<Partial<Record<"comments" | "evidence" | "journal" | "development" | "outcome" | "surfaces" | "plugins", ContextFailure>>>({});
+  const [, setRetryingSurfaceIdentity] = useState("");
   const [evidence, setEvidence] = useState<ReviewEvidence[]>([]);
   const [journal, setJournal] = useState<ReviewJournal | null>(null);
   const [development, setDevelopment] = useState<ReviewDevelopment | null>(null);
   const [surfaces, setSurfaces] = useState<ReviewSurfaceInfo[]>([]);
-  const [surfaceRuns, setSurfaceRuns] = useState<Record<string, { old?: ReviewSurfaceRunResult; new?: ReviewSurfaceRunResult; error?: string }>>({});
-  const [surfaceBusy, setSurfaceBusy] = useState<ReadonlySet<string>>(() => new Set());
-  const [runtimeValidations, setRuntimeValidations] = useState<Record<string, { response?: ReviewRuntimeValidationResponse; evidence?: ReviewEvidence; error?: string }>>({});
-  const [runtimeValidationBusy, setRuntimeValidationBusy] = useState<ReadonlySet<string>>(() => new Set());
-  const [codeTheme, setCodeTheme] = useState<ReviewCodeTheme>(() => getInitialReviewCodeTheme());
+  const [, setRuntimeValidations] = useState<Record<string, { response?: ReviewRuntimeValidationResponse; evidence?: ReviewEvidence; error?: string }>>({});
+  const { codeTheme } = useCodeView();
   const [theme, setTheme] = useState<Theme>(() => reviewCodeThemeDefinition(getInitialReviewCodeTheme()).chromeTheme);
   const [details, setDetails] = useState<Record<string, FileDetail | undefined>>({});
   const [fileErrors, setFileErrors] = useState<Record<string, string | undefined>>({});
   const fileErrorsRef = useRef(fileErrors);
   fileErrorsRef.current = fileErrors;
   const [revealedPaths, setRevealedPaths] = useState<Set<string>>(() => new Set());
-  const [activeTargetId, setActiveTargetIdState] = useState("");
+  const { activeTargetId } = reviewStore;
   const activeTargetIdRef = useRef("");
   const setActiveTargetId = useCallback((next: SetStateAction<string>) => {
     const value = typeof next === "function"
       ? next(activeTargetIdRef.current)
       : next;
     activeTargetIdRef.current = value;
-    setActiveTargetIdState(value);
-  }, []);
+    reviewDispatch({ type: "part/selected", targetId: value });
+  }, [reviewDispatch]);
   const [query, setQuery] = useState("");
-  const [outlineCollapsed, setOutlineCollapsed] = useState(() => Boolean(dedicatedItem) || isCompactReviewViewport());
-  const [focusMode, setFocusMode] = useState(Boolean(dedicatedItem));
+  const [, setOutlineCollapsed] = useState(() => Boolean(dedicatedItem) || isNarrowReviewViewport());
   const [contextOpen, setContextOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   // Phone composition: one sticky bottom dock replaces the footer and the
   // header's tool/action rows; navigation, Context and Ask are mutually
   // exclusive full-height panels.
   const compactLayout = useCompactReviewLayout();
-  const [compactDock, setCompactDock] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     if (compactLayout && (contextOpen || askOpen)) setOutlineCollapsed(true);
   }, [compactLayout, contextOpen, askOpen]);
+  // Below md the file drawer starts closed, and closes again when the window
+  // narrows into that range; the rail or the dock button reopens it.
+  const narrowLayout = useNarrowReviewLayout();
+  useEffect(() => {
+    if (narrowLayout) setOutlineCollapsed(true);
+  }, [narrowLayout]);
   // Local-only friction metrics for this page-load of this Review.
   useEffect(() => {
     if (!reviewId) return;
@@ -1035,15 +822,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const [contextPinned, setContextPinned] = useState(() =>
     typeof window === "undefined" || window.sessionStorage.getItem(CONTEXT_PIN_KEY) !== "0",
   );
-  const [diffStyle, setDiffStyle] = useState<DiffStylePreference>(() => getInitialDiffStylePreference());
-  const [diffOverflow, setDiffOverflow] = useState<DiffOverflow>(() =>
-    typeof window !== "undefined" && window.localStorage.getItem(DIFF_OVERFLOW_KEY) === "wrap" ? "wrap" : "scroll",
-  );
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [bulkUndo, setBulkUndo] = useState<{
-    path: string;
-    marks: Array<{ unit_key: string; event_id: string }>;
-  } | null>(null);
+  const { draft } = reviewStore;
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // The Snapshot Reload review left: when the revision-loading effect moves off
@@ -1053,54 +832,46 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const draftRevisionRef = useRef("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [feedback, setFeedback] = useState<FeedbackExport | null>(null);
+  const [, setFeedback] = useState<FeedbackExport | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>(EMPTY_FEEDBACK_STATUS);
   const [feedbackDelivery, setFeedbackDelivery] = useState<FeedbackDeliveryCapability | null>(null);
-  const [delivery, setDelivery] = useState<FeedbackDelivery | null>(null);
+  const [, setDelivery] = useState<FeedbackDelivery | null>(null);
   const [activeFeedbackHandoff, setActiveFeedbackHandoff] = useState<ActiveFeedbackHandoff | null>(null);
-  const [finishSummary, setFinishSummary] = useState<ReviewClosure | null>(null);
-  const [finishSheetOpen, setFinishSheetOpen] = useState(false);
+  const [, setFinishSummary] = useState<ReviewClosure | null>(null);
+  const [, setFinishSheetOpen] = useState(false);
   const [githubPublishOpen, setGithubPublishOpen] = useState(false);
-  const [sendSheetOpen, setSendSheetOpen] = useState(false);
   const [finishSendError, setFinishSendError] = useState("");
   // A failed verdict or finish write, said in the sheet the reviewer is looking at.
   const [finishError, setFinishError] = useState("");
+  // The verdict just recorded: the sheet stays open to confirm it and offer its record.
+  const [finishRecorded, setFinishRecorded] = useState<ReviewOutcomeKind | null>(null);
   // An LGTM or Comment whose comments go to the pull request finishes once GitHub has them.
   const [finishAfterPublish, setFinishAfterPublish] = useState(false);
   const [localOutcome, setLocalOutcome] = useState<ReviewOutcome | null>(null);
   const [outcomeOverride, setOutcomeOverride] = useState<ReviewOutcome | null>(null);
-  const [readinessOpen, setReadinessOpen] = useState(false);
+  const [readinessOpen] = useState(false);
   const [landingReadiness, setLandingReadiness] = useState<ReviewLandingReadiness | null>(null);
   const [landingReadinessState, setLandingReadinessState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   // Bumped when a mark commits. A mark shows at once, so the progress change
   // that re-reads readiness can reach the server before the mark does.
-  const [committedMarks, setCommittedMarks] = useState(0);
-  const [landingBusy, setLandingBusy] = useState(false);
-  const [landingError, setLandingError] = useState("");
-  const [premergeBusy, setPremergeBusy] = useState(false);
-  const [premergeError, setPremergeError] = useState("");
+  const { committedMarks } = reviewStore;
+  const [, setLandingError] = useState("");
   const [sourceState, setSourceState] = useState<SourceState | null>(null);
   const [proposals, setProposals] = useState<ReviewChangeProposal[]>([]);
-  const [sourceMutationSupported, setSourceMutationSupported] = useState(false);
-  const [proposalSelection, setProposalSelection] = useState<ReviewProposalSelection | null>(null);
-  const [activeProposal, setActiveProposal] = useState<ReviewChangeProposal | null>(null);
+  const [, setSourceMutationSupported] = useState(false);
   const [dismissedSourceFingerprint, setDismissedSourceFingerprint] = useState("");
-  const [revisionInfo, setRevisionInfo] = useState<RefreshInfo | null>(null);
+  const { revisionInfo } = reviewStore;
   const [deltaFocus, setDeltaFocus] = useState(false);
   // A scoped request focuses the queue by default; the rest stays one click away.
-  const [requestScopeFocus, setRequestScopeFocus] = useState(true);
+  const [requestScopeFocus] = useState(true);
   const [related, setRelated] = useState<RelatedPanel | null>(null);
-  const [openingPath, setOpeningPath] = useState("");
+  const [, setOpeningPath] = useState("");
   const navigationRef = useRef(0);
-  const [commandMode, setCommandMode] = useState<"actions" | "shortcuts" | null>(null);
-  const [capabilityNoticeDismissed, setCapabilityNoticeDismissed] = useState(false);
-  const [unsupportedNoticeDismissed, setUnsupportedNoticeDismissed] = useState(false);
   // The evidence-backed Brief (plan, decisions, questions, evidence) fills
   // the shell's Brief view when the capability is on.
   const briefCapable = reviewEnvironment.review.brief;
   const askCapable = reviewEnvironment.review.ask;
   const [projection, setProjection] = useState<ReviewProjection | null>(null);
-  const [aiReviewRun, setAiReviewRun] = useState<ReviewAiReviewRunResult | null>(null);
   const [projectionState, setProjectionState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const viewChosenRef = useRef(false);
   // Set once the first view is settled: by the Brief landing below, by a
@@ -1109,18 +880,45 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // flips from Implementation to the Brief a moment after appearing.
   const [landingDecided, setLandingDecided] = useState(false);
   const projectionRequestRef = useRef(0);
+  // The newest foreground load (a screen waiting on it) and the newest request whose plan is on screen. A plan that a
+  // background refresh overtook still counts while nothing newer has landed: waiting for the refresh instead meant
+  // two heavy /projection calls before ready (P9-6).
+  const projectionForegroundRef = useRef(0);
+  const projectionAppliedRef = useRef(0);
   const [briefPreparation, setBriefPreparation] = useState<BriefPreparationProgress | null>(null);
   const [briefStartedAt, setBriefStartedAt] = useState<number | undefined>();
-  // Brief · Guided Review · Code · Map are projections of one authoritative Change.
-  const mapLocation = useMemo(() => readReviewMapLocation(searchParams), [searchParams]);
-  const mapOpen = mapLocation !== null;
-  const requestedReviewView = searchParams.get(REVIEW_VIEW_PARAM);
-  const guidedCohortId = searchParams.get(GUIDED_COHORT_PARAM) ?? "";
-  const briefOpen = !mapOpen && requestedReviewView === "brief";
-  const tourOpen = !mapOpen && requestedReviewView === "tour";
-  const view: ReviewView = mapOpen ? "map" : briefOpen ? "brief" : tourOpen ? "tour" : "implementation";
+  // The Classic Brief, Guided review and Map views are retired (P8-3): the Reader holds the one view, and an old `?view=`
+  // or Map query on an address is ignored. The flow's own screens (`/brief`, `/xray`, `/walkthrough`, `/map`) replace them.
+  const view = "implementation" as ReviewView;
+  const mapLocation = null as ReturnType<typeof readReviewMapLocation>;
+  // Only the /r/:reviewRef/* route branch renders the flow's screens (SPEC 3.1). An old address (/rr/<revision>,
+  // /reviews/<id>[/revisions/<n>], /review) mounts the Reader bare, and the canonical-address effect below moves it
+  // through the router to /r/<review>, where this branch takes over; until then it draws nothing.
+  const flowRoute = Boolean(routeReviewRef)
+    ? parseReviewFlowLocation(window.location) : null;
+  const flowOverview = Boolean(flowRoute?.known && flowRoute.route.kind === "overview");
+  const flowAll = Boolean(flowRoute?.known && flowRoute.route.kind === "all");
+  const flowMap = Boolean(flowRoute?.known && flowRoute.route.kind === "map");
+  const flowPreview = Boolean(flowRoute?.known && flowRoute.route.kind === "preview");
+  const flowFocus = Boolean(flowRoute?.known && flowRoute.route.kind === "one");
+  const flowTour = Boolean(flowRoute?.known && flowRoute.route.kind === "walkthrough");
+  const flowBrief = Boolean(flowRoute?.known && flowRoute.route.kind === "brief");
+  const flowXRay = Boolean(flowRoute?.known && flowRoute.route.kind === "xray");
+  const flowWrap = Boolean(flowRoute?.known && flowRoute.route.kind === "wrap");
+  const flowDone = Boolean(flowRoute?.known && flowRoute.route.kind === "done");
+  const flowBack = Boolean(flowRoute?.known && flowRoute.route.kind === "rev");
+  const flowSecond = Boolean(flowRoute?.known && flowRoute.route.kind === "second");
+  // The flow screen shown before this one: Wrap up reads it for its back control ("All files" after All files).
+  const flowKindNow = flowRoute?.known ? flowRoute.route.kind : "";
+  const flowKindBefore = useRef({ previous: "", current: "" });
+  if (flowKindBefore.current.current !== flowKindNow) flowKindBefore.current = { previous: flowKindBefore.current.current, current: flowKindNow };
+  const wrapOpenedFromAll = flowKindBefore.current.previous === "all";
+  // True only while a redesigned screen is actually shown.
+  const flowScreenShown = Boolean(flowRoute?.known);
+  // P7-2 (hosted only): tell the team I am in this review. Nothing is asked of a local install (SPEC 7.1 P0-2).
+  useReviewPresence(reviewId, flowScreenShown);
   const briefShown = briefCapable && view === "brief" && projection !== null;
-  const tourShown = briefCapable && view === "tour" && projection !== null;
+  const tourShown = briefCapable && (view === "tour" || flowTour) && projection !== null;
   // Deep links, return-to-file/surface, comparisons and remembered explicit choices outrank Auto landing.
   const defaultLanding = !dedicatedItem && !returnPathRef.current && !returnSurfaceRef.current && !comparisonQueryPresent;
   const storedLanding = readStoredView(reviewId);
@@ -1133,7 +931,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // Review projections hydrate only when the reviewer asks for them.
   const startupEnrichmentReady = !deferLargeStartupEnrichment
     || view !== "implementation"
-    || readinessOpen;
+    || readinessOpen
+    || flowOverview || flowFocus || flowTour || flowBrief || flowXRay;
   const startupEnrichmentReadyRef = useRef(startupEnrichmentReady);
   startupEnrichmentReadyRef.current = startupEnrichmentReady;
   useEffect(() => {
@@ -1144,26 +943,31 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     || view === "tour"
     || (view === "implementation" && defaultLanding && storedLanding !== "implementation" && !autoLargeReview)
   );
+  // The Code surface normally stays mounted when hidden to preserve scroll
+  // position. Do not mount it at all until the reviewer first opens Code;
+  // otherwise its lazy bundle still downloads behind the initial Brief.
+  const [, setCodeWasShown] = useState(false);
+  // Initial routes temporarily say Code while their Brief landing is decided.
+  // Hold its chunk only for that case. Explicit Code, Review-only installs,
+  // large/partial Code-first reviews, and remembered Code must work immediately.
+  const codeNeeded = view === "implementation" && (
+    landingDecided || (Boolean(overview) && Boolean(targetList) && !briefCapable) || !defaultLanding
+    || storedLanding === "implementation" || autoLargeReview
+  );
+  useEffect(() => {
+    if (codeNeeded) setCodeWasShown(true);
+  }, [codeNeeded]);
   const changeViewRef = useRef<(next: ReviewView) => void>(() => undefined);
   const openPreparedCode = useCallback(() => changeViewRef.current("implementation"), []);
   const revealImplementation = useCallback(() => {
     if (view !== "implementation") changeViewRef.current("implementation");
   }, [view]);
-  // Where Back returns when another surface (Code) opened this Review.
-  const returnTo = useMemo(() => returnPathFrom(searchParams), [searchParams]);
   const setMapLocation = useCallback((location: ReviewMapLocation | null, mode: "push" | "replace" = "push") => {
     setSearchParams((current) => writeReviewMapLocation(current, location), { replace: mode === "replace" });
   }, [setSearchParams]);
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [commentsFilter, setCommentsFilter] = useState<CommentsFilter | undefined>(undefined);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [developmentOpen, setDevelopmentOpen] = useState(false);
-  const [revisionAdvanced, setRevisionAdvanced] = useState(false);
+  const [, setDevelopmentOpen] = useState(false);
+  const { revisionAdvanced } = reviewStore;
   const currentOutcome = outcomeOverride ?? extensions?.outcome ?? localOutcome;
-  const changeDiffStyle = useCallback((preference: DiffStylePreference) => {
-    setDiffStyle(preference);
-    persistDiffStylePreference(preference);
-  }, []);
   const changeRevisionComparison = useCallback((baseRevision: ReviewCompareBase, targetRevision: number) => {
     comparisonSelectionPinnedRef.current = true;
     setSearchParams((current) => {
@@ -1176,31 +980,13 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     setActiveTargetId("");
     setRelated(null);
   }, [setSearchParams]);
-  const exitRevisionComparison = useCallback(() => {
-    comparisonSelectionPinnedRef.current = true;
-    setSearchParams((current) => {
-      const params = new URLSearchParams(current);
-      params.delete("base");
-      params.delete("target");
-      params.set("compare", "full");
-      return params;
-    });
-    setRevisionComparison(null);
-    setSourceComparison(null);
-    setRevisionComparisonError("");
-    setActiveTargetId("");
-    setRelated(null);
-  }, [setSearchParams]);
-  const toggleDiffOverflow = useCallback(() => {
-    setDiffOverflow((current) => {
-      const next: DiffOverflow = current === "scroll" ? "wrap" : "scroll";
-      window.localStorage.setItem(DIFF_OVERFLOW_KEY, next);
-      return next;
-    });
-  }, []);
-  const streamRef = useRef<ReviewStreamHandle>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const finishButtonRef = useRef<HTMLButtonElement>(null);
+  const streamRef = useRef<ReviewStreamHandle | null>(null);
+  // Navigations can arrive while the first Code chunk is still downloading.
+  // Preserve the latest requested jump until the lazy stream exposes its handle.
+  const pendingCodeJumpRef = useRef<(
+    | { kind: "target"; target: ReviewTarget; behavior: "instant" | "smooth"; current: () => boolean }
+    | { kind: "file"; path: string; behavior?: "instant" | "smooth"; current: () => boolean }
+  ) | null>(null);
   // Context and Ask are non-modal panels, so they restore focus themselves; modal
   // Dialog/Sheet surfaces return focus to their opener on their own.
   const contextReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -1226,15 +1012,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const feedbackAutoRefreshFingerprintRef = useRef("");
   const stableTargetRevisionRef = useRef("");
   const stableTargetOrderRef = useRef<string[]>([]);
-  const automaticSurfaceRunsRef = useRef(new Set<string>());
-  // Bumped whenever the displayed Snapshot changes; a surface run started under
-  // an older generation may not write its result or error.
-  const surfaceGenerationRef = useRef(0);
-  const surfaceIdentityRef = useRef("");
-  // Surfaces with a run in flight on the displayed Snapshot: one surface's run
-  // never blocks another's.
-  const surfaceBusyRef = useRef(new Set<string>());
-  const runtimeValidationBusyRef = useRef(new Set<string>());
   const revisionComparisonCacheRef = useRef(new Map<string, ReviewRevisionComparison>());
   const revisionHistoryCacheRef = useRef<{ reviewId: string; history: ReviewRevisionHistory } | null>(null);
 
@@ -1250,17 +1027,17 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       // capture, the unsent text moves to the new Snapshot and its anchor does
       // not; only a new human selection may reattach it.
       saveCommentDraft(reviewId, previousRevisionId, null);
-      setDraft({
+      reviewDispatch({ type: "draft/set", draft: {
         ...carried,
         startLine: 0,
         endLine: 0,
         fileLevel: false,
         targetUnitKey: undefined,
         recovered: true,
-      });
+      } });
       return;
     }
-    setDraft(loadCommentDraft(reviewId, revisionId));
+    reviewDispatch({ type: "draft/set", draft: loadCommentDraft(reviewId, revisionId) });
   }, [reviewId, overview?.revision.id]);
 
   useEffect(() => {
@@ -1334,7 +1111,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     }
     let live = true;
     setRevisionComparisonLoading(true);
-    setRevisionComparisonError(malformedComparisonQuery ? "Comparison URL requires valid non-negative Snapshot numbers." : "");
+    setRevisionComparisonError(malformedComparisonQuery ? "Comparison URL requires valid non-negative revision numbers." : "");
 
     const cachedHistory = revisionHistoryCacheRef.current;
     const historyPromise = cachedHistory?.reviewId === reviewId
@@ -1432,7 +1209,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     );
     if (!target) {
       setSourceComparison(null);
-      setRevisionComparisonError(`No such Snapshot ${requestedTargetRevision}.`);
+      setRevisionComparisonError(`No such ${revisionName(requestedTargetRevision)}.`);
       return;
     }
 
@@ -1483,7 +1260,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         }
         if (status.state === "failed") {
           setPreparationStage("failed");
-          setError(status.detail || "review preparation failed before the first Snapshot became ready");
+          setError(status.detail || "review preparation failed before the first revision became ready");
           return;
         }
         if (status.state === "impact_background" || status.state === "finalizing_background" || status.state === "enrichment_failed") {
@@ -1523,14 +1300,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     let request: Promise<FileDetail | null>;
     // A dropped connection or server restart must not strand the file on an
     // error card; retry transient failures before reporting one.
-    request = withTransientRetry(() => (historical ? fetchHistoricalFile(id, historicalRevisionKey, path) : fetchFile(id, path)))
+    request = withTransientRetry(() => (historical ? fetchHistoricalFile(id, historicalRevisionKey, path) : fetchFile(id, path, fileCacheRevisionRef.current)))
       .then((detail) => {
         if (loadGenerationRef.current !== generation) return null;
         const cacheRevision = fileCacheRevisionRef.current;
         if (detail.revision_id && cacheRevision && detail.revision_id !== cacheRevision) {
           // Answered for another Snapshot than the one on screen: never shown
           // as this one's code.
-          setFileErrors((current) => ({ ...current, [path]: "This file came back for a different Snapshot than the one shown. Retry, or reload the review." }));
+          setFileErrors((current) => ({ ...current, [path]: "This file came back for a different revision than the one shown. Retry, or reload the review." }));
           return null;
         }
         setDetails((current) => {
@@ -1557,10 +1334,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     inFlightPaths.current.set(path, request);
     return request;
   }, [historical, historicalRevisionKey]);
-
-  const retryPath = useCallback(async (path: string) => (
-    reviewId ? Boolean(await loadPath(reviewId, path)) : false
-  ), [reviewId, loadPath]);
 
   const loadPaths = useCallback(async (id: string, paths: string[]) => {
     await Promise.all(paths.map((path) => loadPath(id, path)));
@@ -1614,21 +1387,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       stableTargetOrderRef.current = next.targets.map((target) => target.target_id);
       return next;
     }
-    const byId = new Map(next.targets.map((target) => [target.target_id, target]));
-    const ordered: ReviewTarget[] = [];
-    const seen = new Set<string>();
-    for (const targetId of stableTargetOrderRef.current) {
-      const target = byId.get(targetId);
-      if (!target) continue;
-      ordered.push(target);
-      seen.add(targetId);
-    }
+    const known = new Set(stableTargetOrderRef.current);
+    const ordered = applyStableOrder(next, stableTargetOrderRef.current);
     for (const target of next.targets) {
-      if (seen.has(target.target_id)) continue;
-      ordered.push(target);
-      stableTargetOrderRef.current.push(target.target_id);
+      if (!known.has(target.target_id)) stableTargetOrderRef.current.push(target.target_id);
     }
-    return { ...next, targets: ordered };
+    return ordered;
   }, []);
 
   // Forget every file loaded, or still loading, for another Snapshot.
@@ -1658,7 +1422,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       setJournal(null);
       setContextFailures((current) => ({
         ...current,
-        journal: `Agent context unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+        journal: contextFailure("Couldn't load the agent's notes.", reason),
       }));
     });
     void developmentPromise.then((next) => {
@@ -1670,7 +1434,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       setDevelopment(null);
       setContextFailures((current) => ({
         ...current,
-        development: `Development unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+        development: contextFailure("Couldn't load the development session.", reason),
       }));
     });
   }, []);
@@ -1708,28 +1472,10 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       if (!isCurrent()) return;
       setContextFailures((current) => ({
         ...current,
-        surfaces: `Rendered review surfaces unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+        surfaces: contextFailure("Couldn't load rendered previews.", reason),
       }));
     });
   }, [queueBackgroundPaths]);
-
-  // Retry only the failed read-only surface discovery; a full Reader reload
-  // would unnecessarily re-fetch source and could disturb the active location.
-  // Generation + revision fencing prevent a late retry from painting a new
-  // Review's graph, surfacing a stale result, or clearing its progress state.
-  const retrySurfaceContext = useCallback(async () => {
-    if (!reviewId || !overview || !targetList) return;
-    const identity = `${reviewId}:${overview.revision.id}`;
-    if (retryingSurfaceIdentity === identity) return;
-    const generation = readerLoadRef.current;
-    const isCurrent = () => readerLoadRef.current === generation;
-    setRetryingSurfaceIdentity(identity);
-    try {
-      await loadSurfaces(reviewId, overview.revision.id, targetList.targets, isCurrent);
-    } finally {
-      if (isCurrent()) setRetryingSurfaceIdentity("");
-    }
-  }, [loadSurfaces, overview, retryingSurfaceIdentity, reviewId, targetList]);
 
   const loadReader = useCallback(async (id: string): Promise<boolean> => {
     // A newer load, or a capture, supersedes this one: nothing it requested
@@ -1738,7 +1484,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const isCurrentLoad = () => readerLoadRef.current === load;
     // A retry from an earlier Snapshot no longer owns this Reader.
     setRetryingSurfaceIdentity("");
-    setCommentsState("loading");
+    reviewDispatch({ type: "notes/loadStarted" });
     setContextFailures({});
     try {
       // Source review is the critical path. Current large Reviews use the
@@ -1830,12 +1576,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         setSurfaces([]);
       }
 
-      setOverview(nextOverview);
+      reviewDispatch({ type: "overview/set", overview: nextOverview });
       // A later compact startup read may finish after full hydration or a
       // far-file target fetch. Keep those exact same-Snapshot targets instead
       // of leaving the reviewer on a page with no target metadata.
       const displayedTargets = retainTargetsOnSameRevision(targetListRef.current, nextTargets);
-      setTargetList((current) => retainTargetsOnSameRevision(current, nextTargets));
+      reviewDispatch({ type: "parts/startupRetained", incoming: nextTargets });
       setError("");
       const first = firstActionable(displayedTargets.targets);
       setActiveTargetId((current) => current && displayedTargets.targets.some((target: ReviewTarget) => target.target_id === current)
@@ -1868,7 +1614,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       const pathsToShow = nextTargets.complete === false && !dedicatedItem
         ? defaultPathsToShow.slice(0, 1)
         : defaultPathsToShow;
-      const uniquePaths = [...new Set(pathsToShow)];
+      // The flow's screens fetch the code they draw themselves; only a comparison (base and target in the address) needs these patches here.
+      const uniquePaths = comparisonQueryValid ? [...new Set(pathsToShow)] : [];
       // A reload of the same Snapshot (background enrichment) keeps every file
       // the reviewer already opened; only a different Snapshot starts over.
       revealPaths(uniquePaths, !sameSnapshot);
@@ -1889,17 +1636,16 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
 
       void annotationsPromise.then((next) => {
         if (!isCurrentLoad()) return;
-        setAnnotations(next.annotations);
+        reviewDispatch({ type: "notes/loaded", annotations: next.annotations });
         setFeedbackStatus(next.feedback ?? fallbackFeedbackStatus(next.annotations));
         setFeedbackDelivery(next.delivery ?? null);
-        setCommentsState("ready");
         setContextFailures((current) => ({ ...current, comments: undefined }));
       }).catch((reason: unknown) => {
         if (!isCurrentLoad()) return;
-        setCommentsState("failed");
+        reviewDispatch({ type: "notes/loadFailed" });
         setContextFailures((current) => ({
           ...current,
-          comments: `Review discussions unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+          comments: contextFailure("Couldn't load comments.", reason),
         }));
       });
       void evidencePromise.then((next) => {
@@ -1910,7 +1656,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         if (!isCurrentLoad()) return;
         setContextFailures((current) => ({
           ...current,
-          evidence: `Review evidence unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+          evidence: contextFailure("Couldn't load check results.", reason),
         }));
       });
       loadSnapshotContext(journalPromise, developmentPromise, isCurrentLoad);
@@ -1922,7 +1668,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         if (!isCurrentLoad()) return;
         setContextFailures((current) => ({
           ...current,
-          outcome: `Review outcome unavailable: ${String(reason instanceof Error ? reason.message : reason)}`,
+          outcome: contextFailure("Couldn't load your verdict.", reason),
         }));
       });
 
@@ -1969,7 +1715,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       setError(String(reason instanceof Error ? reason.message : reason));
       return false;
     }
-  }, [dedicatedItem, historical, historicalRevisionKey, loadPath, loadSnapshotContext, loadSurfaces, resetFileCache, revealPaths, stabilizeTargetOrder]);
+  }, [comparisonQueryValid, dedicatedItem, historical, historicalRevisionKey, loadPath, loadSnapshotContext, loadSurfaces, resetFileCache, revealPaths, stabilizeTargetOrder]);
 
   useEffect(() => {
     if (!reviewId || !authed || !startupReady) return;
@@ -2049,28 +1795,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       (id) => byId.get(id)?.author_response === "addressed",
     );
   }, [activeFeedbackHandoff, annotations]);
-  // The feedback panel's own handoff, judged from the comments themselves (they
-  // outlive the Snapshot it was sent on): once each carries the agent's
-  // addressed claim or was resolved, the count still awaiting re-review.
-  const feedbackHandoffRereview = useMemo(() => {
-    const ids = feedback && delivery ? Object.keys(feedback.annotation_versions) : [];
-    if (ids.length === 0) return null;
-    const byId = new Map(annotations.map((item) => [item.id, item]));
-    let pending = 0;
-    for (const id of ids) {
-      const item = byId.get(id);
-      if (item?.state === "resolved") continue;
-      if (item?.author_response !== "addressed") return null;
-      pending += 1;
-    }
-    return pending;
-  }, [feedback, delivery, annotations]);
-  const activeHandoffCurrentRevision = Boolean(
-    activeFeedbackHandoff && overview && activeFeedbackHandoff.revisionId === overview.revision.id,
-  );
-  const activeHandoffWorking = Boolean(
-    activeHandoffCurrentRevision && !activeHandoffAddressed,
-  );
 
   useEffect(() => {
     if (!reviewId || !authed || !overview || historical) return;
@@ -2082,6 +1806,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     let marksCursor = "";
     let primed = false;
     const currentRevisionId = overview.revision.id;
+    const loadedPacketCursor = overview.packet_cursor ?? "";
 
     // The event stream reports a newer Snapshot. The Reader's own capture wakes it
     // too, with the Snapshot the Reader is moving to: not one captured
@@ -2090,7 +1815,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const ownCapture = async (revisionId: string): Promise<boolean> => {
       const own = ownCaptureRef.current;
       if (own && (await own) === revisionId) return true;
-      if (live) setRevisionAdvanced(true);
+      if (live) reviewDispatch({ type: "revision/advancedSet", advanced: true });
       return false;
     };
 
@@ -2109,7 +1834,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         const shown = new Map(before.targets.map((target) => [target.target_id, target.state]));
         if (next.targets.length === shown.size && next.targets.every((target) => shown.get(target.target_id) === target.state)) return true;
         const ordered = stabilizeTargetOrder(next);
-        setTargetList((current) => (current === before ? ordered : current));
+        reviewDispatch({ type: "parts/refreshedIfUnchanged", before, next: ordered });
         return true;
       } catch {
         return false;
@@ -2120,13 +1845,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       try {
         const result = await fetchAnnotations(reviewId);
         if (!live || result.revision_id !== currentRevisionId) return;
-        setAnnotations((current) => {
-          const currentById = new Map(current.map((item) => [item.id, item]));
-          return result.annotations.map((item) => {
-            const previous = currentById.get(item.id);
-            return previous && previous.updated_at > item.updated_at ? previous : item;
-          });
-        });
+        reviewDispatch({ type: "notes/merged", annotations: result.annotations });
         setFeedbackStatus(result.feedback ?? fallbackFeedbackStatus(result.annotations));
         setFeedbackDelivery(result.delivery ?? null);
       } catch (reason) {
@@ -2161,53 +1880,53 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         if (!live) return;
         if (!primed) {
           primed = true;
-          packetCursor = next.packet_cursor;
-          annotationsCursor = next.annotations_cursor;
-          journalCursor = next.journal_cursor;
-          developmentCursor = next.development_cursor ?? "";
-          marksCursor = next.marks_cursor ?? "";
-          // The initial event may arrive after a background checkpoint won
-          // the race with Reader startup. Priming must still compare revision
-          // identity or the UI can miss that newer revision forever.
-          if (next.revision_id !== currentRevisionId && await ownCapture(next.revision_id)) return;
-        } else {
-          const sameRevision = next.revision_id === currentRevisionId;
-          const packetChanged = sameRevision && next.packet_cursor !== packetCursor;
-          const annotationsChanged = sameRevision && next.annotations_cursor !== annotationsCursor;
-          const journalChanged = sameRevision && next.journal_cursor !== journalCursor;
-          const developmentChanged = sameRevision && (next.development_cursor ?? "") !== developmentCursor;
-          const marksChanged = sameRevision && (next.marks_cursor ?? "") !== marksCursor;
-
-          if (!sameRevision) {
-            if (await ownCapture(next.revision_id)) return;
-          } else {
-            const deferPacketReload = packetChanged
-              && targetListRef.current?.complete === false
-              && !startupEnrichmentReadyRef.current;
-            if (packetChanged && !deferPacketReload) {
-              // Background impact/provenance enrichment rewrites only metadata
-              // on this exact revision. Rich/full Readers reload it immediately.
-              await loadReader(reviewId);
-            } else {
-              // Compact large-Code mode deliberately keeps its Snapshot-bound
-              // source cache stable while packet enrichment advances. The latest
-              // full projection is fetched when the reviewer asks for rich
-              // context, so packet churn cannot evict source under navigation.
-              const [, , , marksTaken] = await Promise.all([
-                annotationsChanged ? refreshAnnotations() : Promise.resolve(),
-                journalChanged ? refreshJournal() : Promise.resolve(),
-                developmentChanged ? refreshDevelopment() : Promise.resolve(),
-                marksChanged ? refreshMarks() : Promise.resolve(true),
-              ]);
-              if (!marksTaken) throw new Error("Review marks are still being saved");
-            }
-          }
-          packetCursor = next.packet_cursor;
+          // The packet's baseline is the Snapshot the Reader loaded, not the stream's first event: background
+          // enrichment (the agent's name, impact) that lands between the two is still taken below.
+          packetCursor = loadedPacketCursor || next.packet_cursor;
           annotationsCursor = next.annotations_cursor;
           journalCursor = next.journal_cursor;
           developmentCursor = next.development_cursor ?? "";
           marksCursor = next.marks_cursor ?? "";
         }
+        // The initial event may arrive after a background checkpoint won
+        // the race with Reader startup: it still compares revision identity,
+        // or the UI can miss that newer revision forever.
+        const sameRevision = next.revision_id === currentRevisionId;
+        const packetChanged = sameRevision && next.packet_cursor !== packetCursor;
+        const annotationsChanged = sameRevision && next.annotations_cursor !== annotationsCursor;
+        const journalChanged = sameRevision && next.journal_cursor !== journalCursor;
+        const developmentChanged = sameRevision && (next.development_cursor ?? "") !== developmentCursor;
+        const marksChanged = sameRevision && (next.marks_cursor ?? "") !== marksCursor;
+
+        if (!sameRevision) {
+          if (await ownCapture(next.revision_id)) return;
+        } else {
+          const deferPacketReload = packetChanged
+            && targetListRef.current?.complete === false
+            && !startupEnrichmentReadyRef.current;
+          if (packetChanged && !deferPacketReload) {
+            // Background impact/provenance enrichment rewrites only metadata
+            // on this exact revision. Rich/full Readers reload it immediately.
+            await loadReader(reviewId);
+          } else {
+            // Compact large-Code mode deliberately keeps its Snapshot-bound
+            // source cache stable while packet enrichment advances. The latest
+            // full projection is fetched when the reviewer asks for rich
+            // context, so packet churn cannot evict source under navigation.
+            const [, , , marksTaken] = await Promise.all([
+              annotationsChanged ? refreshAnnotations() : Promise.resolve(),
+              journalChanged ? refreshJournal() : Promise.resolve(),
+              developmentChanged ? refreshDevelopment() : Promise.resolve(),
+              marksChanged ? refreshMarks() : Promise.resolve(true),
+            ]);
+            if (!marksTaken) throw new Error("Review marks are still being saved");
+          }
+        }
+        packetCursor = next.packet_cursor;
+        annotationsCursor = next.annotations_cursor;
+        journalCursor = next.journal_cursor;
+        developmentCursor = next.development_cursor ?? "";
+        marksCursor = next.marks_cursor ?? "";
     }, sourceProbeIntervalMs, (status) => {
       if (live) setAccessLost(streamAccessLoss(status));
     });
@@ -2228,30 +1947,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const revisionComparisonActive = Boolean(
     comparisonQueryValid
     && !requestedHeadBase
+    // `compare=auto` is the Classic Reader's own landing. A flow screen answers for the whole revision: narrowing it to
+    // the parts that moved would drop what is already reviewed and what is still unanswered.
+    && !(automaticComparison && flowRoute?.known)
     && revisionComparison
     && revisionComparison.code_available
     && revisionComparison.from_revision.revision_number !== revisionComparison.to_revision.revision_number,
   );
   const headComparisonActive = Boolean(requestedHeadBase && sourceComparison);
   const comparisonActive = revisionComparisonActive || headComparisonActive;
-  const comparisonRequested = Boolean(
-    comparisonQueryValid
-    && (requestedHeadBase || requestedBaseRevision !== requestedTargetRevision),
-  );
-  const automaticComparisonExpected = Boolean(
-    overview
-    && !comparisonSelectionPinnedRef.current
-    && !legacyHistoricalRoute
-    && !dedicatedItem
-    && (overview.default_base_revision_number ?? overview.revision.revision_number)
-      !== (overview.default_target_revision_number ?? overview.revision.revision_number),
-  );
-  // Never render the Full-review patch under a Snapshot-comparison header.
-  // Until the exact pair is available (or if it fails), Implementation stays
-  // neutral instead of falling through to Review base → Snapshot.
-  const comparisonPlaceholderActive = Boolean(
-    !comparisonActive && (comparisonRequested || automaticComparisonExpected),
-  );
   const sourceTargets = useMemo(() => targetList?.targets ?? [], [targetList?.targets]);
   const comparisonFiles = useMemo(
     () => headComparisonActive && sourceComparison
@@ -2300,11 +2004,17 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     return next;
   }, [comparisonActive, comparisonFiles]);
   const targets = comparisonActive ? comparisonTargets : sourceTargets;
+  const flowQuick = flowFocus && flowRoute?.route.kind === "one" && (() => {
+    const quick = targets.filter((target) => targetAnswer(target).category === "quick_check");
+    const requested = flowRoute.route.part;
+    if (!requested) return quick.length > 0 && !targets.some((target) => targetAnswer(target).category === "decision");
+    return quick.some((target) => partSlug(target, targets) === requested);
+  })();
 
   const fullModelHydrationRef = useRef("");
   useEffect(() => {
     if (!reviewId || historical || !overview || targetList?.complete !== false) return;
-    const needsFullModel = view !== "implementation" || Boolean(query.trim());
+    const needsFullModel = view !== "implementation" || Boolean(query.trim()) || flowOverview || flowFocus || flowWrap || flowDone;
     if (!needsFullModel) return;
     const key = `${reviewId}:${overview.revision.id}:${targetList.order}`;
     if (fullModelHydrationRef.current === key) return;
@@ -2317,8 +2027,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       if (cancelled) return;
       if (hydratedOverview.revision.id !== overview.revision.id || hydratedTargets.revision_id !== overview.revision.id) return;
       const stableTargets = stabilizeTargetOrder(hydratedTargets);
-      setOverview(hydratedOverview);
-      setTargetList(stableTargets);
+      reviewDispatch({ type: "overview/set", overview: hydratedOverview });
+      reviewDispatch({ type: "parts/set", targetList: stableTargets });
       setActiveTargetId((current) => current && stableTargets.targets.some((target) => target.target_id === current)
         ? current
         : firstActionable(stableTargets.targets)?.target_id ?? "");
@@ -2329,7 +2039,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       cancelled = true;
       if (fullModelHydrationRef.current === key) fullModelHydrationRef.current = "";
     };
-  }, [historical, overview, query, reviewId, stabilizeTargetOrder, targetList?.complete, targetList?.order, view]);
+  }, [historical, overview, query, reviewId, stabilizeTargetOrder, targetList?.complete, targetList?.order, view, flowOverview, flowFocus, flowWrap]);
 
   const displayAnnotations = useMemo(() => {
     if (!revisionComparisonActive || !revisionComparison) return annotations;
@@ -2377,21 +2087,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const paths = new Set(surface.affected_paths);
     return targets.filter((target) => paths.has(target.path));
   }, [dedicatedItem, surfaces, targets]);
-  const streamSurfaces = useMemo(() => {
-    if (comparisonActive) return [];
-    if (!dedicatedItem) return surfaces;
-    if (dedicatedItem.kind === "file") return [];
-    return surfaces.filter((item) => item.provider === dedicatedItem.provider && item.id === dedicatedItem.id);
-  }, [dedicatedItem, comparisonActive, surfaces]);
-  const dedicatedItemAvailable = dedicatedItem?.kind === "surface"
-    ? streamSurfaces.length > 0
-    : dedicatedItem?.kind === "file"
-      ? Boolean(
-          comparisonActive
-            ? comparisonDetails[dedicatedItem.path]
-            : details[dedicatedItem.path] || fileErrors[dedicatedItem.path],
-        )
-      : false;
   const annotationSearchText = useMemo(
     () => annotationSearchTextByTarget(scopedTargets, displayAnnotations),
     [scopedTargets, displayAnnotations],
@@ -2416,10 +2111,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const deltaActiveIds = useMemo(
     () => new Set(revisionInfo?.target_delta?.active.map((target) => target.target_id) ?? []),
     [revisionInfo],
-  );
-  const deltaRemainingCount = useMemo(
-    () => targets.filter((target) => deltaActiveIds.has(target.target_id) && targetStillNeedsAttention(target)).length,
-    [targets, deltaActiveIds],
   );
   const requestScope = extensions?.requestScope ?? null;
   const requestScopeIds = useMemo(() => requestScopeTargetIds(targets, requestScope), [targets, requestScope]);
@@ -2471,7 +2162,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const pagePaths = dedicatedItem ? visiblePathOrder : pages[pageNumber - 1] ?? [];
   const pagePathSet = useMemo(() => new Set(pagePaths), [pagePaths]);
   const pageTargets = useMemo(() => dedicatedItem ? visibleTargets : visibleTargets.filter((target) => pagePathSet.has(target.path)), [dedicatedItem, visibleTargets, pagePathSet]);
-  const pageChangedLines = pagePaths.reduce((sum, path) => sum + (fileChangeLines.get(path) ?? 0), 0);
   const pageIdentity = JSON.stringify([reviewId, overview?.revision.id, comparisonActive, pageNumber, pagePaths]);
   const loadedPageIdentityRef = useRef("");
   const pendingPagePathRef = useRef("");
@@ -2533,56 +2223,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       if (!demandDriven) queueNextPage(reviewId, allPathOrder, fileChangeLines);
     }
   }, [allPathOrder, busy, comparisonActive, dedicatedItem, fileChangeLines, firstReviewableReady, loadPaths, pageIdentity, pagePaths, pagePathSet, pageTargets, queueNextPage, revealPaths, reviewId, revisionAdvanced, targetList?.complete]);
-  // reason the counter directly above it does: a file the stream only carries
-  // because it holds a draft matched nothing, so listing it here would answer
-  // "1 target · 1 file" with two rows, the second reading "0 matches".
-  const outlinePaths = useMemo(() => new Set(filteredTargets.map((target) => target.path)), [filteredTargets]);
-  const comparisonOutline = useMemo<ReviewOutlineItem[]>(() => {
-    const byPath = new Map<string, ReviewTarget[]>();
-    for (const target of comparisonTargets) {
-      const rows = byPath.get(target.path) ?? [];
-      rows.push(target);
-      byPath.set(target.path, rows);
-    }
-    return [...byPath.entries()].map(([path, rows]) => ({
-      path,
-      target_count: rows.length,
-      reviewed: rows.filter((target) => target.state === "reviewed").length,
-      changed_since_review: rows.filter((target) => target.state === "changed_since_review").length,
-      needs_changes: rows.filter((target) => target.state === "needs_changes").length,
-      unreviewed: rows.filter((target) => target.state === "unreviewed").length,
-      unknown: rows.filter((target) => target.state === "unknown").length,
-      mechanical: 0,
-      attention_rank: Math.max(0, ...rows.map((target) => target.attention_rank)),
-      reasons: [...new Set(rows.flatMap((target) => target.reasons))],
-    }));
-  }, [comparisonTargets]);
-  const startupOutlineUnfiltered = targetList?.complete === false
-    && !query.trim()
-    && !deltaFocus
-    && !requestScopeFiltering;
-  const visibleOutline = useMemo(() => {
-    const rows = comparisonActive ? comparisonOutline : targetList?.outline ?? [];
-    return startupOutlineUnfiltered ? rows : rows.filter((row) => outlinePaths.has(row.path));
-  }, [comparisonActive, comparisonOutline, targetList?.outline, outlinePaths, startupOutlineUnfiltered]);
-  // Over every target, so a search never changes a file's section or reason.
-  const outlineAttention = useMemo(() => fileAttention(targets), [targets]);
-  // Counted over the filtered set, never the streamed one: a file pinned into
-  // the stream only because it holds a draft has not matched the search.
-  const searchMatches = useMemo(() => {
-    const byPath = new Map<string, number>();
-    if (!query.trim()) return { byPath, targetCount: 0, fileCount: 0 };
-    for (const target of filteredTargets) byPath.set(target.path, (byPath.get(target.path) ?? 0) + 1);
-    return { byPath, targetCount: filteredTargets.length, fileCount: byPath.size };
-  }, [query, filteredTargets]);
-  const outstandingByPath = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const target of targets) {
-      if (target.state === "reviewed") continue;
-      counts.set(target.path, (counts.get(target.path) ?? 0) + 1);
-    }
-    return counts;
-  }, [targets]);
   const activeTarget = useMemo(
     () => visibleTargets.find((target) => target.target_id === activeTargetId) ?? firstActionable(visibleTargets),
     [visibleTargets, activeTargetId],
@@ -2591,7 +2231,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     ? (comparisonActive ? comparisonDetails[activeTarget.path] : details[activeTarget.path]) ?? null
     : null;
   const progress = targetList?.progress ?? progressFromTargets(targets);
-  const rootCommentCount = displayAnnotations.filter((item) => !item.parent_id).length;
   const openRootCommentCount = displayAnnotations.filter(
     (item) => !item.parent_id && item.state !== "resolved" && item.state !== "obsolete",
   ).length;
@@ -2630,6 +2269,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     overview?.brief?.verification.not_run,
     overview?.brief?.verification.pass,
     overview?.brief?.verification.unknown,
+    // Finishing offers Merge when ready; reopening withdraws an armed one on the server.
+    overview?.session.status,
     readinessOpen,
     reviewId,
     startupEnrichmentReady,
@@ -2639,75 +2280,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     targetList?.progress.reviewed,
     targetList?.progress.unknown,
     targetList?.progress.unreviewed,
+    targetList?.progress.later,
   ]);
-
-  const armLanding = useCallback(async () => {
-    if (!reviewId || !landingReadiness || landingReadinessState !== "ready" || landingBusy) return;
-    setLandingBusy(true);
-    setLandingError("");
-    try {
-      const next = await armReviewLanding(reviewId, {
-        expected_revision_id: landingReadiness.snapshot_id,
-        expected_tree_fingerprint: landingReadiness.tree_fingerprint,
-        expected_conditions_hash: landingReadiness.conditions_hash,
-      });
-      setLandingReadiness(next);
-    } catch (reason) {
-      setLandingError(`Could not arm landing: ${String(reason instanceof Error ? reason.message : reason)}`);
-      try {
-        setLandingReadiness(await fetchReviewReadiness(reviewId));
-        setLandingReadinessState("ready");
-      } catch {
-        // Do not keep a previously armable projection authoritative after an
-        // ambiguous provider/server failure. The exact conditions must reload.
-        setLandingReadinessState("failed");
-      }
-    } finally {
-      setLandingBusy(false);
-    }
-  }, [landingBusy, landingReadiness, landingReadinessState, reviewId]);
-
-  const cancelLanding = useCallback(async () => {
-    if (!reviewId || !landingReadiness || landingBusy) return;
-    setLandingBusy(true);
-    setLandingError("");
-    try {
-      setLandingReadiness(await cancelReviewLanding(reviewId, landingReadiness.snapshot_id));
-    } catch (reason) {
-      setLandingError(`Could not cancel landing: ${String(reason instanceof Error ? reason.message : reason)}`);
-      try {
-        setLandingReadiness(await fetchReviewReadiness(reviewId));
-        setLandingReadinessState("ready");
-      } catch {
-        setLandingReadinessState("failed");
-      }
-    } finally {
-      setLandingBusy(false);
-    }
-  }, [landingBusy, landingReadiness, reviewId]);
-
-  /** One pre-merge action on the readiness Snapshot, then the authoritative readiness is re-read. */
-  const runPremergeAction = useCallback(async (
-    failure: string,
-    action: (id: string, snapshotId: string) => Promise<unknown>,
-  ) => {
-    if (!reviewId || !landingReadiness || premergeBusy) return;
-    setPremergeBusy(true);
-    setPremergeError("");
-    try {
-      await action(reviewId, landingReadiness.snapshot_id);
-    } catch (reason) {
-      setPremergeError(`${failure}: ${String(reason instanceof Error ? reason.message : reason)}`);
-    }
-    try {
-      setLandingReadiness(await fetchReviewReadiness(reviewId));
-      setLandingReadinessState("ready");
-    } catch {
-      setLandingReadinessState("failed");
-    } finally {
-      setPremergeBusy(false);
-    }
-  }, [landingReadiness, premergeBusy, reviewId]);
 
   const connectedScmBlockers = scmRequirementBlockers(overview?.change?.scm_requirements ?? []);
   const localReadiness = deriveReviewReadiness({
@@ -2721,18 +2295,22 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     outcome: currentOutcome,
     movement: overview?.movement,
   });
+  // Merge when ready is offered only after Finish, so an open review that meets every requirement says so.
+  const reviewFinished = overview?.session.status === "finished" || Boolean(landingReadiness?.landing.armed);
   const readiness = landingReadinessState === "ready" && landingReadiness
     ? {
         ...localReadiness,
         ready: landingReadiness.ready,
         label: landingReadiness.ready
           ? landingReadiness.landing.supported
-            ? "Ready to merge"
+            ? reviewFinished ? "Ready to merge" : "Ready to merge once finished"
             : "Review ready"
           : `${landingReadiness.blocker_count} merge requirement${landingReadiness.blocker_count === 1 ? "" : "s"} unresolved`,
         detail: landingReadiness.ready
           ? landingReadiness.landing.supported
-            ? "All visible merge requirements are satisfied."
+            ? reviewFinished
+              ? "All visible merge requirements are satisfied."
+              : "All visible merge requirements are satisfied. Finish the review to offer Merge when ready."
             : "The review is complete; automatic merge is unavailable for this Change."
           : landingReadiness.conditions
               .filter((condition) => !SATISFIED_LANDING_STATES.has(condition.state))
@@ -2755,7 +2333,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
           label: landingReadinessState === "failed" ? "Merge readiness unavailable" : "Checking merge readiness",
           detail: landingReadinessState === "failed"
             ? "Merge requirements could not be loaded; readiness stays blocked until they are available."
-            : "Loading merge requirements for this Snapshot.",
+            : "Loading merge requirements for this revision.",
           blockers: [
             ...localReadiness.blockers,
             {
@@ -2768,34 +2346,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
             },
           ],
         };
-  const globalNextTarget = nextReviewGuideTarget(targets);
   const runningDraft = overview?.revision.capture_kind === "draft" && !overview.revision.is_published_snapshot;
   const forcedReadOnly = Boolean(extensions?.forceReadOnly);
-  const primaryAction = runningDraft && !historical ? {
-    kind: "create_snapshot" as const,
-    label: "Create Snapshot",
-    detail: forcedReadOnly
-      ? (extensions?.readOnlyReason || "This Review is read-only.")
-      : "Save this draft as a frozen Snapshot to enable comments and review decisions.",
-    disabled: forcedReadOnly || revisionAdvanced || overview?.session.status !== "open",
-  } : deriveReviewPrimaryAction({
-    historical,
-    sessionStatus: overview?.session.status ?? "open",
-    revisionAdvanced,
-    sourceChanged: Boolean(sourceState?.changed),
-    commentsState,
-    feedbackStatus,
-    feedbackDelivery,
-    progress,
-    readiness,
-    landing: landingReadinessState === "ready" ? landingReadiness : null,
-    nextTarget: globalNextTarget,
-  });
   const sessionLocked = overview?.session.status === "archived" || overview?.session.status === "finished";
   // A finished review takes no new judgments until it is reopened (the primary
   // action says so); feedback handoff stays available after finishing.
   const readOnly = forcedReadOnly || historical || runningDraft || sessionLocked || revisionAdvanced || Boolean(accessLost);
-  const handoffLocked = forcedReadOnly || historical || runningDraft || overview?.session.status === "archived" || revisionAdvanced || Boolean(accessLost);
   const handoffRoute: FeedbackRouteKind = feedbackDelivery?.kind
     ?? (feedbackDelivery?.supported ? "agent" : isGitHubPullRequest ? "github" : "export");
   const handoff = handoffCounts(feedbackStatus, feedbackDelivery);
@@ -2846,7 +2402,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const current = startNavigation([path]);
     await loadPath(reviewId, path);
     if (!current()) return;
-    window.requestAnimationFrame(() => { if (current()) streamRef.current?.scrollToFile(path, behavior); });
+    window.requestAnimationFrame(() => {
+      if (!current()) return;
+      const stream = streamRef.current;
+      if (stream) stream.scrollToFile(path, behavior);
+      else pendingCodeJumpRef.current = { kind: "file", path, behavior, current };
+    });
   }, [reviewId, allPathOrder, fileChangeLines, loadPath, queueNextPage, revealNavigationWindow, startNavigation, openPathPage, targetList?.complete]);
 
   const scrollToTarget = useCallback(async (target: ReviewTarget, behavior: "instant" | "smooth" = "smooth") => {
@@ -2879,15 +2440,23 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     }
     if (!aimedImmediately) {
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (current()) streamRef.current?.scrollToTarget(target, effectiveBehavior);
+        if (!current()) return;
+        const handle = streamRef.current;
+        if (handle) handle.scrollToTarget(target, effectiveBehavior);
+        else pendingCodeJumpRef.current = { kind: "target", target, behavior: effectiveBehavior, current };
       }));
     }
   }, [reviewId, allPathOrder, fileChangeLines, loadPath, navigationPathOrder, queueBackgroundPaths, queueNextPage, revealNavigationWindow, startNavigation, openPathPage, pages, targetList?.complete]);
 
+  const flowOverviewRef = useRef(false);
+  flowOverviewRef.current = flowOverview;
+  const lagRetriedRef = useRef(false);
+  const loadProjectionRef = useRef<(background?: boolean) => Promise<void>>(async () => undefined);
   const loadProjection = useCallback(async (background = false) => {
     if (!reviewId || !briefCapable) return;
     const request = ++projectionRequestRef.current;
     if (!background) {
+      projectionForegroundRef.current = request;
       setBriefPreparation(null);
       setBriefStartedAt(Date.now() / 1000);
       setProjectionState("loading");
@@ -2898,20 +2467,36 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
           ? fetchHistoricalProjection(reviewId, historicalRevisionKey)
           : fetchProjection(reviewId)
       ));
-      if (request !== projectionRequestRef.current) return;
+      if (!shouldApplyProjection(request, projectionForegroundRef.current, projectionAppliedRef.current)) return;
       // A background completion belongs to the Snapshot that triggered it.
       // The Reader may have advanced while this request was in flight.
       if (background && next.revision_id !== overview?.revision.id) return;
+      // The redesigned Overview never takes a plan for another revision as its own.
+      if (flowOverviewRef.current && !background && next.revision_id !== overview?.revision.id) {
+        setProjectionState("failed");
+        // One background retry for the current revision; a server that keeps lagging does not loop.
+        if (!lagRetriedRef.current) {
+          lagRetriedRef.current = true;
+          void loadProjectionRef.current(true);
+        }
+        return;
+      }
+      if (next.revision_id === overview?.revision.id) lagRetriedRef.current = false;
+      projectionAppliedRef.current = request;
       setProjection(next);
       setProjectionState("ready");
     } catch {
-      if (request !== projectionRequestRef.current || background) return;
+      // A failed foreground load fails the screen unless a newer foreground load replaced it or a plan is already
+      // on screen; a background refresh begun behind it must not leave the screen loading forever (P9-6).
+      const stillWaiting = () => request === projectionForegroundRef.current && request >= projectionAppliedRef.current;
+      if (background || !stillWaiting()) return;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      if (request !== projectionRequestRef.current) return;
+      if (!stillWaiting()) return;
       setProjectionState("failed");
       setLandingDecided(true);
     }
   }, [reviewId, briefCapable, historical, historicalRevisionKey, overview?.revision.id]);
+  loadProjectionRef.current = loadProjection;
 
   useEffect(() => {
     if (!reviewId || !briefLandingPending || projectionState !== "loading") return;
@@ -2947,6 +2532,18 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     void loadProjection();
   }, [view, targetList, annotations, loadProjection]);
 
+  // The redesigned Overview refreshes the plan in the background, so a passive change (a provider sync, a source
+  // recovery, full-model hydration) never puts it back to preparing, and marks made on other screens show on return.
+  const overviewInputsRef = useRef<{ targetList: ReviewTargetList | null; annotations: Annotation[] } | null>(null);
+  useEffect(() => {
+    if (!flowOverview) return;
+    const previous = overviewInputsRef.current;
+    overviewInputsRef.current = { targetList, annotations };
+    if (!previous?.targetList) return;
+    if (previous.targetList === targetList && previous.annotations === annotations) return;
+    void loadProjection(true);
+  }, [flowOverview, targetList, annotations, loadProjection]);
+
   // Adaptive Auto landing is deterministic from already-loaded Review metadata.
   // Explicit URL/deep-link intent, a dedicated item, return state, comparison,
   // or a remembered reviewer choice wins. No model call chooses navigation.
@@ -2955,6 +2552,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     viewChosenRef.current = true;
     setLandingDecided(true);
     if (view !== "implementation" || !defaultLanding) return;
+    // A redesigned flow screen owns its query (the Map's `view=`); the Reader's own landing must not rewrite it.
+    if (onFlowScreen() || flowOverview) return;
     const landing = readStoredView(reviewId)
       ?? (targets.length > LARGE_REVIEW_TARGET_THRESHOLD ? "implementation" : adaptiveReviewLanding(projection, targets, briefCapable));
     if (landing === "implementation") return;
@@ -2964,207 +2563,18 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       params.delete(GUIDED_COHORT_PARAM);
       return params;
     }, { replace: true });
-  }, [projection, targets, briefCapable, view, defaultLanding, reviewId, setSearchParams]);
+  }, [projection, targets, briefCapable, view, defaultLanding, reviewId, setSearchParams, flowOverview]);
 
   // One path for every failed human write: a stale Snapshot moves the reader to
   // the reload state with an explicit notice instead of a generic error string.
   const reportWriteFailure = useCallback((reason: unknown) => {
     const failure = classifyWriteFailure(reason);
     if (failure.stale) {
-      setRevisionAdvanced(true);
+      reviewDispatch({ type: "revision/advancedSet", advanced: true });
       setFinishSheetOpen(false);
     }
     setError(failure.message);
   }, []);
-
-  // The Snapshot on screen. Refetches after a write return the latest
-  // revision's state; only state for this Snapshot may replace what is shown.
-  const shownRevisionId = overview?.revision.id ?? "";
-
-  // Decisions are human-only writes bound to the displayed Snapshot and the
-  // newest event the reviewer saw; the server refuses stale ones. Request
-  // change first files ordinary human feedback (never a target mark), then
-  // links it, so the request is the queue action.
-  const decideOnBrief = useCallback(async (key: string, input: ReviewDecisionEventInput) => {
-    if (!reviewId || !projection) return;
-    const decision = projection.decisions.find((item) => item.key === key);
-    let feedbackPath: string | undefined;
-    if (input.action === "request_change") {
-      const target = targets.find((item) => item.target_id === decision?.target_ids[0]);
-      if (!target) throw new Error("This decision has no implementation target to attach the request to.");
-      feedbackPath = target.path;
-    }
-    try {
-      // One write, bound to the Snapshot, event and scope this card showed.
-      await postDecisionEvent(reviewId, key, {
-        action: input.action,
-        option_key: input.option_key,
-        reason: input.reason,
-        trigger: input.trigger,
-        feedback_body: input.action === "request_change" ? input.feedback_body ?? "" : undefined,
-        feedback_path: feedbackPath,
-        expected_revision_id: projection.revision_id,
-        expected_event_id: decision?.state?.latest_event_id ?? "",
-        expected_semantic_fingerprint: decision?.state?.semantic_fingerprint ?? "",
-      });
-      activeReviewFriction()?.judgment();
-    } catch (reason) {
-      // A newer Snapshot moves the whole Reader to its reload state; the card
-      // still shows its own refusal.
-      if (isStaleSnapshotError(reason)) reportWriteFailure(reason);
-      throw reason;
-    } finally {
-      // Refused or not, show what is true now; a refresh failure never
-      // replaces the write's own error. A newer Snapshot's targets and
-      // comments never render under this Snapshot's header and code.
-      try {
-        const [nextTargets, nextAnnotations] = await Promise.all([
-          fetchTargets(reviewId, targetList?.order ?? "recommended"),
-          fetchAnnotations(reviewId),
-        ]);
-        if (nextTargets.revision_id === shownRevisionId) setTargetList(stabilizeTargetOrder(nextTargets));
-        if (nextAnnotations.revision_id === shownRevisionId) {
-          setAnnotations(nextAnnotations.annotations);
-          setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
-        }
-        await loadProjection();
-      } catch {
-        // the next poll or navigation refreshes
-      }
-    }
-  }, [reviewId, projection, targets, targetList?.order, stabilizeTargetOrder, loadProjection, shownRevisionId, reportWriteFailure]);
-
-  const runAiReviewOnBrief = useCallback(async (effort: "thorough" | "deep") => {
-    if (!reviewId || !projection) throw new Error("Review is not ready for AI review.");
-    try {
-      const actionId = globalThis.crypto.randomUUID();
-      const response = await postAiReview(
-        reviewId,
-        projection.revision_id,
-        effort,
-        BROWSER_AI_REVIEW_TRIGGER,
-        actionId,
-      );
-      setAiReviewRun(response.ai_review);
-      return response.ai_review;
-    } finally {
-      try {
-        const [nextTargets, nextAnnotations] = await Promise.all([
-          fetchTargets(reviewId, targetList?.order ?? "recommended"),
-          fetchAnnotations(reviewId),
-        ]);
-        if (nextTargets.revision_id === shownRevisionId) setTargetList(stabilizeTargetOrder(nextTargets));
-        if (nextAnnotations.revision_id === shownRevisionId) {
-          setAnnotations(nextAnnotations.annotations);
-          setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
-        }
-        await loadProjection();
-      } catch {
-        // live state / the next navigation refreshes
-      }
-    }
-  }, [reviewId, projection, targetList?.order, stabilizeTargetOrder, loadProjection, shownRevisionId]);
-
-  const cancelAiReviewOnBrief = useCallback(async (jobId: string) => {
-    if (!reviewId || !projection || projection.revision_id !== overview?.revision.id) {
-      throw new Error("The AI Review Snapshot changed. Refresh before cancelling.");
-    }
-    const result = await cancelAiReview(reviewId, projection.revision_id, jobId);
-    if (result.ai_review.status === "unavailable") {
-      throw new Error("This AI job could not be stopped; its status may have changed.");
-    }
-    await loadProjection(true);
-  }, [reviewId, projection, overview?.revision.id, loadProjection]);
-
-  const rerunAiReviewFreshOnBrief = useCallback(async (actionId: string) => {
-    if (!reviewId || !projection) throw new Error("Review is not ready for AI review.");
-    try {
-      const response = await postAiReviewFresh(reviewId, projection.revision_id, actionId);
-      setAiReviewRun(response.ai_review);
-      return response.ai_review;
-    } finally {
-      try {
-        const nextAnnotations = await fetchAnnotations(reviewId);
-        if (nextAnnotations.revision_id === shownRevisionId) {
-          setAnnotations(nextAnnotations.annotations);
-          setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
-        }
-        await loadProjection();
-      } catch {
-        // live state / the next navigation refreshes
-      }
-    }
-  }, [reviewId, projection, loadProjection, shownRevisionId]);
-
-  const synthesizeOnBrief = useCallback(async () => {
-    if (!reviewId || !projection) return;
-    try {
-      await postSynthesis(reviewId, projection.revision_id);
-    } finally {
-      try {
-        const nextTargets = await fetchTargets(reviewId, targetList?.order ?? "recommended");
-        if (nextTargets.revision_id === shownRevisionId) setTargetList(stabilizeTargetOrder(nextTargets));
-        await loadProjection();
-      } catch {
-        // the next navigation refreshes
-      }
-    }
-  }, [reviewId, projection, targetList?.order, stabilizeTargetOrder, loadProjection, shownRevisionId]);
-
-  const synthesizeOnTour = useCallback(async () => {
-    if (!reviewId || !projection) return;
-    try {
-      await postTourSynthesis(reviewId, projection.revision_id);
-    } finally {
-      try {
-        await loadProjection();
-      } catch {
-        // the next navigation refreshes
-      }
-    }
-  }, [reviewId, projection, loadProjection]);
-
-  const loadBehaviorTarget = useCallback(async (behaviorKey: string) => {
-    if (!reviewId || !projection?.revision_id || projection.revision_id !== overviewRevisionId) {
-      throw new Error("Behavior evidence is unavailable until the current Snapshot is loaded.");
-    }
-    const result = await fetchBehaviorTarget(reviewId, behaviorKey);
-    if (result.revision_id !== projection.revision_id || result.target.behavior_key !== behaviorKey) {
-      throw new Error("Behavior evidence belongs to a different Snapshot or target. Refresh the Review before judging.");
-    }
-    return result.target;
-  }, [reviewId, projection?.revision_id, overviewRevisionId]);
-
-  // The digest is the one of the evidence block the Brief rendered; the server refuses any other.
-  const judgeBehavior = useCallback(async (behaviorKey: string, state: BehaviorJudgmentState, evidenceDigest: string) => {
-    if (!reviewId || !projection) return;
-    await postBehaviorJudgment(reviewId, projection.revision_id, {
-      behavior_key: behaviorKey,
-      state,
-      evidence_digest: evidenceDigest,
-    });
-    activeReviewFriction()?.judgment();
-    await loadProjection();
-  }, [reviewId, projection, loadProjection]);
-
-  const narrateBehavior = useCallback(async () => {
-    if (!reviewId || !projection) return;
-    try {
-      await postBehaviorNarrative(reviewId, projection.revision_id);
-    } finally {
-      try {
-        await loadProjection();
-      } catch {
-        // the next navigation refreshes
-      }
-    }
-  }, [reviewId, projection, loadProjection]);
-
-  const recordManualCheck = useCallback(async (itemId: string, status: "PASS" | "FAIL" | "UNKNOWN", note: string) => {
-    if (!reviewId || !projection) return;
-    await postManualCheckResult(reviewId, projection.revision_id, { item_id: itemId, status, note });
-    await loadProjection();
-  }, [reviewId, projection, loadProjection]);
 
   const synthesisPending = Boolean(
     (briefShown && projection?.synthesis?.status === "pending")
@@ -3184,7 +2594,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const revisionId = projection.revision_id;
     void fetchAnnotations(reviewId).then((result) => {
       if (!current || projectionRequestRef.current === 0 || overview?.revision.id !== revisionId) return;
-      setAnnotations(result.annotations);
+      reviewDispatch({ type: "notes/set", annotations: result.annotations });
       setFeedbackStatus(result.feedback ?? fallbackFeedbackStatus(result.annotations));
       setFeedbackDelivery(result.delivery ?? null);
     }).catch(() => {
@@ -3246,12 +2656,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       setError(String(reason instanceof Error ? reason.message : reason));
     }
   }, [reviewId, historical, historicalRevisionKey]);
-
-  // ----- In-Review backtrail ------------------------------------------- //
-  // Brief/Guided targets, Map nodes, Ask citations, Affected code and Code
-  // Peek jump inside the Review and record where they left from; Back in the
-  // header returns there exactly. The trail rides in the URL (reload-safe).
-  const backtrail = useMemo(() => readReviewBacktrail(searchParams), [searchParams]);
   const departure = useCallback((): ReviewBacktrailEntry => {
     const relatedAt = related
       ? { path: related.path, line: "pending" in related ? related.line : related.focus_line || related.start_line || 1 }
@@ -3280,31 +2684,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     setSearchParams((current) => writeReviewBacktrail(current, pushReviewBacktrail(trail, entry)), { replace: true });
   }, [departure, setSearchParams]);
   const pendingScrollRef = useRef<ReviewBacktrailEntry | null>(null);
-  const [scrollRestoreTick, setScrollRestoreTick] = useState(0);
-  const goBack = useCallback(() => {
-    const trail = readReviewBacktrail(new URLSearchParams(window.location.search));
-    const entry = trail[trail.length - 1];
-    if (!entry) return;
-    activeReviewFriction()?.back(entry.view);
-    viewChosenRef.current = true;
-    setLandingDecided(true);
-    setSearchParams(() => writeReviewBacktrail(new URLSearchParams(entry.query), trail.slice(0, -1)));
-    if (entry.related) void showRelatedSource(entry.related.path, entry.related.line);
-    else setRelated(null);
-    const target = entry.target ? targets.find((item) => item.target_id === entry.target) : undefined;
-    const restoreScroll = () => {
-      pendingScrollRef.current = entry.view === "map" ? null : entry;
-      setScrollRestoreTick((tick) => tick + 1);
-    };
-    if (target && entry.view === "implementation") {
-      // Aim at the target first; the exact offset is applied once it settled.
-      pendingScrollRef.current = null;
-      void scrollToTarget(target, "instant").then(restoreScroll);
-      return;
-    }
-    if (target) setActiveTargetId(target.target_id);
-    restoreScroll();
-  }, [scrollToTarget, setActiveTargetId, setSearchParams, showRelatedSource, targets]);
+  const [scrollRestoreTick] = useState(0);
   useEffect(() => {
     const entry = pendingScrollRef.current;
     if (!entry || entry.view !== view) return;
@@ -3402,58 +2782,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     changeRevisionComparison(base, latest);
   }, [changeRevisionComparison, overview?.revision.revision_number, revisionHistory]);
 
-  const selectPath = useCallback((path: string) => {
-    if (isCompactReviewViewport()) setOutlineCollapsed(true);
-    const visible = targetForPath(visibleTargets, path);
-    if (visible) {
-      void scrollToTarget(visible);
-      return;
-    }
-    const anywhere = targetForPath(targets, path);
-    if (anywhere) {
-      setQuery("");
-      setDeltaFocus(false);
-      void scrollToTarget(anywhere);
-      return;
-    }
-    if (!reviewId || targetList?.complete !== false || !overview) return;
-    setQuery("");
-    setDeltaFocus(false);
-    revealImplementation();
-    // Source and target metadata start together, but target metadata must not
-    // wait for a large diff. Waiting for both previously left a 401-file
-    // keyboard jump on a blank page with "No matching targets" while the
-    // unrelated source read was still pending.
-    const currentNavigation = startNavigation([path]);
-    void loadPath(reviewId, path);
-    void fetchTargetsForPath(reviewId, path, targetList.order).then((slice) => {
-      if (!currentNavigation()) return;
-      if (slice.revision_id !== overview.revision.id) {
-        throw new Error("The target belongs to another Snapshot. Refresh the Review to navigate safely.");
-      }
-      const fetched = targetForPath(slice.targets, path);
-      if (!fetched) throw new Error("This file has no current Review target. Refresh the Review or choose another file.");
-      setTargetList((current) => {
-        if (!current || current.revision_id !== slice.revision_id) return current;
-        const seen = new Set(current.targets.map((target) => target.target_id));
-        const mergedTargets = [...current.targets, ...slice.targets.filter((target) => !seen.has(target.target_id))];
-        const stabilized = stabilizeTargetOrder({ ...current, targets: mergedTargets });
-        return {
-          ...stabilized,
-          outline: current.outline,
-          progress: current.progress,
-          movement: current.movement,
-          complete: current.complete,
-        };
-      });
-      window.requestAnimationFrame(() => void scrollToTarget(fetched, "instant"));
-    }).catch((reason: unknown) => {
-      if (currentNavigation()) {
-        setError(`Cannot open ${path}: ${String(reason instanceof Error ? reason.message : reason)}`);
-      }
-    });
-  }, [loadPath, overview, reviewId, revealImplementation, scrollToTarget, stabilizeTargetOrder, startNavigation, targetList, targets, visibleTargets]);
-
   const selectSurface = useCallback(async (surfaceKey: string) => {
     if (!reviewId) return;
     const surface = surfaces.find((candidate) => `${candidate.provider}:${candidate.id}` === surfaceKey);
@@ -3480,187 +2808,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     void selectSurface(surfaceKey);
   }, [dedicatedItem, firstReviewableReady, selectSurface, surfaces]);
 
-  const navigateSearchMatch = useCallback((delta: number) => {
-    // Steps the match set, not the stream. A file the stream only carries
-    // because it holds an open draft matched nothing, and the counter this
-    // control sits beside does not count it either.
-    if (!query.trim() || filteredTargets.length === 0) return;
-    const next = stepTarget(filteredTargets, activeTarget?.target_id ?? "", delta, { wrap: true });
-    if (next) void scrollToTarget(next, "instant");
-  }, [query, filteredTargets, activeTarget?.target_id, scrollToTarget]);
-
-  const dismissSearch = useCallback(() => {
-    setQuery("");
-    searchInputRef.current?.blur();
-    window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-current="location"]')?.focus());
-  }, []);
-
-  const changeOrder = useCallback(async (nextOrder: ReaderOrder) => {
-    if (!reviewId || busy || targetList?.order === nextOrder) return;
-    setBusy("order");
-    try {
-      const currentTargetId = activeTarget?.target_id ?? activeTargetId;
-      const fetchedTargets = historical
-        ? await fetchHistoricalTargets(reviewId, historicalRevisionKey, nextOrder)
-        : await fetchTargets(reviewId, nextOrder);
-      // An explicit order change is the one time the list order must move:
-      // forget the stabilized order so the requested one takes effect.
-      stableTargetOrderRef.current = [];
-      const nextTargets = historical ? fetchedTargets : stabilizeTargetOrder(fetchedTargets);
-      setTargetList(nextTargets);
-      const survivor = nextTargets.targets.find((target) => target.target_id === currentTargetId)
-        ?? firstActionable(nextTargets.targets);
-      setActiveTargetId(survivor?.target_id ?? "");
-      // Any navigation the reviewer starts after this claim (e.g. j while paths
-      // load) owns the scroll; a late re-aim at the survivor would yank it back.
-      const navigation = navigationRef.current;
-
-      const queueTargets = deltaFocus
-        ? nextTargets.targets.filter((target) => deltaActiveIds.has(target.target_id) && targetStillNeedsAttention(target))
-        : nextTargets.targets;
-      const paths = initialPaths(queueTargets);
-      if (survivor && !paths.includes(survivor.path)) paths.unshift(survivor.path);
-      const uniquePaths = [...new Set(paths)];
-      revealPaths(uniquePaths);
-      await loadPaths(reviewId, uniquePaths);
-      queueNextPage(reviewId, orderedPaths(nextTargets.targets), changeLinesByPath(nextTargets.targets));
-      if (survivor) {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-          if (navigationRef.current === navigation) streamRef.current?.scrollToTarget(survivor, "instant");
-        }));
-      }
-      setError("");
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, busy, targetList?.order, activeTarget?.target_id, activeTargetId, deltaFocus, deltaActiveIds, loadPaths, queueNextPage, revealPaths]);
-
-  const updateTargetListAfterMark = useCallback((
-    target: ReviewTarget,
-    result: MarkResult,
-    othersInFlight = false,
-  ) => {
-    setTargetList((current) => {
-      if (!current) return current;
-      const replacement = result.target ?? { ...target, state: result.recorded, changed_since_mark: false };
-      const shown = current.targets.find((item) => item.target_id === target.target_id)?.state ?? target.state;
-      const nextTargets = current.targets.map((item) => item.target_id === target.target_id ? replacement : item);
-      // With other marks still in flight, the server's totals predate them;
-      // taking them would briefly undo marks the reviewer already sees.
-      if (othersInFlight) {
-        return {
-          ...current,
-          targets: nextTargets,
-          progress: progressFromTargets(nextTargets),
-          outline: shiftOutlineState(current.outline, target.path, shown, replacement.state),
-        };
-      }
-      return {
-        ...current,
-        targets: withPriorities(nextTargets, result.priorities),
-        progress: result.progress ?? progressFromTargets(nextTargets),
-        outline: result.outline ?? mergeOutline(current.outline, result.outline_updates),
-      };
-    });
-  }, []);
-
   // Swaps targets in place while a judgment is in flight: shown at once, then
   // reconciled with the server's answer or put back when the write fails.
   // `expected` guards each swap, so a newer local change is never overwritten.
   const swapTargets = useCallback((
     swaps: ReadonlyArray<{ targetId: string; expected: MarkState; next: ReviewTarget }>,
   ) => {
-    setTargetList((current) => {
-      if (!current) return current;
-      const byId = new Map(swaps.map((swap) => [swap.targetId, swap]));
-      let outline = current.outline;
-      let changed = false;
-      const nextTargets = current.targets.map((item) => {
-        const swap = byId.get(item.target_id);
-        if (!swap || item.state !== swap.expected) return item;
-        changed = true;
-        outline = shiftOutlineState(outline, item.path, item.state, swap.next.state);
-        return swap.next;
-      });
-      return changed
-        ? { ...current, targets: nextTargets, progress: progressFromTargets(nextTargets), outline }
-        : current;
-    });
-  }, []);
-
-  const bulkReviewFile = useCallback(async (path: string) => {
-    if (!reviewId || readOnly || busy) return;
-    const pending = targets.filter((target) => target.path === path && target.state !== "reviewed");
-    const unitKeys = pending.map((target) => target.unit_key);
-    if (unitKeys.length === 0) return;
-    // Not optimistic: the server owns eligibility, so nothing is painted
-    // Reviewed until it answers. `busy` is the pending state meanwhile.
-    setBusy(`bulk:${path}`);
-    try {
-      const result = await postBulkReviewed(reviewId, unitKeys, overview?.revision.id ?? "");
-      if (result.marked.length > 0) activeReviewFriction()?.judgment();
-      const marked = new Set(result.marked.map((item) => item.unit_key));
-      setTargetList((current) => {
-        if (!current) return current;
-        const nextTargets = withPriorities(current.targets.map((target) => marked.has(target.unit_key)
-          ? { ...target, state: "reviewed" as const, changed_since_mark: false, reviewed_revision_id: current.revision_id }
-          : target), result.priorities);
-        return {
-          ...current,
-          targets: nextTargets,
-          progress: result.progress ?? progressFromTargets(nextTargets),
-          outline: result.outline ?? mergeOutline(current.outline, result.outline_updates),
-        };
-      });
-      setBulkUndo(result.marked.length > 0 ? {
-        path,
-        marks: result.marked.map((item) => ({ unit_key: item.unit_key, event_id: item.event_id })),
-      } : null);
-      if (result.skipped.length > 0) {
-        const reasons = [...new Set(result.skipped.map((item) => item.reason))];
-        setError(`${result.marked.length} marked reviewed · ${result.skipped.length} kept for individual review · ${reasons.join(" · ")}`);
-      } else {
-        setError("");
-      }
-    } catch (reason) {
-      reportWriteFailure(reason);
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, readOnly, busy, targets, overview?.revision.id, reportWriteFailure]);
-
-  const undoBulkReview = useCallback(async () => {
-    if (!reviewId || !bulkUndo || readOnly || busy) return;
-    setBusy("bulk-undo");
-    try {
-      const result = await undoBulkReviewed(reviewId, bulkUndo.marks, overview?.revision.id ?? "");
-      const undone = new Set(result.undone.map((item) => item.unit_key));
-      setTargetList((current) => {
-        if (!current) return current;
-        const nextTargets = withPriorities(current.targets.map((target) => undone.has(target.unit_key)
-          ? { ...target, state: "unreviewed" as const, changed_since_mark: false, reviewed_revision_id: "" }
-          : target), result.priorities);
-        return {
-          ...current,
-          targets: nextTargets,
-          progress: result.progress ?? progressFromTargets(nextTargets),
-          outline: result.outline ?? mergeOutline(current.outline, result.outline_updates),
-        };
-      });
-      setBulkUndo(null);
-      if (result.skipped.length > 0) {
-        setError(`Undo kept ${result.skipped.length} newer reviewer judgment${result.skipped.length === 1 ? "" : "s"} intact.`);
-      } else {
-        setError("");
-      }
-    } catch (reason) {
-      reportWriteFailure(reason);
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, bulkUndo, readOnly, busy, overview?.revision.id, reportWriteFailure]);
+    reviewDispatch({ type: "marks/swapped", swaps });
+  }, [reviewDispatch]);
 
   // Targets with a mark in flight. A mark shows, and advances, before the
   // server answers, so it must not hold the shared busy channel: on a slow
@@ -3673,6 +2828,13 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const [hostedVersion, setHostedVersion] = useState(0);
   const [hostedNotice, setHostedNotice] = useState("");
   const hostedQueue = useHostedQueue(reviewId, Boolean(hostedInfo), hostedVersion);
+  // The "queued for hosted" notice belongs to this review and to actions still waiting: it goes when the review changes, and when
+  // the queue reports nothing unresolved.
+  useEffect(() => { setHostedNotice(""); }, [reviewId]);
+  const queueStatus = hostedQueue.status;
+  useEffect(() => {
+    if (queueStatus && unresolvedHostedActions(queueStatus).length === 0) setHostedNotice("");
+  }, [queueStatus]);
   const acknowledgeQueued = useCallback((notice: string) => {
     setHostedNotice(notice);
     setHostedVersion((value) => value + 1);
@@ -3681,8 +2843,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // Bumped on each failed mark so a concurrent mark's success cannot wipe its error.
   const markFailureSeqRef = useRef(0);
   const markTarget = useCallback(async (target: ReviewTarget, state: MarkState, advance = false) => {
-    if (!reviewId || readOnly || busy || target.fingerprint_method === "revision_compare") return;
-    if (markingRef.current.has(target.target_id)) return;
+    if (!reviewId || readOnly || busy || target.fingerprint_method === "revision_compare") return false;
+    if (markingRef.current.has(target.target_id)) return false;
     markingRef.current.add(target.target_id);
     const shown: ReviewTarget = { ...target, state, changed_since_mark: false };
     swapTargets([{ targetId: target.target_id, expected: target.state, next: shown }]);
@@ -3707,12 +2869,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         // Queued for hosted, not applied: the local target keeps its own state.
         swapTargets([{ targetId: target.target_id, expected: state, next: target }]);
         acknowledgeQueued(queuedWriteNotice(result));
-        return;
+        return "queued" as const;
       }
-      updateTargetListAfterMark(target, result, markingRef.current.size > 1);
-      setCommittedMarks((count) => count + 1);
+      reviewDispatch({ type: "marks/committed", target, result, othersInFlight: markingRef.current.size > 1 });
       if (result.downgraded) setError(result.note);
       else if (markFailureSeqRef.current === failureSeq) setError("");
+      return !result.downgraded;
     } catch (reason) {
       markFailureSeqRef.current += 1;
       swapTargets([{ targetId: target.target_id, expected: state, next: target }]);
@@ -3723,95 +2885,98 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       if (moved && navigationRef.current === moved.token && activeTargetIdRef.current === moved.id) {
         void scrollToTarget(target);
       }
+      return false;
     } finally {
       markingRef.current.delete(target.target_id);
     }
-  }, [reviewId, readOnly, busy, swapTargets, updateTargetListAfterMark, visibleTargets, scrollToTarget, overview?.revision.id, reportWriteFailure, acknowledgeQueued]);
-  const readOnlyNotice = accessLost
-    ? ACCESS_LOST_NOTICE[accessLost]
-    : forcedReadOnly
-    ? (extensions?.readOnlyReason || "This Review is read-only.")
-    : runningDraft
-    ? "Create a Snapshot first. Comments and review decisions need frozen bytes; the Snapshot also unlocks Brief, Map, and architecture analysis."
-    : historical
-    ? "Historical Snapshots are read-only. Go back to the latest Snapshot to comment."
-    : overview?.session.status === "finished"
-      ? "This review is finished. Reopen it to comment or change judgments."
-      : overview?.session.status === "archived"
-        ? "This review is archived. Restore it to comment."
-        : "Reload the review before commenting on the new Snapshot.";
-  // Opening a composer that can never submit is a silent dead end: refuse new
-  // drafts on a read-only reader and say why. An existing draft stays editable.
-  const requestDraft = useCallback((next: Draft | null) => {
-    if (next && readOnly && !draft) {
-      setError(readOnlyNotice);
-      return;
-    }
-    setDraft(next);
-  }, [readOnly, draft, readOnlyNotice]);
+  }, [reviewId, readOnly, busy, swapTargets, visibleTargets, scrollToTarget, overview?.revision.id, reportWriteFailure, acknowledgeQueued]);
 
-  const openComments = useCallback(() => {
-    if (runningDraft) {
-      setError(readOnlyNotice);
-      return;
+  // "Confirm all N quick checks": parts unanswered on this revision go through the server's bulk mark, in rounds of its own
+  // limit; each round lands in the store as it returns, so a failure part way keeps (and can undo) what was recorded. The
+  // few others (a routine change since the reviewer's review) take the single mark, as Quick check's batch does. An attached
+  // Review queues judgments for hosted one by one, so it is not offered there.
+  const sourceTargetsRef = useRef(sourceTargets);
+  sourceTargetsRef.current = sourceTargets;
+  const confirmQuickChecks = useCallback(async (parts: readonly ReviewTarget[]): Promise<QuickConfirmResult | null> => {
+    if (!reviewId || readOnly || busy || hostedInfo) return null;
+    const revisionId = overview?.revision.id ?? "";
+    const marked: QuickConfirmResult["marked"] = [];
+    const single: ReviewTarget[] = [];
+    const skipped: QuickConfirmResult["skipped"] = [];
+    const recorded = () => marked.length + single.length > 0;
+    for (const round of rounds(parts.filter((part) => part.state === "unreviewed").map((part) => part.unit_key))) {
+      try {
+        const result = await postBulkReviewed(reviewId, round, revisionId);
+        reviewDispatch({ type: "marks/bulkApplied", path: "", result });
+        marked.push(...result.marked.map((item) => ({ unit_key: item.unit_key, event_id: item.event_id })));
+        skipped.push(...result.skipped);
+      } catch (reason) {
+        reportWriteFailure(reason);
+        return recorded() ? { marked, single, skipped, failed: true } : null;
+      }
     }
-    setCommentsFilter(undefined);
-    setCommentsOpen(true);
-  }, [readOnlyNotice, runningDraft]);
-  const commentTarget = useCallback((target: ReviewTarget) => {
-    const range = targetCommentRange(target);
-    setActiveTargetId(target.target_id);
-    if (readOnly) {
-      setError(readOnlyNotice);
-      return;
+    for (const part of parts.filter((item) => item.state !== "unreviewed")) {
+      const result = await markTarget(part, "reviewed");
+      if (result === true) single.push({ ...part, state: "reviewed", changed_since_mark: false });
+      else skipped.push({ unit_key: part.unit_key, path: part.path, reason: result === "queued" ? "queued, not applied yet" : "not saved" });
     }
-    if (range) {
-      setDraft({
-        path: target.path,
-        ...range,
-        targetUnitKey: target.fingerprint_method === "revision_compare" ? undefined : target.unit_key,
-      });
-    } else {
-      setDraft({
-        path: target.path,
-        startLine: 0,
-        endLine: 0,
-        side: "additions",
-        fileLevel: true,
-        targetUnitKey: target.fingerprint_method === "revision_compare" ? undefined : target.unit_key,
-      });
+    activeReviewFriction()?.judgment();
+    return recorded() || skipped.length > 0 ? { marked, single, skipped } : null;
+  }, [reviewId, readOnly, busy, hostedInfo, overview?.revision.id, reviewDispatch, reportWriteFailure, markTarget]);
+  const undoQuickChecks = useCallback(async (done: QuickConfirmResult) => {
+    if (!reviewId || readOnly || hostedInfo) return false;
+    const revisionId = overview?.revision.id ?? "";
+    for (const round of rounds(done.marked)) {
+      try {
+        const result = await undoBulkReviewed(reviewId, round, revisionId);
+        reviewDispatch({ type: "marks/bulkUndone", result });
+      } catch (reason) {
+        reportWriteFailure(reason);
+        return false;
+      }
     }
-  }, [readOnly, readOnlyNotice]);
+    // A part answered by hand since keeps that answer: only one still at the Looks good this click recorded goes back.
+    const now = new Map(sourceTargetsRef.current.map((target) => [target.target_id, target]));
+    let ok = true;
+    for (const part of done.single) {
+      const current = now.get(part.target_id);
+      if (current?.state === "reviewed" && await markTarget(current, "unreviewed") !== true) ok = false;
+    }
+    return ok;
+  }, [reviewId, readOnly, hostedInfo, overview?.revision.id, reviewDispatch, reportWriteFailure, markTarget]);
+  const quickConfirm = useMemo<QuickConfirmActions | undefined>(
+    () => (readOnly || hostedInfo ? undefined : { confirm: confirmQuickChecks, undo: undoQuickChecks }),
+    [readOnly, hostedInfo, confirmQuickChecks, undoQuickChecks],
+  );
 
   const createAnnotation = useCallback(async (input: AnnotationDraft) => {
-    if (!reviewId || readOnly || busy) return;
+    if (!reviewId || readOnly || busy) return false;
     setBusy("comment");
     try {
       const result = await postAnnotation(reviewId, input, overview?.revision.id ?? "");
       activeReviewFriction()?.judgment();
       // The write has succeeded. Clear the composer before any secondary read
       // so a failed refetch can never leave the same text ready to submit twice.
-      setDraft(null);
+      reviewDispatch({ type: "draft/set", draft: null });
       if (isQueuedWrite(result)) {
         acknowledgeQueued(queuedWriteNotice(result));
-        return;
+        return "queued" as const;
       }
       if (result.target && result.progress) {
-        setTargetList((current) => current ? {
-          ...current,
-          targets: withPriorities(
-            current.targets.map((target) => target.unit_key === result.target!.unit_key ? result.target! : target),
-            result.priorities,
-          ),
-          progress: result.progress!,
-          outline: result.outline ?? mergeOutline(current.outline, result.outline_updates),
-        } : current);
+        reviewDispatch({
+          type: "parts/commentTargetApplied",
+          target: result.target,
+          progress: result.progress,
+          priorities: result.priorities,
+          outline: result.outline,
+          outlineUpdates: result.outline_updates,
+        });
       }
       try {
         const nextAnnotations = await fetchAnnotations(reviewId);
         // A newer Snapshot's discussion never replaces this Snapshot's.
         if (nextAnnotations.revision_id === (overview?.revision.id ?? "")) {
-          setAnnotations(nextAnnotations.annotations);
+          reviewDispatch({ type: "notes/set", annotations: nextAnnotations.annotations });
           setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
           setFeedbackDelivery(nextAnnotations.delivery ?? null);
         }
@@ -3819,194 +2984,20 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       } catch (reason) {
         setError(`Comment saved, but the discussion list is out of date: ${String(reason instanceof Error ? reason.message : reason)}`);
       }
+      return true;
     } catch (reason) {
       reportWriteFailure(reason);
+      return false;
     } finally {
       setBusy("");
     }
   }, [reviewId, readOnly, busy, overview?.revision.id, reportWriteFailure, acknowledgeQueued]);
 
-  const mergeProposal = useCallback((proposal: ReviewChangeProposal) => {
-    setProposals((current) => {
-      const exists = current.some((item) => item.id === proposal.id);
-      return exists
-        ? current.map((item) => item.id === proposal.id ? proposal : item)
-        : [...current, proposal];
-    });
-  }, []);
-
-  const beginChangeProposal = useCallback(async (selectionDraft: Draft, sourceAction: "suggest" | "edit" | "quick" = "suggest") => {
-    if (!reviewId || readOnly || busy || selectionDraft.fileLevel || selectionDraft.side !== "additions") return;
-    const detail = detailsRef.current[selectionDraft.path];
-    const localText = selectionDraft.selectedRevisionId === overview?.revision.id && selectionDraft.selectedText !== undefined
-      ? selectionDraft.selectedText
-      : detail && detail.revision_id === overview?.revision.id && !staleDetailPathsRef.current.has(selectionDraft.path)
-        ? selectedNewSideTextFromPatch(detail.patch, selectionDraft.startLine, selectionDraft.endLine)
-        : null;
-    const localSelection = localText === null || !overview ? null : {
-      revision_id: overview.revision.id,
-      path: selectionDraft.path,
-      start_line: selectionDraft.startLine,
-      end_line: selectionDraft.endLine,
-      side: "additions" as const,
-      text: localText,
-    };
-    const pending: Draft = {
-      ...selectionDraft,
-      mode: "proposal",
-      sourceAction,
-      replacementText: localSelection?.text,
-      proposalIntent: "",
-      proposalId: undefined,
-    };
-    const isPending = (current: Draft | null): current is Draft => Boolean(current
-      && current.mode === "proposal"
-      && current.path === pending.path
-      && current.startLine === pending.startLine
-      && current.endLine === pending.endLine);
-    setProposalSelection(localSelection);
-    setActiveProposal(null);
-    setDraft(pending);
-    draftRef.current = pending;
-    if (localSelection) {
-      setError("");
-      return;
-    }
-    setBusy("proposal-selection");
-    try {
-      const selection = await fetchProposalSelection(
-        reviewId,
-        selectionDraft.path,
-        selectionDraft.startLine,
-        selectionDraft.endLine,
-        selectionDraft.side,
-      );
-      if (!isPending(draftRef.current)) return;
-      setProposalSelection(selection);
-      setDraft((current) => (isPending(current) ? { ...current, replacementText: current.replacementText ?? selection.text } : current));
-      setError("");
-    } catch (reason) {
-      if (isPending(draftRef.current)) setDraft(null);
-      setError(String(reason instanceof Error ? reason.message : reason));
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, readOnly, busy, overview]);
-
-  const createProposal = useCallback(async () => {
-    if (!reviewId || !overview || !draft || draft.mode !== "proposal" || !proposalSelection || readOnly || busy) return;
-    setBusy("proposal-create");
-    try {
-      const result = await createChangeProposal(reviewId, {
-        expected_revision_id: proposalSelection.revision_id,
-        path: draft.path,
-        start_line: draft.startLine,
-        end_line: draft.endLine,
-        side: "additions",
-        replacement_text: draft.replacementText ?? "",
-        target_unit_key: draft.targetUnitKey,
-        intent: draft.proposalIntent ?? "",
-      });
-      mergeProposal(result.proposal);
-      setActiveProposal(result.proposal);
-      setDraft((current) => current ? { ...current, proposalId: result.proposal.id } : current);
-      setError("");
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, overview, draft, proposalSelection, readOnly, busy, mergeProposal]);
-
-  const createAndApplyProposal = useCallback(async () => {
-    if (!reviewId || !draft || draft.mode !== "proposal" || !proposalSelection || readOnly || busy) return;
-    setBusy("proposal-apply");
-    let createdProposal: ReviewChangeProposal | null = null;
-    try {
-      const created = await createChangeProposal(reviewId, {
-        expected_revision_id: proposalSelection.revision_id,
-        path: draft.path,
-        start_line: draft.startLine,
-        end_line: draft.endLine,
-        side: "additions",
-        replacement_text: draft.replacementText ?? "",
-        target_unit_key: draft.targetUnitKey,
-        intent: draft.proposalIntent ?? "",
-      });
-      createdProposal = created.proposal;
-      mergeProposal(created.proposal);
-      const result = await applyChangeProposal(created.proposal.id);
-      mergeProposal(result.proposal);
-      setSourceState(result.source_state);
-      setDismissedSourceFingerprint("");
-      setDraft(null);
-      setProposalSelection(null);
-      setActiveProposal(null);
-      setError("");
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-      // Once the proposal exists, hold the composer on it (as Apply does): left on
-      // the editable form, the next Apply would create a second durable proposal.
-      const createdId = createdProposal?.id ?? "";
-      if (createdProposal) {
-        setActiveProposal(createdProposal);
-        setDraft((current) => current ? { ...current, proposalId: createdId } : current);
-      }
-      try {
-        const next = await fetchChangeProposals(reviewId);
-        setProposals(next.proposals);
-        const refreshed = next.proposals.find((item) => item.id === createdId);
-        if (refreshed) setActiveProposal(refreshed);
-      } catch {
-        // Preserve the source mutation error; proposal refresh is best effort.
-      }
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, draft, proposalSelection, readOnly, busy, mergeProposal]);
-
-  const applyProposal = useCallback(async () => {
-    if (!activeProposal || readOnly || busy) return;
-    setBusy("proposal-apply");
-    try {
-      const result = await applyChangeProposal(activeProposal.id);
-      mergeProposal(result.proposal);
-      setActiveProposal(result.proposal);
-      setSourceState(result.source_state);
-      setDismissedSourceFingerprint("");
-      setDraft(null);
-      setProposalSelection(null);
-      setActiveProposal(null);
-      setError("");
-    } catch (reason) {
-      const message = String(reason instanceof Error ? reason.message : reason);
-      setError(message);
-      try {
-        if (reviewId) {
-          const next = await fetchChangeProposals(reviewId);
-          setProposals(next.proposals);
-          const conflicted = next.proposals.find((item) => item.id === activeProposal.id) ?? null;
-          setActiveProposal(conflicted);
-        }
-      } catch {
-        // Preserve the apply error; proposal refresh is best-effort recovery.
-      }
-    } finally {
-      setBusy("");
-    }
-  }, [activeProposal, readOnly, busy, mergeProposal, reviewId]);
-
-  const closeProposalComposer = useCallback(() => {
-    setProposalSelection(null);
-    setActiveProposal(null);
-    setDraft(null);
-  }, []);
-
   const refreshFeedbackState = useCallback(async (done = "Published") => {
     if (!reviewId) return;
     try {
       const nextAnnotations = await fetchAnnotations(reviewId);
-      setAnnotations(nextAnnotations.annotations);
+      reviewDispatch({ type: "notes/set", annotations: nextAnnotations.annotations });
       setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
       setFeedbackDelivery(nextAnnotations.delivery ?? null);
     } catch (reason) {
@@ -4014,67 +3005,47 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     }
   }, [reviewId]);
 
-  const setAnnotationState = useCallback(async (id: string, state: AnnotationState) => {
-    if (!reviewId || readOnly || busy) return;
+  // Resolving several comments in a row queues each change: a click made while an
+  // earlier one is still saving is applied after it, never dropped.
+  const annotationStateQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const annotationStatePendingRef = useRef(0);
+  const setAnnotationState = useCallback((id: string, state: AnnotationState): Promise<void> => {
+    if (!reviewId || readOnly || (busy && busy !== "comment-state")) return Promise.resolve();
     const previous = annotations.find((item) => item.id === id)?.state;
-    // Show the resolve or reopen at once; the refetch below reconciles it.
-    const showState = (from: AnnotationState | undefined, to: AnnotationState) => setAnnotations((current) => current.map(
-      (item) => item.id === id && item.state === from ? { ...item, state: to } : item,
-    ));
-    setBusy("comment");
+    // Show the resolve or reopen at once; the refetch after the last queued change reconciles it.
+    const showState = (from: AnnotationState | undefined, to: AnnotationState) => reviewDispatch({ type: "notes/stateShown", id, from, to });
+    setBusy("comment-state");
     showState(previous, state);
-    try {
+    annotationStatePendingRef.current += 1;
+    const revisionId = overview?.revision.id ?? "";
+    const run = async () => {
+      let saved = false;
       try {
-        await patchAnnotation(id, { state }, overview?.revision.id ?? "");
+        await patchAnnotation(id, { state }, revisionId);
+        saved = true;
       } catch (reason) {
         if (previous) showState(state, previous);
-        throw reason;
+        reportWriteFailure(reason);
       }
-      const nextAnnotations = await fetchAnnotations(reviewId);
-      setAnnotations(nextAnnotations.annotations);
-      setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
-      setFeedbackDelivery(nextAnnotations.delivery ?? null);
-      setError("");
-    } catch (reason) {
-      reportWriteFailure(reason);
-    } finally {
-      setBusy("");
-    }
+      try {
+        // A refetch now would still list the queued comments as open; the last change refetches.
+        if (annotationStatePendingRef.current > 1) return;
+        const nextAnnotations = await fetchAnnotations(reviewId);
+        reviewDispatch({ type: "notes/set", annotations: nextAnnotations.annotations });
+        setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
+        setFeedbackDelivery(nextAnnotations.delivery ?? null);
+        if (saved) setError("");
+      } catch (reason) {
+        reportWriteFailure(reason);
+      } finally {
+        annotationStatePendingRef.current -= 1;
+        if (annotationStatePendingRef.current === 0) setBusy("");
+      }
+    };
+    const queued = annotationStateQueueRef.current.then(run);
+    annotationStateQueueRef.current = queued;
+    return queued;
   }, [reviewId, readOnly, busy, annotations, overview?.revision.id, reportWriteFailure]);
-
-  const setFindingDisposition = useCallback(async (
-    id: string,
-    disposition: FindingDisposition,
-    reason: FindingDismissalReason = "",
-  ) => {
-    if (!reviewId || readOnly || busy) return;
-    const previous = annotations.find((item) => item.id === id);
-    if (!previous || previous.source !== "ai_review") return;
-    setBusy("finding");
-    try {
-      const result = await patchAnnotation(id, {
-        finding_disposition: disposition,
-        finding_disposition_reason: reason,
-      }, overview?.revision.id ?? "");
-      activeReviewFriction()?.judgment();
-      setAnnotations((current) => current.map((item) => item.id === id ? result.annotation : item));
-      // Finding disposition is deliberately orthogonal to human Review marks.
-      setError("");
-    } catch (failure) {
-      reportWriteFailure(failure);
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, readOnly, busy, annotations, overview?.revision.id, reportWriteFailure]);
-
-  const openContext = useCallback((target: ReviewTarget, tab: ContextDrawerTab = "context") => {
-    contextReturnFocusRef.current = focusReturnTarget();
-    setAskOpen(false);
-    setActiveTargetId(target.target_id);
-    setContextTab(tab);
-    setContextOpen(true);
-    if (reviewId) void loadPath(reviewId, target.path);
-  }, [reviewId, loadPath]);
 
   const closeContext = useCallback(() => {
     setContextOpen(false);
@@ -4134,23 +3105,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     });
   }, [openAsk]);
 
-  const askSelection = useCallback((selection: Draft) => {
-    const target = selection.targetUnitKey
-      ? targets.find((item) => item.unit_key === selection.targetUnitKey)
-      : null;
-    setDraft(null);
-    openAsk({
-      path: selection.path,
-      symbol: target?.symbol || target?.label || "",
-      target_unit_key: target?.fingerprint_method === "revision_compare"
-        ? undefined
-        : selection.targetUnitKey,
-      side: selection.side,
-      start_line: selection.startLine,
-      end_line: selection.endLine,
-    });
-  }, [openAsk, targets]);
-
   const toggleContextPin = useCallback(() => {
     setContextPinned((current) => {
       const next = !current;
@@ -4158,27 +3112,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       return next;
     });
   }, []);
-
-  const loadMore = useCallback((automatic = false) => {
-    if (!reviewId) return;
-    let readyHidden = pagePaths.filter(
-      (path) => !revealedPathsRef.current.has(path) && Boolean(detailsRef.current[path] || fileErrors[path]),
-    );
-    if (automatic) {
-      // Infinite-scroll may only append below the mounted window. After an
-      // explicit jump to a hidden file, revealing ready predecessors above it
-      // would move the reviewer's settled destination without another action.
-      let lastRevealedIndex = -1;
-      for (let index = 0; index < pagePaths.length; index += 1) {
-        if (revealedPathsRef.current.has(pagePaths[index])) lastRevealedIndex = index;
-      }
-      readyHidden = readyHidden.filter((path) => pagePaths.indexOf(path) > lastRevealedIndex);
-    }
-    const batch = pathsForChangeBudget(readyHidden, fileChangeLines, LOAD_MORE_CHANGE_BUDGET, LOAD_MORE_MAX_FILES);
-    if (batch.length === 0) return;
-    revealPaths(batch);
-    queueNextPage(reviewId, allPathOrder, fileChangeLines);
-  }, [reviewId, allPathOrder, pagePaths, fileChangeLines, fileErrors, queueNextPage, revealPaths]);
   const refreshReview = useCallback(async (publish = true) => {
     if (!reviewEnvironment.review.workspace_refresh || !reviewId || readOnly || busy) return;
     setBusy("refresh");
@@ -4211,7 +3144,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       // The server is on the new revision the moment postRefresh resolves, so
       // the new revision is committed here, ahead of the dependent reads that
       // can still fail.
-      setOverview(nextOverview);
+      reviewDispatch({ type: "overview/set", overview: nextOverview });
       settleCapture(nextOverview.revision.id);
       // Nothing an earlier load requested for the old Snapshot may land now;
       // this Snapshot's own agent context, Development and surfaces follow.
@@ -4263,14 +3196,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       // anchor: only a new human selection may attach it to the new revision.
       const draftSurvives = Boolean(draftPath && hasFileDelta && preservedPaths.has(draftPath));
       if (draft && !draftSurvives) {
-        setDraft({
+        reviewDispatch({ type: "draft/set", draft: {
           ...draft,
           startLine: 0,
           endLine: 0,
           fileLevel: false,
           targetUnitKey: undefined,
           recovered: true,
-        });
+        } });
       }
       setSourceState(null);
       setDismissedSourceFingerprint("");
@@ -4282,14 +3215,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       ]);
       stableTargetRevisionRef.current = nextTargets.revision_id;
       stableTargetOrderRef.current = nextTargets.targets.map((target) => target.target_id);
-      setTargetList(nextTargets);
-      setAnnotations(nextAnnotations.annotations);
+      reviewDispatch({ type: "parts/set", targetList: nextTargets });
+      reviewDispatch({ type: "notes/set", annotations: nextAnnotations.annotations });
       setFeedbackStatus(nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations));
       setEvidence(nextEvidence.evidence);
       loadSurfaces(reviewId, nextOverview.revision.id, nextTargets.targets, isCurrentCapture);
       stranded = false;
       const nextInfo = nextOverview.refreshed ?? null;
-      setRevisionInfo(nextInfo?.created ? nextInfo : null);
+      reviewDispatch({ type: "revision/infoSet", info: nextInfo?.created ? nextInfo : null });
       const nextDelta = nextInfo?.target_delta;
       const focusDelta = Boolean(nextInfo?.created && nextDelta && nextDelta.active.length > 0);
       setDeltaFocus(focusDelta);
@@ -4323,7 +3256,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       // A reader that keeps presenting the superseded revision as current lets
       // the reviewer approve code they never saw: the mark is recorded against
       // the new revision's units either way.
-      if (stranded) setRevisionAdvanced(true);
+      if (stranded) reviewDispatch({ type: "revision/advancedSet", advanced: true });
     } finally {
       settleCapture("");
       ownCaptureRef.current = null;
@@ -4379,7 +3312,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     try {
       // Only a load that actually describes the current revision may hand the
       // reviewer their judgments back.
-      if (await loadReader(reviewId)) setRevisionAdvanced(false);
+      if (await loadReader(reviewId)) reviewDispatch({ type: "revision/advancedSet", advanced: false });
     } finally {
       setBusy("");
     }
@@ -4388,57 +3321,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   useEffect(() => {
     setOutcomeOverride(null);
   }, [overview?.revision.id]);
-
-  const closeFinishSheet = useCallback(() => {
-    setFinishSheetOpen(false);
-    setFinishSendError("");
-    setFinishError("");
-  }, []);
-
-  // Closing the outcome sheet always lands on the primary review action, whatever opened it.
-  const focusPrimaryAfterFinish = useCallback((event: Event) => {
-    event.preventDefault();
-    finishButtonRef.current?.focus();
-  }, []);
-
-  const openFinishSheet = useCallback(async () => {
-    // Finishing is a review-level judgment, so it is blocked while the reader is
-    // stranded on a superseded revision for the same reason marking is. It is
-    // *not* blocked by `readOnly` at large: on an archived session this button
-    // is "Restore review", the one control that has to keep working.
-    if (!reviewId || busy || revisionAdvanced || historical) return;
-    if (overview?.session.status === "finished" || overview?.session.status === "archived") {
-      setBusy("finish");
-      try {
-        const next = await finishReview(reviewId, "open");
-        setFinishSummary(next);
-        setFinishSheetOpen(false);
-        setOverview((current) => current ? { ...current, session: { ...current.session, status: next.status } } : current);
-        setError("");
-      } catch (reason) {
-        reportWriteFailure(reason);
-      } finally {
-        setBusy("");
-      }
-      return;
-    }
-    setBusy("finish-preview");
-    try {
-      const summary = await fetchFinishReview(reviewId);
-      // The preview has completed before the sheet appears. Never render the
-      // verdict action as "Recording…" while nothing is being recorded yet.
-      setBusy("");
-      setFinishSummary(summary);
-      setError("");
-      // Do not mount the verdict action under the pointer/key event that opened
-      // it from a dropdown. Let that input sequence finish first so it cannot
-      // click through and accidentally submit the default verdict.
-      window.requestAnimationFrame(() => setFinishSheetOpen(true));
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-      setBusy("");
-    }
-  }, [reviewId, busy, revisionAdvanced, overview?.session.status, historical, reportWriteFailure]);
 
   /**
    * Hand prepared feedback to its destination and reflect the result. Throws
@@ -4478,7 +3360,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       const nextAnnotations = await fetchAnnotations(reviewId);
       const nextFeedbackStatus = nextAnnotations.feedback ?? fallbackFeedbackStatus(nextAnnotations.annotations);
       const nextFeedbackDelivery = nextAnnotations.delivery ?? prepared.delivery;
-      setAnnotations(nextAnnotations.annotations);
+      reviewDispatch({ type: "notes/set", annotations: nextAnnotations.annotations });
       setFeedbackStatus(nextFeedbackStatus);
       setFeedbackDelivery(nextFeedbackDelivery);
       setFeedback((current) => current
@@ -4511,7 +3393,21 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     setFinishSendError("");
     setFinishError("");
     let stage: "outcome" | "send" | "finish" = "outcome";
+    let verified: Awaited<ReturnType<typeof exportFeedback>> | null = null;
     try {
+      // For Wrap up, verify the exact human-approved message before recording any verdict.
+      // A stale preview must not leave a new verdict behind when delivery is refused.
+      if (options.send && options.presentation && options.expectedFeedbackHash && handoffRoute !== "github") {
+        const current = await exportFeedback(reviewId, {
+          expectedRevisionId: overview?.revision.id,
+          presentation: options.presentation,
+        });
+        if (current.feedback_hash !== options.expectedFeedbackHash) {
+          setFinishError("Feedback changed since the Wrap up preview. Nothing recorded or sent; review the updated message.");
+          return;
+        }
+        verified = current;
+      }
       // Attached, the verdict that counts is hosted's (its projection), never a
       // local one recorded before attaching: only hosted's current verdict on
       // its current Snapshot, with the same summary, needs no new write.
@@ -4566,7 +3462,11 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       }
       if (options.send) {
         stage = "send";
-        const prepared = await exportFeedback(reviewId);
+        const prepared = verified ?? await exportFeedback(reviewId, options.presentation ? { expectedRevisionId: overview?.revision.id, presentation: options.presentation } : undefined);
+        if (options.expectedFeedbackHash && prepared.feedback_hash !== options.expectedFeedbackHash) {
+          setFinishSendError("Feedback changed since the preview. Review the updated message before sending.");
+          return;
+        }
         setFeedback(prepared);
         if (prepared.status) setFeedbackStatus(prepared.status);
         setFeedbackDelivery(prepared.delivery);
@@ -4589,15 +3489,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       if (requestChanges) {
         // Request changes never finishes: the Review waits on the fix, and the
         // next Snapshot comes back to it for re-review.
-        setFinishSheetOpen(false);
+        setFinishRecorded(outcome);
         setError("");
         return;
       }
       stage = "finish";
       const next = await finishReview(reviewId, "finished", overview?.revision.id ?? "");
       setFinishSummary(next);
-      setFinishSheetOpen(false);
-      setOverview((current) => current ? { ...current, session: { ...current.session, status: next.status } } : current);
+      setFinishRecorded(outcome);
+      reviewDispatch({ type: "overview/sessionStatusSet", status: next.status });
       setError("");
     } catch (reason) {
       const failure = classifyWriteFailure(reason);
@@ -4622,48 +3522,11 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     try {
       const next = await finishReview(reviewId, "finished", overview?.revision.id ?? "");
       setFinishSummary(next);
-      setOverview((current) => current ? { ...current, session: { ...current.session, status: next.status } } : current);
+      reviewDispatch({ type: "overview/sessionStatusSet", status: next.status });
     } catch (reason) {
       reportWriteFailure(reason);
     }
   }, [reviewId, overview?.revision.id, reportWriteFailure]);
-
-  const prepareFeedback = useCallback(async (): Promise<FeedbackExport | null> => {
-    if (!reviewId || historical) return null;
-    setBusy("feedback");
-    try {
-      const nextFeedback = await exportFeedback(reviewId);
-      setFeedback(nextFeedback);
-      if (nextFeedback.status) setFeedbackStatus(nextFeedback.status);
-      setFeedbackDelivery(nextFeedback.delivery);
-      setDelivery(null);
-      setError("");
-      return nextFeedback;
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-      return null;
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, historical]);
-
-  /** "Send now" and the waiting chip: the Send sheet on freshly prepared feedback. */
-  const openSendSheet = useCallback(async () => {
-    if (busy) return;
-    if (await prepareFeedback()) setSendSheetOpen(true);
-  }, [busy, prepareFeedback]);
-
-  const sendFeedbackToAgent = useCallback(async (options: { copied?: boolean } = {}) => {
-    if (!reviewId || !feedback || busy) return;
-    setBusy("delivery");
-    try {
-      await handOff(feedback, options);
-    } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, feedback, busy, handOff]);
 
   const uploadEvidence = useCallback(async (files: File[]) => {
     // Joins the shared busy channel on the same terms as every other action:
@@ -4723,41 +3586,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     withBacktrail(() => { void showRelatedSource(path, line); });
   }, [reviewId, targets, scrollToTarget, showRelatedSource, withBacktrail]);
 
-  const openMapSelection = useCallback(async (selection: ReviewMapSelection) => {
-    if (selection.exactness !== "snapshot" || !reviewId) return;
-    const target = (selection.target_ids ?? [])
-      .map((targetId) => targets.find((item) => item.target_id === targetId))
-      .find(Boolean);
-    const path = selection.path ?? "";
-    const inPatch = target ?? (path ? targets.find((item) => item.path === path) : undefined);
-    if (!inPatch && !path) return;
-    // The panel opens under the map, so close the map first or the loading
-    // state would be hidden behind it. Closing it through the view change (one
-    // URL write that drops the map location and the view) lands on
-    // Implementation; dropping only the map location would fall back to the
-    // Brief when the Map was opened from there. The Map location rides the
-    // backtrail, so Back returns to the map where the reviewer left it.
-    withBacktrail(() => {
-      revealImplementation();
-      if (inPatch) void scrollToTarget(inPatch);
-      else void showRelatedSource(path, selection.line || 1);
-    });
-  }, [reviewId, targets, revealImplementation, scrollToTarget, showRelatedSource, withBacktrail]);
-
-  // Map selections in the patch open the file's dedicated diff in a new tab,
-  // landing on the mapped target, so the map keeps its place in this one.
-  const mapSelectionHref = useCallback((selection: ReviewMapSelection): string | null => {
-    if (selection.exactness !== "snapshot" || !reviewId) return null;
-    const target = (selection.target_ids ?? [])
-      .map((targetId) => targets.find((item) => item.target_id === targetId))
-      .find(Boolean);
-    if (target) return dedicatedReviewItemUrl({ kind: "file", path: target.path, targetId: target.target_id });
-    const path = selection.path ?? "";
-    return path && targets.some((item) => item.path === path)
-      ? dedicatedReviewItemUrl({ kind: "file", path })
-      : null;
-  }, [reviewId, targets]);
-
   // Code shows the working tree, so the link exists only with a trusted local
   // checkout. Back from Code returns to this exact Review location: the Map
   // where it stood, or the opened file in the stream.
@@ -4784,33 +3612,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const path = selection.path ?? "";
     return path ? targets.find((item) => item.path === path) ?? null : null;
   }, [targets]);
-
-  // Projection items are the one canonical cohort identity. Brief renders them
-  // directly; Guided Review uses step.semantic_key; Code shows the active cohort;
-  // Map chapters reuse the same id/title/path set.
-  const cohorts = reviewCohorts(projection, targets);
-  const activeCohort = cohortForTarget(cohorts, activeTarget?.target_id);
-  const mapChapters = cohorts.map((cohort) => ({
-    id: cohort.id,
-    label: cohort.title,
-    paths: cohort.paths,
-  }));
-  const earnedPersistentViews = persistentReviewViews(projection, targets, briefCapable);
-  const availableViews: ReviewPersistentView[] = (["brief", "implementation", "map"] as const).filter((candidate) => (
-    earnedPersistentViews.includes(candidate)
-    || (candidate === "brief" && briefCapable && (largeStartupIncomplete || autoLargeReview || view === "brief" || view === "tour"))
-    || (candidate === "map" && view === "map")
-  ));
-
-  // The palette is a Radix dialog: it returns focus to its opener, and a dialog
-  // or view opened from it takes focus after that return.
-  const openCommands = useCallback((mode: "actions" | "shortcuts") => {
-    setCommandMode(mode);
-  }, []);
-
-  const closeCommands = useCallback(() => {
-    setCommandMode(null);
-  }, []);
 
   // Selection carries across views. The Map reports what it has selected; the
   // last Map location is kept with the stream file it was left at, so coming
@@ -4849,41 +3650,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   }, [activeTarget?.path, loadProjection, mapLocation, mapSelectionTarget, reviewId, scrollToTarget, setSearchParams, startupEnrichmentReady, view]);
   changeViewRef.current = changeView;
 
-  const changeGuidedCohort = useCallback((cohortId: string) => {
-    setSearchParams((current) => {
-      const params = new URLSearchParams(current);
-      params.set(REVIEW_VIEW_PARAM, "tour");
-      params.set(GUIDED_COHORT_PARAM, cohortId);
-      return params;
-    });
-  }, [setSearchParams]);
-
-  const openMap = useCallback(() => changeView("map"), [changeView]);
-
-  const askMapSelection = useCallback((selection: ReviewMapSelection, label: string) => {
-    openAsk({ context: selection, label });
-  }, [openAsk]);
-
-  const closeMap = useCallback(() => changeView("implementation"), [changeView]);
-
-  const openOverview = useCallback(() => changeView("brief"), [changeView]);
-
-  const focusBriefAfterCommand = useCallback(() => {
-    let attempts = 0;
-    const focusWhenMounted = () => {
-      const root = document.querySelector<HTMLElement>('[data-review-view-root="brief"]');
-      if (root) {
-        root.focus({ preventScroll: true });
-        return;
-      }
-      attempts += 1;
-      if (attempts < 60) window.requestAnimationFrame(focusWhenMounted);
-    };
-    window.requestAnimationFrame(focusWhenMounted);
-  }, []);
-
-  const closeOverview = useCallback(() => changeView("implementation"), [changeView]);
-
   // The Brief leaves for Implementation before navigating, like the Map.
   const openBriefTarget = useCallback((targetId: string) => {
     const target = targets.find((item) => item.target_id === targetId);
@@ -4916,52 +3682,92 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     return request;
   }, [architectureRevisionNumber, reviewId]);
   const architectureRelevant = projection !== null && !isTinyMechanicalReview(projection, targets);
-
-  // PK2 landed history: one plain GET per Snapshot, never AI or background work.
-  // The Map offers selection history only once the server reports Project
-  // Knowledge configured for this repository, so without it the Map is unchanged.
-  const projectContextCacheRef = useRef(new Map<string, Promise<ReviewProjectContext | null>>());
-  const [projectKnowledgeReview, setProjectKnowledgeReview] = useState("");
-  const loadProjectContext = useCallback((term = "", history: "" | "decisions" | "checks" = "", force = false): Promise<ReviewProjectContext | null> => {
-    if (!reviewId || architectureRevisionNumber < 0) return Promise.resolve(null);
-    const bounded = term.trim().slice(0, 256);
-    const cache = projectContextCacheRef.current;
-    const key = `${reviewId}:${architectureRevisionNumber}:${history}:${bounded}`;
-    const cached = !force && cache.get(key);
-    if (cached) return cached;
-    const loadedFor = reviewId;
-    const request = (history
-      ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { history })
-      : bounded
-        ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { terms: [bounded] })
-        : fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief")
-    ).then((payload) => {
-      const context = payload.project_context;
-      if (context.available) setProjectKnowledgeReview(loadedFor);
-      return context;
-    });
-    request.catch(() => { if (cache.get(key) === request) cache.delete(key); });
-    cache.set(key, request);
-    while (cache.size > ARCHITECTURE_DELTA_CACHE_LIMIT) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) break;
-      cache.delete(oldest);
-    }
-    return request;
-  }, [architectureRevisionNumber, reviewId]);
+  // Friction counts: at most one Map open and one wait per Review opened in this page.
+  const mapOpenCounted = useRef("");
   useEffect(() => {
-    if (view === "map") loadProjectContext().catch(() => undefined);
-  }, [loadProjectContext, view]);
-  const loadProjectHistory = useCallback(
-    (selection: ReviewProjectContextSelection): Promise<ReviewProjectContext | null> =>
-      fetchReviewProjectContext(reviewId, architectureRevisionNumber, "map", selection).then((payload) => payload.project_context),
-    [architectureRevisionNumber, reviewId],
-  );
-  const projectHistoryAvailable = Boolean(reviewId) && projectKnowledgeReview === reviewId;
+    if (!reviewId || !projection || !(flowMap || flowXRay) || mapOpenCounted.current === reviewId) return;
+    mapOpenCounted.current = reviewId;
+    countMapOpen(architectureRelevant);
+  }, [architectureRelevant, flowMap, flowXRay, projection, reviewId]);
+  const waitCounted = useRef("");
+  const reviewLoaded = Boolean(overview);
+  useEffect(() => {
+    if (!reviewId || !reviewLoaded || historical || waitCounted.current === reviewId) return;
+    waitCounted.current = reviewId;
+    countWaiting(reviewId);
+  }, [historical, reviewId, reviewLoaded]);
+
+  // Decisions are human-only writes bound to the displayed Snapshot and the newest event the reviewer saw; the server
+  // refuses stale ones. Request change files ordinary feedback first, so the request is the queue action.
+  const decideOnBrief = useCallback(async (key: string, input: ReviewDecisionEventInput) => {
+    if (!reviewId || !projection) return;
+    const decision = projection.decisions.find((item) => item.key === key);
+    let feedbackPath: string | undefined;
+    if (input.action === "request_change") {
+      const target = targets.find((item) => item.target_id === decision?.target_ids[0]);
+      if (!target) throw new Error("This decision has no part to attach the request to.");
+      feedbackPath = target.path;
+    }
+    try {
+      await postDecisionEvent(reviewId, key, {
+        action: input.action,
+        option_key: input.option_key,
+        reason: input.reason,
+        trigger: input.trigger,
+        feedback_body: input.action === "request_change" ? input.feedback_body ?? "" : undefined,
+        feedback_path: feedbackPath,
+        expected_revision_id: projection.revision_id,
+        expected_event_id: decision?.state?.latest_event_id ?? "",
+        expected_semantic_fingerprint: decision?.state?.semantic_fingerprint ?? "",
+      });
+      activeReviewFriction()?.judgment();
+    } catch (reason) {
+      // A newer Snapshot moves the whole Reader to its reload state; the card still shows its own refusal.
+      if (isStaleSnapshotError(reason)) reportWriteFailure(reason);
+      throw reason;
+    } finally {
+      // Refused or not, show what is true now; a refresh failure never replaces the write's own error.
+      await loadProjection().catch(() => undefined);
+    }
+  }, [reviewId, projection, targets, loadProjection, reportWriteFailure]);
+
+  const loadBehaviorTarget = useCallback(async (behaviorKey: string) => {
+    if (!reviewId || !projection?.revision_id || projection.revision_id !== overviewRevisionId) {
+      throw new Error("Behavior evidence is unavailable until the current revision is loaded.");
+    }
+    const result = await fetchBehaviorTarget(reviewId, behaviorKey);
+    if (result.revision_id !== projection.revision_id || result.target.behavior_key !== behaviorKey) {
+      throw new Error("Behavior evidence belongs to a different revision or part. Refresh the Review before judging.");
+    }
+    return result.target;
+  }, [reviewId, projection?.revision_id, overviewRevisionId]);
+
+  // The digest is the one of the evidence block on screen; the server refuses any other.
+  const judgeBehavior = useCallback(async (behaviorKey: string, state: BehaviorJudgmentState, evidenceDigest: string) => {
+    if (!reviewId || !projection) return;
+    await postBehaviorJudgment(reviewId, projection.revision_id, { behavior_key: behaviorKey, state, evidence_digest: evidenceDigest });
+    activeReviewFriction()?.judgment();
+    await loadProjection();
+  }, [reviewId, projection, loadProjection]);
+
+  const narrateBehavior = useCallback(async () => {
+    if (!reviewId || !projection) return;
+    try {
+      await postBehaviorNarrative(reviewId, projection.revision_id);
+    } finally {
+      await loadProjection().catch(() => undefined);
+    }
+  }, [reviewId, projection, loadProjection]);
+
+  const recordManualCheck = useCallback(async (itemId: string, status: ManualCheckStatus, note: string) => {
+    if (!reviewId || !projection) return;
+    await postManualCheckResult(reviewId, projection.revision_id, { item_id: itemId, status, note });
+    await loadProjection();
+  }, [reviewId, projection, loadProjection]);
 
   // The dependency projection: package semantics in the Brief, and before raw
   // lockfile lines in Code. Unavailable means no semantics, never "no change".
-  const [dependencyReview, setDependencyReview] = useState<ReviewDependencyProjection | null>(null);
+  const [, setDependencyReview] = useState<ReviewDependencyProjection | null>(null);
   const dependencyRevisionId = overview?.revision.id ?? "";
   useEffect(() => {
     setDependencyReview(null);
@@ -4973,225 +3779,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       .catch(() => { if (!cancelled) setDependencyReview(null); });
     return () => { cancelled = true; };
   }, [dependencyRevisionId, reviewId, startupEnrichmentReady]);
-  const projectionFiles = projection?.material?.files;
-  const streamFileSemantics = useMemo<ReviewStreamFileSemantics>(() => ({
-    roles: new Map<string, ReviewFileRole>((projectionFiles ?? []).map((file) => [
-      file.path,
-      { role: file.role, source: file.source, collapsedDefault: file.collapsed_default },
-    ])),
-    dependencies: dependencyReview,
-  }), [dependencyReview, projectionFiles]);
-  const openArchitecture = useCallback((nodeId: string) => {
-    withBacktrail(() => {
-      setMapLocation({ level: "architecture", projection: "architecture_delta", focus: "", node: nodeId, edge: "", path: "" });
-    });
-  }, [setMapLocation, withBacktrail]);
 
-  const validateSurfaceRuntime = useCallback(async (surface: ReviewSurfaceInfo) => {
-    if (!reviewId || !surface.runtime) return;
-    const runRevisionId = overview?.revision.id ?? "";
-    if (!runRevisionId) return;
-    const key = `${surface.provider}:${surface.id}`;
-    if (runtimeValidationBusyRef.current.has(key)) return;
-
-    const runGeneration = surfaceGenerationRef.current;
-    const stillCurrent = () => surfaceGenerationRef.current === runGeneration
-      && surfaceIdentityRef.current === `${reviewId}:${runRevisionId}`;
-
-    runtimeValidationBusyRef.current.add(key);
-    setRuntimeValidationBusy(new Set(runtimeValidationBusyRef.current));
-    setRuntimeValidations((current) => ({
-      ...current,
-      [key]: { ...current[key], error: undefined },
-    }));
-
-    try {
-      let response = await runRuntimeValidation(
-        reviewId,
-        surface.provider,
-        surface.id,
-        runRevisionId,
-        "new",
-      );
-      if (!stillCurrent()) return;
-      setRuntimeValidations((current) => ({
-        ...current,
-        [key]: { response, error: undefined },
-      }));
-
-      let status = String(response.runtime_validation.status ?? "").toUpperCase();
-      let jobId = response.runtime_validation.job?.job_id ?? "";
-      while (
-        jobId
-        && ["QUEUED", "RUNNING", "CANCEL_REQUESTED"].includes(status)
-        && stillCurrent()
-      ) {
-        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 800));
-        if (!stillCurrent()) return;
-        response = await fetchRuntimeValidationJob(
-          reviewId,
-          jobId,
-          surface.provider,
-          surface.id,
-          runRevisionId,
-          "new",
-        );
-        if (!stillCurrent()) return;
-        setRuntimeValidations((current) => ({
-          ...current,
-          [key]: { response, error: undefined },
-        }));
-        status = String(response.runtime_validation.status ?? "").toUpperCase();
-        jobId = response.runtime_validation.job?.job_id ?? jobId;
-      }
-
-      if (response.evidence && stillCurrent()) {
-        try {
-          const evidenceResult = await fetchReviewEvidence(reviewId, runRevisionId);
-          if (stillCurrent()) setEvidence(evidenceResult.evidence);
-        } catch {
-          // The validation result is still authoritative; the evidence drawer can
-          // retry its normal load if this opportunistic refresh fails.
-        }
-        if (stillCurrent()) void loadProjection();
-      }
-    } catch (reason) {
-      if (!stillCurrent()) return;
-      setRuntimeValidations((current) => ({
-        ...current,
-        [key]: {
-          ...current[key],
-          error: String(reason instanceof Error ? reason.message : reason),
-        },
-      }));
-    } finally {
-      if (stillCurrent()) {
-        runtimeValidationBusyRef.current.delete(key);
-        setRuntimeValidationBusy(new Set(runtimeValidationBusyRef.current));
-      }
-    }
-  }, [loadProjection, overview?.revision.id, reviewId]);
-
-  const cancelSurfaceRuntimeValidation = useCallback(async (
-    surface: ReviewSurfaceInfo,
-    jobId: string,
-  ) => {
-    if (!reviewId || !jobId) return;
-    const runRevisionId = overview?.revision.id ?? "";
-    if (!runRevisionId) return;
-    const key = `${surface.provider}:${surface.id}`;
-    try {
-      const response = await cancelRuntimeValidationJob(
-        reviewId,
-        jobId,
-        surface.provider,
-        surface.id,
-        runRevisionId,
-        "new",
-      );
-      if (surfaceIdentityRef.current !== `${reviewId}:${runRevisionId}`) return;
-      setRuntimeValidations((current) => ({
-        ...current,
-        [key]: { response, error: undefined },
-      }));
-    } catch (reason) {
-      if (surfaceIdentityRef.current !== `${reviewId}:${runRevisionId}`) return;
-      setRuntimeValidations((current) => ({
-        ...current,
-        [key]: {
-          ...current[key],
-          error: String(reason instanceof Error ? reason.message : reason),
-        },
-      }));
-    }
-  }, [overview?.revision.id, reviewId]);
-
-  const executeSurface = useCallback(async (surface: ReviewSurfaceInfo, compare: boolean) => {
-    if (!reviewId || !surface.runtime) return;
-    const key = `${surface.provider}:${surface.id}`;
-    // Busy per surface: a run of another surface (the automatic API run in the
-    // background) never swallows this one's "Run check".
-    if (surfaceBusyRef.current.has(key)) return;
-    // A run belongs to the Snapshot it started on. Its result (or error) is
-    // committed only while that Snapshot and request generation are still shown.
-    const runRevisionId = overview?.revision.id ?? "";
-    const runGeneration = surfaceGenerationRef.current;
-    const stillCurrent = () => surfaceGenerationRef.current === runGeneration
-      && surfaceIdentityRef.current === `${reviewId}:${runRevisionId}`;
-    surfaceBusyRef.current.add(key);
-    setSurfaceBusy(new Set(surfaceBusyRef.current));
-    setSurfaceRuns((current) => ({ ...current, [key]: { ...current[key], error: undefined } }));
-    try {
-      if (compare) {
-        const [oldResponse, newResponse] = await Promise.all([
-          runReviewSurface(reviewId, surface.provider, surface.id, "old", runRevisionId),
-          runReviewSurface(reviewId, surface.provider, surface.id, "new", runRevisionId),
-        ]);
-        if (!stillCurrent()) return;
-        // Both sides commit together or not at all.
-        setSurfaceRuns((current) => ({
-          ...current,
-          [key]: { old: oldResponse.result, new: newResponse.result },
-        }));
-      } else {
-        const response = await runReviewSurface(
-          reviewId, surface.provider, surface.id, "new", runRevisionId,
-        );
-        if (!stillCurrent()) return;
-        setSurfaceRuns((current) => ({
-          ...current,
-          [key]: { ...current[key], new: response.result, error: undefined },
-        }));
-      }
-    } catch (reason) {
-      if (!stillCurrent()) return;
-      setSurfaceRuns((current) => ({
-        ...current,
-        [key]: {
-          ...current[key],
-          error: String(reason instanceof Error ? reason.message : reason),
-        },
-      }));
-    } finally {
-      // An older Snapshot's run no longer owns a busy state (see below).
-      if (stillCurrent()) {
-        surfaceBusyRef.current.delete(key);
-        setSurfaceBusy(new Set(surfaceBusyRef.current));
-      }
-    }
-  }, [overview?.revision.id, reviewId]);
-  useEffect(() => {
-    // Automatic runs go one at a time.
-    if (!reviewId || !firstReviewableReady || surfaceBusy.size > 0 || surfaces.length === 0) return;
-    // Not before the surface generation below has moved to this Snapshot: a
-    // run started earlier in the same commit would be discarded and repeated.
-    if (surfaceIdentityRef.current !== `${reviewId}:${overview?.revision.id ?? ""}`) return;
-    const reviewPaths = new Set(targets.map((target) => target.path));
-    const candidate = surfaces.find((surface) => {
-      const runKey = automaticSurfaceRunKey(surface, reviewPaths);
-      if (!runKey || automaticSurfaceRunsRef.current.has(runKey)) return false;
-      const key = `${surface.provider}:${surface.id}`;
-      return !surfaceRuns[key]?.new && !surfaceRuns[key]?.error;
-    });
-    if (!candidate) return;
-    const runKey = automaticSurfaceRunKey(candidate, reviewPaths);
-    if (!runKey) return;
-    automaticSurfaceRunsRef.current.add(runKey);
-    void executeSurface(candidate, false);
-  }, [executeSurface, firstReviewableReady, overview?.revision.id, reviewId, surfaceBusy, surfaceRuns, surfaces, targets]);
-
-  useEffect(() => {
-    surfaceGenerationRef.current += 1;
-    surfaceIdentityRef.current = `${reviewId}:${overview?.revision.id ?? ""}`;
-    automaticSurfaceRunsRef.current.clear();
-    setSurfaceRuns({});
-    surfaceBusyRef.current = new Set();
-    setSurfaceBusy(new Set());
-    setRuntimeValidations({});
-    runtimeValidationBusyRef.current = new Set();
-    setRuntimeValidationBusy(new Set());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview?.revision.id, reviewId]);
 
   useEffect(() => {
     if (surfaces.length === 0 || evidence.length === 0) return;
@@ -5215,98 +3803,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     });
   }, [evidence, surfaces]);
 
-
-  const changeCodeTheme = useCallback((next: ReviewCodeTheme) => {
-    const nextChrome = applyReviewCodeTheme(next);
-    setTheme(nextChrome);
-    setCodeTheme(next);
-  }, []);
-
-  const downloadPatch = useCallback(async () => {
-    if (!reviewId || !overview) return;
-    try {
-      const blob = await fetchReviewPatch(
-        reviewId,
-        historical ? overview.revision.revision_number : undefined,
-      );
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      const reviewName = (overview.session.ref || reviewId)
-        .replace(/[^A-Za-z0-9._-]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "lemoncrow-review";
-      anchor.href = url;
-      anchor.download = `${reviewName}-rev-${overview.revision.revision_number}.patch`;
-      anchor.style.display = "none";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      setError("");
-    } catch (reason) {
-      setError(`Patch download failed: ${String(reason instanceof Error ? reason.message : reason)}`);
-    }
-  }, [reviewId, overview, historical]);
-  const createSnapshot = useCallback(async () => {
-    if (!reviewId || !overview || !runningDraft || historical || forcedReadOnly || sessionLocked || revisionAdvanced || busy) return;
-    setBusy("snapshot");
-    try {
-      await publishReviewSnapshot(reviewId, overview.revision.revision_number);
-      revisionHistoryCacheRef.current = null;
-      await loadReader(reviewId);
-    } catch (reason) {
-      reportWriteFailure(reason);
-    } finally {
-      setBusy("");
-    }
-  }, [reviewId, overview, runningDraft, historical, forcedReadOnly, sessionLocked, revisionAdvanced, busy, loadReader, reportWriteFailure]);
-
-  const runPrimaryAction = useCallback(() => {
-    switch (primaryActionDestination(primaryAction)) {
-      case "snapshot":
-        void createSnapshot();
-        return;
-      case "latest_snapshot":
-        window.location.href = reviewHref(reviewId);
-        return;
-      case "finish_sheet":
-        void openFinishSheet();
-        return;
-      case "reload":
-        void reloadReader();
-        return;
-      case "comments":
-        // "Re-review N" opens on the comments it counts. An addressed comment
-        // whose lines the fix rewrote is orphaned, so the Open tab never lists it.
-        setCommentsFilter(primaryAction.kind === "rereview_comments" ? "rereview" : undefined);
-        setCommentsOpen(true);
-        return;
-      case "target": {
-        const target = targets.find((item) => item.target_id === primaryAction.targetId);
-        if (!target) return;
-        setQuery("");
-        setDeltaFocus(false);
-        revealImplementation();
-        void scrollToTarget(target, "instant");
-        return;
-      }
-      case "readiness":
-        setReadinessOpen(true);
-        return;
-      case "none":
-        return;
-    }
-  }, [
-    createSnapshot,
-    openFinishSheet,
-    primaryAction,
-    refreshReview,
-    reloadReader,
-    revealImplementation,
-    reviewId,
-    scrollToTarget,
-    targets,
-  ]);
-
   // Phase 12 controlled actions: Fix/Fix all/explicit corrections (palette + More), finding provenance.
   const corrections = useReviewCorrections({
     reviewId: reviewId ?? "",
@@ -5314,10 +3810,9 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     enabled: Boolean(reviewId && overview && startupEnrichmentReady) && !historical,
     readOnly: Boolean(readOnly),
   });
-  const correctionPalette = corrections.palette;
   const reloadAfterProviderSync = useCallback(() => {
     if (!reviewId) return;
-    void fetchAnnotations(reviewId).then((result) => setAnnotations(result.annotations)).catch(() => undefined);
+    void fetchAnnotations(reviewId).then((result) => reviewDispatch({ type: "notes/set", annotations: result.annotations })).catch(() => undefined);
   }, [reviewId]);
   const feedbackSync = useFeedbackSync({
     reviewId: reviewId ?? "",
@@ -5325,320 +3820,24 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     onChanged: reloadAfterProviderSync,
   });
 
-  const reviewActions = useMemo<ReviewPaletteAction[]>(() => [
-    {
-      id: "search",
-      label: "Search review",
-      detail: "Find review areas by path, symbol, state, reason, or loaded comment text",
-      shortcut: "/",
-      run: () => {
-        setFocusMode(false);
-        setOutlineCollapsed(false);
-        window.requestAnimationFrame(() => searchInputRef.current?.focus());
-      },
-    },
-    {
-      id: "reviewed",
-      label: "Mark current review area reviewed and advance",
-      shortcut: "r",
-      disabled: !activeTarget || Boolean(readOnly) || Boolean(busy),
-      run: () => { if (activeTarget) void markTarget(activeTarget, "reviewed", true); },
-    },
-    {
-      id: "reopen",
-      label: "Reopen current review area",
-      shortcut: "u",
-      disabled: !activeTarget || Boolean(readOnly) || Boolean(busy),
-      run: () => { if (activeTarget) void markTarget(activeTarget, "unreviewed"); },
-    },
-    {
-      id: "needs-changes",
-      label: "Mark current review area needs changes",
-      shortcut: "x",
-      disabled: !activeTarget || Boolean(readOnly) || Boolean(busy),
-      run: () => { if (activeTarget) void markTarget(activeTarget, "needs_changes"); },
-    },
-    {
-      id: "comment",
-      label: "Comment on current review area",
-      shortcut: "c",
-      disabled: !activeTarget || Boolean(readOnly) || Boolean(busy),
-      run: () => { if (activeTarget) commentTarget(activeTarget); },
-    },
-    {
-      id: "context",
-      label: contextOpen ? "Close Context" : "Open Context",
-      detail: "Impact, checks, evidence, author provenance, and discussion",
-      shortcut: "e",
-      disabled: !activeTarget,
-      run: () => {
-        if (contextOpen) closeContext();
-        else if (activeTarget) openContext(activeTarget, contextTab);
-      },
-    },
-    {
-      id: "focus",
-      label: focusMode ? "Exit focus mode" : "Enter focus mode",
-      shortcut: "f",
-      run: () => setFocusMode((current) => {
-        const next = !current;
-        setOutlineCollapsed(next);
-        if (next) setContextOpen(false);
-        return next;
-      }),
-    },
-    {
-      id: "diff-style",
-      label: `Diff view: ${diffStyle === "auto" ? "Auto" : diffStyle === "split" ? "Split" : "Unified"}`,
-      detail: diffStyle === "auto" ? "Responsive: unified when space is tight, split when the diff viewport is wide enough" : "Explicit preference; overrides responsive layout",
-      shortcut: "s",
-      run: () => changeDiffStyle(nextDiffStylePreference(diffStyle)),
-    },
-    {
-      id: "line-wrap",
-      label: diffOverflow === "wrap" ? "Keep code on one line" : "Wrap long code lines",
-      detail: diffOverflow === "wrap" ? "Use horizontal scrolling for long lines" : "Fit long lines into the visible diff width",
-      shortcut: "w",
-      run: toggleDiffOverflow,
-    },
-    {
-      id: "map",
-      label: "Show Map",
-      detail: "Bounded system impact with Snapshot-exact changes and clearly labeled current graph context",
-      run: openMap,
-    },
-    {
-      id: "overview",
-      label: "Show Brief",
-      detail: "Change overview: major changes, review-area counts, verification, provenance, and evidence",
-      managesFocus: true,
-      run: () => {
-        openOverview();
-        focusBriefAfterCommand();
-      },
-    },
-    ...(briefCapable && projection && guidedReviewUseful(projection, targets) ? [{
-      id: "guided-review",
-      label: "Start guided review",
-      detail: "Step through the change cohort by cohort; your place is kept",
-      managesFocus: true,
-      run: () => changeView("tour"),
-    } satisfies ReviewPaletteAction] : []),
-    ...(!historical && !runningDraft ? [{
-      id: "status",
-      label: "Open Review Status",
-      detail: "Progress, blockers, checks and merge readiness in one place",
-      managesFocus: true,
-      run: () => setReadinessOpen(true),
-    } satisfies ReviewPaletteAction] : []),
-    {
-      id: "comments",
-      label: "Open comments",
-      detail: runningDraft ? "Create a Snapshot first; comments anchor to frozen bytes" : "Every unresolved and resolved thread in this Review",
-      managesFocus: true,
-      run: openComments,
-    },
-    ...(askCapable ? [{
-      id: "ask",
-      label: askOpen ? "Close Ask" : "Ask about this change",
-      run: () => askOpen ? closeAsk() : openAsk(null),
-    } satisfies ReviewPaletteAction] : []),
-    {
-      id: "history",
-      label: "Snapshot history",
-      detail: "Earlier Snapshots and Snapshot comparison",
-      managesFocus: true,
-      run: () => setHistoryOpen(true),
-    },
-    {
-      id: "development",
-      label: "Open Activity",
-      detail: "Contributors, intent, decisions, checks, and changed files frozen with this Snapshot, plus newer work",
-      disabled: !development,
-      managesFocus: true,
-      run: () => setDevelopmentOpen(true),
-    },
-    ...(reviewEnvironment.review.workspace_refresh ? [{
-      id: "refresh",
-      label: "Update from current source",
-      detail: "Capture the latest local source snapshot and reconcile prior judgments",
-      disabled: Boolean(readOnly) || Boolean(busy),
-      run: () => void refreshReview(),
-    } satisfies ReviewPaletteAction] : []),
-    ...(primaryAction.kind !== "review_target" ? [{
-      id: "next-action",
-      label: primaryAction.label,
-      detail: primaryAction.detail,
-      disabled: Boolean(busy) || primaryAction.disabled,
-      run: runPrimaryAction,
-    } satisfies ReviewPaletteAction] : []),
-    ...(handoff.unsent > 0 && !handoffLocked && overview?.session.status === "open" ? [{
-      id: "send-now",
-      label: handoffRoute === "export"
-        ? `Copy ${handoff.unsent} for the author now…`
-        : `Send ${handoff.unsent} to ${handoffDestinationLabel(feedbackDelivery)} now…`,
-      detail: "Preview the unsent comments and hand them off now; the verdict can come later",
-      disabled: Boolean(busy),
-      run: () => void openSendSheet(),
-    } satisfies ReviewPaletteAction] : []),
-    ...(overview && finishAvailableInMenu({
-      sessionStatus: overview.session.status,
-      historical,
-      revisionAdvanced,
-      action: primaryAction,
-    })
-      ? [{
-          id: "finish",
-          label: "Finish review…",
-          detail: "Explicitly inspect blockers and record a verdict before finishing early",
-          disabled: Boolean(busy),
-          run: () => void openFinishSheet(),
-        } satisfies ReviewPaletteAction]
-      : []),
-    ...correctionPalette,
-    {
-      id: "order-recommended",
-      label: "Order: Recommended",
-      disabled: Boolean(busy) || targetList?.order === "recommended",
-      run: () => void changeOrder("recommended"),
-    },
-    {
-      id: "order-file",
-      label: "Order: File order",
-      disabled: Boolean(busy) || targetList?.order === "file",
-      run: () => void changeOrder("file"),
-    },
-    {
-      id: "shortcuts",
-      label: "Keyboard shortcuts",
-      shortcut: "?",
-      run: () => setCommandMode("shortcuts"),
-    },
-  ], [activeTarget, readOnly, revisionAdvanced, busy, contextOpen, contextTab, focusMode, diffStyle, diffOverflow, overview?.session.status, targetList?.order, historical, primaryAction, runPrimaryAction, handoff.unsent, handoffLocked, handoffRoute, feedbackDelivery, openSendSheet, markTarget, commentTarget, closeContext, openContext, openMap, openOverview, focusBriefAfterCommand, development, refreshReview, openFinishSheet, changeOrder, changeDiffStyle, toggleDiffOverflow, reviewEnvironment.review.workspace_refresh, correctionPalette, briefCapable, projection, targets, changeView, runningDraft, openComments, askCapable, askOpen, closeAsk, openAsk]);
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      // A surface that owns the key already acted on it: the line-selection
-      // menu's c/r/x/s/e must not also comment on, mark, restyle or open
-      // context for the active target. A tooltip that took an Escape only to
-      // close itself does not own it: one Esc still closes Context.
-      if (event.defaultPrevented && !(event.key === "Escape" && escapeDismissedTooltip(event))) return;
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      // Reader shortcuts pause while a modal is open. The modal owns Escape (Radix listens
-      // at the document level and keeps focus inside), so there is nothing to close here --
-      // and a Reader Escape would drop the comment draft behind it. A modal a hosting
-      // composition adds is only known by its open dialog. They also pause on the Map,
-      // Map owns its keys. Brief keeps the existing Reader navigation shortcuts;
-      // Tour owns step navigation itself and never acts on the hidden Implementation target.
-      if (
-        commandMode || view === "map" || commentsOpen || historyOpen || developmentOpen || finishSheetOpen
-        || readinessOpen || githubPublishOpen || isDialogOpen()
-      ) return;
-      const onBrief = view === "brief";
-      const onTour = view === "tour";
-      if (onBrief && !BRIEF_KEYS.has(event.key)) return;
-      if (onTour && !new Set(["p", "?", "/", "Escape"]).has(event.key)) return;
-      if (event.key === "p" || event.key === "?") {
-        openCommands(event.key === "p" ? "actions" : "shortcuts");
-        event.preventDefault();
-        return;
-      }
-      if (event.key === "Escape") {
-        // Escape has to stay reachable when a zero-match search has emptied the
-        // stream: there is no active target then, and the guard below would
-        // strand the reviewer inside a filter they can no longer clear.
-        setDraft(null);
-        if (contextOpen) closeContext();
-        else setRelated(null);
-        setFeedback(null);
-        if (query) setQuery("");
-        event.preventDefault();
-        return;
-      }
-      if (event.key === "/") {
-        if (onBrief) changeView("implementation");
-        setFocusMode(false);
-        setOutlineCollapsed(false);
-        window.requestAnimationFrame(() => searchInputRef.current?.focus());
-        event.preventDefault();
-        return;
-      }
-      if (!activeTarget) return;
-      let next: ReviewTarget | null = null;
-      switch (event.key) {
-        case "j":
-          next = stepTarget(visibleTargets, activeTarget.target_id, 1);
-          break;
-        case "k":
-          next = stepTarget(visibleTargets, activeTarget.target_id, -1);
-          break;
-        case "J":
-          next = stepFile(visibleTargets, activeTarget.target_id, 1);
-          break;
-        case "K":
-          next = stepFile(visibleTargets, activeTarget.target_id, -1);
-          break;
-        case "]":
-          // The Brief has no current item of its own: from it, Next review
-          // item opens the queue's resume point (the item the Next card names)
-          // rather than skipping past it.
-          next = onBrief && isActionable(activeTarget)
-            ? activeTarget
-            : stepQueueTarget(visibleTargets, activeTarget.target_id, 1);
-          break;
-        case "[":
-          next = stepQueueTarget(visibleTargets, activeTarget.target_id, -1);
-          break;
-        case "r":
-          void markTarget(activeTarget, "reviewed", true);
-          break;
-        case "u":
-          void markTarget(activeTarget, "unreviewed");
-          break;
-        case "x":
-          void markTarget(activeTarget, "needs_changes");
-          break;
-        case "c":
-          commentTarget(activeTarget);
-          break;
-        case "s":
-          changeDiffStyle(nextDiffStylePreference(diffStyle));
-          break;
-        case "w":
-          toggleDiffOverflow();
-          break;
-        case "e":
-          if (contextOpen) closeContext();
-          else openContext(activeTarget, contextTab);
-          break;
-        case "f":
-          setFocusMode((current) => {
-            const nextFocus = !current;
-            setOutlineCollapsed(nextFocus);
-            if (nextFocus) setContextOpen(false);
-            return nextFocus;
-          });
-          break;
-        default:
-          return;
-      }
-      event.preventDefault();
-      if (next && (next.target_id !== activeTarget.target_id || (onBrief && event.key === "]"))) {
-        // Moving to code leaves the Brief first, as its own target links do.
-        if (onBrief) changeView("implementation");
-        void scrollToTarget(next);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activeTarget, visibleTargets, markTarget, commentTarget, scrollToTarget, contextOpen, contextTab, openContext, closeContext, finishSheetOpen, closeFinishSheet, query, commandMode, closeCommands, view, changeView, commentsOpen, historyOpen, developmentOpen, readinessOpen, githubPublishOpen, openCommands, diffStyle, changeDiffStyle, toggleDiffOverflow]);
 
   const sharedPreparation = useReviewPreparation();
   const readerPending = !startupReady || !overview || !targetList || !firstReviewableReady || briefLandingPending;
+  // The redesigned Overview draws its own preparing state from the structure alone (SPEC 4.2 Preparing, OV-8).
+  const overviewDrawsPreparing = flowOverview && Boolean(overview) && Boolean(targetList);
+  // The Overview is ready when its facts have arrived, failed or are not offered.
+  const partsPartial = targetList?.complete === false;
+  // Only a plan for the revision on screen is ever drawn on the Overview; another revision's facts are not its facts.
+  const currentProjection = projection && overview && projection.revision_id === overview.revision.id ? projection : null;
+  const flowOverviewReady = overviewReady({
+    structure: overviewDrawsPreparing,
+    partsComplete: !partsPartial,
+    briefCapable,
+    projectionState,
+    projectionCurrent: currentProjection !== null,
+  });
   const readerSteps = useMemo<PreparationStep[]>(() => [
-    { key: "reader_source", label: startupReady ? "Source snapshot ready" : preparationStage ? preparationLabel(preparationStage) : "Opening Review Reader", state: startupReady ? "done" : "running", elapsed: null },
+    { key: "reader_source", label: startupReady ? "Source revision ready" : preparationStage ? preparationLabel(preparationStage) : "Opening Review Reader", state: startupReady ? "done" : "running", elapsed: null },
     { key: "reader_structure", label: "Reading review structure", state: overview && targetList ? "done" : startupReady ? "running" : "pending", elapsed: null },
     { key: "reader_diff", label: "Preparing first visual diff", state: firstReviewableReady ? "done" : overview && targetList ? "running" : "pending", elapsed: null },
     { key: "reader_brief", label: briefPreparation?.state === "running"
@@ -5649,12 +3848,12 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const setSharedPreparation = sharedPreparation?.setReader;
   useLayoutEffect(() => {
     setSharedPreparation?.({
-      pending: authed && !reviewMissing && !(error && !overview) && readerPending,
+      pending: authed && !reviewMissing && !(error && !overview) && readerPending && !overviewDrawsPreparing,
       steps: readerSteps,
       onOpenCode: briefLandingPending && startupReady && overview && targetList && firstReviewableReady
         ? openPreparedCode : undefined,
     });
-  }, [setSharedPreparation, authed, reviewMissing, error, overview, readerPending, readerSteps, briefLandingPending, startupReady, targetList, firstReviewableReady, openPreparedCode]);
+  }, [setSharedPreparation, authed, reviewMissing, error, overview, readerPending, overviewDrawsPreparing, readerSteps, briefLandingPending, startupReady, targetList, firstReviewableReady, openPreparedCode]);
   useLayoutEffect(() => () => setSharedPreparation?.(null), [setSharedPreparation]);
 
   if (!authed) {
@@ -5674,8 +3873,18 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         <div className="w-full max-w-md" role="alert">
           <div className="text-heading font-semibold text-foreground">This browser isn't connected to your local review</div>
           <div className="mt-1 text-caption leading-5 text-muted-foreground">
-            Run <code className="text-subtle">lc review --open</code> in your terminal and this page opens already connected, or run{" "}
-            <code className="text-subtle">lc review</code> again in your project. Then retry here.
+            {routeReviewRef ? (
+              // `lc review --open` would capture a new review; `lc review open` connects this browser to this one.
+              <>
+                Run <code className="text-subtle">lc review open r/{routeReviewRef}</code> in your project and this review opens already
+                connected.
+              </>
+            ) : (
+              <>
+                Run <code className="text-subtle">lc review --open</code> in your terminal and this page opens already connected, or run{" "}
+                <code className="text-subtle">lc review</code> again in your project. Then retry here.
+              </>
+            )}
           </div>
           <UiButton type="button" disabled={Boolean(busy)} onClick={() => void reloadReader()} className="mt-4">
             {busy === "reload" ? "Retrying…" : "Retry"}
@@ -5727,6 +3936,79 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
 
   // The application renders the shared progress display; standalone embeds
   // use the same surface, without creating a second loading screen.
+  // The Overview sits in one provider chain and one root element, so moving between
+  // the Overview and another flow screen swaps children and never remounts the Reader root.
+  // What a hosting composition adds around the flow: its repository and author line, the read-only reason, header actions and overlays.
+  const hostContext = overview && reviewId ? { reviewId, overview, annotations, readOnly: Boolean(readOnly), historical: Boolean(historical) } : null;
+  const hostHeaderActions = hostContext ? extensions?.renderHeaderActions?.(hostContext) : null;
+  const hostOverlays = hostContext ? extensions?.renderOverlays?.(hostContext) : null;
+  const flowOverviewRoot = (screen: ReactNode, ready: boolean) => (
+    <ViewerContext.Provider value={overview?.session.reviewer_id ?? ""}>
+    <PrincipalNamesContext.Provider value={extensions?.principalNames ?? NO_PRINCIPAL_NAMES}>
+    <ReviewCorrectionsProvider value={corrections.context}>
+    <FeedbackSyncProvider value={feedbackSync}>
+    <SeenCoverageProvider reviewRef={flowRoute?.reviewRef ?? ""} apiReviewId={reviewId} reviewerId={overview?.session.reviewer_id ?? ""} revisionId={overview?.revision.id ?? ""} targets={targets} recordable={!historical && !revisionAdvanced}>
+    <div
+      // The flow screens scroll the window under a sticky top bar; none of them is a fixed-height shell with an inner scroll box.
+      className="review-app relative flex min-h-dvh flex-col bg-background text-foreground"
+      data-testid="review-reader"
+      data-review-targets-complete={targetList?.complete === false ? "false" : "true"}
+      data-review-view-root={flowPreview ? "preview" : flowMap ? "map" : flowTour ? "walkthrough" : flowBrief ? "brief" : flowXRay ? "xray" : flowBack ? "welcome-back" : flowDone ? "done" : flowWrap ? "wrap" : flowQuick ? "quick-check" : flowFocus ? "focus" : flowAll ? "all-files" : "overview"}
+      data-overview-state={ready ? "ready" : "preparing"}
+    >
+      {hostContext && (extensions?.readOnlyReason || extensions?.context || extensions?.authorship || hostHeaderActions) ? (
+        <div data-testid="host-chrome" className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-1 text-meta text-muted-foreground">
+          <p className="min-w-0">
+            {extensions?.context ? <span title={extensions.context.title}>{extensions.context.label}</span> : null}
+            {extensions?.authorship ? <span>{extensions.context ? " · " : ""}{extensions.authorship.prefix} {extensions.authorship.label}</span> : null}
+            {extensions?.readOnlyReason && readOnly ? <span role="status" data-testid="host-read-only-reason">{extensions.context || extensions.authorship ? " · " : ""}{extensions.readOnlyReason}</span> : null}
+          </p>
+          {hostHeaderActions ? <div className="flex items-center gap-2">{hostHeaderActions}</div> : null}
+        </div>
+      ) : null}
+      <ReviewFrictionProbe
+        view={flowBrief ? "brief" : flowTour ? "tour" : flowMap || flowXRay ? "map" : "implementation"}
+        onTarget={flowFocus}
+        targetCount={targets.length}
+        rail={askScope ? "ask" : null}
+        notices={hostedNotice ? 1 : 0}
+        revisionNumber={overview?.revision.revision_number ?? 0}
+        reopened={targetList?.progress.changed_since_review ?? 0}
+      />
+      {screen}
+      {hostOverlays}
+      {hostedNotice ? <p role="status" data-testid="hosted-queued-notice" className="border-t border-border px-4 py-1 text-meta text-muted-foreground">{hostedNotice}</p> : null}
+      {/* P7-2: where a hosted notice ("Sam took this review") shows on a screen that has no toast of its own; the first host owns it. */}
+      <FlowToastHost />
+      <TeamNoticeAnchor />
+    </div>
+    </SeenCoverageProvider>
+    </FeedbackSyncProvider>
+    </ReviewCorrectionsProvider>
+    </PrincipalNamesContext.Provider>
+    </ViewerContext.Provider>
+  );
+  // The agent the Overview names when this revision recorded no host: the earliest revision that did, else the agent the notes go to.
+  const reviewAgentHost = [...(revisionHistory?.revisions ?? [])].sort((a, b) => a.revision_number - b.revision_number)
+    .find((item) => item.provenance_host)?.provenance_host || (handoffToCodingAgent(feedbackDelivery) ? feedbackDelivery?.host ?? "" : "");
+  if ((readerPending || !flowOverviewReady) && flowOverview && flowRoute && overview && targetList) {
+    return flowOverviewRoot(
+      <ReviewOverviewScreen
+        reviewRef={flowRoute.reviewRef}
+        overview={overview}
+        agentHost={reviewAgentHost}
+        targets={targets}
+        annotations={annotations}
+        projection={currentProjection}
+        partial={partsPartial}
+        partialTotals={{ parts: targetList?.progress.target_count ?? null, files: overview?.stats?.files ?? null }}
+        ready={flowOverviewReady}
+        progress={briefPreparation}
+        aiAvailable={askCapable}
+      />,
+      flowOverviewReady,
+    );
+  }
   if (readerPending) {
     return sharedPreparation ? null : <PreparationProgress fullPage steps={readerSteps}
       onOpenCode={briefLandingPending && startupReady && overview && targetList && firstReviewableReady
@@ -5734,69 +4016,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   }
 
   const streamPaths = visiblePathOrder.filter((path) => pagePathSet.has(path));
-  const hiddenStreamPaths = streamPaths.filter((path) => !revealedPaths.has(path));
-  const remainingFileCount = comparisonActive ? 0 : hiddenStreamPaths.length;
-  const pendingVisibleFileCount = comparisonActive
-    ? 0
-    : streamPaths.filter(
-        (path) => revealedPaths.has(path) && !details[path] && !fileErrors[path],
-      ).length;
-  const readyHiddenPaths = hiddenStreamPaths.filter((path) => Boolean(details[path] || fileErrors[path]));
-  const readyHiddenBatch = pathsForChangeBudget(
-    readyHiddenPaths,
-    fileChangeLines,
-    LOAD_MORE_CHANGE_BUDGET,
-    LOAD_MORE_MAX_FILES,
-  );
-  const nextPreparationPaths = pathsForChangeBudget(
-    hiddenStreamPaths,
-    fileChangeLines,
-    LOAD_MORE_CHANGE_BUDGET,
-    BACKGROUND_PREFETCH_FILES,
-  );
-  const preparingHiddenFileCount = comparisonActive ? 0 : nextPreparationPaths.filter(
-    (path) => !details[path] && !fileErrors[path],
-  ).length;
   const mountedPathSet = new Set(streamPaths.filter((path) => comparisonActive || revealedPaths.has(path)));
   if (draftPath) mountedPathSet.add(draftPath);
-  const streamDetails = Object.fromEntries(
-    Object.entries(comparisonActive ? comparisonDetails : details).filter(([path]) => mountedPathSet.has(path)),
-  ) as Record<string, FileDetail | undefined>;
-  const streamErrors = comparisonActive ? {} : Object.fromEntries(
-    Object.entries(fileErrors).filter(([path]) => mountedPathSet.has(path)),
-  ) as Record<string, string | undefined>;
-  const addressedNeedsRereview = targets.reduce(
-    (sum, target) => sum + target.annotation_counts.addressed_needs_rereview,
-    0,
-  );
-  // A Snapshot comparison's left rail is a delta navigator, not another
-  // conceptual story. Cohort identity comes only from the Review projection.
-  const attentionPath = reviewAttentionPath(visibleTargets);
-  const activeAttentionIndex = activeTarget
-    ? attentionPath.findIndex((item) => item.targetId === activeTarget.target_id)
-    : -1;
-  const attentionPosition = attentionPath.length === 0 ? 0 : Math.max(0, activeAttentionIndex) + 1;
-  const nextAttention = attentionPath[activeAttentionIndex >= 0 ? activeAttentionIndex : 0] ?? null;
-  const activeProposals = proposals.filter(
-    (proposal) => !proposal.result_revision_id
-      && (proposal.state === "proposed" || proposal.state === "applied" || proposal.state === "conflicted"),
-  );
-  const staleProposalCount = activeProposals.filter(
-    (proposal) => proposal.state === "proposed" && proposal.base_revision_id !== overview.revision.id,
-  ).length;
-  const readyProposalCount = activeProposals.filter(
-    (proposal) => proposal.state === "proposed" && proposal.can_apply && proposal.base_revision_id === overview.revision.id,
-  ).length;
-  const savedProposalCount = activeProposals.filter(
-    (proposal) => proposal.state === "proposed" && !proposal.can_apply && proposal.base_revision_id === overview.revision.id,
-  ).length;
-  const awaitingCaptureCount = activeProposals.filter((proposal) => proposal.state === "applied").length;
-  const conflictedProposalCount = activeProposals.filter((proposal) => proposal.state === "conflicted").length;
-  const proposalBarTone = conflictedProposalCount + staleProposalCount > 0
-    ? "border-amber-900/45 bg-amber-950/10"
-    : awaitingCaptureCount > 0
-      ? "border-cyan-900/45 bg-cyan-950/10"
-      : "border-border bg-muted";
   const compareBaseRevision: ReviewCompareBase = comparisonQueryValid
     ? requestedHeadBase ? "head" : requestedBaseRevision!
     : revisionComparison?.from_revision.revision_number
@@ -5874,1261 +4095,390 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     </Suspense>
   ) : contextOpen ? contextDrawer : null;
 
-  // ----- Reader chrome: one header, at most one context row --------------- //
-  const attention = attentionState({
-    revisionNumber: overview.revision.revision_number,
-    progress,
-    openCommentCount: openRootCommentCount,
-    commentsState,
-    feedbackStatus,
-    feedbackDelivery,
-    addressedNeedsRereview,
-    historical,
-    delivery,
-    readiness,
-  });
-  const readinessHeader = historical || runningDraft
-    ? null
-    : {
-        label: readiness.label,
-        detail: readiness.detail,
-        ...readinessControl(readiness, progress, true),
-        shortText: readinessControl(readiness, progress).text,
-      };
-  const developmentSummary: ReaderDevelopmentSummary | null = development
-    ? (() => {
-        const contributors = development.snapshot.contributors.length;
-        const newerEvents = development.since?.event_count ?? 0;
-        const newerFiles = development.since?.newer_paths?.length ?? 0;
-        const active = Boolean(development.since?.active);
-        // Frozen Snapshot authorship/history belongs under Context → Activity.
-        // The header only promotes Activity when it changes the reviewer's
-        // next action: work is live, or something happened after this Snapshot.
-        if (!active && newerEvents === 0 && newerFiles === 0) return null;
-        const parts = [
-          `Activity: ${contributors} contributor${contributors === 1 ? "" : "s"} in Snapshot ${development.revision_number}`,
-        ];
-        if (active) parts.push("agents working now");
-        else if (newerEvents > 0) parts.push(`${newerEvents} newer event${newerEvents === 1 ? "" : "s"}`);
-        if (newerFiles > 0) parts.push(`${newerFiles} newer file${newerFiles === 1 ? "" : "s"}`);
-        return { contributors, newerEvents, newerFiles, active, label: parts.join(" · ") };
-      })()
-    : null;
-  const contextSignals: ContextSignal[] = [];
-  if (accessLost) {
-    const label = accessLost === "gone" ? "This review is no longer available" : "Access to this review was removed";
-    contextSignals.push({
-      id: "access-lost",
-      tone: "rose",
-      icon: Lock,
-      role: "alert",
-      label,
-      chipLabel: label,
-      detail: ACCESS_LOST_NOTICE[accessLost],
-      actions: (
-        <a href="/reviews" className="review-context-action border-red-800/60 text-red-200 hover:text-red-50">
-          All reviews
-        </a>
-      ),
-    });
-  }
-  if (revisionAdvanced) {
-    contextSignals.push({
-      id: "revision-advanced",
-      tone: "rose",
-      icon: RefreshCw,
-      role: "alert",
-      label: "Snapshot superseded elsewhere",
-      chipLabel: "Snapshot superseded elsewhere",
-      detail: "A newer Snapshot exists (the working tree changed while you reviewed), so this one no longer accepts changes. Use Reload review to work on the new Snapshot, or keep reading this one read-only.",
-      actions: (
-        <>
-          <a
-            href={historicalReviewHref(overview.session.ref || overview.session.id, overview.revision.revision_number)}
-            className="review-context-action border-red-800/60 text-red-200 hover:text-red-50"
-          >
-            Keep reading this Snapshot
-          </a>
-        </>
-      ),
-    });
-  }
-  if (runningDraft) {
-    contextSignals.push({
-      id: "running-draft",
-      tone: "neutral",
-      icon: Clock3,
-      label: "Running draft",
-      chipLabel: "Running draft · read-only",
-      detail: forcedReadOnly
-        ? (extensions?.readOnlyReason || "This Review is read-only. Snapshot creation is unavailable.")
-        : "Create a Snapshot to freeze the current bytes. That enables comments and review decisions, and unlocks Snapshot-exact Brief, Map, and architecture analysis.",
-      actions: !forcedReadOnly && !historical && !sessionLocked && !revisionAdvanced ? (
-        <UiButton size="compact" disabled={Boolean(busy)} onClick={() => void createSnapshot()}>Create Snapshot</UiButton>
-      ) : undefined,
-    });
-  }
-  if (historical && !runningDraft) {
-    const latestNumber = overview.latest_revision_number ?? overview.revision.revision_number;
-    contextSignals.push({
-      id: "historical",
-      tone: "amber",
-      icon: Clock3,
-      testId: "historical-revision-banner",
-      label: <span className="uppercase tracking-tag text-amber-300">Historical</span>,
-      chipLabel: `Historical · Snapshot ${overview.revision.revision_number}`,
-      detail: (
-        <>
-          <span className="text-amber-100">Snapshot {overview.revision.revision_number}</span>
-          <span aria-hidden="true">·</span>
-          <span>latest Snapshot {latestNumber}</span>
-          <span aria-hidden="true">·</span>
-          <span>read-only</span>
-        </>
-      ),
-      actions: (
-        <>
-          {overview.latest_revision && overview.latest_revision.id !== overview.revision.id && (
-            <a
-              href={reviewCompareHref(overview.session.ref || overview.session.id, overview.revision.revision_number, latestNumber)}
-              className="review-context-action border-amber-800/60 text-amber-200 hover:text-amber-50"
-            >
-              Compare with latest
-            </a>
-          )}
-          <UiButton unstyled
-            type="button"
-            onClick={() => { window.location.href = reviewHref(reviewId); }}
-            className="review-context-action-primary border-amber-600/70 bg-amber-800/45 text-amber-50 hover:bg-amber-700/55"
-          >
-            Back to latest · Snapshot {latestNumber}
-          </UiButton>
-        </>
-      ),
-    });
-  }
-  if (fixOf) {
-    contextSignals.push({
-      id: "fix-of",
-      tone: "sky",
-      icon: FileDiff,
-      label: `Fix of Snapshot ${fixOf.snapshot_number}`,
-      chipLabel: `Fix of Snapshot ${fixOf.snapshot_number}`,
-      detail: fixOf.worktree_missing
-        ? "Fix worktree missing"
-        : fixOf.status === "applied"
-          ? "Applied to main"
-          : fixOf.status === "applied_with_conflicts"
-            ? "Applied with conflicts"
-            : fixOf.status === "abandoned"
-              ? "Abandoned"
-              : `Fixing · ${fixOf.snapshots.length} snapshot${fixOf.snapshots.length === 1 ? "" : "s"}`,
-      actions: (
-        <a
-          href={reviewHref(fixOf.review_id)}
-          className="review-context-action border-cyan-800/60 text-cyan-200 hover:text-cyan-50"
-        >
-          Back to the Review
-        </a>
-      ),
-    });
-  }
-  if (hostedInfo) {
-    const pending = hostedQueue.status?.counts?.pending ?? 0;
-    const conflicts = hostedQueue.status?.counts?.conflict ?? 0;
-    const queueLabel = [
-      pending > 0 ? `${pending} queued` : "",
-      conflicts > 0 ? `${conflicts} conflict${conflicts === 1 ? "" : "s"}` : "",
-    ].filter(Boolean).join(" · ");
-    const hostedPanel = (trigger: ReactNode) => (
-      <Popover key="hosted">
-        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-        <PopoverContent align="end" aria-label="Hosted queue" className="w-[460px] max-w-[92vw] rounded-md border-border p-2.5">
-          <HostedQueuePanel
-            reviewId={reviewId}
-            hosted={hostedInfo}
-            status={hostedQueue.status}
-            error={hostedQueue.error}
-            onStatus={(next) => {
-              hostedQueue.setStatus(next);
-              setHostedNotice("");
-            }}
-            onDetached={(localReviewId) => { window.location.href = reviewHref(localReviewId); }}
-          />
-        </PopoverContent>
-      </Popover>
-    );
-    contextSignals.push({
-      id: "hosted",
-      tone: conflicts > 0 || hostedQueue.error ? "amber" : "sky",
-      icon: Cloud,
-      testId: "hosted-attachment-signal",
-      label: `Attached to hosted ${hostedInfo.reference}`,
-      chipLabel: `Hosted ${hostedInfo.reference}${queueLabel ? ` · ${queueLabel}` : ""}`,
-      detail: hostedNotice || hostedQueue.error || (queueLabel
-        ? `${queueLabel} for hosted · applies on \`lc review hosted sync\``
-        : "Hosted owns comments, judgments and outcomes; your changes here queue for it"),
-      actions: hostedPanel(
-        <UiButton size="compact" type="button" data-testid="hosted-queue-open">
-          {queueLabel ? `Queue · ${queueLabel}` : "Queue"}
-        </UiButton>,
-      ),
-      chip: hostedPanel(
-        <UiButton unstyled type="button" className={`review-context-chip ${conflicts > 0 ? "border-amber-800/60 text-amber-200 hover:bg-amber-950/30" : "border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30"}`}>
-          <Cloud size={14} aria-hidden="true" />
-          <span className="truncate">{`Hosted ${hostedInfo.reference}${queueLabel ? ` · ${queueLabel}` : ""}`}</span>
-        </UiButton>,
-      ),
-    });
-  }
-  const snapshotControls = !readOnly && sourceState ? (
-    <ReviewSnapshotControl
-      files={sourceState.path_count}
-      detail={activeHandoffWorking
-        ? `${sourceState.path_count} files changed while ${activeFeedbackHandoff?.destination} is working. LemonCrow will capture a read-only draft after every submitted comment is marked addressed.`
-        : activeHandoffAddressed && activeHandoffCurrentRevision
-          ? `${sourceState.path_count} files changed. Agent fix ready; capturing the settled fix as a read-only draft automatically.`
-          : awaitingCaptureCount > 0
-            ? `${awaitingCaptureCount} reviewer edit${awaitingCaptureCount === 1 ? "" : "s"} applied · ${sourceState.path_count} files changed. Keep reviewing Snapshot ${overview.revision.revision_number}, or capture the newer source when ready.`
-            : `${sourceState.path_count} file${sourceState.path_count === 1 ? "" : "s"} changed after this frozen Snapshot. You can keep reviewing Snapshot ${overview.revision.revision_number}.`}
-      compareHref={sourceCompareHref(
-        overview.revision.ref || `rr/${overview.revision.id}`,
-        "worktree",
-        overview.session.ref || `r/${overview.session.id}`,
-      )}
-      busy={Boolean(busy)}
-      onCapture={() => void refreshReview()}
-      onHistory={() => setHistoryOpen(true)}
-      onHide={awaitingCaptureCount === 0 ? () => {
-        setDismissedSourceFingerprint(sourceState.fingerprint);
-        setSourceState(null);
-      } : undefined}
-    />
-  ) : null;
-  // Routine progress and readiness blockers already live on the header's
-  // readiness control; the strip only carries conditions that change the
-  // reviewer's next move (failed delivery, requested changes, ...).
-  if (!historical && !runningDraft && !ROUTINE_ATTENTION_LABELS.has(attention.label)) {
-    contextSignals.push({
-      id: "attention",
-      tone: attention.tone === "emerald" ? "neutral" : attention.tone,
-      icon: attention.icon,
-      label: attention.label,
-      chipLabel: attention.label,
-      detail: attention.detail,
-      onActivate: () => setReadinessOpen(true),
-    });
-  }
-  const capabilityDiscoveryDegraded = productCapabilitiesResolution === "degraded";
-  const contextFailureMessages = Object.values(contextFailures).filter(Boolean) as string[];
-  if (contextFailureMessages.length > 0) {
-    contextSignals.push({
-      id: "context-failures",
-      tone: "amber",
-      icon: TriangleAlert,
-      label: "Some review context is unavailable",
-      chipLabel: "Some context unavailable",
-      detail: <span title={contextFailureMessages.join("\n")}>{contextFailureMessages.join(" · ")}</span>,
-      // ContextStrip displays only the first signal's `actions`, not its
-      // `chip`. Without this the only warning in an otherwise clean Review
-      // cannot be retried, despite the popover working in a degraded Review.
-      actions: contextFailures.surfaces && overview && targetList ? (
-        <UiButton type="button" variant="outline" size="compact"
-          disabled={retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}`}
-          onClick={() => void retrySurfaceContext()}>
-          {retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}` ? "Retrying surface discovery…" : "Retry surface discovery"}
-        </UiButton>
-      ) : undefined,
-      chip: (
-        <Popover key="context-failures">
-          <PopoverTrigger asChild>
-            <UiButton unstyled type="button" className="review-context-chip border-amber-800/60 text-amber-200 hover:bg-amber-950/30">
-              <TriangleAlert size={14} aria-hidden="true" />
-              <span className="truncate">Some context unavailable</span>
-            </UiButton>
-          </PopoverTrigger>
-          <PopoverContent align="end" aria-label="Unavailable review context" className="w-[420px] max-w-[88vw] space-y-1 rounded-md border-border p-2.5 text-label leading-5 text-muted-foreground">
-            {contextFailureMessages.map((message) => <div key={message}>{message}</div>)}
-            {contextFailures.surfaces && overview && targetList && (
-              <UiButton type="button" variant="outline" size="compact"
-                disabled={retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}`}
-                onClick={() => void retrySurfaceContext()}>
-                {retryingSurfaceIdentity === `${reviewId}:${overview.revision.id}` ? "Retrying surface discovery…" : "Retry surface discovery"}
-              </UiButton>
-            )}
-          </PopoverContent>
-        </Popover>
-      ),
-    });
-  }
-  if (bulkUndo) {
-    contextSignals.push({
-      id: "bulk-undo",
-      tone: "neutral",
-      icon: RotateCcw,
-      label: `${bulkUndo.marks.length} targets marked reviewed`,
-      chipLabel: `${bulkUndo.marks.length} reviewed`,
-      detail: bulkUndo.path,
-      actions: (
-        <UiButton
-          unstyled
-          type="button"
-          disabled={Boolean(busy)}
-          onClick={() => void undoBulkReview()}
-          className="px-1 text-label text-cyan-300 hover:text-cyan-200"
-        >
-          Undo
-        </UiButton>
-      ),
-    });
-  }
-  if (draft?.recovered) {
-    contextSignals.push({
-      id: "draft",
-      tone: "amber",
-      icon: PencilLine,
-      label: "Draft preserved",
-      chipLabel: "Draft preserved",
-      detail: `${draft.body?.trim() || "Unsaved comment"} · select a new line to reattach`,
-      actions: (
-        <UiButton unstyled type="button" onClick={() => setDraft(null)} className="px-1 text-label text-amber-400/80 hover:text-amber-200">Discard draft</UiButton>
-      ),
-    });
-  }
-  if (preparationStage && startupReady) {
-    const label = `${preparationLabel(preparationStage)} · source is ready to review`;
-    contextSignals.push({ id: "preparation", tone: "sky", icon: LoaderCircle, label, chipLabel: preparationLabel(preparationStage) });
-  }
-  if (capabilityDiscoveryDegraded && !capabilityNoticeDismissed && contextSignals.length === 0) {
-    contextSignals.push({
-      id: "capabilities-fallback",
-      tone: "neutral",
-      icon: Puzzle,
-      label: "Using safe Review defaults",
-      chipLabel: "Review capabilities unconfirmed",
-      detail: "The server did not publish capability details, so LemonCrow is using safe defaults instead of hiding Review controls.",
-      actions: (
-        <UiButton
-          unstyled
-          type="button"
-          onClick={() => setCapabilityNoticeDismissed(true)}
-          className="px-1 text-label text-muted-foreground hover:text-foreground"
-        >
-          Dismiss
-        </UiButton>
-      ),
-    });
-  }
-
-  // A feature the server declares off is hidden and named, with the reason, so a
-  // missing control reads as "Ask is not available: it needs an AI model", never as a bug.
-  if (reviewEnvironment.unsupported.length > 0 && !unsupportedNoticeDismissed) {
-    const unavailable = unavailableFeaturesNotice(reviewEnvironment.unsupported);
-    contextSignals.push({
-      id: "capabilities-unsupported",
-      tone: "neutral",
-      icon: Puzzle,
-      label: unavailable.label,
-      chipLabel: unavailable.label,
-      detail: unavailable.detail,
-      actions: (
-        <UiButton
-          unstyled
-          type="button"
-          onClick={() => setUnsupportedNoticeDismissed(true)}
-          className="px-1 text-label text-muted-foreground hover:text-foreground"
-        >
-          Dismiss
-        </UiButton>
-      ),
-    });
-  }
-
-  // Secondary context always occupies one compact strip. This order is product
-  // authority, not insertion accident: state that invalidates the current
-  // review comes first, then read-only/workflow context, then recoverable
-  // degradation and ephemeral acknowledgements.
-  const orderedContextSignals = [...contextSignals].sort(
-    (left, right) => reviewContextSignalPriority(left.id) - reviewContextSignalPriority(right.id),
-  );
-
-  // Blocking notice arbitration: never stack comparison, refresh delta, and
-  // request errors into multiple full-width rows. Everything else is secondary
-  // context and collapses into ReviewContextStrip below.
-  const blockingNoticeKind = reviewBlockingNoticeKind({
-    hasError: Boolean(error && overview),
-    comparisonActive: Boolean(comparisonQueryValid && (requestedHeadBase || requestedBaseRevision !== requestedTargetRevision)),
-    revisionDeltaActive: Boolean(!comparisonActive && (revisionInfo?.target_delta || overview.discarded.length > 0)),
-  });
-  const blockingNotice = blockingNoticeKind === "error" ? (
-    <div role="alert" className="flex shrink-0 items-start gap-2 border-b border-red-900/50 bg-red-950/20 px-3 py-1.5 text-caption text-red-200" data-testid="review-blocking-notice" data-notice="error">
-      <span className="min-w-0 flex-1 break-words">{error}</span>
-      <UiButton unstyled type="button" onClick={() => setError("")} className="shrink-0 text-red-300/80 hover:text-red-100">Dismiss</UiButton>
-    </div>
-  ) : blockingNoticeKind === "comparison" ? (
-    <div data-testid="review-blocking-notice" data-notice="comparison">
-      <RevisionCompareBar
-        baseRevision={compareBaseRevision}
-        targetRevision={compareTargetRevision}
-        loading={revisionComparisonLoading}
-        error={revisionComparisonError}
-        onExit={exitRevisionComparison}
-      />
-    </div>
-  ) : blockingNoticeKind === "revision-delta" ? (
-    <div data-testid="review-blocking-notice" data-notice="revision-delta">
-      <RevisionDeltaBar
-        info={revisionInfo}
-        discarded={overview.discarded}
-        focused={deltaFocus}
-        remainingActive={deltaRemainingCount}
-        onShowAll={() => setDeltaFocus(false)}
-        onSelectTarget={(targetId) => {
-          const target = targets.find((item) => item.target_id === targetId);
-          if (!target) return;
-          revealImplementation();
-          void scrollToTarget(target);
-        }}
-        onDismiss={() => {
-          setRevisionInfo(null);
-          setDeltaFocus(false);
-        }}
-      />
-    </div>
-  ) : null;
-
-  return (
-    <ReviewCorrectionsProvider value={corrections.context}>
-    <FeedbackSyncProvider value={feedbackSync}>
-    <div
-      className="review-app relative flex h-dvh min-h-0 flex-col bg-background text-foreground"
-      data-testid="review-reader"
-      data-review-targets-complete={targetList?.complete === false ? "false" : "true"}
-    >
-      <ReviewFrictionProbe
-        view={view}
-        onTarget={view === "implementation" && Boolean(activeTarget)}
-        targetCount={progress.target_count}
-        rail={askOpen && askCapable ? "ask" : contextOpen ? "context" : null}
-        notices={(blockingNoticeKind ? 1 : 0) + orderedContextSignals.length + (!historical && activeProposals.length > 0 ? 1 : 0)}
-        revisionNumber={overview.revision.revision_number}
-        reopened={progress.changed_since_review}
-      />
-      <ReaderHeader
-        correctionActions={correctionPalette}
+  if (flowOverview && flowRoute) {
+    return flowOverviewRoot(
+      <ReviewOverviewScreen
+        reviewRef={flowRoute.reviewRef}
         overview={overview}
-        progress={progress}
-        diffStyle={diffStyle}
-        diffOverflow={diffOverflow}
-        focusMode={focusMode}
-        contextOpen={contextOpen}
-        busy={Boolean(busy)}
-        busyLabel={primaryBusyLabel(busy, overview.session.status)}
-        readOnly={Boolean(readOnly)}
-        revisionAdvanced={revisionAdvanced}
-        finishButtonRef={finishButtonRef}
-        codeTheme={codeTheme}
-        commentCount={rootCommentCount}
-        openCommentCount={openRootCommentCount}
-        commentState={commentsState}
-        askOpen={askOpen}
-        view={view}
-        availableViews={availableViews}
-        primaryAction={primaryAction}
-        hidePrimaryAction={Boolean(extensions?.hidePrimaryAction)}
-        authorshipOverride={extensions?.authorship}
-        contextOverride={extensions?.context}
-        environment={reviewEnvironment}
-        allowRefresh={reviewEnvironment.review.workspace_refresh}
-        snapshotControls={snapshotControls}
-        extensionActions={extensions?.renderHeaderActions?.({ reviewId, overview, annotations, readOnly: Boolean(readOnly), historical })}
-        handoffControls={reviewId && overview.session.status === "open" && !handoffLocked && commentsState === "ready" ? (
-          <ReviewHandoffControls
-            reviewId={reviewId}
-            delivery={feedbackDelivery}
-            lastDelivery={delivery}
-            unsent={handoff.unsent}
-            waiting={handoff.published + handoff.inFlight > 0}
-            busy={Boolean(busy)}
-            buttonRef={finishButtonRef}
-            busyLabel={primaryBusyLabel(busy, overview.session.status)}
-            onSendNow={() => void openSendSheet()}
-            onShowHandoff={() => void openSendSheet()}
-            onDestinationChanged={() => void refreshFeedbackState("Changed")}
-          />
-        ) : undefined}
-        historical={historical}
-        onCodeThemeChange={changeCodeTheme}
-        onShowDirectory={() => { window.location.href = reviewDirectoryHref(); }}
-        backToReviewHref={dedicatedItem ? fullReviewUrlFromDedicatedItem() : undefined}
-        returnTo={returnTo ? { href: returnTo, label: returnTo.startsWith("/code") ? "Back to Code" : "Back" } : undefined}
-        backtrail={backtrail.length > 0 ? { label: backtrail[backtrail.length - 1].label, onBack: goBack } : null}
-        onShowComments={openComments}
-        onShowAsk={askCapable ? () => askOpen ? closeAsk() : openAsk(null) : undefined}
-        onViewChange={changeView}
-        onShowHistory={() => setHistoryOpen(true)}
-        onPrimaryAction={runPrimaryAction}
-        onDownloadPatch={() => void downloadPatch()}
-        onFinish={() => void openFinishSheet()}
-        onPublishGitHub={isGitHubPullRequest && !historical ? () => setGithubPublishOpen(true) : undefined}
-        onRefresh={() => void refreshReview()}
-        onDiffStyleChange={changeDiffStyle}
-        onToggleDiffOverflow={toggleDiffOverflow}
-        onToggleContext={() => contextOpen ? closeContext() : activeTarget && openContext(activeTarget, contextTab)}
-        onToggleFocus={() => setFocusMode((current) => {
-          const next = !current;
-          setOutlineCollapsed(next);
-          if (next) {
-            closeContext();
-            closeAsk();
-          }
-          return next;
+        agentHost={reviewAgentHost}
+        targets={targets}
+        annotations={annotations}
+        projection={currentProjection}
+        ready
+        progress={briefPreparation}
+        aiAvailable={askCapable}
+        onAsk={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+        // The walkthrough reads the plan the Brief capability serves; it is offered only where it has steps to walk.
+        quickConfirm={quickConfirm}
+        tourAvailable={briefCapable && guidedReviewUseful(currentProjection, targets)}
+        briefAvailable={briefCapable && currentProjection !== null}
+        xrayAvailable={briefCapable && architectureRelevant}
+      />,
+      true,
+    );
+  }
+
+  if (flowBrief && flowRoute && reviewId) {
+    return flowOverviewRoot(
+      <Suspense fallback={<div className="p-6 text-label text-muted-foreground" role="status">Opening the Brief…</div>}>
+        <ReviewBriefScreen
+          reviewRef={flowRoute.reviewRef}
+          apiReviewId={reviewId}
+          overview={overview}
+          targets={targets}
+          complete={!partsPartial}
+          projection={briefCapable ? currentProjection : null}
+          loading={briefCapable && !currentProjection && projectionState !== "failed"}
+          checks={historical ? undefined : overview.evidence}
+          revision={overview.revision}
+          onDecision={historical || readOnly ? undefined : decideOnBrief}
+          onLoadTarget={historical ? undefined : loadBehaviorTarget}
+          onJudge={historical || readOnly ? undefined : judgeBehavior}
+          onNarrate={historical || readOnly ? undefined : narrateBehavior}
+          onManualCheck={historical || readOnly ? undefined : recordManualCheck}
+          xrayAvailable={briefCapable && architectureRelevant}
+          onAsk={askCapable ? askTarget : undefined}
+          onAskChange={askCapable ? () => openAsk(null) : undefined}
+          askPanel={askOpen && askCapable ? drawer : null}
+        />
+      </Suspense>,
+      true,
+    );
+  }
+
+  if (flowXRay && flowRoute?.route.kind === "xray" && reviewId) {
+    return flowOverviewRoot(
+      <Suspense fallback={<div className="p-6 text-label text-muted-foreground" role="status">Opening the X-Ray…</div>}>
+        <ReviewXRayScreen
+          reviewRef={flowRoute.reviewRef}
+          apiReviewId={reviewId}
+          at={flowRoute.route.at}
+          overview={overview}
+          targets={targets}
+          complete={!partsPartial}
+          load={briefCapable && architectureRelevant ? loadArchitectureDelta : undefined}
+          loading={briefCapable && !currentProjection && projectionState !== "failed"}
+          behavior={currentProjection?.behavior ?? null}
+          revisionId={currentProjection?.revision_id}
+          onLoadTarget={historical ? undefined : loadBehaviorTarget}
+          onJudge={historical || readOnly ? undefined : judgeBehavior}
+          onAskChange={askCapable ? () => openAsk(null) : undefined}
+          askPanel={askOpen && askCapable ? drawer : null}
+        />
+      </Suspense>,
+      true,
+    );
+  }
+
+  if (flowTour && flowRoute?.route.kind === "walkthrough" && reviewId) {
+    return flowOverviewRoot(
+      <Suspense fallback={<div className="p-6 text-label text-muted-foreground" role="status">Opening the walkthrough…</div>}>
+        <ReviewTourScreen
+          reviewRef={flowRoute.reviewRef}
+          apiReviewId={reviewId}
+          step={flowRoute.route.step}
+          view={flowRoute.route.view}
+          overview={overview}
+          targets={targets}
+          complete={!partsPartial}
+          tour={briefCapable ? currentProjection?.tour ?? null : null}
+          loading={briefCapable && !currentProjection && projectionState !== "failed"}
+          onSynthesize={historical || readOnly || !currentProjection ? undefined : async () => {
+            try {
+              await postTourSynthesis(reviewId, currentProjection.revision_id);
+            } finally {
+              await loadProjection().catch(() => undefined);
+            }
+          }}
+          // The Walkthrough's map walks the Reader's cached architecture read, as the Brief's did; never for a tiny mechanical change.
+          loadStory={briefCapable && architectureRelevant ? loadArchitectureDelta : undefined}
+          checks={historical ? undefined : overview.evidence}
+          annotations={annotations}
+          onAsk={askCapable ? askTarget : undefined}
+          onAskChange={askCapable ? () => openAsk(null) : undefined}
+          askPanel={askOpen && askCapable ? drawer : null}
+        />
+      </Suspense>,
+      true,
+    );
+  }
+
+  if (flowMap && flowRoute?.route.kind === "map" && reviewId) {
+    return flowOverviewRoot(
+      <Suspense fallback={<div className="p-6 text-label text-muted-foreground" role="status">Opening the code map…</div>}>
+        <ReviewFlowMapScreen reviewRef={flowRoute.reviewRef} apiReviewId={reviewId}
+          overview={overview} targets={targets} lens={flowRoute.route.lens} view={flowRoute.route.view}
+          complete={!partsPartial} canRun={!readOnly && !historical}
+          onAskChange={askCapable ? () => openAsk(null) : undefined} askPanel={askOpen && askCapable ? drawer : null}/>
+      </Suspense>,
+      true,
+    );
+  }
+
+  if (flowPreview && flowRoute?.route.kind === "preview" && reviewId) {
+    return flowOverviewRoot(
+      <Suspense fallback={<div role="status" className="p-6 text-label text-muted-foreground">Opening previews…</div>}>
+        <ReviewFlowPreviewScreen reviewRef={flowRoute.reviewRef} apiReviewId={reviewId}
+          overview={overview} targets={targets} surface={flowRoute.route.surface}
+          complete={!partsPartial} onAskChange={askCapable ? () => openAsk(null) : undefined} askPanel={askOpen && askCapable ? drawer : null}/>
+      </Suspense>, true,
+    );
+  }
+
+  if (flowBack && flowRoute?.route.kind === "rev" && reviewId) {
+    return flowOverviewRoot(
+      <ReviewWelcomeBackScreen
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        revision={flowRoute.route.revision}
+        overview={overview}
+        targets={sourceTargets}
+        readOnly={readOnly}
+        onDownloadRecord={() => downloadDecisionRecord(reviewId, overview.revision.id)}
+        annotations={annotations}
+        complete={!partsPartial}
+        canCompare={!extensions}
+        handoff={{
+          kind: handoffRoute,
+          label: handoffRoute === "export" ? "the author" : handoffRoute === "github" && !feedbackDelivery?.label ? "the pull request" : handoffDestinationLabel(feedbackDelivery),
+          available: Boolean(feedbackDelivery?.supported) || handoffRoute === "export" || (handoffRoute === "github" && isGitHubPullRequest && !feedbackDelivery),
+          reason: feedbackDelivery?.reason ?? "",
+        }}
+        onQueue={!hostedInfo && !extensions?.recordOutcome ? (outcome, summary, prepared, operationId) => queueReviewFlowSend(reviewId, {
+          expectedRevisionId: overview.revision.id, outcome, summary, feedback: prepared, clientOperationId: operationId,
+        }) : undefined}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+        onMark={(target) => markTarget(target, "reviewed")}
+        onKeepOpen={(target, body) => createAnnotation({
+          path: target.path, start_line: 0, end_line: 0, file_level: true,
+          side: "additions", body, kind: "request_change", target_unit_key: target.unit_key, mark_target: true,
         })}
-        onShowShortcuts={() => openCommands("shortcuts")}
-        onShowOverview={openOverview}
-        development={developmentSummary}
-        developmentOpen={developmentOpen}
-        onShowDevelopment={() => setDevelopmentOpen((value) => !value)}
-        readiness={readinessHeader}
-        landing={landingReadinessState === "ready" || landingReadinessState === "loading" ? landingReadiness : null}
-        onShowReadiness={() => setReadinessOpen(true)}
-        uncertainSignals={overview.degraded.length}
-        compactDock={compactLayout ? {
-          target: compactDock,
-          navigation: view === "implementation" ? (
-            <UiButton
-              unstyled
-              type="button"
-              className="review-mobile-change-nav"
-              onClick={() => {
-                if (outlineCollapsed) {
-                  // One full-height panel at a time on a phone.
-                  setContextOpen(false);
-                  setAskOpen(false);
-                }
-                setOutlineCollapsed((current) => !current);
-              }}
-              aria-expanded={!outlineCollapsed}
-              aria-label={`${outlineCollapsed ? "Open" : "Close"} change navigation · ${Math.max(0, progress.target_count - progress.reviewed)} left`}
-            >
-              <ListTree size={14} aria-hidden="true" />
-              <span>Changes · {Math.max(0, progress.target_count - progress.reviewed)}</span>
-            </UiButton>
-          ) : undefined,
-        } : undefined}
-      />
-      {blockingNotice}
-      <ReviewContextStrip signals={orderedContextSignals} />
-      <ReviewFrontierNotes
-        reviewId={reviewId}
-        revisionId={overview.revision.id}
-        rangeMode={overview.session.range_mode}
-        historical={historical}
-      />
-      {readinessOpen && (
-        <ReviewReadinessSheet
-          model={localReadiness}
-          landing={landingReadinessState === "ready" ? landingReadiness : null}
-          landingBusy={landingBusy}
-          landingError={landingError}
-          readOnly={historical || revisionAdvanced || overview?.session.status === "archived"}
-          extraSections={extensions?.reviewerSuggestions === "external" || !overview ? extensions?.readinessSections : (
-            <>
-              {extensions?.readinessSections}
-              <ReviewerSuggestionsPanel reviewId={overview.session.id} revisionId={overview.revision.id} />
-            </>
-          )}
-          verificationExtras={projection?.revision_id === overview?.revision.id && projection.behavior?.checklist ? (
-            <ManualChecklist
-              key={projection.revision_id}
-              checklist={projection.behavior.checklist}
-              onRecord={historical || readOnly || revisionAdvanced || projection.historical ? undefined : recordManualCheck}
-            />
-          ) : undefined}
-          automation={reviewId ? (
-            <ReviewAutomationSection
-              reviewId={reviewId}
-              readOnly={Boolean(historical || readOnly || overview?.session.status === "archived")}
-            />
-          ) : undefined}
-          deployments={reviewId ? (
-            <>
-              <ReviewDeploymentSection reviewId={reviewId} />
-              <ReviewProductionSection reviewId={reviewId} variant="status" />
-            </>
-          ) : undefined}
-          premergeActions={historical || readOnly || revisionAdvanced ? undefined : {
-            busy: premergeBusy,
-            error: premergeError,
-            onWaive: (input) => void runPremergeAction("Could not waive the check", (id, snapshotId) =>
-              waiveReviewPremergeCheck(id, { expected_revision_id: snapshotId, ...input })),
-            onRebind: (ref) => void runPremergeAction("Could not re-bind the intent", (id, snapshotId) =>
-              rebindReviewIntent(id, { expected_revision_id: snapshotId, ref })),
-            onEvaluate: () => void runPremergeAction("Could not evaluate the checks", (id, snapshotId) =>
-              evaluateReviewPremergeChecks(id, { expected_revision_id: snapshotId })),
-          }}
-          recordSection={reviewId && overview && !historical ? (
-            <ReviewRecordExport
-              reviewId={reviewId}
-              snapshotId={overview.revision.id}
-              readOnly={readOnly || revisionAdvanced || overview.session.status === "archived"}
-            />
-          ) : undefined}
-          onArmLanding={() => void armLanding()}
-          onCancelLanding={() => void cancelLanding()}
-          onClose={() => setReadinessOpen(false)}
-        />
-      )}
-      {commandMode && (
-        <Suspense fallback={null}>
-          <ReviewCommandPalette
-            mode={commandMode}
-            actions={reviewActions}
-            onClose={closeCommands}
-          />
-        </Suspense>
-      )}
-      {commentsOpen && (
-        <Suspense fallback={null}>
-          <ReviewCommentsSheet
-            annotations={surfacedAnnotations}
-            feedbackStatus={feedbackStatus}
-            feedbackDelivery={feedbackDelivery}
-            initialFilter={commentsFilter}
-            onClose={() => setCommentsOpen(false)}
-            onSetAnnotationState={readOnly ? undefined : (id, state) => void setAnnotationState(id, state)}
-            onJump={(annotation) => {
-              const target = targetForAnnotation(targets, annotation);
-              setCommentsOpen(false);
-              if (target || annotation.path) revealImplementation();
-              if (target) {
-                void scrollToTarget(target);
-              } else if (annotation.path) {
-                void scrollToFile(annotation.path);
-              }
-            }}
-          />
-        </Suspense>
-      )}
-      {historyOpen && (
-        <Suspense fallback={null}>
-          <ReviewHistorySheet
-            reviewId={reviewId}
-            selectedRevisionNumber={overview.revision.revision_number}
-            historical={historical}
-            rangeMode={overview.session.range_mode}
-            reviewBaseSha={overview.session.review_base_sha}
-            initialTab="revisions"
-            canFix={Boolean(codeRoot) && overview.session.status === "open"}
-            onClose={() => setHistoryOpen(false)}
-          />
-        </Suspense>
-      )}
-      {developmentOpen && development && (
-        <Suspense fallback={null}>
-          <ReviewDevelopmentSheet
-            reviewId={reviewId}
-            development={development}
-            historical={historical}
-            onClose={() => setDevelopmentOpen(false)}
-            onOpenPath={selectPath}
-          />
-        </Suspense>
-      )}
-      {extensions?.renderOverlays?.({ reviewId, overview, annotations, readOnly: Boolean(readOnly), historical })}
+      />,
+      true,
+    );
+  }
 
-      {!historical && activeProposals.length > 0 && (
-        <div className={`shrink-0 border-b px-3 py-1.5 text-caption ${proposalBarTone}`} data-testid="review-proposals">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">Source edits</span>
-            {readyProposalCount > 0 && <span className="text-muted-foreground">{readyProposalCount} ready</span>}
-            {savedProposalCount > 0 && <span className="text-muted-foreground">{savedProposalCount} saved</span>}
-            {awaitingCaptureCount > 0 && <span className="text-cyan-300/75">{awaitingCaptureCount} awaiting update</span>}
-            {staleProposalCount > 0 && <span className="text-amber-300/80">{staleProposalCount} from older Snapshot</span>}
-            {conflictedProposalCount > 0 && <span className="text-amber-300/80">{conflictedProposalCount} need attention</span>}
-            <span className="flex-1" />
-            <Popover>
-              <PopoverTrigger asChild>
-                <UiButton variant="link" className="text-meta text-muted-foreground hover:text-foreground">Details</UiButton>
-              </PopoverTrigger>
-              <PopoverContent align="end" aria-label="Source edit details" className="w-[480px] max-w-[88vw] rounded-md border-border p-1.5 text-caption">
-                {activeProposals.map((proposal) => {
-                  const status = proposal.state === "conflicted"
-                    ? { label: "Source moved", tone: "text-amber-300" }
-                    : proposal.state === "applied"
-                      ? { label: "Awaiting review update", tone: "text-cyan-300" }
-                      : proposal.base_revision_id !== overview.revision.id
-                        ? { label: "Review advanced", tone: "text-amber-300" }
-                        : proposal.can_apply
-                          ? { label: "Ready to apply", tone: "text-muted-foreground" }
-                          : { label: "Saved proposal", tone: "text-muted-foreground" };
-                  return (
-                    <div key={proposal.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 border-b border-border px-2 py-2 last:border-b-0">
-                      <div className="min-w-0">
-                        <div className="truncate font-mono text-subtle" title={proposal.path}>
-                          {proposal.path}:{proposal.start_line}{proposal.end_line !== proposal.start_line ? `-${proposal.end_line}` : ""}
-                        </div>
-                        {proposal.intent && <div className="mt-0.5 truncate text-muted-foreground" title={proposal.intent}>{proposal.intent}</div>}
-                      </div>
-                      <span className={status.tone}>{status.label}</span>
-                      {(proposal.state === "proposed" || proposal.state === "conflicted") ? (
-                        <UiButton
-                          variant="ghost"
-                          size="compact"
-                          type="button"
-                          className="h-6 text-meta"
-                          onClick={() => {
-                            setProposalSelection({
-                              revision_id: proposal.base_revision_id,
-                              path: proposal.path,
-                              start_line: proposal.start_line,
-                              end_line: proposal.end_line,
-                              side: "additions",
-                              text: proposal.original_text,
-                            });
-                            setActiveProposal(proposal);
-                            setDraft({
-                              path: proposal.path,
-                              startLine: proposal.start_line,
-                              endLine: proposal.end_line,
-                              side: "additions",
-                              targetUnitKey: proposal.target_unit_key || undefined,
-                              mode: "proposal",
-                              sourceAction: "suggest",
-                              replacementText: proposal.replacement_text,
-                              proposalIntent: proposal.intent,
-                              proposalId: proposal.id,
-                            });
-                          }}
-                        >
-                          Open
-                        </UiButton>
-                      ) : (
-                        <span className="w-8" aria-hidden="true" />
-                      )}
-                    </div>
-                  );
-                })}
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-      )}
-      {sendSheetOpen && feedback && reviewId && (
-        <ReviewSendSheet
+  if (flowSecond && flowRoute && reviewId) {
+    return flowOverviewRoot(<SecondSignatureScreen apiReviewId={reviewId} overview={overview} />, true);
+  }
+
+  if (flowDone && flowRoute && reviewId) {
+    return flowOverviewRoot(
+      <ReviewDoneScreen
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        overview={overview}
+        targets={sourceTargets}
+        destinationLabel={handoffRoute === "export" ? "the author" : handoffDestinationLabel(feedbackDelivery)}
+        onDownloadRecord={() => downloadDecisionRecord(reviewId, overview.revision.id)}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+      />,
+      true,
+    );
+  }
+
+  if (flowWrap && flowRoute && reviewId) {
+    return flowOverviewRoot(
+      <>
+      <ReviewWrapScreen
+        hostBlockers={(extensions?.readinessBlockers ?? []).map((blocker) => blocker.label)}
+        hostSections={extensions?.readinessSections}
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        overview={overview}
+        targets={sourceTargets}
+        annotations={annotations}
+        complete={!partsPartial}
+        readOnly={readOnly}
+        busy={busy === "finish"}
+        recorded={finishRecorded}
+        currentOutcome={currentOutcome}
+        record={{
+          ...finishRecordFacts({
+            revision: overview.revision,
+            targets: sourceTargets,
+            readiness,
+            reviewer: currentOutcome?.reviewer_id || overview.session.reviewer_id,
+            notMeasured: overview.degraded.length,
+          }),
+          reconsideredNotes: annotations.filter((note) => note.source === "human" && note.kind === "request_change" && note.reconsidered_after_structure && note.structure_revision_id === overview.revision.id).map((note) => ({ id: note.id, path: note.path, body: note.body })),
+        }}
+        handoff={{
+          unsent: handoff.unsent,
+          label: handoffRoute === "export" ? "the author" : handoffRoute === "github" && !feedbackDelivery?.label ? "the pull request" : handoffDestinationLabel(feedbackDelivery),
+          kind: handoffRoute,
+          available: Boolean(feedbackDelivery?.supported) || handoffRoute === "export" || (handoffRoute === "github" && isGitHubPullRequest && !feedbackDelivery),
+          reason: feedbackDelivery?.reason ?? "",
+        }}
+        destinationControl={(
+          <ReviewDestinationPicker reviewId={reviewId} disabled={busy === "finish"} onChanged={() => void refreshFeedbackState("Changed")}>
+            <UiButton variant="ghost" size="compact" type="button">Change destination</UiButton>
+          </ReviewDestinationPicker>
+        )}
+        sendError={finishSendError}
+        finishError={finishError}
+        openedFrom={wrapOpenedFromAll ? "all" : "overview"}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+        onFinish={(outcome, summary, options) => void confirmFinish(outcome, summary, options)}
+        onQueue={!hostedInfo && !extensions?.recordOutcome ? (outcome, summary, prepared, operationId) => queueReviewFlowSend(reviewId, {
+          expectedRevisionId: overview.revision.id, outcome, summary, feedback: prepared, clientOperationId: operationId,
+        }) : undefined}
+        onFeedbackPrepared={(prepared) => setFeedbackDelivery((current) => sameDeliveryRoute(current, prepared.delivery) ? current : prepared.delivery)}
+        onDownloadRecord={() => downloadDecisionRecord(reviewId, overview.revision.id)}
+      />
+      {githubPublishOpen && <Suspense fallback={<p role="status" className="p-4 text-label">Loading GitHub confirmation…</p>}>
+        <GitHubPublishSheet
           reviewId={reviewId}
-          feedback={feedback}
-          delivery={delivery}
-          handoffRereview={feedbackHandoffRereview}
-          busy={Boolean(busy)}
-          canSend={!handoffLocked}
-          onCopy={() => copyToClipboard(feedback.markdown)}
-          onSend={(options) => sendFeedbackToAgent(options)}
-          onPublishGitHub={() => { setSendSheetOpen(false); setGithubPublishOpen(true); }}
-          onDestinationChanged={() => void prepareFeedback()}
-          onReviewOutcome={() => { setSendSheetOpen(false); void openFinishSheet(); }}
-          onClose={() => { setSendSheetOpen(false); setFeedback(null); setDelivery(null); }}
+          onClose={() => { setGithubPublishOpen(false); setFinishAfterPublish(false); }}
+          onPublished={() => { void refreshFeedbackState(); if (finishAfterPublish) void finishPublished(); }}
         />
-      )}
-      {corrections.sheet}
+      </Suspense>}
+      </>,
+      true,
+    );
+  }
 
-      {/* Projected surfaces cover Implementation, which stays mounted but invisible
-          (out of the accessibility tree and tab order) with its exact position intact. */}
-      <div className={"relative flex min-h-0 flex-1 " + (view === "implementation" ? "" : "invisible")}>
-        {view !== "implementation" && (
-          <div className="visible absolute inset-0 z-20 flex min-h-0 bg-background" data-testid={"review-" + view + "-view"}>
-            <Suspense fallback={<div className="p-4 text-label text-muted-foreground">{"Loading " + (view === "map" ? "Map" : view === "tour" ? "Guided review" : "Brief") + "…"}</div>}>
-              {view === "map" ? (
-                <ReviewMapSheet
-                  reviewId={reviewId}
-                  revisionNumber={overview.revision.revision_number}
-                  historical={historical}
-                  location={mapLocation}
-                  onLocationChange={setMapLocation}
-                  selectionHref={mapSelectionHref}
-                  onClose={closeMap}
-                  onOpenSelection={(selection) => void openMapSelection(selection)}
-                  onAskSelection={askCapable ? askMapSelection : undefined}
-                  askPanel={askCapable && askOpen ? drawer : null}
-                  onCloseAsk={askCapable ? closeAsk : undefined}
-                  onOpenInCode={runtimeCodeRoot ? openInCode : undefined}
-                  onOpenEvidence={(selection) => {
-                    // The run's record sits with the checks of the code it traced; with no target, readiness lists every run.
-                    const inFile = targets.filter((target) => target.path === selection.path);
-                    const line = selection.line ?? 0;
-                    const target = inFile.find((row) => line > 0 && row.start_line <= line && line <= row.end_line) ?? inFile[0];
-                    if (!target) {
-                      setReadinessOpen(true);
-                      return;
-                    }
-                    revealImplementation();
-                    openContext(target, "checks");
-                  }}
-                  chapters={mapChapters}
-                  onSelectionChange={(selection) => { mapSelectionRef.current = selection; }}
-                  loadProjectHistory={projectHistoryAvailable ? loadProjectHistory : undefined}
-                />
-              ) : view === "tour" && briefCapable && projection?.tour ? (
-                <div className="flex min-h-0 flex-1">
-                  <div className="min-h-0 flex-1 overflow-y-auto" data-review-scroll-root="tour">
-                    <ReviewTour
-                      reviewId={reviewId}
-                      revisionId={projection.revision_id}
-                      tour={projection.tour}
-                      targets={targets}
-                      activeCohortId={guidedCohortId}
-                      onCohortChange={changeGuidedCohort}
-                      onExit={() => changeView("implementation")}
-                      onBackToBrief={() => changeView("brief")}
-                      onOpenTarget={openBriefTarget}
-                      onInspectEvidence={(targetId) => {
-                        const target = targetId ? targets.find((item) => item.target_id === targetId) : undefined;
-                        if (!target) {
-                          setReadinessOpen(true);
-                          return;
-                        }
-                        changeView("implementation");
-                        openContext(target, "checks");
-                      }}
-                      onAsk={askCapable ? (targetId) => {
-                        const target = targetId ? targets.find((item) => item.target_id === targetId) : undefined;
-                        if (target) askTarget(target);
-                        else openAsk(null);
-                      } : undefined}
-                      onSynthesize={historical || readOnly ? undefined : synthesizeOnTour}
-                    />
-                  </div>
-                  {askOpen && drawer && (
-                    <div data-review-rail="ask" className="review-secondary-rail w-[min(32vw,400px)] shrink-0 border-l border-border bg-background">{drawer}</div>
-                  )}
-                </div>
-              ) : briefCapable && projection ? (
-                <div className="flex min-h-0 flex-1">
-                  <div className="min-h-0 flex-1 overflow-y-auto" data-review-scroll-root="brief">
-                    <ReviewBrief
-                      projection={projection}
-                      revision={overview?.revision ?? null}
-                      loading={projectionState === "loading"}
-                      error={projectionState === "failed" ? "The brief could not refresh; showing the last loaded plan." : ""}
-                      targets={targets}
-                      requestScope={requestScopeApplies && requestScopeIds ? {
-                        inScopeTargetIds: requestScopeIds,
-                        showOutside: !requestScopeFocus,
-                        onToggleOutside: () => setRequestScopeFocus((current) => !current),
-                      } : undefined}
-                      onOpenTarget={openBriefTarget}
-                      onOpenCodeLocation={openCodeLocation}
-                      snapshotSuperseded={revisionAdvanced}
-                      onOpenFiles={closeOverview}
-                      onOpenTour={guidedReviewUseful(projection, targets) ? () => changeView("tour") : undefined}
-                      onInspectEvidence={(targetId) => {
-                        const target = targetId ? targets.find((item) => item.target_id === targetId) : undefined;
-                        if (!target) {
-                          setReadinessOpen(true);
-                          return;
-                        }
-                        closeOverview();
-                        openContext(target, "checks");
-                      }}
-                      onInvestigate={(targetId) => {
-                        const target = targets.find((item) => item.target_id === targetId);
-                        if (!target) return;
-                        withBacktrail(() => {
-                          revealImplementation();
-                          openContext(target, "investigate");
-                          void scrollToTarget(target);
-                        });
-                      }}
-                      onAsk={askCapable ? (targetId) => {
-                        const target = targetId ? targets.find((item) => item.target_id === targetId) : undefined;
-                        if (target) askTarget(target);
-                        else openAsk(null);
-                      } : undefined}
-                      onDecision={historical || readOnly ? undefined : decideOnBrief}
-                      onSynthesize={historical || readOnly ? undefined : synthesizeOnBrief}
-                      aiReviewRun={aiReviewRun}
-                      onRunAiReview={historical || readOnly ? undefined : runAiReviewOnBrief}
-                      onRerunAiReviewFresh={historical || readOnly ? undefined : rerunAiReviewFreshOnBrief}
-                      onCancelAiReview={historical || readOnly ? undefined : cancelAiReviewOnBrief}
-                      onLoadBehaviorTarget={historical ? undefined : loadBehaviorTarget}
-                      onJudgeBehavior={historical || readOnly ? undefined : judgeBehavior}
-                      onNarrateBehavior={historical || readOnly ? undefined : narrateBehavior}
-                      dependencies={dependencyReview}
-                      checks={historical ? undefined : overview?.evidence}
-                      checkCounts={historical ? undefined : overview?.brief?.verification}
-                      loadArchitectureDelta={architectureRelevant ? loadArchitectureDelta : undefined}
-                      onOpenArchitecture={openArchitecture}
-                      loadProjectContext={reviewId ? loadProjectContext : undefined}
-                      productionOutcomes={historical || !reviewId ? undefined : (
-                        <ReviewProductionSection reviewId={reviewId} variant="brief" />
-                      )}
-                      agentApprovals={historical ? undefined : (
-                        <AgentApprovalPanel
-                          reviewId={reviewId}
-                          initial={projection.behavior?.agent_approvals}
-                          readOnly={readOnly}
-                        />
-                      )}
-                      interactivePreview={historical ? undefined : (
-                        <InteractivePreviewPanel
-                          reviewId={reviewId}
-                          revisionId={projection.revision_id}
-                          readOnly={readOnly}
-                          openedFrom="behavior_changes"
-                        />
-                      )}
-                    />
-                  </div>
-                  {askOpen && drawer && (
-                    <div data-review-rail="ask" className="review-secondary-rail w-[min(32vw,400px)] shrink-0 border-l border-border bg-background">{drawer}</div>
-                  )}
-                </div>
-              ) : briefCapable && projectionState !== "failed" ? (
-                <div className="p-4 text-label text-muted-foreground">{"Loading " + (view === "tour" ? "Guided review" : "Brief") + "…"}</div>
-              ) : (
-                <div className="flex min-h-0 flex-1 items-center justify-center p-6" data-testid="brief-degraded-fallback">
-                  <div className="max-w-md rounded-lg border border-amber-900/40 bg-amber-950/10 p-4">
-                    <div className="text-body font-medium text-amber-200">Brief unavailable</div>
-                    <p className="mt-1 text-caption leading-5 text-muted-foreground">
-                      Structured Brief data could not be loaded for this Snapshot. The exact Code review remains available; unavailable analysis is not treated as reviewed or passed.
-                    </p>
-                    <UiButton type="button" variant="outline" size="compact" className="mt-3" onClick={closeOverview}>
-                      Open code
-                    </UiButton>
-                  </div>
-                </div>
-              )}
-            </Suspense>
-          </div>
-        )}
-        <ReviewOutline
-          rows={visibleOutline}
-          pageByPath={!dedicatedItem && pageCount > 1 ? pageByPath : undefined}
-          attentionByPath={outlineAttention}
-          activePath={activeTarget?.path ?? ""}
-          query={query}
-          searchInputRef={searchInputRef}
-          matchTargetCount={searchMatches.targetCount}
-          matchFileCount={searchMatches.fileCount}
-          matchCountsByPath={searchMatches.byPath}
-          currentCohort={comparisonActive || !activeCohort ? null : {
-            id: activeCohort.id,
-            label: activeCohort.title,
-            path: activeCohort.paths[0] ?? "",
-          }}
-          nextAttention={comparisonActive ? null : nextAttention}
-          attentionCount={comparisonActive ? 0 : attentionPath.length}
-          attentionPosition={comparisonActive ? 0 : attentionPosition}
-          onQuery={setQuery}
-          onNavigateMatch={navigateSearchMatch}
-          onDismissSearch={dismissSearch}
-          onSelectPath={selectPath}
-          onSelectTarget={(targetId) => {
-            const target = visibleTargets.find((item) => item.target_id === targetId)
-              ?? targets.find((item) => item.target_id === targetId);
-            if (target) {
-              revealImplementation();
-              void scrollToTarget(target);
-            }
-          }}
-          onNavigateAttention={(delta) => {
-            const target = stepQueueTarget(visibleTargets, activeTarget?.target_id ?? "", delta);
-            if (target) {
-              revealImplementation();
-              void scrollToTarget(target, "instant");
-            }
-          }}
-          onOpenCohort={(cohortId) => {
-            changeView("brief");
-            window.requestAnimationFrame(() => {
-              document.querySelector<HTMLElement>(`[data-cohort-id="${CSS.escape(cohortId)}"]`)?.scrollIntoView({ block: "center" });
-            });
-          }}
-          order={comparisonActive ? "file" : targetList.order}
-          orderDisabled={comparisonActive || Boolean(busy)}
-          onOrderChange={(nextOrder) => void changeOrder(nextOrder)}
-          reviewActions={comparisonActive ? undefined : briefCapable ? projection?.actions : undefined}
-          onReviewAction={(id) => {
-            if (id.startsWith("behavior:")) {
-              changeView("brief");
-              const behaviorKey = id.slice("behavior:".length);
-              window.requestAnimationFrame(() => {
-                document.querySelector<HTMLElement>(`[data-behavior-key="${CSS.escape(behaviorKey)}"]`)?.scrollIntoView({ block: "center" });
-              });
-              return;
-            }
-            if (!id.startsWith("decision:")) {
-              setReadinessOpen(true);
-              return;
-            }
-            changeView("brief");
-            const key = id.slice("decision:".length);
-            window.requestAnimationFrame(() => {
-              const node = [...document.querySelectorAll<HTMLElement>("[data-testid^='brief-decision-']")]
-                .find((item) => item.dataset.testid === `brief-decision-${key}`);
-              node?.scrollIntoView({ block: "center" });
-            });
-          }}
-          collapsed={outlineCollapsed}
-          onToggleCollapsed={() => setOutlineCollapsed((current) => !current)}
-        />
+  if (flowQuick && flowRoute?.route.kind === "one") {
+    return flowOverviewRoot(
+      <ReviewQuickCheckScreen
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        part={flowRoute.route.part}
+        overview={overview}
+        targets={targets}
+        annotations={annotations}
+        complete={!partsPartial}
+        aiAvailable={askCapable}
+        readOnly={readOnly}
+        onMark={(target, state) => markTarget(target, state)}
+        onNote={(target, body, reconsideredAfterStructure, line) => {
+          if (line) return createAnnotation(lineCommentDraft(target, body, line, reconsideredAfterStructure));
+          const range = targetCommentRange(target);
+          return createAnnotation({
+            path: target.path,
+            start_line: range?.startLine ?? 0,
+            end_line: range?.endLine ?? 0,
+            side: range?.side ?? "additions",
+            body,
+            kind: "request_change",
+            reconsidered_after_structure: reconsideredAfterStructure,
+            file_level: range === null,
+            target_unit_key: target.fingerprint_method === "revision_compare" ? undefined : target.unit_key,
+            mark_target: true,
+          });
+        }}
+        onAnnotationState={(id, state) => void setAnnotationState(id, state)}
+        onAsk={askCapable ? askTarget : undefined}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+      />,
+      true,
+    );
+  }
 
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-          {dedicatedItem && (
-            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-info/30 bg-info/10 px-4 py-2 text-label" data-testid="dedicated-review-scope">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                {dedicatedItem.kind === "file"
-                  ? <FileDiff size={16} className="shrink-0 text-info" aria-hidden="true" />
-                  : <Puzzle size={16} className="shrink-0 text-info" aria-hidden="true" />}
-                <span className="shrink-0 font-semibold text-foreground">
-                  {dedicatedItem.kind === "file" ? "File view" : "Component view"}
-                </span>
-                <span className="shrink-0 text-muted-foreground" aria-hidden="true">·</span>
-                <span className="min-w-0 truncate font-mono text-foreground" title={dedicatedItem.kind === "file" ? dedicatedItem.path : undefined}>
-                  {dedicatedItem.kind === "file"
-                    ? dedicatedItem.path
-                    : streamSurfaces[0]?.title || dedicatedItem.id}
-                </span>
-              </div>
-              <span className="text-muted-foreground">
-                {dedicatedItem.kind === "file"
-                  ? `Showing 1 of ${allPathOrder.length} changed files`
-                  : "Showing this component from the change"}
-              </span>
-              <UiButton asChild variant="outline" size="xs" className="shrink-0">
-                <a href={fullReviewUrlFromDedicatedItem()}>View full change</a>
-              </UiButton>
-            </div>
-          )}
-          {requestScopeApplies && requestScopeIds && (
-            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-4 py-1.5 text-caption" data-testid="request-scope-bar">
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {requestScopeFocus
-                  ? `Your request · ${requestScopeIds.size} of ${targets.length} targets`
-                  : `All ${targets.length} targets · ${requestScopeIds.size} in your request`}
-                {requestScope?.requestedBy ? ` · requested by ${requestScope.requestedBy}` : ""}
-              </span>
-              <UiButton
-                variant="outline"
-                size="xs"
-                type="button"
-                aria-pressed={!requestScopeFocus}
-                onClick={() => setRequestScopeFocus((current) => !current)}
-              >
-                {requestScopeFocus
-                  ? `Show ${targets.length - requestScopeIds.size} outside your request`
-                  : "Only your request"}
-              </UiButton>
-            </div>
-          )}
-          {openingPath && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="pointer-events-none absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-background/95 px-2.5 py-1 text-label text-muted-foreground"
-            >
-              <LoaderCircle size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              <span className="truncate">Opening <span className="font-mono text-subtle">{openingPath.split("/").pop()}</span>…</span>
-            </div>
-          )}
-          {related && (
-            <div className="absolute inset-4 z-40 flex flex-col border border-border bg-background shadow-float">
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption">
-                <span className="font-mono text-subtle">{related.path}</span>
-                <span className="text-muted-foreground">reviewed Snapshot</span>
-                <span className="flex-1" />
-                <UiButton unstyled type="button" onClick={() => setRelated(null)} className="text-muted-foreground">Close</UiButton>
-              </div>
-              {"pending" in related ? (
-                <div role="status" className="flex items-center gap-2 p-3 text-label text-muted-foreground">
-                  <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                  Loading source…
-                </div>
-              ) : (
-                <pre className="min-h-0 flex-1 overflow-auto p-3 font-mono text-label leading-5 text-subtle">{related.text}</pre>
-              )}
-            </div>
-          )}
-          {comparisonPlaceholderActive ? (
-            <div
-              className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-label text-muted-foreground"
-              role="status"
-              data-testid="review-comparison-placeholder"
-            >
-              {revisionComparisonLoading && (
-                <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              )}
-              <span>
-                {revisionComparisonLoading
-                  ? (compareBaseRevision === "head"
-                    ? `Preparing Source → Snapshot ${compareTargetRevision} diff…`
-                    : `Preparing Snapshot ${compareBaseRevision} → Snapshot ${compareTargetRevision} diff…`)
-                  : revisionComparisonError
-                    || revisionComparison?.code_unavailable_reason
-                    || "This comparison is unavailable."}
-              </span>
-            </div>
-          ) : visibleTargets.length === 0 && !dedicatedItemAvailable ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-label text-muted-foreground">
-              <span>{dedicatedItem
-                ? "Not available in this Snapshot."
-                : deltaFocus
-                  ? "All changed work has been reviewed."
-                  : "No matches."}</span>
-              {deltaFocus && <UiButton type="button" onClick={() => setDeltaFocus(false)} className="h-7">Show all</UiButton>}
-              {!deltaFocus && query.trim() && <UiButton type="button" onClick={dismissSearch} className="h-7">Clear search</UiButton>}
-            </div>
-          ) : (
-            <ReviewLockReason.Provider value={readOnly ? readOnlyNotice : ""}>
-            <ReviewStream
-              ref={streamRef}
-              targets={draftPath ? visibleTargets.filter((target) => pagePathSet.has(target.path) || target.path === draftPath) : pageTargets}
-              details={streamDetails}
-              fileSemantics={streamFileSemantics}
-              surfaces={streamSurfaces}
-              showReviewPreviews={Boolean(dedicatedItem) || pageNumber === 1}
-              onOpenPreviews={() => {
-                const surface = streamSurfaces[0];
-                if (surface) void selectSurface(`${surface.provider}:${surface.id}`);
-              }}
-              dedicatedItem={dedicatedItem}
-              surfaceRuns={surfaceRuns}
-              surfaceBusy={surfaceBusy}
-              runtimeValidations={runtimeValidations}
-              runtimeValidationBusy={runtimeValidationBusy}
-              revisionId={overview?.revision.id ?? ""}
-              errors={streamErrors}
-              annotations={surfacedAnnotations}
-              draft={readOnly ? null : draft}
-              comparisonMode={headComparisonActive}
-              snapshotComparison={revisionComparisonActive && revisionComparison ? {
-                fromRevision: revisionComparison.from_revision.revision_number,
-                toRevision: revisionComparison.to_revision.revision_number,
-                fromRevisionId: revisionComparison.from_revision.id,
-                toRevisionId: revisionComparison.to_revision.id,
-              } : null}
-              proposalSelection={proposalSelection}
-              activeProposal={activeProposal}
-              proposalBusy={busy.startsWith("proposal")}
-              sourceMutationSupported={sourceMutationSupported}
-              diffStyle={diffStyle}
-              diffOverflow={diffOverflow}
-              codeTheme={codeTheme}
-              chromeTheme={theme}
-              activeTargetId={activeTarget?.target_id ?? ""}
-              busy={Boolean(busy) || Boolean(readOnly)}
-              loadingPaused={Boolean(busy)}
-              pagination={!dedicatedItem && pageCount > 1 ? {
-                page: pageNumber,
-                pageCount,
-                changedLines: pageChangedLines,
-                blocked: Boolean(draft),
-                onChange: changePage,
-              } : undefined}
-              outstandingByPath={outstandingByPath}
-              remainingFileCount={remainingFileCount}
-              autoLoadMore={(targetList?.progress.target_count ?? targets.length) <= LARGE_REVIEW_TARGET_THRESHOLD}
-              pendingVisibleFileCount={pendingVisibleFileCount}
-              readyHiddenFileCount={pendingVisibleFileCount === 0 ? readyHiddenBatch.length : 0}
-              preparingHiddenFileCount={preparingHiddenFileCount}
-              onActiveTarget={setActiveTargetId}
-              onDraft={requestDraft}
-              onSuggestEdit={(selectionDraft) => void beginChangeProposal(selectionDraft, "suggest")}
-              onEditSource={(selectionDraft) => void beginChangeProposal(selectionDraft, "edit")}
-              onQuickEdit={(selectionDraft) => void beginChangeProposal(selectionDraft, "quick")}
-              onCreateProposal={() => void createProposal()}
-              onCreateAndApplyProposal={() => void createAndApplyProposal()}
-              onApplyProposal={() => void applyProposal()}
-              onCloseProposal={closeProposalComposer}
-              onCreate={(input) => void createAnnotation(input)}
-              onSetAnnotationState={(id, state) => void setAnnotationState(id, state)}
-              onFindingDisposition={(id, disposition, reason) => void setFindingDisposition(id, disposition, reason)}
-              onMark={(target, state, advance) => void markTarget(target, state, advance)}
-              onComment={commentTarget}
-              onAsk={askCapable ? askTarget : undefined}
-              onAskSelection={askCapable ? askSelection : undefined}
-              onContext={openContext}
-              onBulkReview={(path) => void bulkReviewFile(path)}
-              onLoadMore={loadMore}
-              onFirstContentReady={markFirstContentPainted}
-              onRunSurface={(surface, compare) => void executeSurface(surface, compare)}
-              onValidateSurface={(surface) => void validateSurfaceRuntime(surface)}
-              onCancelRuntimeValidation={(surface, jobId) => void cancelSurfaceRuntimeValidation(surface, jobId)}
-              onRetryPath={retryPath}
-              onOpenInCode={runtimeCodeRoot ? openInCode : undefined}
-            />
-            </ReviewLockReason.Provider>
-          )}
-        </main>
+  if (flowAll && flowRoute?.route.kind === "all" && reviewId) {
+    return flowOverviewRoot(
+      <ReviewAllFilesScreen
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        overview={overview}
+        targets={targets}
+        annotations={annotations}
+        projection={currentProjection}
+        complete={!partsPartial}
+        readOnly={readOnly}
+        aiAvailable={askCapable}
+        onMark={(target, state) => markTarget(target, state)}
+        quickConfirm={quickConfirm}
+        onNote={(target, body, line) => {
+          if (line) return createAnnotation(lineCommentDraft(target, body, line, false));
+          const position = targetCommentRange(target);
+          return createAnnotation({
+            path: target.path,
+            start_line: position?.startLine ?? 0,
+            end_line: position?.endLine ?? 0,
+            side: position?.side ?? "additions",
+            body,
+            kind: "request_change",
+            file_level: position === null,
+            target_unit_key: target.fingerprint_method === "revision_compare" ? undefined : target.unit_key,
+            mark_target: true,
+          });
+        }}
+        onAnnotationState={(id, state) => void setAnnotationState(id, state)}
+        onAsk={askCapable ? askTarget : undefined}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+      />,
+      true,
+    );
+  }
 
-        {(contextOpen || (askOpen && view === "implementation")) && drawer && (
-          <div data-review-rail={askOpen ? "ask" : "context"} className={"review-secondary-rail " + ((askOpen || contextPinned)
-            ? "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-border bg-background shadow-float min-[960px]:static min-[960px]:z-auto min-[960px]:w-[min(32vw,400px)] min-[960px]:shrink-0 min-[960px]:border-border min-[960px]:shadow-none"
-            : "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-border bg-background shadow-float")}>
-            {drawer}
-          </div>
-        )}
-      </div>
+  if (flowFocus && flowRoute?.route.kind === "one") {
+    return flowOverviewRoot(
+      <ReviewFocusScreen
+        reviewRef={flowRoute.reviewRef}
+        apiReviewId={reviewId}
+        part={flowRoute.route.part}
+        overview={overview}
+        targets={targets}
+        annotations={annotations}
+        proposals={proposals}
+        projection={currentProjection}
+        complete={!partsPartial}
+        aiAvailable={askCapable}
+        readOnly={readOnly}
+        onMark={(target, state) => markTarget(target, state)}
+        onNote={(target, body, reconsideredAfterStructure, line) => {
+          if (line) return createAnnotation(lineCommentDraft(target, body, line, reconsideredAfterStructure));
+          // Reuse the Reader's verified old/new-side anchoring, including removed-only parts.
+          const range = targetCommentRange(target);
+          return createAnnotation({
+            path: target.path,
+            start_line: range?.startLine ?? 0,
+            end_line: range?.endLine ?? 0,
+            side: range?.side ?? "additions",
+            body,
+            kind: "request_change",
+            reconsidered_after_structure: reconsideredAfterStructure,
+            file_level: range === null,
+            target_unit_key: target.fingerprint_method === "revision_compare" ? undefined : target.unit_key,
+            mark_target: true,
+          });
+        }}
+        onAnnotationState={(id, state) => void setAnnotationState(id, state)}
+        onAsk={askCapable ? askTarget : undefined}
+        onAskChange={askCapable ? () => openAsk(null) : undefined}
+        askPanel={askOpen && askCapable ? drawer : null}
+        // Investigate reads what the Reader already holds, as the Classic Context drawer's tab did.
+        investigate={briefCapable ? {
+          projection: currentProjection,
+          targets,
+          checks: historical ? undefined : overview.evidence,
+          revision: overview.revision,
+          loadMapGraph: architectureRelevant ? () => loadArchitectureDelta().then((delta) => delta?.graph ?? null) : undefined,
+          canRun: !readOnly && !historical,
+        } : undefined}
+      />,
+      true,
+    );
+  }
 
-      {githubPublishOpen && reviewId && (
-        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-muted-foreground">Loading GitHub preview…</div>}>
-          <GitHubPublishSheet
-            reviewId={reviewId}
-            onClose={() => { setGithubPublishOpen(false); setFinishAfterPublish(false); }}
-            onPublished={() => {
-              void refreshFeedbackState();
-              if (finishAfterPublish) void finishPublished();
-            }}
-          />
-        </Suspense>
-      )}
+  // The redesigned flow is the only Reader (SPEC 7.1 OWNER-9). An address that names no flow screen yet (an old link
+  // that the address effect above is about to move to /r/<review>) draws nothing until it does.
+  return null;
+}
 
-      {finishSheetOpen && finishSummary && (
-        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-muted-foreground">Loading finish summary…</div>}>
-          <FinishSheet
-            reviewId={reviewId}
-            summary={finishSummary}
-            degraded={finishSummary.degraded ?? overview.degraded}
-            evidenceFacts={readiness.evidenceFacts}
-            busy={busy === "finish"}
-            currentOutcome={currentOutcome}
-            handoff={{
-              unsent: handoff.unsent,
-              label: handoffRoute === "export"
-                ? "the author"
-                : handoffRoute === "github" && !feedbackDelivery?.label ? "the pull request" : handoffDestinationLabel(feedbackDelivery),
-              kind: handoffRoute,
-              available: Boolean(feedbackDelivery?.supported) || handoffRoute === "export"
-                || (handoffRoute === "github" && isGitHubPullRequest && !feedbackDelivery),
-              reason: feedbackDelivery?.reason ?? "",
-            }}
-            destinationControl={reviewId ? (
-              <ReviewDestinationPicker reviewId={reviewId} disabled={busy === "finish"} onChanged={() => void refreshFeedbackState("Changed")}>
-                <UiButton variant="ghost" size="compact" type="button">change…</UiButton>
-              </ReviewDestinationPicker>
-            ) : undefined}
-            sendError={finishSendError}
-            finishError={finishError}
-            onOpenStatus={() => {
-              setFinishSheetOpen(false);
-              setReadinessOpen(true);
-            }}
-            onClose={closeFinishSheet}
-            onCloseAutoFocus={focusPrimaryAfterFinish}
-            onFinish={(outcome, summary, options) => void confirmFinish(outcome, summary, options)}
-          />
-        </Suspense>
-      )}
-
-      {/* Phase 14 item 9: the desktop footer is gone. Its progress counter and
-          uncertainty count duplicated the Status control (the one status
-          authority), and its shortcut line duplicated `?` / More → Keyboard
-          shortcuts. Phones dock the tools and primary action here instead. */}
-      {compactLayout && (
-        <div ref={setCompactDock} className="review-mobile-dock" data-testid="review-mobile-dock" />
-      )}
-    </div>
-    </FeedbackSyncProvider>
-    </ReviewCorrectionsProvider>
+export default function ReviewReader(props: ReviewReaderProps = {}) {
+  return (
+    <ReviewStoreProvider>
+      <CodeViewProvider>
+        <ReviewReaderBody {...props} />
+      </CodeViewProvider>
+    </ReviewStoreProvider>
   );
 }

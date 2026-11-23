@@ -150,16 +150,23 @@ export function reviewableSymbols<T extends Pick<MapMemberSymbol, "label">>(symb
   return symbols.filter((symbol) => !NOT_A_NAME.has(symbol.label));
 }
 
-const SIZE_REASON = /^\+\d+ -\d+$/;
+const SIZE_REASON = /^\+(\d+) -(\d+)$/;
+/** Changed lines at which review ordering's size score saturates (ordering.py `_SIZE_CAP * _SIZE_DIVISOR`). */
+const LARGE_CHANGE_LINES = 400;
 
 /**
- * Ranking reasons worth reading. The size signal arrives as a bare diffstat,
- * which the map already shows next to the file, so it reads as "large change".
+ * Ranking reasons worth reading. The size signal arrives as a bare diffstat
+ * on every changed file, which the map already shows next to the file, so it
+ * is dropped, and reads as "large change" only when the file really is large.
  */
 export function reasonsOf(node: Pick<MapNode, "reasons">): string[] {
   const reasons = node.reasons ?? [];
   const out = reasons.filter((reason) => !SIZE_REASON.test(reason));
-  if (out.length < reasons.length) out.push("large change");
+  const large = reasons.some((reason) => {
+    const match = SIZE_REASON.exec(reason);
+    return match !== null && Number(match[1]) + Number(match[2]) >= LARGE_CHANGE_LINES;
+  });
+  if (large) out.push("large change");
   return out;
 }
 
@@ -185,9 +192,30 @@ export function visualEnds(edge: MapEdge): { from: string; to: string } {
 
 export function subjectIds(payload: MapPayload): Set<string> {
   if (payload.level === "architecture") {
-    return new Set(payload.graph.nodes.filter(isChangedStatus).map((node) => node.id));
+    // A Review's subject is its changed files. Code's module focus sends the module's members too, as
+    // status "subject" when they have no uncommitted change: they are the subject, not used-by context.
+    return new Set(payload.graph.nodes.filter((node) => isChangedStatus(node) || node.status === "subject").map((node) => node.id));
   }
   return new Set(payload.graph.focus ? [payload.graph.focus] : []);
+}
+
+function countOf(count: number, one: string): string {
+  return `${count} ${count === 1 ? one : `${one}s`}`;
+}
+
+/**
+ * The symbol line of a focused file's header. A row counts as changed only when the server says so:
+ * a Review lists the changed symbols, while Code's file focus lists every symbol with an empty `change`.
+ */
+export function focusSymbolNote(node: Pick<MapNode, "status" | "symbol_count">, symbols: readonly Pick<MapMemberSymbol, "change">[]): string {
+  if (!symbols.length) {
+    if (node.status === "subject") return "No indexed symbols";
+    if (isChangedStatus(node)) return "No symbol boundary captured";
+    return node.status === "impacted" ? "Affected by the change" : "Surrounding code";
+  }
+  const changed = symbols.filter((symbol) => symbol.change && symbol.change !== "unchanged").length;
+  if (node.status === "subject" || changed === 0) return countOf(node.symbol_count ?? symbols.length, "symbol");
+  return countOf(changed === symbols.length ? node.symbol_count ?? changed : changed, "changed symbol");
 }
 
 /** Lane per node. The server's lane hint wins; older servers are inferred. */

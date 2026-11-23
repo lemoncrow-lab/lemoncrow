@@ -54,6 +54,56 @@ _DISPLAY: dict[str, str] = {
 # Indentation is semantic: never a whitespace/formatting proof.
 _LAYOUT_SIGNIFICANT = frozenset({"python"})
 _COMMENT_TYPES = frozenset({"comment", "line_comment", "block_comment"})
+# Grammars where a line terminator ends a statement or is forbidden at some positions (automatic semicolon insertion).
+# A block comment holding a newline *is* a line terminator there, yet tree-sitter skips every comment, so the parsed
+# shape alone cannot see it. Rust and Java ignore line breaks; Python is never a formatting proof.
+_NEWLINE_SENSITIVE = frozenset({"javascript", "typescript", "tsx", "go"})
+# ECMAScript restricted productions: no line terminator may follow these tokens, or stand before ``++``, ``--``, ``=>``.
+# The TypeScript contextual keywords start a declaration only when no line terminator follows.
+_TYPED = frozenset({"typescript", "tsx"})
+_NO_BREAK_AFTER = frozenset(
+    {
+        "return", "throw", "break", "continue", "yield", "async", "await",
+        "type", "declare", "abstract", "namespace", "module", "global", "interface", "enum", "readonly",
+        "accessor", "using", "asserts",
+    }
+)  # fmt: skip
+_NO_BREAK_BEFORE = frozenset({"++", "--", "=>"})
+# TypeScript ends the expression at a line break before ``as`` or ``satisfies``: ``(x\nas T)`` is a syntax error there,
+# although tree-sitter parses it (outside parentheses it does not, which is why only the parenthesised form shows).
+_NO_BREAK_BEFORE_TYPED = frozenset({"as", "satisfies"})
+# TypeScript reads ``T\n[]`` as two things where ``T[]`` is an array type, and rejects ``Map\n<string>`` where
+# ``Map<string>`` is a type reference (``'>' expected``), so ``[`` or ``<`` after something that can end a type may not
+# change sides of a line break. After an operator or an opening token it starts an expression and may.
+_TYPE_CONTINUATION = frozenset({"[", "<"})
+_TYPE_END = re.compile(r"[\w$)\]>}]$")
+# Nodes whose every byte is content: a string, a raw string, a template, a regex, a character, a Rust macro's tokens. tree-sitter treats
+# whitespace and comments inside some of them as extras (Rust ``r" ^ab$"``, a comment inside a regex), so walking their
+# leaves would not see a change there. The shape holds each one as a single entry of its exact source bytes.
+# Only ``string``, ``raw_string_literal``, ``regex`` and ``token_tree`` change a verdict with the
+# grammar versions pinned today (removing any other entry leaves the literal differential at zero fail-open): the rest
+# are defence in depth, because those grammars keep a literal's whitespace as a leaf of its own and an upgrade that
+# moved it into an extra would otherwise reopen the hole silently.
+_LITERAL_TYPES = frozenset(
+    {
+        "string",  # Python, JavaScript, TypeScript, TSX
+        "template_string",
+        "template_literal_type",
+        "regex",
+        "interpreted_string_literal",  # Go
+        "raw_string_literal",  # Go, Rust
+        "rune_literal",
+        "string_literal",  # Rust, Java (text blocks too)
+        "char_literal",
+        "character_literal",  # Java
+        # A Rust macro invocation's arguments (and an attribute's): ``stringify!(a+b)`` and a proc macro see the spacing,
+        # and the grammar does not parse inside it. Deliberate fail-safe cost: a rustfmt-only change inside a macro or an
+        # attribute gets no proof. An allowlist of macro names would be unsound, since any ``macro_rules!`` macro can
+        # pass its arguments on to ``stringify!``.
+        "token_tree",
+    }
+)
+_LINE_TERMINATOR = re.compile(rb"[\n\r]|\xe2\x80[\xa8\xa9]")
 _PROVABLE_KINDS = frozenset({"symbol", "hunk", "file"})
 _NEVER_CATEGORIES = frozenset({"generated", "vendor", "config"})
 _MIGRATION = re.compile(r"(^|/)(migrations?|alembic)/", re.IGNORECASE)
@@ -129,6 +179,16 @@ class _Comment:
 
 
 @dataclass(frozen=True)
+class _Break:
+    real: bool
+    """A line terminator outside any comment sits before the token."""
+    comment: bool
+    """A comment holding a line terminator sits before the token (it ends the line for the parser's grammar)."""
+    text: str
+    """The token's own text, to tell the positions where a line break changes the meaning."""
+
+
+@dataclass(frozen=True)
 class _Side:
     lines: tuple[str, ...]
     code: tuple[str, ...]
@@ -140,6 +200,8 @@ class _Side:
     skip: tuple[bool, ...]
     """Per line: nothing but allowed comments (free to appear, vanish or change)."""
     cgo: bool
+    breaks: tuple[_Break, ...]
+    """Per leaf token, in order: which kinds of line terminator stand between it and the token before it."""
 
 
 def routine_language(path: str) -> str:
@@ -183,6 +245,9 @@ def _side(language: str, text: str) -> _Side | None:
     comments: list[tuple[int, int, _Comment]] = []
     shape: list[tuple[str, str]] = []
     cgo = False
+    breaks: list[_Break] = []
+    gap_from = 0
+    gap_real = gap_comment = False
     stack: list[tuple[Any, bool]] = [(tree.root_node, False)]
     while stack:
         node, closing = stack.pop()
@@ -195,6 +260,9 @@ def _side(language: str, text: str) -> _Side | None:
             if end_row > start_row and node.end_point[1] == 0:
                 end_row -= 1
             raw = source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+            gap_real = gap_real or bool(_LINE_TERMINATOR.search(source[gap_from : node.start_byte]))
+            gap_comment = gap_comment or bool(_LINE_TERMINATOR.search(source[node.start_byte : node.end_byte]))
+            gap_from = node.end_byte
             comments.append((node.start_byte, node.end_byte, _Comment(raw.strip(), start_row, end_row)))
             if not _allowed_comment(raw):
                 # A directive's position is semantic: it stays in the shape.
@@ -204,8 +272,12 @@ def _side(language: str, text: str) -> _Side | None:
             path_node = node.child_by_field_name("path")
             if path_node is not None and source[path_node.start_byte : path_node.end_byte] == b'"C"':
                 cgo = True  # the preamble comment is C source
-        if node.child_count == 0:
-            shape.append((node.type, source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")))
+        if node.child_count == 0 or node.type in _LITERAL_TYPES:
+            leaf_text = source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+            gap_real = gap_real or bool(_LINE_TERMINATOR.search(source[gap_from : node.start_byte]))
+            breaks.append(_Break(gap_real, gap_comment, leaf_text))
+            gap_from, gap_real, gap_comment = node.end_byte, False, False
+            shape.append((node.type, leaf_text))
             continue
         shape.append(("(", node.type))
         stack.append((node, True))
@@ -249,7 +321,44 @@ def _side(language: str, text: str) -> _Side | None:
         fixed,
         skip,
         cgo,
+        tuple(breaks),
     )
+
+
+def _same_structure(old: _Side, new: _Side, language: str) -> bool:
+    """The two files parse to one structure, and no comment or line break has changed what a line break means.
+
+    ``shape`` ignores layout and comments, which is right for spacing and wrong where a line terminator carries
+    meaning: ``return /* c */ x`` and ``return /*\\n*/ x`` share a shape and differ in behavior. For the grammars
+    with automatic semicolon insertion every token also keeps whether a line terminator stands before it. A
+    difference is refused when a comment alone supplies the terminator on either side (the parse cannot see it),
+    or at a position where the grammar forbids or reads a line break differently. Real line breaks anywhere else
+    are plain reflow and pass.
+    """
+
+    if old.shape != new.shape:
+        return False
+    if language not in _NEWLINE_SENSITIVE:
+        return True
+    if len(old.breaks) != len(new.breaks):
+        return False
+    previous = ""
+    for before, after in zip(old.breaks, new.breaks, strict=True):
+        if before.text != after.text:
+            return False
+        had, has = before.real or before.comment, after.real or after.comment
+        if had != has:
+            comment_only = (before.comment and not before.real) or (after.comment and not after.real)
+            restricted = (
+                previous in _NO_BREAK_AFTER
+                or before.text in _NO_BREAK_BEFORE
+                or (before.text in _NO_BREAK_BEFORE_TYPED and language in _TYPED)
+                or (before.text in _TYPE_CONTINUATION and language in _TYPED and _TYPE_END.search(previous) is not None)
+            )
+            if comment_only or restricted:
+                return False
+        previous = before.text
+    return True
 
 
 def _rows(target: ReviewTarget, side: str) -> set[int]:
@@ -285,10 +394,12 @@ def _block(side: _Side, start: int, end: int) -> list[str]:
 
 
 def _comment_only(
-    old: _Side, new: _Side, target: ReviewTarget, opcodes: Sequence[tuple[str, int, int, int, int]]
+    old: _Side,
+    new: _Side,
+    old_rows: set[int],
+    new_rows: set[int],
+    opcodes: Sequence[tuple[str, int, int, int, int]],
 ) -> bool:
-    old_rows = _rows(target, "old")
-    new_rows = _rows(target, "new")
     if not old_rows and not new_rows:
         return False
     # Position-aware: every changed block the target touches must carry the
@@ -333,14 +444,14 @@ def prove_file(path: str, old_text: str, new_text: str, targets: Sequence[Review
     display = _DISPLAY[language]
     formatting = (
         language not in _LAYOUT_SIGNIFICANT
-        and old.shape == new.shape
+        and _same_structure(old, new, language)
         and all(_allowed_comment(text) for text in _changed_comments(old.comments, new.comments))
     )
     proofs: dict[str, RoutineProof] = {}
     for target in targets:
         if target.kind not in _PROVABLE_KINDS or target.path != path:
             continue
-        if _comment_only(old, new, target, opcodes):
+        if _comment_only(old, new, _rows(target, "old"), _rows(target, "new"), opcodes):
             proofs[target.target_id] = RoutineProof(
                 path, "comment_only", language, f"Comment-only change; code is byte-identical ({display})"
             )
@@ -349,6 +460,71 @@ def prove_file(path: str, old_text: str, new_text: str, targets: Sequence[Review
                 path, "formatting_only", language, f"Formatting-only change; parsed structure is unchanged ({display})"
             )
     return proofs
+
+
+class SideMemo:
+    """The parsed form of one file, kept while several regions of that same file are proved.
+
+    Proving k regions of one file against the same new text parses that text once, not k times. One entry only: a
+    caller that walks its regions file by file holds one parse at a time.
+    """
+
+    def __init__(self) -> None:
+        self._key: tuple[str, str] | None = None
+        self._side: _Side | None = None
+
+    def get(self, language: str, text: str) -> _Side | None:
+        if self._key != (language, text):
+            self._key, self._side = (language, text), _side(language, text)
+        return self._side
+
+
+def prove_region(
+    path: str,
+    old_text: str,
+    new_text: str,
+    old_span: tuple[int, int],
+    new_span: tuple[int, int],
+    new_side: SideMemo | None = None,
+) -> RoutineProof | None:
+    """Proof that one line region of a modified file changed only in comments or formatting.
+
+    *old_span* and *new_span* are inclusive 1-based line ranges of the same region on each side. The proof
+    is the one :func:`prove_file` grants a target, with one difference: ``formatting_only`` here also needs the
+    whole of both files to parse and to have the same structure, so a change elsewhere in the file withholds it
+    (fail closed). ``None`` means no proof, never a verdict.
+    """
+
+    language = routine_language(path)
+    if not language:
+        return None
+    if len(old_text.encode("utf-8")) > _MAX_BYTES or len(new_text.encode("utf-8")) > _MAX_BYTES:
+        return None
+    if old_text == new_text or "�" in old_text or "�" in new_text:
+        return None
+    if language == "go" and ('import "C"' in old_text or 'import "C"' in new_text):
+        return None
+    old = _side(language, old_text)
+    new = new_side.get(language, new_text) if new_side is not None else _side(language, new_text)
+    if old is None or new is None or old.cgo or new.cgo:
+        return None
+    if not (0 < old_span[0] <= old_span[1] and 0 < new_span[0] <= new_span[1]):
+        return None
+    old_rows = set(range(old_span[0] - 1, old_span[1]))
+    new_rows = set(range(new_span[0] - 1, new_span[1]))
+    opcodes = difflib.SequenceMatcher(None, old.lines, new.lines, autojunk=False).get_opcodes()
+    display = _DISPLAY[language]
+    if _comment_only(old, new, old_rows, new_rows, opcodes):
+        return RoutineProof(path, "comment_only", language, f"Comment-only change; code is byte-identical ({display})")
+    if (
+        language not in _LAYOUT_SIGNIFICANT
+        and _same_structure(old, new, language)
+        and all(_allowed_comment(text) for text in _changed_comments(old.comments, new.comments))
+    ):
+        return RoutineProof(
+            path, "formatting_only", language, f"Formatting-only change; parsed structure is unchanged ({display})"
+        )
+    return None
 
 
 def routine_proofs(
@@ -396,7 +572,9 @@ __all__ = [
     "ROUTINE_PROOF_VERSION",
     "RoutineProof",
     "RoutineRule",
+    "SideMemo",
     "prove_file",
+    "prove_region",
     "routine_language",
     "routine_proofs",
 ]

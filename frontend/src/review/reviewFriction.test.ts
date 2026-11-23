@@ -21,7 +21,7 @@ describe("review friction metrics", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => vi.restoreAllMocks());
 
-  it("measures open to first Code target and first judgment, once each", () => {
+  it("measures open to first Code part and first judgment, once each", () => {
     const time = clockAt(1_000);
     const recorder = new ReviewFrictionRecorder("review-a", { clock: time.clock });
     recorder.surface("brief");
@@ -85,7 +85,7 @@ describe("review friction metrics", () => {
     expect(recorder.session.railSwitches).toBe(2);
   });
 
-  it("measures re-review time and reopened targets after a newer Snapshot", () => {
+  it("measures re-review time and reopened parts after a newer revision", () => {
     const time = clockAt(0);
     const recorder = new ReviewFrictionRecorder("review-a", { clock: time.clock });
     recorder.snapshot(1, 0);

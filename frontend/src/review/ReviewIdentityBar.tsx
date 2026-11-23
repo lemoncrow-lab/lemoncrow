@@ -15,6 +15,12 @@ import { revisionShortLabel } from "./revisionLabel";
 import ReviewBaseIdentity from "./ReviewBaseIdentity";
 import type { ReviewLandingReadiness, ReviewOverview, ReviewStackInfo, ReviewStackMember } from "./types";
 
+/** The checkout folder's name ("shop" for /home/me/code/shop); empty when there is no local path. */
+export function repoFolderName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
 function stackMemberName(member: ReviewStackMember): string {
   if (member.provider !== "git" && member.external_id) return member.external_id;
   if (member.change_ref) return member.change_ref.slice(0, 10);
@@ -185,11 +191,11 @@ export default function ReviewIdentityBar({
   const stack = overview.change?.stack ? stackSummary(overview.change.stack) : null;
   const workItem = (overview.change?.work_items ?? [])[0];
   const workItemLabel = workItem ? (workItem.external_id || workItem.title || "Work item") : "";
-  const workspaceContext = contextOverride?.label
-    ? contextOverride
-    : resolvedEnvironment.review.local_workspace && overview.workspace_root
-      ? { label: overview.workspace_root, title: `Workspace ${overview.workspace_root}` }
-      : null;
+  // A hosted context (contextOverride) keeps its own chip. A local checkout is named by its folder, ahead of the
+  // review title; its full path is only the tooltip (and the menu's copy action), never a truncated temp path.
+  const workspaceContext = contextOverride?.label ? contextOverride : null;
+  const workspacePath = !contextOverride?.label && resolvedEnvironment.review.local_workspace ? overview.workspace_root ?? "" : "";
+  const repoName = repoFolderName(workspacePath);
 
   return (
     <div className="review-reader-identity">
@@ -198,9 +204,14 @@ export default function ReviewIdentityBar({
         onClick={onShowOverview}
         aria-label="Open change overview"
         className="review-reader-title"
-        tooltip={`${story} · Open change overview`}
+        tooltip={`${repoName ? `${repoName} · ` : ""}${story} · Open change overview${workspacePath ? `\n${workspacePath}` : ""}`}
       >
-        {focusMode ? "Review" : story}
+        {focusMode ? "Review" : (
+          <>
+            {repoName && <span className="review-reader-repo-name font-normal text-muted-foreground">{repoName} · </span>}
+            {story}
+          </>
+        )}
       </UiButton>
       {!focusMode && (
         <span className="review-reader-authorship">
@@ -255,7 +266,7 @@ export default function ReviewIdentityBar({
           )}
           <span
             className="review-reader-mode-context ml-2 border-l border-border pl-2 font-medium text-muted-foreground"
-            title={reviewEnvironmentDescription(resolvedEnvironment)}
+            title={`${reviewEnvironmentDescription(resolvedEnvironment)}${workspacePath ? `\n${workspacePath}` : ""}`}
             aria-label={"Review environment: " + reviewEnvironmentLabel(resolvedEnvironment.mode)}
           >
             {reviewEnvironmentLabel(resolvedEnvironment.mode)}
@@ -264,7 +275,7 @@ export default function ReviewIdentityBar({
             <span
               className="review-reader-repo-context ml-2 max-w-[220px] truncate border-l border-border pl-2 font-mono text-caption text-muted-foreground"
               title={workspaceContext.title || workspaceContext.label}
-              aria-label={contextOverride?.label ? `Review context: ${workspaceContext.label}` : `Review workspace: ${workspaceContext.label}`}
+              aria-label={`Review context: ${workspaceContext.label}`}
             >
               {workspaceContext.label}
             </span>
@@ -278,11 +289,11 @@ export default function ReviewIdentityBar({
         type="button"
         onClick={onShowHistory}
         className="review-reader-revision"
-        aria-label={`${revisionShortLabel(overview.revision)}; open Snapshot history and compare`}
+        aria-label={`${revisionShortLabel(overview.revision)}; open revision history and compare`}
         tooltip={
           overview.session.range_mode === "working_tree" || overview.session.range_mode === "staged"
-            ? "This Snapshot is frozen. New source edits stay separate until a newer Snapshot is captured. Open Snapshot history and compare."
-            : "Snapshot history and compare"
+            ? "This revision is frozen. New source edits stay separate until a newer revision is captured. Open revision history and compare."
+            : "Revision history and compare"
         }
       >
         <Clock3 size={14} />

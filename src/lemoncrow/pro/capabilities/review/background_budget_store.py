@@ -9,7 +9,7 @@ remaining envelope. The algorithm and SQL are
 the hosted ledger.
 
 Policy comes from the user settings file: ``intelligence.background.enabled``
-(BI0's switch, under ``intelligence.enabled``) and the
+(BI0's switch, under an operator layer's AI-on) and the
 ``intelligence.background.*`` ceilings below; a ceiling setting makes the
 envelope ``configured``, so it binds automatic Review too. A malformed
 setting fails closed: background work is refused with ``policy_invalid`` and
@@ -32,6 +32,7 @@ from typing import Any, Final
 from lemoncrow.pro.capabilities.review.background_budget import (
     BACKGROUND_BUDGET_RETENTION_S,
     AdmissionReason,
+    AiUse,
     BackgroundAdmission,
     BackgroundBudgetPolicy,
     BackgroundBudgetPolicyError,
@@ -39,6 +40,8 @@ from lemoncrow.pro.capabilities.review.background_budget import (
     BudgetSettlement,
     CeilingInput,
     SqlLedgerTransaction,
+    ai_use_in,
+    meter_in,
     read_status,
     reserve_in,
     settle_in,
@@ -127,7 +130,7 @@ def local_background_policy(raw: Mapping[str, Any]) -> BackgroundBudgetPolicy:
 def _settings_policy() -> BackgroundBudgetPolicy:
     """The local envelope under BI0's effective policy (BI2): one switch, read the way model calls read it.
 
-    ``intelligence.enabled`` off, ``intelligence.background.enabled`` off or an
+    an operator layer's AI off, ``intelligence.background.enabled`` off or an
     invalid intelligence policy turns the envelope off (or closed), so Usage and
     admission agree with the kill switch every model call consults.
     """
@@ -214,7 +217,31 @@ class LocalBackgroundBudgetStore:
             return BackgroundAdmission(reason=AdmissionReason.MANAGED_UNAVAILABLE, lane=request.lane)
         policy = self.policy()
         with self._write() as txn:
+            if self._ai_budget_refuses(txn):
+                # The personal AI budget (P8-4) is one more ceiling: the most restrictive limit wins.
+                return BackgroundAdmission(reason=AdmissionReason.AI_BUDGET_EXHAUSTED, lane=request.lane)
             return reserve_in(txn, request, policy, now=self._clock(), external=external, retention_s=self._retention_s)
+
+    def _ai_budget_refuses(self, txn: SqlLedgerTransaction) -> bool:
+        from lemoncrow.core.settings import load_raw
+        from lemoncrow.pro.capabilities.review.ai_budget import budget_setting
+
+        setting = budget_setting(load_raw(self.root))
+        if setting.limit_micros is None:
+            return False
+        return setting.limit_micros == 0 or ai_use_in(txn, now=self._clock()).micros >= setting.limit_micros
+
+    def meter(self, *, calls: int = 1, cost_micros: int | None = None) -> None:
+        """Record model calls no admission metered (the AI budget's meter); ``cost_micros`` ``None`` is not reported."""
+
+        with self._write() as txn:
+            meter_in(txn, calls=calls, cost_micros=cost_micros, now=self._clock(), retention_s=self._retention_s)
+
+    def ai_use(self) -> AiUse:
+        """This month's model calls and known cost across both lanes."""
+
+        with self._write() as txn:
+            return ai_use_in(txn, now=self._clock())
 
     def settle(self, key: str, *, calls: int, cost_micros: int | None = None) -> BudgetSettlement:
         """Charge what the attempt used; ``cost_micros`` only when the provider reported it."""
@@ -232,7 +259,8 @@ class LocalBackgroundBudgetStore:
 
         policy = self.policy()
         with self._write() as txn:
-            return {
-                "scope": "local",
-                **read_status(txn, policy, now=self._clock(), managed_available=False),
-            }
+            status = read_status(txn, policy, now=self._clock(), managed_available=False)
+            if status["state"] in {"running", "limited"} and self._ai_budget_refuses(txn):
+                # The personal AI budget (P8-4) is $0 or used up: nothing is admitted, whatever the envelope has left.
+                status = {**status, "state": "paused", "reason": AdmissionReason.AI_BUDGET_EXHAUSTED.value}
+            return {"scope": "local", **status}

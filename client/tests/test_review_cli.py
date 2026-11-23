@@ -53,18 +53,55 @@ def test_review_help_is_part_of_the_thin_cli() -> None:
     assert "--staged" in sink.getvalue()
 
 
-def test_full_cli_review_flag_points_to_the_reader() -> None:
+def test_full_cli_review_flag_says_this_install_does_not_carry_it() -> None:
     sink = StringIO()
-    assert main(["review", "--since-my-review", "--no-open"], stdout=sink) == 2
+    assert main(["review", "--resume-author", "--no-open"], stdout=sink) == 2
     out = sink.getvalue()
-    assert "unknown review option: --since-my-review" in out
+    assert "unknown review option: --resume-author" in out
     assert "`uv run lc review`" in out
-    assert "`lc review --open`" in out
+    assert "does not carry it" in out
     sink = StringIO()
     assert main(["review", "--bogus"], stdout=sink) == 2
     assert sink.getvalue() == (
         "unknown review option: --bogus\nRun `lc review --help` for the options this client supports.\n"
     )
+
+
+def _captured(**review: str) -> dict[str, object]:
+    return {"review": {"id": "r1", **review}, "revision": {"revision_number": 0}}
+
+
+def _server(monkeypatch: pytest.MonkeyPatch, calls: list[str] | None = None) -> None:
+    """The Review server's answer to every request after the capture, recording each path."""
+
+    def session_request(_config: object) -> object:
+        def request(method: str, path: str, body: object) -> dict[str, object]:
+            if calls is not None:
+                calls.append(f"{method} {path}")
+            return {}
+
+        return request
+
+    monkeypatch.setattr("lemoncrow_client.review_terminal.session_request", session_request)
+
+
+def test_review_publishes_the_revision_it_announces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`Revision 1 ready for reading` is a published Revision, not a running draft the reader asks to freeze."""
+
+    from lemoncrow_client import review as review_mod
+
+    repo = _repo(tmp_path)
+    (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        review_mod, "load_config", lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, repo_root=repo)
+    )
+    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: (_captured(), "http://127.0.0.1:7420/r/1"))
+    _server(monkeypatch, calls)
+    sink = StringIO()
+    assert main(["review", "--working-tree", "--no-open"], stdout=sink) == 0
+    assert calls == ["POST /api/reviews/r1/revisions/0/publish"]
+    assert "Revision 1 ready for reading" in sink.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -88,23 +125,22 @@ def test_review_title_that_the_server_did_not_apply_is_reported(
 
     def capture(config: object, rng: object, **kwargs: object) -> tuple[dict[str, object], str]:
         titles.append(str(kwargs["title"]))
-        return {"review": review}, "http://127.0.0.1:7420/r/1"
+        return _captured(**review), "http://127.0.0.1:7420/r/1"
 
     monkeypatch.setattr(
         review_mod, "load_config", lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, repo_root=repo)
     )
     monkeypatch.setattr(review_mod, "_capture", capture)
+    _server(monkeypatch)
     sink = StringIO()
     assert main(["review", "--working-tree", "--no-open", "--title", "Fix review labels"], stdout=sink) == 0
     assert titles == ["Fix review labels"]
-    note = f'--title was not applied; the Review this Snapshot joined keeps the title "{review['title']}"'
+    note = f'--title was not applied; the Review this revision joined keeps the title "{review["title"]}"'
     assert (note in sink.getvalue()) is noted
 
 
 def test_review_open_arms_local_browser_pairing_before_opening(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SL-1: the local Reader claims a browser capability only inside a CLI-armed window."""
-
-    import webbrowser
 
     from lemoncrow_client import review as review_mod
     from lemoncrow_client.review_session import ReviewSession
@@ -117,7 +153,8 @@ def test_review_open_arms_local_browser_pairing_before_opening(tmp_path: Path, m
         "load_config",
         lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, token="lc_local_machine", repo_root=repo),
     )
-    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: ({"review": {}}, "http://127.0.0.1:7420/r/1"))
+    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: (_captured(), "http://127.0.0.1:7420/r/1"))
+    _server(monkeypatch, events)
     monkeypatch.setattr(ReviewSession, "__init__", lambda self, config: None)
     monkeypatch.setattr(ReviewSession, "close", lambda self: None)
     monkeypatch.setattr(
@@ -125,10 +162,57 @@ def test_review_open_arms_local_browser_pairing_before_opening(tmp_path: Path, m
         "pair_local_review_browser",
         lambda self, path, timeout_s=None: events.append(f"arm {path}") or {"state": "armed"},
     )
-    monkeypatch.setattr(webbrowser, "open", lambda url: events.append(f"open {url}"))
+    monkeypatch.setattr(review_mod, "launch_browser_url", lambda url: events.append(f"open {url}") or True)
 
     assert main(["review", "--working-tree", "--open"], stdout=StringIO()) == 0
-    assert events == ["arm /r/1", "open http://127.0.0.1:7420/r/1"]
+    assert events == ["POST /api/reviews/r1/revisions/0/publish", "arm /r/1", "open http://127.0.0.1:7420/r/1"]
+
+
+def test_review_open_without_a_desktop_never_takes_over_the_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Over SSH there is no graphical browser: print the link, never start lynx or w3m."""
+
+    import webbrowser
+
+    from lemoncrow_client import browser
+    from lemoncrow_client import review as review_mod
+    from lemoncrow_client.review_session import ReviewSession
+
+    repo = _repo(tmp_path)
+    (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
+    monkeypatch.delenv("LEMONCROW_NO_BROWSER", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setenv("BROWSER", "lynx")
+
+    def _refuse(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("no browser process may start without a desktop session")
+
+    monkeypatch.setattr(browser, "_spawn", _refuse)
+    monkeypatch.setattr(webbrowser, "open", _refuse)
+    monkeypatch.setattr(
+        review_mod,
+        "load_config",
+        lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, token="t", repo_root=repo),
+    )
+    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: (_captured(), "http://127.0.0.1:7420/r/1"))
+    _server(monkeypatch)
+    monkeypatch.setattr(ReviewSession, "__init__", lambda self, config: None)
+    monkeypatch.setattr(ReviewSession, "close", lambda self: None)
+    monkeypatch.setattr(
+        ReviewSession,
+        "pair_local_review_browser",
+        lambda self, path, timeout_s=None: {"state": "armed", "expires_in": 20},
+    )
+
+    assert main(["review", "--working-tree", "--open"], stdout=StringIO()) == 0
+    # The link connects a browser for the pairing window only, so the hint says how long.
+    assert (
+        "(could not open a browser. Open http://127.0.0.1:7420/r/1 within 20 seconds, "
+        "or run `lc review --open` again when you are ready.)"
+    ) in capsys.readouterr().err
 
 
 def test_dirty_default_resolves_to_working_tree_without_pygit2(tmp_path: Path) -> None:
@@ -251,6 +335,22 @@ def test_named_branch_range_keeps_a_stable_review_source_ref(tmp_path: Path) -> 
     resolved = resolve_review_range(repo, "base-branch...feature-branch")
 
     assert resolved.source_ref(repo) == "named:refs/heads/base-branch...refs/heads/feature-branch"
+
+
+def test_range_to_head_is_keyed_by_the_checked_out_branch(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "branch", "base-branch")
+    _git(repo, "checkout", "-q", "-b", "feature-branch")
+    (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
+    _git(repo, "add", "a.py")
+    _git(repo, "commit", "-q", "-m", "feature")
+
+    attached = resolve_review_range(repo, "base-branch...HEAD")
+    assert attached.source_ref(repo) == "named:refs/heads/base-branch...refs/heads/feature-branch"
+
+    _git(repo, "checkout", "-q", "--detach")
+    detached = resolve_review_range(repo, "base-branch...HEAD")
+    assert detached.source_ref(repo) == f"{detached.base_sha}..{detached.head_sha}"
 
 
 def test_sha_and_relative_ranges_remain_snapshot_keyed(tmp_path: Path) -> None:
@@ -663,7 +763,8 @@ def test_a_plain_review_points_at_the_ai_review_when_a_terminal_reads_it(
         "load_config",
         lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, token="t", repo_root=repo),
     )
-    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: ({"review": {}}, "http://127.0.0.1:7420/r/1"))
+    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: (_captured(), "http://127.0.0.1:7420/r/1"))
+    _server(monkeypatch)
 
     class Terminal(StringIO):
         def isatty(self) -> bool:
@@ -680,3 +781,151 @@ def test_a_plain_review_points_at_the_ai_review_when_a_terminal_reads_it(
     again = Terminal()
     assert main(["review", "--working-tree", "--no-open"], stdout=again) == 0
     assert "AI review of this change in the terminal: lc review --ai" in again.getvalue()
+
+
+def test_status_names_what_stands_between_the_review_and_finishing() -> None:
+    from lemoncrow_client.review_terminal import render_status
+
+    status = {
+        "state": "not_ready",
+        "review": {"ref": "r/f6f2407a", "status": "open", "title": "Change can_view_order"},
+        "revision": {"number": 0, "latest_number": 0},
+        "targets": {"total": 3, "reviewed": 0, "unreviewed": 3},
+        "comments": {"unresolved": 0},
+        "feedback": {"unsent": 0, "in_flight": 0, "sent": 0, "addressed": 0},
+        "readiness": {"available": True, "actions": ["Finish review"]},
+        "reader_url": "http://127.0.0.1:7438/r/f6f2407a",
+    }
+    text = render_status(status)
+    assert "Ready     no — 3 parts not reviewed, then Finish review" in text
+    assert "Feedback  none" in text
+    reviewed = {**status, "targets": {"total": 3, "reviewed": 3, "unreviewed": 0}, "feedback": {"sent": 1}}
+    text = render_status(reviewed)
+    assert "Ready     no — Finish review" in text
+    assert "Feedback  0 unsent · 0 in flight · 1 sent · 0 addressed" in text
+
+
+def test_status_counts_a_needs_changes_part_as_reviewed_and_a_changed_one_as_not() -> None:
+    from lemoncrow_client.review_terminal import render_state, render_status
+
+    status = {
+        "state": "not_ready",
+        "review": {"ref": "r/f6f2407a", "status": "open"},
+        "revision": {"number": 0, "latest_number": 0},
+        "targets": {"total": 4, "reviewed": 1, "needs_changes": 1, "changed_since_review": 1, "unreviewed": 1},
+        "comments": {"unresolved": 0},
+        "feedback": {},
+        "readiness": {"available": True, "actions": ["Finish review"]},
+        "reader_url": "",
+    }
+    lines = render_status(status).splitlines()
+    # Needs changes is a judgment (counted as reviewed) and keeps its own counter.
+    assert "Reviewed  2 of 4 parts · 1 need changes · 1 changed since your review" in lines
+    # Not reviewed: no judgment on this revision, the changed part included.
+    assert "Ready     no — 2 parts not reviewed, then Finish review" in lines
+
+    state = {
+        "revision_number": 0,
+        "file_count": 2,
+        "target_count": 4,
+        "target_progress": {"reviewed": 1, "needs_changes": 1, "changed_since_review": 1},
+    }
+    assert "4 parts · 2 reviewed" in render_state(state)
+
+
+_RISK = {
+    "level": "high",
+    "label": "High",
+    "reason": "can_view_order is access-control code · and 1 more",
+    "text": "High · can_view_order is access-control code · and 1 more",
+    "facts": [
+        {
+            "text": "can_view_order is access-control code",
+            "kind": "sensitive",
+            "level": "high",
+            "target_ids": ["target:sym:a"],
+        },
+        {
+            "text": "apply_discount no longer rejects a percent over 100",
+            "kind": "removed_safeguard",
+            "level": "high",
+            "target_ids": ["target:sym:b"],
+        },
+    ],
+    "not_measured": [],
+    "risky_target_ids": ["target:sym:a", "target:sym:b"],
+    "understanding": {"reviewed": 0, "total": 2, "risky": True, "text": "0 of 2 risky parts reviewed"},
+}
+
+
+def _status_request(projection: object):
+    def request(method: str, path: str, body: object) -> dict[str, object]:
+        if path.endswith("/projection"):
+            if isinstance(projection, Exception):
+                raise projection
+            return {"summary": {"risk": projection}}
+        if path.endswith("/annotations"):
+            return {"counts": {}, "feedback": {}}
+        if path.endswith("/readiness"):
+            return {"ready": False, "blocker_count": 1, "blocking_reasons": [{"action": "Finish review"}]}
+        return {
+            "session": {"ref": "r/f6f2407a", "status": "open"},
+            "revision": {"revision_number": 0},
+            "progress": {"target_count": 3, "unreviewed": 3},
+            "stats": {"files": 2},
+        }
+
+    return request
+
+
+def test_status_prints_the_briefs_risk_and_understanding_lines_and_json() -> None:
+    from lemoncrow_client.review_terminal import render_status, review_status
+
+    status = review_status(_status_request(_RISK), {"id": "f6f2407a"}, reader_url="http://127.0.0.1:7438/r/f6f2407a")
+    assert status["risk"]["text"] == _RISK["text"] and status["risk"]["level"] == "high"
+    assert status["risk"]["facts"][0]["kind"] == "sensitive" and status["risk"]["not_measured"] == []
+    assert status["understanding"] == {"reviewed": 0, "total": 2, "risky": True, "text": "0 of 2 risky parts reviewed"}
+    lines = render_status(status).splitlines()
+    assert "Risk           High · can_view_order is access-control code · and 1 more" in lines
+    assert "Understanding  0 of 2 risky parts reviewed" in lines
+    assert "Reviewed       0 of 3 parts" in lines
+
+    # A server that cannot build the Brief still answers the counts; Risk is left out, never guessed.
+    plain = review_status(
+        _status_request(ClientError(ErrorCode.SERVER_UNREACHABLE, "boom")),
+        {"id": "f6f2407a"},
+        reader_url="http://127.0.0.1:7438/r/f6f2407a",
+    )
+    assert "risk" not in plain and "understanding" not in plain
+    text = render_status(plain)
+    assert "Risk" not in text and "Reviewed  0 of 3 parts" in text.splitlines()
+
+
+def test_a_part_left_for_later_is_said_out_loud_and_never_read_as_done() -> None:
+    from lemoncrow_client.review_terminal import MARK_STATES, render_closure, render_state
+
+    assert "later" in MARK_STATES
+    closure = {
+        "status": "finished",
+        "target_count": 3,
+        "reviewed_targets": 2,
+        "unreviewed_targets": 0,
+        "changed_since_review": 0,
+        "needs_changes": 0,
+        "unknown_targets": 0,
+        "later_targets": 1,
+    }
+    text = "\n".join(render_closure(closure))
+    assert "left for later" in text
+    assert "nothing outstanding" not in text
+    assert "nothing outstanding" in "\n".join(render_closure({**closure, "later_targets": 0}))
+
+    state = {
+        "revision_number": 0,
+        "file_count": 1,
+        "target_count": 3,
+        "target_progress": {"reviewed": 2, "later": 1},
+    }
+    rendered = render_state(state)
+    assert "2 reviewed" in rendered
+    assert "1 left for later" in rendered

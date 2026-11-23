@@ -48,6 +48,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
+from lemoncrow_client.review_words import part_count
+
 from lemoncrow.pro.capabilities.review.landing_policy import CRITICALITY_RANK, LandingPolicy
 from lemoncrow.pro.capabilities.review.readiness import SATISFIED_STATES, TRANSIENT_REASONS
 from lemoncrow.pro.capabilities.review.rules import path_matches
@@ -435,7 +437,7 @@ class RequestProgressFact:
     """L3: review requests evaluated directly against the latest Snapshot."""
 
     stale_completed: tuple[str, ...] = ()
-    """Completed requests whose scope has pending work on the latest Snapshot."""
+    """Completed requests whose scope has pending work on the latest revision."""
     open_requests: tuple[str, ...] = ()
     """Active requests: a person was asked to review and has not completed."""
 
@@ -639,24 +641,24 @@ def _provider_sync_gate(facts: AutoApprovalFacts) -> Gate:
             "provider_sync",
             label,
             False,
-            f"The provider head {sync.provider_head[:12] or 'unknown'} is not this Snapshot's head "
+            f"The provider head {sync.provider_head[:12] or 'unknown'} is not this revision's head "
             f"{facts.head_revision[:12] or 'unknown'}.",
             reason="head_mismatch",
         )
-    return Gate("provider_sync", label, True, f"The provider head is this Snapshot's head {sync.provider_head[:12]}.")
+    return Gate("provider_sync", label, True, f"The provider head is this revision's head {sync.provider_head[:12]}.")
 
 
 def _requests_gate(facts: AutoApprovalFacts) -> Gate:
     label = "Requested reviews current"
     requests = facts.requests
     if requests is None:
-        return _unknown("requests", label, facts, "Review request progress on the latest Snapshot")
+        return _unknown("requests", label, facts, "Review request progress on the latest revision")
     if requests.stale_completed:
         return Gate(
             "requests",
             label,
             False,
-            f"{len(requests.stale_completed)} completed review request(s) have new work on the latest Snapshot.",
+            f"{len(requests.stale_completed)} completed review request(s) have new work on the latest revision.",
             reason="request_reopened",
         )
     if requests.open_requests:
@@ -667,7 +669,7 @@ def _requests_gate(facts: AutoApprovalFacts) -> Gate:
             f"{len(requests.open_requests)} requested review(s) are still open: a person was asked to review.",
             reason="review_requested",
         )
-    return Gate("requests", label, True, "No requested review has pending work on the latest Snapshot.")
+    return Gate("requests", label, True, "No requested review has pending work on the latest revision.")
 
 
 def _trusted_base_gate(facts: AutoApprovalFacts) -> Gate:
@@ -690,7 +692,7 @@ def _trusted_base_gate(facts: AutoApprovalFacts) -> Gate:
         "trusted_base",
         label,
         False,
-        base.detail or "The default branch's review policy changed after this Snapshot was captured.",
+        base.detail or "The default branch's review policy changed after this revision was captured.",
         reason=base.state or "unknown",
         transient=base.state != "stale",
     )
@@ -834,7 +836,7 @@ def _human_gate(facts: AutoApprovalFacts) -> Gate:
     if facts.human_needs_changes is None or facts.provider_blockers is None:
         return _unknown("human_blockers", label, facts, "Human review decisions")
     if facts.human_needs_changes:
-        problems.append(f"{facts.human_needs_changes} review area(s) judged as needing changes")
+        problems.append(f"{part_count(facts.human_needs_changes)} judged as needing changes")
     problems.extend(facts.provider_blockers)
     if problems:
         return Gate("human_blockers", label, False, "; ".join(problems) + ".", reason="human_blocker")
@@ -877,7 +879,7 @@ def _findings_gate(facts: AutoApprovalFacts) -> Gate:
         if findings.other_unresolved:
             problems.append(f"{findings.other_unresolved} other unresolved finding(s)")
         if findings.stale_unresolved:
-            problems.append(f"{findings.stale_unresolved} unresolved finding(s) from an earlier Snapshot")
+            problems.append(f"{findings.stale_unresolved} unresolved finding(s) from an earlier revision")
     if problems:
         return Gate("findings", label, False, "; ".join(problems) + ".", reason="unresolved_findings")
     return Gate("findings", label, True, "No unresolved finding blocks approval.")
@@ -1275,14 +1277,14 @@ def revalidate_auto_approval(
         claimed = claim_withdrawal(
             store,
             item,
-            detail="A new Snapshot was captured after the auto-approval.",
+            detail="A new revision was captured after the auto-approval.",
             blocked_by=["snapshot"],
             policy_generation=str(metadata.get("policy_generation") or ""),
             cause="snapshot",
         )
         if claimed is None:
             return "raced"
-        audit(claimed, "landing.auto_approval_withdrawn", "Auto-approval withdrawn: a new Snapshot", {"origin": origin})
+        audit(claimed, "landing.auto_approval_withdrawn", "Auto-approval withdrawn: a new revision", {"origin": origin})
         complete_withdrawal(store, claimed, withdraw)
         return "stale"
 

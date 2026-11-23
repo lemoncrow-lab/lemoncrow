@@ -5,10 +5,12 @@
 
 **Nothing reviewed on this push** · Human review required: touches payments code
 
+**Risk: Not measured · this push was not reviewed**
+<sub>Risk is measured from the change and the run record, not a model</sub>
+
 ---
 
-**[Medium impact]** Adds retries and a token check to the checkout client
-<sub>payments code, concurrency or shared state · 3 files, 80 changed lines · from the change itself, not a model</sub>
+Adds retries and a token check to the checkout client
 
 <sub>This push was not reviewed; the findings below are from the last review, of aaaaaaa. Raise max-usd-per-pr or max-runs-per-pr to continue.</sub>
 
@@ -57,5 +59,11 @@ it, and run the project's tests. If a finding is wrong, say why and leave the co
 
 </details>
 
+### What was not checked
+
+- This push: not reviewed (3 of 3 reviews used)
+- Tests: no CI run was reported on this commit
+- Callers in other repositories: none were searched
+
 ---
-<sub>Reviews (1) · Last reviewed commit: [Retry the checkout call](https://github.com/acme/widgets/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) · Reviewed by [LemonCrow](https://lemoncrow.com)<br>openai/gpt-4o-mini · Auto · this review: 3 model calls, 3.1k tokens, est. $0.0007</sub>
+<sub>Independence: reviewer OpenAI (`gpt-4o-mini`) · author unknown (no coding agent declared in the commits) · **unknown**<br>Reviews (1) · Last reviewed commit: [Retry the checkout call](https://github.com/acme/widgets/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) · Reviewed by [LemonCrow](https://lemoncrow.com)<br>openai/gpt-4o-mini · Auto · this review: 3 model calls, 3.1k tokens, est. $0.0007</sub>

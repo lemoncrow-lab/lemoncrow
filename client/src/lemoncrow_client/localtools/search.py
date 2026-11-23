@@ -21,6 +21,7 @@ resolution, no outline, no ranking, and nothing written to disk.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -36,6 +37,16 @@ __all__ = ["read_from_disk", "run_grep"]
 _MAX_FILE_BYTES: Final[int] = 4 * 1024 * 1024
 _MAX_READ_LINES: Final[int] = 4_000
 
+#: Images the read tool returns as viewable image blocks, as its description promises.
+_IMAGE_MIME: Final[Mapping[str, str]] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
+
 #: The read tool's range token (``L10-L20``, ``10-20``, ``L10``, ``L10-``).
 _RANGE_RE: Final[re.Pattern[str]] = re.compile(r"^L?(?P<start>\d+)(?:-L?(?P<end>\d*))?$", re.IGNORECASE)
 #: Near-miss spellings agents send for ``L10-L20``: ``10:20``, ``10..20``, ``L10, 20``.
@@ -47,8 +58,19 @@ _TRUE: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
 
 
-def run_grep(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult:
-    """``grep`` through the kit's search engine, over this worktree's walk."""
+def run_grep(
+    context: LocalContext,
+    arguments: Mapping[str, Any],
+    *,
+    walk_root: Path | None = None,
+    rank_terms: Sequence[str] = (),
+) -> LocalResult:
+    """``grep`` through the kit's search engine, over this worktree's walk.
+
+    ``walk_root`` walks a checkout nested in this worktree instead, which this
+    worktree's own walk leaves out. Paths stay relative to this worktree.
+    ``rank_terms``: see :func:`~lemoncrow_client.kit.search.search_workspace`.
+    """
     from ..kit.present import payload_text, strip_empty_values
     from ..kit.search import (
         GREP_MODE_ALIASES,
@@ -63,7 +85,7 @@ def run_grep(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
 
     args = remap_aliases(arguments, GREP_PARAM_ALIASES)
     regex = _optional_text(args.get("regex"))
-    hooks = SearchHooks(universe=_universe(context.repo_root), spill=_spill_to())
+    hooks = SearchHooks(universe=_universe(walk_root or context.repo_root), spill=_spill_to())
     try:
         payload = search_workspace(
             path=_optional_text(args.get("path")) or ".",
@@ -87,12 +109,15 @@ def run_grep(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
             include_metadata=_flag(args.get("include_meta")),
             repo_root=context.repo_root,
             hooks=hooks,
+            rank_terms=rank_terms,
         )
     except ValueError as exc:
         raise ClientError(ErrorCode.PAYLOAD_INVALID, str(exc), action=AgentAction.FIX_REQUEST) from exc
     if payload.get("isError"):
         raise ClientError(ErrorCode.PAYLOAD_INVALID, _first_text(payload), action=AgentAction.FIX_REQUEST)
-    payload.pop("tokens_saved", None)
+    # The engine measures it (naive grep bytes - rendered bytes) // 4; the
+    # payload must not carry it to the model.
+    tokens_saved = _int(payload.pop("tokens_saved", 0), 0)
     payload = strip_empty_values(payload)
     hits = count_grep_hits(payload)
     rendered = render_grep_text(payload)
@@ -108,20 +133,26 @@ def run_grep(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
         # The main package shows an unrenderable result as compact JSON too.
         rendered = payload_text(payload, None)
     text_blocks = ({"type": "text", "text": rendered},) if rendered else ()
-    return LocalResult(
-        content=(*text_blocks, *images),
-        structured={"matches": hits, "spilled": "artifact" in payload},
-    )
+    structured: dict[str, Any] = {"matches": hits, "spilled": "artifact" in payload}
+    if payload.get("search_incomplete"):
+        structured["incomplete"] = True
+    return LocalResult(content=(*text_blocks, *images), structured=structured, tokens_saved=max(0, tokens_saved))
 
 
 def _universe(repo_root: Path) -> Callable[[Path], frozenset[Path]]:
     """The files ``grep`` may search: the manifest walk of this worktree."""
 
     def build(_root: Path) -> frozenset[Path]:
+        from ..kit.search import SKIP_DIRS
+
         # read_limit=0 lists every file the manifest would, hashing none of them.
         walked = walk_worktree(repo_root, size_cap=0, read_limit=0)
         base = repo_root.resolve()
-        return frozenset(base / walked_file.path for walked_file in walked.files)
+        # The engine never searches these. Dropping them here, not per file later,
+        # keeps an unignored node_modules from costing seconds on every search.
+        return frozenset(
+            base / walked_file.path for walked_file in walked.files if SKIP_DIRS.isdisjoint(walked_file.path.split("/"))
+        )
 
     return build
 
@@ -195,6 +226,14 @@ def _read_searchable(path: Path) -> str | None:
     if b"\x00" in raw[:8192]:
         return None
     return raw.decode("utf-8", errors="replace")
+
+
+def _read_image(path: Path) -> str | None:
+    """An image's bytes as base64, whatever its size: the model provider decides what it accepts."""
+    try:
+        return base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -302,13 +341,31 @@ def read_from_disk(context: LocalContext, arguments: Mapping[str, Any]) -> Local
             action=AgentAction.FIX_REQUEST,
         )
     blocks: list[str] = []
+    content: list[dict[str, str]] = []
+    entries = 0
+    answered = 0  # entries that returned content: each is a read call the batch replaced
     for entry in raw_files:
         spelled, line_range, head, tail = _entry_spec(entry)
         if not spelled:
             continue
+        entries += 1
         target = context.resolve_read(spelled)
         if not target.is_file():
             blocks.append(f"## {spelled}\n[no such file]")
+            continue
+        label = spelled if Path(spelled).is_absolute() else context.relative(target)
+        mime = _IMAGE_MIME.get(target.suffix.lower())
+        if mime is not None:
+            image = _read_image(target)
+            if image is None:
+                blocks.append(f"## {label}\n[image not shown: unreadable]")
+                continue
+            # The header goes out with any text before it; the image follows it.
+            blocks.append(f"## {label}")
+            content.append({"type": "text", "text": "\n\n".join(blocks)})
+            content.append({"type": "image", "data": image, "mimeType": mime})
+            blocks = []
+            answered += 1
             continue
         text = _read_searchable(target)
         if text is None:
@@ -316,11 +373,14 @@ def read_from_disk(context: LocalContext, arguments: Mapping[str, Any]) -> Local
             continue
         chosen, first = _slice(text.splitlines(), line_range, head, tail)
         numbered = "\n".join(f"{first + offset}\t{line}" for offset, line in enumerate(chosen))
-        label = spelled if Path(spelled).is_absolute() else context.relative(target)
         blocks.append(f"## {label}\n{numbered}")
+        answered += 1
+    if blocks or not content:
+        content.append({"type": "text", "text": "\n\n".join(blocks)})
     return LocalResult(
-        content=({"type": "text", "text": "\n\n".join(blocks)},),
+        content=tuple(content),
         degraded=False,
         degraded_reason="",
-        structured={"files": len(blocks), "source": "disk"},
+        structured={"files": entries, "source": "disk"},
+        calls_saved=max(0, answered - 1),
     )

@@ -49,8 +49,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from lemoncrow.core.foundation.run_file_io import RunFileLock
-from lemoncrow.pro.capabilities.review.host_tools import host_executable
-from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, limit_note, run_limited
 from lemoncrow.pro.capabilities.review.scratch_cache import (
     IDLE_GRACE_SECONDS,
     LIGHT_TTL_SECONDS,
@@ -58,6 +56,8 @@ from lemoncrow.pro.capabilities.review.scratch_cache import (
     retire_tree,
     touch_cache_entry,
 )
+from lemoncrow.pro.environment.host_tools import host_executable
+from lemoncrow.pro.environment.sandbox_limits import SandboxCapacityBusy, limit_note, run_limited
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
@@ -1500,7 +1500,7 @@ def _macos_build_command(
 ) -> list[str]:
     """Run a revision build under Seatbelt with only its workspace writable."""
 
-    from lemoncrow.pro.capabilities.review.macos_sandbox import sandbox_command
+    from lemoncrow.pro.environment.macos_sandbox import sandbox_command
 
     workspace = workspace.resolve()
     project = workspace if project_root in {"", "."} else workspace / project_root
@@ -1993,7 +1993,7 @@ def _macos_capture(
     """Capture static output with private files and a loopback-only browser."""
     from urllib.request import urlopen
 
-    from lemoncrow.pro.capabilities.review.macos_sandbox import sandbox_command
+    from lemoncrow.pro.environment.macos_sandbox import sandbox_command
 
     chrome = _chrome_executable()
     # Darwin Unix-domain socket paths have a 104-byte limit.

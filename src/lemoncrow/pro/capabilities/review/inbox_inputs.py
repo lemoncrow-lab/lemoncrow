@@ -110,7 +110,10 @@ def _open_follow_ups(
     # path: a bulk outcomes-by-revision store read if break-glass becomes routine.
     open_count: dict[str, int] = {}
     for review_id, records in found.items():
-        outcomes = store.list_outcomes(review_id)
+        from lemoncrow.pro.capabilities.review.record_retraction import retracted_outcome_ids
+
+        retracted = retracted_outcome_ids(store, review_id)
+        outcomes = [item for item in store.list_outcomes(review_id) if item.id not in retracted]
         count = sum(follow_up_state(record, outcomes, now=now)["state"] != "completed" for record in records)
         if count:
             open_count[review_id] = count

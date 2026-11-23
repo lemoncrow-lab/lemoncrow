@@ -22,8 +22,9 @@ import time
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path, PurePosixPath
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any, cast
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
 
 if TYPE_CHECKING:
@@ -32,6 +33,11 @@ if TYPE_CHECKING:
 
 class ReviewSnapshotUnavailable(RuntimeError):
     """The exact reviewed filesystem cannot be reconstructed safely."""
+
+
+#: How :func:`materialize_review_side` starts its message when a working-tree or staged Snapshot cannot be rebuilt
+#: because changed files were not captured; the rest names them and why.
+NOT_CAPTURED = "the review snapshot could not be rebuilt"
 
 
 _SUBMODULE_SNAPSHOT_VERSION = 1
@@ -104,15 +110,15 @@ def capture_dirty_submodule_snapshots(repo_root: Path) -> tuple[bytes | None, st
 
             candidate = (sub_root / item.path).resolve()
             if candidate != sub_root and sub_root not in candidate.parents:
-                raise ReviewSnapshotUnavailable(f"submodule snapshot path escapes {sub_path}: {item.path}")
+                raise ReviewSnapshotUnavailable(f"submodule revision path escapes {sub_path}: {item.path}")
             if not candidate.is_file():
-                raise ReviewSnapshotUnavailable(f"submodule snapshot file is unavailable: {sub_path}/{item.path}")
+                raise ReviewSnapshotUnavailable(f"submodule revision file is unavailable: {sub_path}/{item.path}")
             payload = candidate.read_bytes()
             if len(payload) > _MAX_SUBMODULE_FILE_BYTES:
-                raise ReviewSnapshotUnavailable(f"submodule snapshot file is too large: {sub_path}/{item.path}")
+                raise ReviewSnapshotUnavailable(f"submodule revision file is too large: {sub_path}/{item.path}")
             total_bytes += len(payload)
             if total_bytes > _MAX_SUBMODULE_TOTAL_BYTES:
-                raise ReviewSnapshotUnavailable("dirty submodule snapshot exceeds the review size limit")
+                raise ReviewSnapshotUnavailable("dirty submodule revision exceeds the review size limit")
             mode = stat.S_IMODE(candidate.stat().st_mode)
             digest = hashlib.sha256(payload).hexdigest()
             changes[item.path] = {
@@ -323,7 +329,7 @@ def _scope_value(scope: str) -> str:
     raw = (scope or ".").strip().replace("\\", "/") or "."
     path = PurePosixPath(raw)
     if path.is_absolute() or ".." in path.parts:
-        raise ReviewSnapshotUnavailable("review snapshot scope must stay inside the repository")
+        raise ReviewSnapshotUnavailable("review revision scope must stay inside the repository")
     return path.as_posix()
 
 
@@ -346,6 +352,21 @@ def frozen_revision_overlay(
     still fails closed.
     """
 
+    return _frozen_overlay(store_root, revision, scope=scope, store=store)[0]
+
+
+def _frozen_overlay(
+    store_root: Path,
+    revision: ReviewRevision,
+    *,
+    scope: str,
+    store: ReviewStore | None,
+) -> tuple[dict[str, bytes | None] | None, tuple[str, ...]]:
+    """:func:`frozen_revision_overlay`, and the changed paths in scope whose bytes were not captured.
+
+    ``(None, ())`` is a record that cannot be read at all; ``(None, paths)`` names every file the overlay lacks.
+    """
+
     from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
 
     requested_scope = _scope_value(scope)
@@ -354,26 +375,27 @@ def frozen_revision_overlay(
     blobs = artifact_store.read_blob_artifact(revision.review_id, revision.id)
     media_blobs = artifact_store.read_media_artifact(revision.review_id, revision.id) or {}
     if packet is None or blobs is None:
-        return None
+        return None, ()
     entries = packet.get("files")
     if not isinstance(entries, list):
-        return None
+        return None, ()
 
     overlay: dict[str, bytes | None] = {}
+    missing: list[str] = []
     for raw in entries:
         if not isinstance(raw, Mapping):
-            return None
+            return None, ()
         path = str(raw.get("path") or "")
         rel = PurePosixPath(path)
         if not path or rel.is_absolute() or ".." in rel.parts:
-            return None
+            return None, ()
         status = str(raw.get("status") or "modified")
         old_path = str(raw.get("old_path") or "")
         old_in_scope = False
         if old_path:
             old_rel = PurePosixPath(old_path)
             if old_rel.is_absolute() or ".." in old_rel.parts:
-                return None
+                return None, ()
             old_in_scope = _path_in_scope(old_path, requested_scope)
         path_in_scope = _path_in_scope(path, requested_scope)
         if not path_in_scope and not old_in_scope:
@@ -396,14 +418,49 @@ def frozen_revision_overlay(
         if bool(raw.get("is_binary")):
             media_payload = media_blobs.get(path)
             if media_payload is None:
-                return None
+                missing.append(path)
+                continue
             overlay[path] = media_payload
             continue
         text = blobs.get(path)
         if text is None:
-            return None
+            missing.append(path)
+            continue
         overlay[path] = text.encode("utf-8")
-    return overlay
+    if missing:
+        return None, tuple(missing)
+    return overlay, ()
+
+
+def _byte_words(count: int) -> str:
+    for unit, shift in (("MB", 20), ("KB", 10)):
+        if count >= 1 << shift:
+            return f"{count / (1 << shift):.0f} {unit}"
+    return f"{count} bytes"
+
+
+def _not_captured(repo_root: Path, missing: tuple[str, ...]) -> str:
+    """Which changed files a working-tree Snapshot lacks, and why, as the message of its failure.
+
+    A file still over the capture limit on disk says so with both sizes; any other is named as not captured.
+    """
+
+    if not missing:
+        return f"{NOT_CAPTURED}: its record of the changed files could not be read"
+    from lemoncrow.pro.capabilities.review.gitdiff import MAX_CAPTURE_BLOB_BYTES
+
+    limit = MAX_CAPTURE_BLOB_BYTES
+    named: list[str] = []
+    for path in missing[:3]:
+        try:
+            size = (repo_root / path).stat().st_size
+        except OSError:
+            size = -1
+        over = f" ({_byte_words(size)}, over the {_byte_words(limit)} capture limit)" if size > limit else ""
+        named.append(path + over)
+    rest = len(missing) - len(named)
+    listed = ", ".join(named) + (f" and {rest} more" if rest > 0 else "")
+    return f"{NOT_CAPTURED}: {listed} {'was' if len(missing) == 1 else 'were'} not captured"
 
 
 def _walk_tree(repo: Any, tree: Any, prefix: str = "") -> Iterator[tuple[str, Any, int]]:
@@ -730,12 +787,18 @@ def _read_source_tree_artifact(
     through that window; never pretend the old side exists on an old store.
     """
 
-    try:
-        return store.read_source_tree_artifact(review_id, revision_id, side=side)
-    except TypeError as exc:
-        if side != "new" or "unexpected keyword argument 'side'" not in str(exc):
-            raise
-        return store.read_source_tree_artifact(review_id, revision_id)
+    def read() -> dict[str, dict[str, int | str]] | None:
+        try:
+            return store.read_source_tree_artifact(review_id, revision_id, side=side)
+        except TypeError as exc:
+            if side != "new" or "unexpected keyword argument 'side'" not in str(exc):
+                raise
+            return store.read_source_tree_artifact(review_id, revision_id)
+
+    return cast(
+        "dict[str, dict[str, int | str]] | None",
+        request_reads.source_tree_once(store, review_id, revision_id, side, read),
+    )
 
 
 def _materialize_source_tree_snapshot(
@@ -745,8 +808,14 @@ def _materialize_source_tree_snapshot(
     *,
     scope: str,
     side: str,
+    unavailable: list[str] | None = None,
 ) -> bool:
-    """Materialize a hosted revision side from its durable content-addressed tree."""
+    """Materialize a hosted revision side from its durable content-addressed tree.
+
+    A file whose bytes the content store does not hold fails the side, unless the
+    caller passes ``unavailable``: it then collects those paths and the rest of the
+    tree is written. Bytes that are present but wrong always fail.
+    """
 
     entries = _read_source_tree_artifact(store, revision.review_id, revision.id, side=side)
     if entries is None:
@@ -760,8 +829,13 @@ def _materialize_source_tree_snapshot(
             continue
         digest = str(raw["content_digest"])
         payload = store.read_source_content(digest)
-        if payload is None or hashlib.sha256(payload).hexdigest() != digest:
-            raise ReviewSnapshotUnavailable(f"hosted Review source blob is unavailable: {rel}")
+        if payload is None:
+            if unavailable is None:
+                raise ReviewSnapshotUnavailable(f"hosted Review source blob is unavailable: {rel}")
+            unavailable.append(rel)
+            continue
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise ReviewSnapshotUnavailable(f"hosted Review source blob does not match its digest: {rel}")
         expected_size = int(raw["size"])
         if len(payload) != expected_size:
             raise ReviewSnapshotUnavailable(f"hosted Review source blob size changed: {rel}")
@@ -784,8 +858,14 @@ def materialize_review_side(
     target: Path,
     scope: str = ".",
     store: ReviewStore | None = None,
+    unavailable: list[str] | None = None,
 ) -> str:
-    """Materialize one exact review side and return its immutable identity."""
+    """Materialize one exact review side and return its immutable identity.
+
+    ``unavailable`` is for a reader that can work without some files (Ask): a file
+    of the stored source tree with no stored bytes is listed there and left out.
+    Anything that executes the tree omits it, so an incomplete tree still fails.
+    """
 
     requested_scope = _scope_value(scope)
     if side not in {"old", "new"}:
@@ -804,14 +884,14 @@ def materialize_review_side(
             store=store,
         )
         if files is None:
-            raise ReviewSnapshotUnavailable(f"frozen submodule snapshot is unavailable: {requested_scope}")
+            raise ReviewSnapshotUnavailable(f"frozen submodule revision is unavailable: {requested_scope}")
         project_root = target / requested_scope
         project_root.mkdir(parents=True, exist_ok=True)
         confined = target.resolve()
         for rel, (file_bytes, mode) in files.items():
             destination = (project_root / rel).resolve()
             if destination != confined and confined not in destination.parents:
-                raise ReviewSnapshotUnavailable("submodule snapshot contains an unsafe path")
+                raise ReviewSnapshotUnavailable("submodule revision contains an unsafe path")
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(file_bytes)
             if mode & stat.S_IXUSR:
@@ -819,7 +899,7 @@ def materialize_review_side(
         return f"submodule:{nested['base_sha']}:{nested['fingerprint']}:{side}"
 
     if store is not None and _materialize_source_tree_snapshot(
-        store, revision, target, scope=requested_scope, side=side
+        store, revision, target, scope=requested_scope, side=side, unavailable=unavailable
     ):
         if side == "new":
             return revision.source_fingerprint or revision.tree_fingerprint or revision.id
@@ -864,17 +944,15 @@ def materialize_review_side(
     if revision.range_mode not in {"working_tree", "staged"} or not revision.base_sha:
         raise ReviewSnapshotUnavailable("new revision tree is unavailable")
 
-    overlay = frozen_revision_overlay(store_root, revision, scope=requested_scope, store=store)
+    overlay, missing = _frozen_overlay(store_root, revision, scope=requested_scope, store=store)
     if overlay is None:
-        raise ReviewSnapshotUnavailable(
-            "the frozen review revision is incomplete in this runtime root; refresh after its changed files can be captured"
-        )
+        raise ReviewSnapshotUnavailable(_not_captured(repo_root, missing))
     materialize_git_revision(repo_root, revision.base_sha, target, scope=requested_scope)
     root = target.resolve()
     for rel, overlay_payload in overlay.items():
         destination = (target / rel).resolve()
         if destination != root and root not in destination.parents:
-            raise ReviewSnapshotUnavailable("review snapshot contains an unsafe path")
+            raise ReviewSnapshotUnavailable("review revision contains an unsafe path")
         if overlay_payload is None:
             if destination.is_dir():
                 shutil.rmtree(destination)

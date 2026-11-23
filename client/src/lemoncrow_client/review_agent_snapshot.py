@@ -82,13 +82,13 @@ class AgentSnapshotLimits:
                 self.max_total_bytes,
             )
         ):
-            raise ValueError("Snapshot limits must be bounded integers")
+            raise ValueError("Revision limits must be bounded integers")
         if not (
             1 <= self.max_files <= 20_000
             and 1 <= self.max_file_bytes <= 16 * 1024 * 1024
             and self.max_file_bytes <= self.max_total_bytes <= 512 * 1024 * 1024
         ):
-            raise ValueError("Snapshot limits exceed the standalone client security cap")
+            raise ValueError("Revision limits exceed the standalone client security cap")
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,23 +147,23 @@ def validate_agent_source_context(
             ("attempt", lease.attempt),
         )
     ):
-        raise AgentSnapshotUnavailable("worker source context differs from the signed Review Snapshot")
+        raise AgentSnapshotUnavailable("worker source context differs from the signed Review revision")
     # Review Intelligence may request either old or new at the server; never
     # accidentally analyze base files when the user approved the current head.
     if context.get("side") != "new":
         raise AgentSnapshotUnavailable("author-agent source must be the current new side")
     if context.get("manifest_truncated") is not False:
-        raise AgentSnapshotUnavailable("Snapshot manifest is truncated or unavailable")
+        raise AgentSnapshotUnavailable("Revision manifest is truncated or unavailable")
     records = context.get("manifest")
     if not isinstance(records, Mapping) or not (1 <= len(records) <= limits.max_files):
-        raise AgentSnapshotUnavailable("Snapshot manifest missing, empty or exceeds the file limit")
+        raise AgentSnapshotUnavailable("Revision manifest missing, empty or exceeds the file limit")
     accepted: list[tuple[str, str, int, int]] = []
     total = 0
     seen: set[str] = set()
     for name, record in records.items():
         path = _safe_source_path(name)
         if not isinstance(record, Mapping):
-            raise AgentSnapshotUnavailable("Snapshot manifest has malformed file metadata")
+            raise AgentSnapshotUnavailable("Revision manifest has malformed file metadata")
         digest = record.get("content_digest")
         size = record.get("size")
         mode = record.get("mode")
@@ -175,22 +175,22 @@ def validate_agent_source_context(
             or type(mode) is not int
             or mode not in _MODES
         ):
-            raise AgentSnapshotUnavailable("Snapshot manifest contains unsupported or oversized source")
+            raise AgentSnapshotUnavailable("Revision manifest contains unsupported or oversized source")
         parts = path.parts
         for depth in range(1, len(parts)):
             if PurePosixPath(*parts[:depth]).as_posix() in seen:
-                raise AgentSnapshotUnavailable("Snapshot manifest contains file/directory collisions")
+                raise AgentSnapshotUnavailable("Revision manifest contains file/directory collisions")
         seen.add(name)
         total += size
         if total > limits.max_total_bytes:
-            raise AgentSnapshotUnavailable("Snapshot exceeds local total source byte limit")
+            raise AgentSnapshotUnavailable("Revision exceeds local total source byte limit")
         accepted.append((name, digest, size, mode))
     for name in seen:
         parent = PurePosixPath(name)
         # A file cannot be a parent directory of another file, regardless of
         # the iteration order used by the untrusted returned JSON object.
         if any(PurePosixPath(*parent.parts[:i]).as_posix() in seen for i in range(1, len(parent.parts))):
-            raise AgentSnapshotUnavailable("Snapshot manifest contains file/directory collisions")
+            raise AgentSnapshotUnavailable("Revision manifest contains file/directory collisions")
     return AgentSnapshotManifest(
         side="new",
         files=tuple(sorted(accepted)),

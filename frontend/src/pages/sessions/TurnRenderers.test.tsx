@@ -33,6 +33,45 @@ describe("ConversationTurn attachments off the developer machine", () => {
   });
 });
 
+describe("ConversationTurn header", () => {
+  it("names the tool for people, states cost plainly and can drop a repeated model", () => {
+    render(
+      <ConversationTurn
+        forceExpand
+        hideModel
+        turn={{
+          kind: "tool_call",
+          at: "2026-05-16T00:00:00Z",
+          summary: "code_search",
+          content: "",
+          tool_name: "mcp__plugin_lemoncrow_lc__code_search",
+          arguments: { query: "invoice" },
+          model: "claude-sonnet-4-5",
+          cost: 0.161,
+          tokens: { in: 40000, out: 1700 },
+        }}
+      />
+    );
+
+    expect(screen.getAllByText("Code search").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/mcp__/)).toBeNull();
+    expect(screen.queryByText("claude-sonnet-4-5")).toBeNull();
+    const cost = screen.getByTitle("What this turn cost");
+    expect(cost.textContent).toMatch(/^\$0\.161\d* · 41\.7K tokens$/i);
+  });
+
+  it("offers to show a reasoning turn without counting characters", () => {
+    render(
+      <ConversationTurn
+        forceExpand={false}
+        turn={{ kind: "thinking", at: "2026-05-16T00:00:00Z", summary: "Thinking", content: "Consider the invoice totals." }}
+      />
+    );
+    expect(screen.getByRole("button", { name: /Show reasoning/ })).toBeInTheDocument();
+    expect(screen.queryByText(/chars/)).toBeNull();
+  });
+});
+
 describe("ConversationTurn rich cards", () => {
   it("renders TodoWrite turns as a task list card", () => {
     render(
@@ -62,7 +101,7 @@ describe("ConversationTurn rich cards", () => {
     expect(
       screen.getByText("Render todo cards instead of JSON")
     ).toBeInTheDocument();
-    expect(screen.getByText("in_progress")).toBeInTheDocument();
+    expect(screen.getByText("In progress")).toBeInTheDocument();
     expect(screen.getByText("high")).toBeInTheDocument();
   });
 

@@ -14,19 +14,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 # Module level: FastAPI resolves the (postponed) ``Request`` annotation from these globals.
 from fastapi import HTTPException, Request, Response, status
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.check_runs import (
     CHECK_ENTRIES,
     CheckRunInputs,
+    CheckRunReport,
     CheckRunSuperseded,
     is_check_entry,
     run_check_entry,
@@ -38,7 +42,6 @@ from lemoncrow.pro.capabilities.review.differential import (
     reconcile_claims,
 )
 from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult, ExecutorClass
 from lemoncrow.pro.capabilities.review.recipes import (
     RECIPE_ENTRY_PREFIX,
     entry_recipe_digests,
@@ -46,6 +49,7 @@ from lemoncrow.pro.capabilities.review.recipes import (
 )
 from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
 from lemoncrow.pro.capabilities.review.test_impact import selections_from_document
+from lemoncrow.pro.environment.execution import ExecutionResult, ExecutorClass
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
@@ -78,6 +82,8 @@ class CheckRecipeDeps:
     change_set_heads: Callable[[Any], Any] = lambda _session: None
     #: Gate H for one Snapshot: ``{"summary": projection summary | None, "rows": stable key -> annotation}``.
     qualification: Callable[[Any, Any], Mapping[str, Any]] | None = None
+    #: M2: the record ``lc verify`` left for a Snapshot's head commit, or ``None`` (``read_verify_record``).
+    verify_record: Callable[[Any], Mapping[str, Any] | None] | None = None
 
 
 def agent_claims(development_store: Any, store: Any, session: Any, revision: Any) -> tuple[AgentClaim, ...]:
@@ -240,10 +246,154 @@ def fresh_rerun_budget_seconds(plan: Any, entry_id: str, usage: Any) -> float | 
     return max(0.0, (float(ceiling) - used - estimate) * 60.0)
 
 
+def execute_check(
+    deps: CheckRecipeDeps,
+    session: Any,
+    revision: Any,
+    *,
+    current: bool,
+    entry_id: str,
+    pick: bool,
+    fresh: bool,
+    fresh_run_id: str,
+    from_revision_id: str,
+    selection_override: Mapping[str, Any] | None = None,
+    both_sides: bool = False,
+) -> tuple[dict[str, Any], CheckRunReport]:
+    """Run one admitted check entry on one exact Snapshot (the body of ``POST .../check-recipes/run``).
+
+    ``selection_override`` replaces the plan entry's test selection (recipe id -> ``RecipeSelection``)
+    and ``both_sides`` runs the base next to the head instead of the plan's side choice; part proof
+    uses both. Everything else, the plan admission, the sandbox, the ledger and the supersede
+    check, is the plan's, exactly as for a reviewer's click.
+    """
+
+    from lemoncrow.pro.capabilities.review.planned_execution import (
+        PlannedExecutionRefused,
+        admit_planned_execution,
+        record_execution_compute,
+    )
+    from lemoncrow.pro.capabilities.review.run_plan import ManualPick
+    from lemoncrow.pro.capabilities.review.runner_host import revision_snapshot_identity
+    from lemoncrow.pro.capabilities.review.runtime_validation import trusted_policy_digest
+    from lemoncrow.pro.capabilities.review.surfaces import ReviewSurfaceConfig
+
+    store = deps.store
+    run_plans = deps.run_plans
+
+    def candidates() -> int:
+        return deps.ai_candidates(session, revision)
+
+    live = None
+    if fresh:
+        # Repeated fresh runs are new compute on an already-planned Snapshot:
+        # admit each against the live ledger before the pick amends the plan.
+        live = run_plans.usage(session, revision)
+        preview = run_plans.current(session, revision, ai_candidates=candidates, persist=current)
+        refusal = fresh_budget_refusal(preview, entry_id, live)
+        if refusal:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
+    if (pick or fresh) and session.status != "archived" and current:
+        # A reviewer's pick is an add-only amendment; it never removes required work.
+        plan = run_plans.amend(session, revision, [ManualPick(entry_id, fresh=fresh)], ai_candidates=candidates)
+    else:
+        plan = run_plans.current(session, revision, ai_candidates=candidates, persist=current)
+    runners = deps.runners()
+    run_on = str(getattr(runners, "run_on", "") or "local")
+    try:
+        entry = admit_planned_execution(plan, entry_id, run_on=run_on)
+    except PlannedExecutionRefused as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{entry_id} is not in the effective run plan: {exc}",
+        ) from exc
+    catalog = run_plans.recipe_catalog(revision)
+    if catalog.base_state == "provisional":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="the trusted base is not readable yet, so no recipe can be resolved",
+        )
+    authority = deps.review_config(revision)
+    executor_class = getattr(runners, "executor_class", ExecutorClass.AUTHOR_MACHINE)
+    recorder = run_plans.compute.recorder(session.id, revision.id)
+
+    def run_side(runtime: Any, surface: Any, side: str) -> Any:
+        _revision, _registry, side_runners, context = deps.surface_runtime(
+            session.id, revision.id, side=side, immutable_execution=True
+        )
+        # The synthetic recipe runtime is the only one: head config can add none.
+        context = replace(context, config=ReviewSurfaceConfig(runtimes=(runtime,)))
+        return side_runners.run(context, surface, side=side, cleanup_workspace=True)
+
+    def meter(execution: Mapping[str, Any] | None, wall: float) -> None:
+        record_execution_compute(
+            recorder,
+            entry_id=entry_id,
+            run_on=run_on,
+            execution=execution,
+            wall_seconds=wall,
+            fallback_stage="check_recipe",
+        )
+
+    def saved(reason: str, seconds: float) -> None:
+        run_plans.savings.record(
+            review_id=session.id, revision_id=revision.id, entry_id=entry_id, reason=reason, seconds=seconds
+        )
+
+    inputs = CheckRunInputs(
+        store=store,
+        revision=revision,
+        catalog=catalog,
+        entry_id=entry_id,
+        sides=("old", "new") if both_sides or entry.sides == "base+head" else ("new",),
+        executor_class=executor_class,
+        policy_digest=trusted_policy_digest(authority.content, base_known=authority.base_known),
+        changed_paths=tuple(deps.changed_paths(revision)),
+        read_base=lambda path: deps.read_side(revision, path, "old"),
+        read_head=lambda path: deps.read_side(revision, path, "new"),
+        head_identity=revision_snapshot_identity(revision, "new"),
+        claims=agent_claims(deps.development_store, store, session, revision),
+        rerun_budget_seconds=(
+            rerun_budget_seconds(plan) if live is None else fresh_rerun_budget_seconds(plan, entry_id, live)
+        ),
+        expected_current_revision_id=revision.id if current else "",
+        execution_intent="current" if current else "explicit_historical",
+        selection=(
+            dict(selection_override) if selection_override is not None else selections_from_document(entry.selection)
+        ),
+        base_on_demand=entry.base_on_demand and not both_sides,
+        saved=saved,
+        fresh_run_id=fresh_run_id,
+        environment=getattr(runners, "environment_probe", None),
+        verify_record=partial(deps.verify_record, revision) if deps.verify_record is not None else None,
+    )
+    started = time.monotonic()
+    try:
+        report = run_check_entry(inputs, run_side, meter)
+    except CheckRunSuperseded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"the Review advanced during the check run; results were not published as current: {exc}",
+        ) from exc
+    if entry.equivalence:
+        # Why an equivalent CI result did not stand in (kill switch, fresh pick).
+        equivalence = dict(entry.equivalence)
+        report.validity[str(equivalence.get("subject_ref") or f"entry:{entry_id}")] = equivalence
+    wire = {
+        **report.to_wire(),
+        "run_plan_digest": plan.digest,
+        "plan_entry": entry.to_wire(),
+        "executor_class": executor_class.value,
+        "run_on": run_on,
+        "fresh_run_id": fresh_run_id,
+        "reverified_from_revision_id": from_revision_id,
+        "wall_seconds": round(time.monotonic() - started, 3),
+    }
+    return wire, report
+
+
 def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> None:
     from starlette.concurrency import run_in_threadpool
-
-    from lemoncrow.pro.capabilities.review.surfaces import ReviewSurfaceConfig
 
     store = deps.store
     run_plans = deps.run_plans
@@ -300,7 +450,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 or item.mime_type != RUNTIME_VALIDATION_MEDIA_TYPE
             ):
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="no execution evidence on this Snapshot"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="no execution evidence on this revision"
                 )
             receipt = execution_receipt(store, item)
             if receipt is None or receipt["execution_provenance"] != "validated":
@@ -363,7 +513,16 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         revision = deps.requested_revision(session, revision_id) if revision_id else latest
 
         def build() -> dict[str, Any]:
+            # The head recipe catalog reads every changed file's head side; without the request's read memo each of
+            # those reads loads the Snapshot's whole source-tree manifest again (6.5 min on a 10,000-file change).
+            with request_reads.reads_once():
+                return read()
+
+        def read() -> dict[str, Any]:
             catalog = run_plans.recipe_catalog(revision)
+            from lemoncrow.pro.capabilities.review.part_checks import part_test_mappings
+
+            part_checks = part_test_mappings(catalog, store.list_units(revision.id))
             plan = run_plans.peek(session, revision)
             try:
                 future = future_recipe_policy(catalog, run_plans.head_recipe_catalog(revision))
@@ -446,6 +605,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 "revision_id": revision.id,
                 "historical": revision.id != latest.id,
                 "recommended_checks": recommended,
+                "part_checks": part_checks,
                 "observed_regressions": observed,
                 "finding_regression_citations": observed_citations,
                 "run_plan_digest": plan.digest,
@@ -475,7 +635,9 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         revision = deps.requested_revision(session, revision_id) if revision_id else latest
 
         def build() -> dict[str, Any]:
-            gate_h = deps.qualification(session, revision) if deps.qualification is not None else {}
+            # Gate H reads the Snapshot's source tree; one request reads it once (P10-1).
+            with request_reads.reads_once():
+                gate_h = deps.qualification(session, revision) if deps.qualification is not None else {}
             rows = gate_h.get("rows") if isinstance(gate_h.get("rows"), Mapping) else {}
             assert isinstance(rows, Mapping)
             config = runtime_gate_h_config()
@@ -494,22 +656,13 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
     async def _post_check_recipes_run(review_id: str, request: Request) -> dict[str, Any]:
         """Execute one check entry on one exact Snapshot, only as the effective run plan schedules it."""
 
-        from lemoncrow.pro.capabilities.review.planned_execution import (
-            PlannedExecutionRefused,
-            admit_planned_execution,
-            record_execution_compute,
-        )
-        from lemoncrow.pro.capabilities.review.run_plan import ManualPick
-        from lemoncrow.pro.capabilities.review.runtime_validation import trusted_policy_digest
-        from lemoncrow.pro.capabilities.review.runtimes import revision_snapshot_identity
-
         session = deps.mutable_session(review_id)
         body = await deps.json_object(request)
         requested = str(body.get("revision_id") or "").strip()
         if not requested:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="check recipes run on an exact revision_id (Snapshot)",
+                detail="check recipes run on an exact revision_id (revision)",
             )
         revision = deps.requested_revision(session, requested)
         current = revision.id == deps.latest(session).id
@@ -520,6 +673,23 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 detail=f"entry must be one of {', '.join(CHECK_ENTRIES)} or {RECIPE_ENTRY_PREFIX}<id>",
             )
         pick = body.get("pick") is True
+        part_unit_key = str(body.get("part_unit_key") or "").strip()
+        if part_unit_key:
+            from lemoncrow.pro.capabilities.review.part_checks import one_part_mapping
+
+            if not current:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="a part test requires the current revision"
+                )
+            configured = run_plans.recipe_catalog(revision)
+            mapped = one_part_mapping(
+                configured, store.list_units(revision.id), unit_key=part_unit_key, entry_id=entry_id
+            )
+            if mapped is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="no exact trusted-base test recipe is mapped to this part",
+                )
         # A correction re-verification is a fresh, user-authorized check against
         # the immediately following Snapshot. The last failed verdict is only
         # a *reason* to run; it never counts as this Snapshot's evidence.
@@ -528,14 +698,14 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             if pick or revision.id != deps.latest(session).id:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="correction re-verification requires an unmodified current run plan and the current Snapshot",
+                    detail="correction re-verification requires an unmodified current run plan and the current revision",
                 )
             revisions = list(store.list_revisions(session.id))
             index = next((position for position, row in enumerate(revisions) if row.id == revision.id), -1)
             if index <= 0 or revisions[index - 1].id != from_revision_id:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="the previous Snapshot is no longer adjacent; refresh the Review",
+                    detail="the previous revision is no longer adjacent; refresh the Review",
                 )
             prior_differentials, prior_verdicts = latest_results(store, revisions[index - 1])
             source_catalog = run_plans.recipe_catalog(revision)
@@ -554,120 +724,36 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             if not eligible:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="no failed check with the same trusted recipe identity exists on the immediately previous Snapshot",
+                    detail="no failed check with the same trusted recipe identity exists on the immediately previous revision",
                 )
         # An explicit fresh run: nothing replayed, carried forward, shared or satisfied by CI.
         fresh = body.get("fresh") is True or bool(from_revision_id)
         fresh_run_id = uuid.uuid4().hex if fresh else ""
 
-        def run() -> dict[str, Any]:
-            def candidates() -> int:
-                return deps.ai_candidates(session, revision)
-
-            live = None
-            if fresh:
-                # Repeated fresh runs are new compute on an already-planned Snapshot:
-                # admit each against the live ledger before the pick amends the plan.
-                live = run_plans.usage(session, revision)
-                preview = run_plans.current(session, revision, ai_candidates=candidates, persist=current)
-                refusal = fresh_budget_refusal(preview, entry_id, live)
-                if refusal:
-                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
-            if (pick or fresh) and session.status != "archived" and current:
-                # A reviewer's pick is an add-only amendment; it never removes required work.
-                plan = run_plans.amend(session, revision, [ManualPick(entry_id, fresh=fresh)], ai_candidates=candidates)
-            else:
-                plan = run_plans.current(session, revision, ai_candidates=candidates, persist=current)
-            runners = deps.runners()
-            run_on = str(getattr(runners, "run_on", "") or "local")
-            try:
-                entry = admit_planned_execution(plan, entry_id, run_on=run_on)
-            except PlannedExecutionRefused as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"{entry_id} is not in the effective run plan: {exc}",
-                ) from exc
-            catalog = run_plans.recipe_catalog(revision)
-            if catalog.base_state == "provisional":
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="the trusted base is not readable yet, so no recipe can be resolved",
-                )
-            authority = deps.review_config(revision)
-            executor_class = getattr(runners, "executor_class", ExecutorClass.AUTHOR_MACHINE)
-            recorder = run_plans.compute.recorder(session.id, revision.id)
-
-            def run_side(runtime: Any, surface: Any, side: str) -> Any:
-                _revision, _registry, side_runners, context = deps.surface_runtime(
-                    session.id, revision.id, side=side, immutable_execution=True
-                )
-                # The synthetic recipe runtime is the only one: head config can add none.
-                context = replace(context, config=ReviewSurfaceConfig(runtimes=(runtime,)))
-                return side_runners.run(context, surface, side=side, cleanup_workspace=True)
-
-            def meter(execution: Mapping[str, Any] | None, wall: float) -> None:
-                record_execution_compute(
-                    recorder,
-                    entry_id=entry_id,
-                    run_on=run_on,
-                    execution=execution,
-                    wall_seconds=wall,
-                    fallback_stage="check_recipe",
-                )
-
-            def saved(reason: str, seconds: float) -> None:
-                run_plans.savings.record(
-                    review_id=session.id, revision_id=revision.id, entry_id=entry_id, reason=reason, seconds=seconds
-                )
-
-            inputs = CheckRunInputs(
-                store=store,
-                revision=revision,
-                catalog=catalog,
+        def run() -> tuple[dict[str, Any], CheckRunReport]:
+            return execute_check(
+                deps,
+                session,
+                revision,
+                current=current,
                 entry_id=entry_id,
-                sides=("old", "new") if entry.sides == "base+head" else ("new",),
-                executor_class=executor_class,
-                policy_digest=trusted_policy_digest(authority.content, base_known=authority.base_known),
-                changed_paths=tuple(deps.changed_paths(revision)),
-                read_base=lambda path: deps.read_side(revision, path, "old"),
-                read_head=lambda path: deps.read_side(revision, path, "new"),
-                head_identity=revision_snapshot_identity(revision, "new"),
-                claims=agent_claims(deps.development_store, store, session, revision),
-                rerun_budget_seconds=(
-                    rerun_budget_seconds(plan) if live is None else fresh_rerun_budget_seconds(plan, entry_id, live)
-                ),
-                expected_current_revision_id=revision.id if current else "",
-                execution_intent="current" if current else "explicit_historical",
-                selection=selections_from_document(entry.selection),
-                base_on_demand=entry.base_on_demand,
-                saved=saved,
+                pick=pick,
+                fresh=fresh,
                 fresh_run_id=fresh_run_id,
-                environment=getattr(runners, "environment_probe", None),
+                from_revision_id=from_revision_id,
             )
-            started = time.monotonic()
-            try:
-                report = run_check_entry(inputs, run_side, meter)
-            except CheckRunSuperseded as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"the Review advanced during the check run; results were not published as current: {exc}",
-                ) from exc
-            if entry.equivalence:
-                # Why an equivalent CI result did not stand in (kill switch, fresh pick).
-                equivalence = dict(entry.equivalence)
-                report.validity[str(equivalence.get("subject_ref") or f"entry:{entry_id}")] = equivalence
-            return {
-                **report.to_wire(),
-                "run_plan_digest": plan.digest,
-                "plan_entry": entry.to_wire(),
-                "executor_class": executor_class.value,
-                "run_on": run_on,
-                "fresh_run_id": fresh_run_id,
-                "reverified_from_revision_id": from_revision_id,
-                "wall_seconds": round(time.monotonic() - started, 3),
-            }
 
-        result = cast(dict[str, Any], await run_in_threadpool(run))
+        result, check_report = cast(tuple[dict[str, Any], CheckRunReport], await run_in_threadpool(run))
+        from lemoncrow.pro.capabilities.review.part_proof_api import record_check_run
+
+        try:
+            result["part_proof"] = await run_in_threadpool(
+                record_check_run, deps, session, revision, check_report, part_unit_key=part_unit_key
+            )
+        except Exception:
+            # The check already ran and is recorded; a part-proof recording failure must not fail it.
+            logging.getLogger(__name__).warning("part proof was not recorded for Review %s", session.id, exc_info=True)
+            result["part_proof"] = None
         await deps.enforce_armed_landing(session)
         return result
 
@@ -687,7 +773,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         if expected and expected != revision.id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="the Review advanced; reload the current Snapshot before requesting proof",
+                detail="the Review advanced; reload the current revision before requesting proof",
             )
         kind = str(body.get("kind") or "proof").strip()
         if kind not in {"proof", "autofix"}:
@@ -701,7 +787,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             if body.get("approved") is not True or not expected:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="an autofix needs explicit reviewer approval and the exact expected Snapshot",
+                    detail="an autofix needs explicit reviewer approval and the exact expected revision",
                 )
             proposal = store.get_change_proposal(str(body.get("proposal_id") or ""))
             if (
@@ -713,7 +799,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 or not proposal.created_by.startswith("lemoncrow:recipe:")
             ):
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="no autofix proposal on the current Snapshot"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="no autofix proposal on the current revision"
                 )
             recipe_id = proposal.intent.removeprefix("autofix:")
             differentials, _ = latest_results(store, revision)
@@ -765,7 +851,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
             text = (
                 note
                 or f"The trusted-base `{recipe_id}` check fails; its autofix proposes this change. "
-                "Please apply it (or explain why not) in a new Snapshot."
+                "Please apply it (or explain why not) in a new revision."
             )
             text += f"\n\n```diff\n{proposal.patch_text[:12_000]}\n```"
             evidence = [f"proposal:{proposal.id}", f"check-recipe:{recipe_id}"]
@@ -790,7 +876,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 f"Please show this change is proven by `{recipe_id}`"
                 + (f" for `{subject}`" if subject else "")
                 + ": add or adjust a test that fails on the base and passes on your change. "
-                "LemonCrow re-runs the check on your next Snapshot."
+                "LemonCrow re-runs the check on your next revision."
             )
             evidence = [f"check-recipe:{recipe_id}", *([f"test:{subject}"] if subject else [])]
             behavior_key = str(body.get("behavior_key") or "").strip()
@@ -798,7 +884,7 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 evidence.append(behavior_key[:300])
         if not path or path not in units:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="the current Snapshot has no file to anchor the request"
+                status_code=status.HTTP_409_CONFLICT, detail="the current revision has no file to anchor the request"
             )
 
         def create() -> Any:

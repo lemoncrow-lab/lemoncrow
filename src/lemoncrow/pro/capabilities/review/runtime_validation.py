@@ -22,15 +22,7 @@ from pathlib import PurePath
 from typing import Any, Literal
 
 from lemoncrow.core.foundation.run_file_io import RunFileLock
-from lemoncrow.pro.capabilities.review.execution import (
-    ExecutionResult,
-    ExecutorClass,
-    VerificationEnvironment,
-    canonical_digest,
-    parse_executor_class,
-)
 from lemoncrow.pro.capabilities.review.run_evidence import protect_execution_result, protect_mapping, protect_text
-from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.store import new_evidence_id
 from lemoncrow.pro.capabilities.review.surfaces import (
@@ -39,6 +31,14 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     RuntimeConfigEntry,
     SurfaceContext,
 )
+from lemoncrow.pro.environment.execution import (
+    ExecutionResult,
+    ExecutorClass,
+    VerificationEnvironment,
+    canonical_digest,
+    parse_executor_class,
+)
+from lemoncrow.pro.environment.runners import RunnerRegistry, SurfaceRunResult
 
 VALIDATION_SCHEMA_VERSION = 1
 VALIDATION_EXECUTION_VERSION = 1
@@ -443,7 +443,7 @@ def normalize_surface_run(
     if str(raw.get("provider") or "") != scenario.provider:
         raise ValueError("surface validation result belongs to another provider")
     if str(raw.get("side") or "") != request.side:
-        raise ValueError("surface validation result belongs to another Snapshot side")
+        raise ValueError("surface validation result belongs to another revision side")
     if str(raw.get("runtime") or "") != scenario.runtime_id:
         raise ValueError("surface validation result belongs to another runtime")
 
@@ -738,7 +738,7 @@ def validate_queue_completion_receipt(
         or type(payload["attempt"]) is not int
         or payload["attempt"] < 1
     ):
-        raise ValueError("hosted runtime completion receipt does not bind the exact job and Snapshot")
+        raise ValueError("hosted runtime completion receipt does not bind the exact job and revision")
     for field in ("contract_digest", "result_digest"):
         value = payload[field]
         if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
@@ -820,7 +820,7 @@ def persist_validation_record(
     """
 
     if revision.review_id != request.review_id or revision.id != request.revision_id:
-        raise ValueError("runtime validation request is not bound to this exact Snapshot")
+        raise ValueError("runtime validation request is not bound to this exact revision")
     if str(record.get("identity") or "") != request.identity:
         raise ValueError("runtime validation record identity does not match its request")
     executor = parse_executor_class(executor_class)
@@ -842,7 +842,7 @@ def persist_validation_record(
         if expected_current_revision_id:
             current = store.latest_revision(request.review_id)
             if current is None or current.id != expected_current_revision_id:
-                raise ValueError("runtime validation Snapshot was superseded before evidence publication")
+                raise ValueError("runtime validation revision was superseded before evidence publication")
         return existing
     payload = _canonical(dict(record))
     evidence_id = new_evidence_id()
@@ -886,7 +886,7 @@ def persist_validation_record(
     except ValueError as exc:
         store.discard_artifact(rel)
         if expected_current_revision_id:
-            raise ValueError("runtime validation Snapshot was superseded before evidence publication") from exc
+            raise ValueError("runtime validation revision was superseded before evidence publication") from exc
         raise
     except Exception:
         store.discard_artifact(rel)
@@ -963,7 +963,7 @@ def validate_artifact_reference(
     if evidence is None:
         raise ValueError(f"runtime validation {role} artifact is missing")
     if evidence.review_id != request.review_id or evidence.revision_id != request.revision_id:
-        raise ValueError(f"runtime validation {role} artifact must belong to the same exact Snapshot")
+        raise ValueError(f"runtime validation {role} artifact must belong to the same exact revision")
     if evidence.kind not in allowed or not evidence.content_hash:
         raise ValueError(f"runtime validation {role} artifact has wrong kind {evidence.kind!r}")
     if read_artifact is not None:
@@ -1030,7 +1030,7 @@ def execute_local_surface_validation(
             if expected_current_revision_id:
                 current = store.latest_revision(request.review_id)
                 if current is None or current.id != expected_current_revision_id:
-                    raise ValueError("runtime validation Snapshot was superseded before evidence publication")
+                    raise ValueError("runtime validation revision was superseded before evidence publication")
             return LocalValidationOutcome(
                 request=request,
                 scenario=scenario,

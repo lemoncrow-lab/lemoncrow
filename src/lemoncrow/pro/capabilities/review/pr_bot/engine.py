@@ -47,6 +47,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.settings import (
 )
 from lemoncrow.pro.capabilities.review.pr_bot.spend import SpendCapReached, SpendGuard
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_units, unit_token
+from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.ai_review import ConfirmedFinding, IndependentReviewResult
@@ -113,6 +114,8 @@ class AiStage:
     usage: Usage = field(default_factory=Usage)
     model: str = ""
     depth: str = "auto"
+    #: The effort the run plan resolved ``depth`` to (``auto`` follows ``review.effort``); empty when nothing ran.
+    effort: str = ""
     max_calls: int = 0
     complete: bool = True
     errors: tuple[str, ...] = ()
@@ -134,6 +137,9 @@ class AiStage:
     #: from the Snapshot's targets and nothing a model said.
     impact: str = ""
     signals: tuple[impact_mod.Signal, ...] = ()
+    #: What the summary's Risk line is measured from (the Reader's rule, :class:`impact.RiskBasis`): the Snapshot's packet
+    #: and every reviewed target. ``None``: the Snapshot's targets were not read. The checks that ran are added later.
+    risk_basis: impact_mod.RiskBasis | None = None
     #: The noise controls in force for this review (``settings.NoisePolicy``): the trusted base's, else the workflow's.
     noise: NoisePolicy = field(default_factory=NoisePolicy)
     #: Files left out of the review because ``review.ignore`` names them (never read by the model, no findings), and
@@ -249,6 +255,25 @@ def route_problem() -> tuple[str, str]:
     return "", ""
 
 
+def run_problem() -> tuple[str, str]:
+    """``("", "")`` when a review may start now; else ``(status, reason)``: :func:`route_problem` plus the AI budget.
+
+    A run that cannot send its first call stops here, with the budget's reason, instead of failing in its first
+    model call. ``route_problem`` alone is only the route (a label), and refuses nothing for a budget.
+    """
+
+    from lemoncrow.infra.internal_llm import InternalLLMError
+    from lemoncrow.pro.capabilities.review.ai_budget import AiBudgetRefused, require_call_allowed
+
+    try:
+        require_call_allowed()
+    except AiBudgetRefused as exc:
+        return "disabled", str(exc)
+    except InternalLLMError:
+        pass  # the route and policy problems are named by route_problem, in their own words
+    return route_problem()
+
+
 # --------------------------------------------------------------------------- #
 # the in-process Review API
 # --------------------------------------------------------------------------- #
@@ -328,6 +353,10 @@ def policy_digest(governance: Any, depth: str, rule_severity: Mapping[str, str] 
     return hashlib.sha256(json.dumps(document, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
+#: How a run's error starts when its call never reached a model (``intelligence_runtime`` records ``Class: message``).
+_NEVER_MADE = (f"{SpendCapReached.__name__}:", f"{ReviewSnapshotUnavailable.__name__}:")
+
+
 def revision_usage(store: ReviewStore, review_id: str, revision_id: str) -> tuple[Usage, str]:
     """Model calls, tokens and cost of this Snapshot's runs, and the model that served them.
 
@@ -343,8 +372,9 @@ def revision_usage(store: ReviewStore, review_id: str, revision_id: str) -> tupl
     cost: float | None = 0.0
     models: list[str] = []
     for run in store.list_intelligence_runs(review_id, revision_id=revision_id):
-        if run.model_calls <= 0 or run.error.startswith(f"{SpendCapReached.__name__}:"):
-            # A call the cost cap refused was never made: it cost nothing and reported nothing.
+        if run.model_calls <= 0 or run.error.startswith(_NEVER_MADE):
+            # A call the cost cap refused, or one whose Snapshot could not be rebuilt for the model to read, was never
+            # made: it cost nothing and reported nothing.
             continue
         calls += run.model_calls
         label = f"{run.driver}/{run.model}" if run.model else run.driver
@@ -792,6 +822,17 @@ def _execute(
     reviewable: tuple[ReviewTarget, ...] = tuple(context["targets"])
     targets = tuple(target for target in reviewable if not noise.ignores(target.path))
     ignored = tuple(sorted({target.path for target in reviewable if noise.ignores(target.path)}))
+    from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
+
+    # The Risk line's facts (no model): the same packet and targets the Reader's Risk reads, and who calls the changed code
+    # at the head commit where the Reader would ask its current index.
+    # A staged capture is never searched: the live tree can differ from the index that was reviewed, so its callers are
+    # not measured. A working-tree capture is searched in the working tree; a commit range at its head commit.
+    risk_basis = impact_mod.RiskBasis.of(
+        read_packet_json(store, revision),
+        targets,
+        repo_root=None if session.range_mode == "staged" else captured.repo_root,
+    )
     shadowed = sorted(
         {
             rule.stable_key
@@ -811,12 +852,22 @@ def _execute(
         )
     plan = persisted_plan(store, revision.id)
     if plan is None:
-        raise AiStageError("the Snapshot has no persisted effective run plan")
+        raise AiStageError("the revision has no persisted effective run plan")
     if plan.policy_error:
-        return AiStage(status="unplanned", reason=f"Review policy invalid: {plan.policy_error}", depth=depth)
+        return AiStage(
+            status="unplanned",
+            reason=f"Review policy invalid: {plan.policy_error}",
+            depth=depth,
+            risk_basis=risk_basis,
+        )
     stage_plan = ai_stage_plan(plan)
     if not stage_plan.runs_ai:
-        return AiStage(status="unplanned", reason=stage_plan.reason or "AI review is not in the run plan", depth=depth)
+        return AiStage(
+            status="unplanned",
+            reason=stage_plan.reason or "AI review is not in the run plan",
+            depth=depth,
+            risk_basis=risk_basis,
+        )
 
     units = {
         f"target:{unit.unit_key}": unit_token(unit.unit_key, unit.content_fingerprint)
@@ -884,8 +935,10 @@ def _execute(
         imported=imports.receipt_lines() if imports is not None else (),
         policy=previous.policy if narrow and previous is not None else digest,
         depth=depth,
+        effort=stage_plan.effort,
         max_calls=stage_plan.max_review_calls or ModelCallBudget.from_env(max_calls=1).max_review_calls,
         impact=weighed,
+        risk_basis=risk_basis,
         noise=noise,
         ignored=ignored,
         total_files=len({target.path for target in targets}),
@@ -931,11 +984,7 @@ def _execute(
         pr_intent.prompt_block(store, session.id, redactor=redactor) if pr_intent.enabled() and asking else None
     )
     # Added code comments written to an AI reviewer: data to the model like all code, and a note in the summary.
-    from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
-
-    commented = (
-        comments_addressed(read_packet_json(store, revision), {target.path for target in changed}) if asking else ()
-    )
+    commented = comments_addressed(risk_basis.packet, {target.path for target in changed}) if asking else ()
     # An agent-CLI route reads a Snapshot copy, not only the prompt: that copy is masked by this same Redactor.
     with bound_intelligence_policy(review_intelligence_policy(policy)), bound_redactor(redactor):
         result: IndependentReviewResult = run_independent_review(
@@ -994,6 +1043,9 @@ def _execute(
     pending = ((candidate_ids | other_ids) - examined.targets) | deferred_ids
     why = ""
     stopped = spend.stopped if spend is not None else ""
+    if complete and not pending:
+        # The cap refused only calls that review no code (the overview, the duplicate check): every file was reached.
+        stopped = ""
     if stopped:
         why = f"stopped at the cost cap: {stopped}"
     elif result.skipped_by_budget:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import importlib
 import logging
 import os
@@ -43,6 +44,15 @@ from .service_protocol import (
 __all__ = ["build_service_app", "serve_service"]
 
 _LOG: Final[logging.Logger] = logging.getLogger("lemoncrow.server.service_host")
+
+# The Review worker keeps a large long-lived heap (imported code, Snapshot projections, unit memos), and a request
+# on a 10k-file Review builds big short-lived structures. At CPython's default thresholds (2000, 10, 10) those
+# survive into the old generation and trigger full collections that walk the whole heap and free almost nothing:
+# on the reference runner, 89 full collections in 246 s, 331 ms mean and up to 840 ms, each holding the GIL, so a
+# one-file read that lands on one waits for it. The young generation is collected 50x less often, and the heap the
+# worker built at startup is frozen out of every collection once warm-up is done (a Review's own app is built on
+# its first request, so it is not part of that heap).
+_REVIEW_GC_THRESHOLD: Final[tuple[int, int, int]] = (100_000, 10, 10)
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
@@ -157,6 +167,17 @@ def build_service_app(
         for method, path, handler in service.route_table():
             app.router.add_route(method, path, handler)
         app.router.add_route("*", "/api/{tail:.*}", service.reader_api)
+
+        # Delayed sends are dispatched here, beside the Reader API they record through: a verdict's signing state
+        # lives in this process, so the record read that Done makes right after a send must be answered by it too.
+        async def start_flow_sends(_app: web.Application) -> None:
+            await reader.start_flow_send_worker()
+
+        async def stop_flow_sends(_app: web.Application) -> None:
+            await reader.stop_flow_send_worker()
+
+        app.on_startup.append(start_flow_sends)
+        app.on_shutdown.append(stop_flow_sends)
         # Merge-when-ready lands only through this watch (never provider auto-merge).
         maintenance = LocalMaintenance(
             _Idle(),
@@ -216,6 +237,8 @@ async def serve_service(
     if not token or not core_url:
         sys.stderr.write(f"a service needs {SERVICE_TOKEN_ENV} and {CORE_URL_ENV}\n")
         return 2
+    if name == SERVICE_REVIEW:
+        gc.set_threshold(*_REVIEW_GC_THRESHOLD)
     core = CoreClient(core_url, token)
     app, maintenance, warm = build_service_app(
         name,
@@ -260,6 +283,8 @@ async def serve_service(
             await asyncio.to_thread(warm)
         except Exception:
             _LOG.exception("%s service warm-up failed", name)
+        if name == SERVICE_REVIEW:
+            gc.freeze()
 
     tasks = [asyncio.create_task(warm_up(), name=f"{name}-warm")]
     if maintenance_interval_s > 0:

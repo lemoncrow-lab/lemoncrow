@@ -63,7 +63,10 @@ def register_project_knowledge_commands(parent: click.Group) -> None:
         """
         try:
             source, store = source_store(ctx, repo, repository_key, canonical_ref)
-            result = source.sync(store, previous_revision=previous_revision, rebuild=rebuild)
+            # An advance starts from the commit this store recorded; Git proves which one it is.
+            if not previous_revision and not rebuild and store.current_generation(source.repository):
+                previous_revision = source.previous_stored_commit(store)
+            result = source.sync(store, previous_revision=previous_revision, rebuild=rebuild, partial_baseline=True)
         except (ValueError, OSError) as exc:
             raise click.ClickException(str(exc)) from exc
         # Where this repository syncs from: the Knowledge surface labels it and can regenerate.

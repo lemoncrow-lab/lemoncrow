@@ -54,5 +54,5 @@ def resolve_trusted_base_document(path: str, base_content: str | None) -> Truste
         path=path,
         content=base_content,
         state="present",
-        source=f"base Snapshot {path}",
+        source=f"base revision {path}",
     )

@@ -9,7 +9,7 @@ accept the policy, and nothing here budgets, schedules or calls a model.
 
 .. code-block:: yaml
 
-    enabled: true
+    enabled: true       # operator layers only; a person sets the AI budget instead
     driver: auto        # auto | claude | codex | opencode | ollama | openai | litellm
     model: auto         # auto | an explicit provider model id
     run_on: auto        # auto | local | worker | managed (as the deployment allows)
@@ -61,6 +61,7 @@ from lemoncrow.pro.capabilities.review.intelligence_runtime import (
     IntelligenceDisabled,
     ReviewIntelligenceDriver,
     RouteOverrideRefused,
+    operator_off_reason,
     resolve_driver_model,
 )
 from lemoncrow.pro.capabilities.review.model_identity import ModelIdentity, clean_model_name
@@ -104,9 +105,10 @@ READY_NOTE: Final[str] = (
     "ready means a model route is configured; provider credentials are checked on the first model call"
 )
 
-#: The settings key of each policy field (``lemoncrow settings set <key> <value>``).
+#: The settings key of each policy field (``lemoncrow settings set <key> <value>``). ``enabled`` has none: no
+#: person switches AI off (SPEC §7.1 OWNER-1). Only an operator layer carries it, and the personal control is the
+#: monthly AI budget (:mod:`ai_budget`).
 SETTINGS_KEYS: Final[Mapping[str, str]] = {
-    "enabled": "intelligence.enabled",
     "driver": "intelligence.driver",
     "model": "intelligence.model",
     "run_on": "intelligence.run_on",
@@ -269,7 +271,6 @@ def settings_policy_layer(raw: Mapping[str, Any]) -> tuple[IntelligencePolicyLay
         return _flag(_settings_bool(value, key), key)
 
     parsers: dict[str, Callable[[Any, str], Any]] = {
-        "enabled": flag,
         "driver": _driver,
         "model": _model,
         "run_on": _run_on,
@@ -427,7 +428,7 @@ def _settings_document(path: Path) -> tuple[Mapping[str, Any], str]:
 
     A missing file is the defaults. A file that exists but cannot be read, is
     not JSON, is not an object, or uses the nested ``intelligence`` shape is an
-    error: a stored ``enabled: false`` must never read as on.
+    error: a stored value must never quietly read as the default.
     """
 
     if not path.exists():
@@ -447,7 +448,7 @@ def _settings_document(path: Path) -> tuple[Mapping[str, Any], str]:
     if "intelligence" in merged:
         return {}, (
             f"the LemonCrow settings file {path} sets a nested 'intelligence' object; "
-            "use the keys intelligence.enabled, intelligence.driver, intelligence.model, ..."
+            "use the keys intelligence.driver, intelligence.model, ..."
         )
     return merged, ""
 
@@ -456,9 +457,12 @@ def _process_layers(root: Path | None = None) -> tuple[tuple[IntelligencePolicyL
     if not _settings_layer_enabled:
         return (), ()
     from lemoncrow.core.settings import settings_path
+    from lemoncrow.pro.capabilities.review.ai_budget import migrate_legacy_switch
     from lemoncrow.pro.capabilities.review.fix_agent import settings_root
 
-    raw, error = _settings_document(settings_path(root if root is not None else settings_root()))
+    base = root if root is not None else settings_root()
+    migrate_legacy_switch(base)  # a retired intelligence.enabled: false becomes a $0 budget (idempotent)
+    raw, error = _settings_document(settings_path(base))
     if error:
         return (), (error,)
     layer, errors = settings_policy_layer(raw)
@@ -747,7 +751,7 @@ def resolve_intelligence_route(
     if not effective.valid:
         return degraded("invalid", "intelligence policy is invalid: " + "; ".join(effective.errors))
     if not effective.enabled.value:
-        return degraded("disabled", f"intelligence is turned off ({effective.enabled.origin.source})")
+        return degraded("disabled", operator_off_reason(effective))
     try:
         resolved = resolve_driver_model(None, None, policy=effective)
     except AgentCliDriverRefused:

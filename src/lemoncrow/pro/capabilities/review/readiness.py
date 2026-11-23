@@ -59,6 +59,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
+from lemoncrow_client.review_words import part_count, revision_name
+
 from lemoncrow.pro.capabilities.review.freshness import (
     EvidenceFreshness,
     FreshnessPolicy,
@@ -577,7 +579,7 @@ def _apply_freshness(item: ReadinessCondition, evidence: Mapping[str, EvidenceFr
             resolved = replace(
                 ref,
                 state="unknown",
-                reason="the cited evidence is not on this Snapshot",
+                reason="the cited evidence is not on this revision",
                 reason_code="evidence_not_on_snapshot",
             )
         else:
@@ -598,14 +600,21 @@ def _apply_freshness(item: ReadinessCondition, evidence: Mapping[str, EvidenceFr
     if item.state != "pass" or not stale:
         return updated
     reasons = sorted({ref.reason for ref in stale if ref.reason})
+    # The pass label ("... passed") would read as met once the pass is withdrawn.
+    label = (
+        item.label.removesuffix(" passed") + " no longer current"
+        if item.label.endswith(" passed")
+        else item.label + " · evidence no longer current"
+    )
     return replace(
         updated,
+        label=label,
         state="unknown",
         reason="evidence_expired",
         detail=(
             f"{item.detail} {len(stale)} cited observation(s) are no longer current"
             + (f" ({'; '.join(reasons)})" if reasons else "")
-            + "; re-observe on this Snapshot. An expired observation is never counted as passing."
+            + "; re-observe on this revision. An expired observation is never counted as passing."
         ).strip(),
     )
 
@@ -718,7 +727,7 @@ def _gate_h_enforced(condition: ReadinessCondition, rows: Sequence[Mapping[str, 
     return replace(
         condition,
         detail=(
-            "Only advisory LemonCrow-executed results are recorded for this Snapshot. " + note
+            "Only advisory LemonCrow-executed results are recorded for this revision. " + note
             if only
             else f"{condition.detail} {note}".strip()
         ),
@@ -786,6 +795,8 @@ class ReviewProgressFacts:
     unknown: int = 0
     changed_since_review: int = 0
     needs_changes: int = 0
+    #: Parts the reviewer set aside ("Decide later"). Not judged: they pend exactly like ``unreviewed``.
+    later: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -848,6 +859,8 @@ class ApprovalFacts:
     changes_requested: int = 0
     approvals: int = 0
     records: tuple[ApprovalRecord, ...] = ()
+    #: Approvals set aside because a second signature is still owed (hosted, SPEC 4.16): they count for nothing yet.
+    awaiting_second: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -917,8 +930,20 @@ class PolicyChangeNotice:
 def approval_records(store: Any, review_id: str, revision_id: str) -> tuple[ApprovalRecord, ...]:
     """Current human LGTMs on one Snapshot with the generation each was recorded under."""
 
+    from lemoncrow.pro.capabilities.review.record_retraction import standing_outcomes
+    from lemoncrow.pro.capabilities.review.second_reviewer_api import held_approval_ids
+
+    # A retracted approval is not an approval (SPEC 4.18) until the person sends it again, and an approval whose
+    # second signature is still owed counts for nothing yet (SPEC 4.16).
+    held = (
+        held_approval_ids(store, review_id, revision_id)
+        if hasattr(store, "list_relationships_by_kind")
+        else frozenset()
+    )
     approvals = [
-        item for item in store.latest_outcomes(review_id) if item.revision_id == revision_id and item.outcome == "lgtm"
+        item
+        for item in standing_outcomes(store, review_id)
+        if item.revision_id == revision_id and item.outcome == "lgtm" and item.id not in held
     ]
     if not approvals:
         return ()
@@ -1065,16 +1090,18 @@ def _latest_snapshot_reviewed(inputs: ReadinessInputs) -> Iterable[ReadinessCond
     progress = inputs.fact("review_progress")
     if not isinstance(progress, ReviewProgressFacts):
         raise ValueError("review progress is unavailable")
-    pending = progress.unreviewed + progress.unknown + progress.changed_since_review + progress.needs_changes
+    pending = (
+        progress.unreviewed + progress.unknown + progress.changed_since_review + progress.needs_changes + progress.later
+    )
     return (
         ReadinessCondition(
             id="latest-snapshot-reviewed",
-            label="Latest revision reviewed",
+            label="Latest revision reviewed" if pending == 0 else "Latest revision not reviewed yet",
             state="pass" if pending == 0 else "pending",
             detail=(
-                "All review areas on the latest revision have current human judgment."
+                "Every part of the latest revision has current human judgment."
                 if pending == 0
-                else f"{pending} review area(s) still need human judgment or re-review."
+                else f"{part_count(pending)} still {'needs' if pending == 1 else 'need'} human judgment or re-review."
             ),
             category="human_review",
             reason="satisfied" if pending == 0 else "awaiting_human",
@@ -1109,7 +1136,7 @@ def _behavior_condition(
                     f"{open_count} observed behavior change(s) still need human judgment."
                     if open_count
                     else (
-                        "Static analysis of this Snapshot is still running; its behavior changes are not known yet."
+                        "Static analysis of this revision is still running; its behavior changes are not known yet."
                         if analyzing
                         else "Every observed behavior change has current human judgment."
                     )
@@ -1124,7 +1151,9 @@ def _behavior_condition(
         )
     return ReadinessCondition(
         id="behavior-changes-judged",
-        label="Behavior changes judged",
+        label={"pass": "Behavior changes judged", "fail": "Behavior changes need changes"}.get(
+            state, "Behavior changes not judged yet"
+        ),
         state=state,
         detail=detail,
         category="human_review",
@@ -1200,7 +1229,9 @@ def _manual_verification(inputs: ReadinessInputs) -> Iterable[ReadinessCondition
     return (
         ReadinessCondition(
             id="manual-verification",
-            label="Manual verification recorded",
+            label={"pass": "Manual verification recorded", "fail": "Manual verification failed"}.get(
+                state, "Manual verification not recorded yet"
+            ),
             state=state,
             detail=(
                 f"Manual verification policy could not be read: {error}"
@@ -1236,7 +1267,11 @@ def _human_feedback(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
     return (
         ReadinessCondition(
             id="human-change-requests",
-            label="No unresolved request-change comments",
+            label=(
+                "No unresolved request-change comments"
+                if not feedback.request_changes
+                else "Unresolved request-change comments"
+            ),
             state="pass" if not feedback.request_changes else "fail",
             detail=(
                 "No unresolved human request-change comment remains."
@@ -1249,7 +1284,7 @@ def _human_feedback(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
         ),
         ReadinessCondition(
             id="human-comments",
-            label="No unresolved human comments",
+            label="No unresolved human comments" if not feedback.comments else "Unresolved human comments",
             state="pass" if not feedback.comments else "pending",
             detail=(
                 "No unresolved human review discussion remains."
@@ -1315,7 +1350,7 @@ def _verification_condition(gate: dict[str, list[Any]]) -> ReadinessCondition:
         else ("pending" if unresolved else "waived" if waived else "pass" if counted else "not_applicable")
     )
     waived_detail = (
-        f"{len(waived)} check(s) waived by a human on this Snapshot, not passed: "
+        f"{len(waived)} check(s) waived by a human on this revision, not passed: "
         + "; ".join(
             f"{row.get('name') or 'Verification'} ({str((row.get('waiver') or {}).get('reason') or '').strip()})"
             for row in waived[:4]
@@ -1329,7 +1364,7 @@ def _verification_condition(gate: dict[str, list[Any]]) -> ReadinessCondition:
             f"{current_unresolved} current check(s) are NOT_RUN or UNKNOWN." if current_unresolved else "",
             (
                 f"{len(carried)} check(s) whose last result was not PASS have not reported on this "
-                f"Snapshot: {_names(carried)}."
+                f"Revision: {_names(carried)}."
                 if carried
                 else ""
             ),
@@ -1347,19 +1382,20 @@ def _verification_condition(gate: dict[str, list[Any]]) -> ReadinessCondition:
         detail = f"{passed} current check(s) passed with no current failure or unresolved result." + human_note
     elif stale_passes:
         detail = (
-            "No verification result is recorded for this Snapshot; "
+            "No verification result is recorded for this revision; "
             f"{len(stale_passes)} earlier passing check(s) are stale and not counted: {_names(stale_passes)}."
             + human_note
         )
     else:
-        detail = "No required verification result is configured or recorded for this Snapshot." + human_note
+        detail = "No required verification result is configured or recorded for this revision." + human_note
     return ReadinessCondition(
         id="verification",
-        label=(
-            "Verification waived"
-            if state == "waived"
-            else ("Verification passed" if counted or carried or waived else "Verification requirements")
-        ),
+        label={
+            "pass": "Verification passed",
+            "fail": "Verification failed",
+            "pending": "Verification incomplete",
+            "waived": "Verification waived",
+        }.get(state, "Verification requirements"),
         state=state,
         detail=detail,
         category="verification",
@@ -1420,12 +1456,12 @@ def _browser_regression(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]
             ),
             state=state,
             detail=(
-                f"Failed on Snapshot {number}: {names(failed)}."
+                f"Failed on {revision_name(number)}: {names(failed)}."
                 if failed
                 else (
-                    f"No current PASS for Snapshot {number}: {names(open_rows)}."
+                    f"No current PASS for {revision_name(number)}: {names(open_rows)}."
                     if open_rows
-                    else f"{len(required)} required browser scenario(s) passed on this exact Snapshot."
+                    else f"{len(required)} required browser scenario(s) passed on this exact revision."
                 )
             ),
             category="verification",
@@ -1538,7 +1574,7 @@ def _supply_chain(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
                 (f"{len(unresolved)} current supply-chain policy result(s) remain unresolved." if unresolved else ""),
                 (
                     f"{len(carried)} earlier supply-chain verdict(s) that did not pass have not been "
-                    "re-evaluated on this Snapshot: "
+                    "re-evaluated on this revision: "
                     + ", ".join(str(row.get("title") or row.get("kind") or "") for row in carried[:4])
                     + "."
                     if carried
@@ -1552,7 +1588,7 @@ def _supply_chain(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
     elif rows:
         detail = f"{len(rows)} current supply-chain artifact(s) are available, but no policy verdict is recorded."
     else:
-        detail = "No dependency / supply-chain policy evidence is required or recorded for this Snapshot."
+        detail = "No dependency / supply-chain policy evidence is required or recorded for this revision."
     if unattested:
         detail += (
             f" {len(unattested)} PASS verdict(s) without a trusted security feed attestation (a human upload or "
@@ -1560,13 +1596,18 @@ def _supply_chain(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
         )
     if waiver is not None:
         detail = (
-            f"Explicitly waived on this Snapshot by {waiver.get('actor') or 'a reviewer'}: "
+            f"Explicitly waived on this revision by {waiver.get('actor') or 'a reviewer'}: "
             f"{waiver.get('reason') or 'no reason recorded'}. The observed verdicts are unchanged: {detail}"
         )
     return (
         ReadinessCondition(
             id="supply-chain-policy",
-            label="Dependency / supply-chain policy passed" if policy_rows else "Dependency / supply-chain policy",
+            label={
+                "pass": "Dependency / supply-chain policy passed",
+                "fail": "Dependency / supply-chain policy failed",
+                "pending": "Dependency / supply-chain policy not passed yet",
+                "waived": "Dependency / supply-chain policy waived",
+            }.get(state, "Dependency / supply-chain policy"),
             state=state,
             detail=detail,
             category="supply_chain",
@@ -1612,6 +1653,17 @@ def _human_approval(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
                 ),
                 category="approval",
                 reason="satisfied",
+            ),
+        )
+    if approval.awaiting_second:
+        return (
+            ReadinessCondition(
+                id="human-approval-state",
+                label="Second signature",
+                state="pending",
+                detail="An approval is waiting for a second signature; nothing counts as approved until both have signed.",
+                category="approval",
+                reason="second_signature_pending",
             ),
         )
     return (
@@ -1699,7 +1751,7 @@ def _org_policy(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
                 state="pass" if met else "pending",
                 detail=(
                     f"{len(approvers)}/{policy.minimum_reviewers} required human approval(s) are current for this "
-                    "Snapshot." + _approved_under(policy.approvals, generation)
+                    "Revision." + _approved_under(policy.approvals, generation)
                 ),
                 category="approval",
                 reason="satisfied" if met else "awaiting_human",
@@ -1710,12 +1762,12 @@ def _org_policy(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
         out.append(
             ReadinessCondition(
                 id=f"org-policy:reviewer:{reviewer}",
-                label=f"Approval from {reviewer}",
+                label=f"Approval from {reviewer}" if record is not None else f"Approval from {reviewer} not given yet",
                 state="pass" if record is not None else "pending",
                 detail=(
-                    f"{reviewer} has a current human LGTM for this Snapshot." + _approved_under((record,), generation)
+                    f"{reviewer} has a current human LGTM for this revision." + _approved_under((record,), generation)
                     if record is not None
-                    else f"Required reviewer {reviewer} has not approved this Snapshot."
+                    else f"Required reviewer {reviewer} has not approved this revision."
                 ),
                 category="approval",
                 reason="satisfied" if record is not None else "awaiting_human",
@@ -1725,7 +1777,7 @@ def _org_policy(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
         out.append(
             ReadinessCondition(
                 id=f"org-policy:scope:{index}",
-                label=f"Required {scope.kind or 'review'} scope completed",
+                label=f"Required {scope.kind or 'review'} scope {'completed' if scope.satisfied else 'not completed yet'}",
                 state="pass" if scope.satisfied else "pending",
                 detail=", ".join(scope.values) or "Required review scope.",
                 category="approval",
@@ -1789,15 +1841,15 @@ def _org_check_condition(check: OrgCheckFact, *, advisory: bool) -> ReadinessCon
             if held
             else {
                 "waived": (
-                    "Organization-required check was explicitly waived on this Snapshot; its observed state "
+                    "Organization-required check was explicitly waived on this revision; its observed state "
                     "was not changed."
                 ),
-                "pass": "Organization-required typed attestation passed on this Snapshot.",
+                "pass": "Organization-required typed attestation passed on this revision.",
                 "unknown": (
                     "Organization-required typed attestation is an external observation that is no longer "
                     f"current ({check.freshness_reason or 'expired'}); re-observe it."
                 ),
-            }.get(state, "Organization-required typed attestation has not passed on this Snapshot.")
+            }.get(state, "Organization-required typed attestation has not passed on this revision.")
         ),
         category="verification",
         reason=(
@@ -1888,11 +1940,11 @@ def _run_plan_required(inputs: ReadinessInputs) -> Iterable[ReadinessCondition]:
     elif facts.policy_error:
         detail, reason = f"Review policy invalid, so nothing is scheduled: {facts.policy_error}.", "policy_invalid"
     else:
-        detail, reason = f"Required on Snapshot {facts.snapshot_number} but not run: {names}.", "not_planned"
+        detail, reason = f"Required on {revision_name(facts.snapshot_number)} but not run: {names}.", "not_planned"
     return (
         ReadinessCondition(
             id="run-plan-required",
-            label="Required checks planned",
+            label="Required checks not planned",
             state="pending",
             detail=detail,
             category="verification",

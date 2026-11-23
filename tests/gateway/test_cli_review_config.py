@@ -341,6 +341,12 @@ def test_with_no_base_the_view_is_your_working_tree_with_every_setting_and_its_s
     assert sources["docs/review-rules.md"]["state"] == "present" and sources["docs/review-rules.md"]["role"]
     text = _run(tmp_path, "--effective", "--repo", str(repo)).output
     assert "read from:    your working tree" in text
+    # Read from the working tree, nothing on this screen is a trusted base; --base views keep the label.
+    assert "trusted-base" not in text
+    assert (
+        "trusted-base repository Review policy"
+        in _run(tmp_path, "--effective", "--repo", str(repo), "--base", "main").output
+    )
     assert "strictness" in text and "3 (threshold high)" in text and "from .lemoncrow/review.yaml" in text
     assert "no rule has this key" in text  # a rule key that matches nothing is a warning, not silence
     # The trusted base is what a pull request review reads: HEAD never saw the file.

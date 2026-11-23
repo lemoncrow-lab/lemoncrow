@@ -205,10 +205,10 @@ export function reviewEnvironmentDescription(environment: ReviewEnvironment): st
     return "Stored on this machine; Review can refresh directly from your local workspace.";
   }
   if (environment.mode === "customer_hosted") {
-    return "Shared Review hosted by your organization with durable collaboration history.";
+    return "Shared Review hosted by your organization; its comments and history are kept.";
   }
   if (environment.mode === "managed_shared") {
-    return "Shared managed Review with durable collaboration history.";
+    return "Shared managed Review; its comments and history are kept.";
   }
-  return "Dedicated managed Review with durable collaboration history.";
+  return "Dedicated managed Review; its comments and history are kept.";
 }

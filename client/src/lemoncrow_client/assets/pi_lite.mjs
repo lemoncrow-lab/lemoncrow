@@ -6,7 +6,7 @@ const installedInvocation = null;
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Runtime Lite Pi integration requires ${name}`);
+  if (!value) throw new Error(`Workspaces Lite Pi integration requires ${name}`);
   return value;
 }
 
@@ -46,7 +46,7 @@ class LiteRpc {
         const pending = this.pending.get(message.id);
         if (!pending) continue;
         this.pending.delete(message.id);
-        if (message.error) pending.reject(new Error(message.error.message || "Runtime Lite RPC error"));
+        if (message.error) pending.reject(new Error(message.error.message || "Workspaces Lite RPC error"));
         else pending.resolve(message.result);
       }
     });
@@ -61,7 +61,7 @@ class LiteRpc {
     this.process.stdin.on("error", () => {});
     this.process.on("exit", (code, signal) => {
       const detail = this.stderr.trim();
-      const error = new Error(`Runtime Lite MCP exited (${code ?? signal ?? "unknown"})${detail ? `: ${detail}` : ""}`);
+      const error = new Error(`Workspaces Lite MCP exited (${code ?? signal ?? "unknown"})${detail ? `: ${detail}` : ""}`);
       for (const pending of this.pending.values()) pending.reject(error);
       this.pending.clear();
     });
@@ -95,14 +95,14 @@ export default async function runtimeLitePi(pi) {
     const tools = Array.isArray(listed?.tools) ? listed.tools : [];
     byName = new Map(tools.map((tool) => [tool?.name, tool]));
     const missing = EXPECTED_TOOLS.filter((name) => !byName.has(name));
-    if (missing.length) throw new Error(`Runtime Lite Pi integration missing tools: ${missing.join(", ")}`);
+    if (missing.length) throw new Error(`Workspaces Lite Pi integration missing tools: ${missing.join(", ")}`);
   } catch (error) {
     rpc.close();
     // The installed copy loads on every Pi launch. Outside a Git worktree, or
     // after lc moved, Pi must still start, just without LemonCrow tools; Pi
     // treats a throwing extension as fatal.
     if (installedInvocation) {
-      console.error(`LemonCrow Runtime Lite is not available here: ${error?.message ?? error}`);
+      console.error(`LemonCrow Workspaces Lite is not available here: ${error?.message ?? error}`);
       return;
     }
     throw error;
@@ -113,7 +113,7 @@ export default async function runtimeLitePi(pi) {
     pi.registerTool({
       name,
       label: `LemonCrow ${name}`,
-      description: tool.description || `LemonCrow Runtime Lite ${name}`,
+      description: tool.description || `LemonCrow Workspaces Lite ${name}`,
       parameters: tool.inputSchema || { type: "object", additionalProperties: true },
       async execute(_toolCallId, params) {
         const result = await rpc.call("tools/call", { name, arguments: params || {} });

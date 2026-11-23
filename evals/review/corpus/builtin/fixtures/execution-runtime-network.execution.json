@@ -50,7 +50,7 @@
             },
             "redaction_policy_digest": "",
             "reproduce": "synthetic Gate I execution fixture",
-            "result_digest": "a8d138f52dddfeddcd0a9add5faaa992ed59111a757edee631a5c444c798c35f",
+            "result_digest": "e80eeeb0aec8a82c49195d915bcc828032330abe70e58793f54351f1ffc81cb6",
             "schema_version": 1,
             "self_attested": true,
             "sink_captures": [],
@@ -94,7 +94,7 @@
                 },
                 {
                   "name": "production data",
-                  "reason": "the sandbox only sees the Snapshot and trusted-base fixtures",
+                  "reason": "the sandbox only sees the revision and trusted-base fixtures",
                   "status": "not_verified"
                 }
               ],
@@ -161,7 +161,7 @@
             },
             "redaction_policy_digest": "",
             "reproduce": "synthetic Gate I execution fixture",
-            "result_digest": "e9a96517d020a18e992a6677582d672bfd7c5746c1d7d8d562a6878f28d375a4",
+            "result_digest": "c98167363ba6f4d8481e6357b61d0500d37f65a0b0392e448d5a1373905f90e6",
             "schema_version": 1,
             "self_attested": true,
             "sink_captures": [],
@@ -205,7 +205,7 @@
                 },
                 {
                   "name": "production data",
-                  "reason": "the sandbox only sees the Snapshot and trusted-base fixtures",
+                  "reason": "the sandbox only sees the revision and trusted-base fixtures",
                   "status": "not_verified"
                 }
               ],
@@ -292,7 +292,7 @@
             },
             "redaction_policy_digest": "",
             "reproduce": "synthetic Gate I execution fixture",
-            "result_digest": "e9a96517d020a18e992a6677582d672bfd7c5746c1d7d8d562a6878f28d375a4",
+            "result_digest": "c98167363ba6f4d8481e6357b61d0500d37f65a0b0392e448d5a1373905f90e6",
             "schema_version": 1,
             "self_attested": true,
             "sink_captures": [],
@@ -336,7 +336,7 @@
                 },
                 {
                   "name": "production data",
-                  "reason": "the sandbox only sees the Snapshot and trusted-base fixtures",
+                  "reason": "the sandbox only sees the revision and trusted-base fixtures",
                   "status": "not_verified"
                 }
               ],
@@ -403,7 +403,7 @@
             },
             "redaction_policy_digest": "",
             "reproduce": "synthetic Gate I execution fixture",
-            "result_digest": "a8d138f52dddfeddcd0a9add5faaa992ed59111a757edee631a5c444c798c35f",
+            "result_digest": "e80eeeb0aec8a82c49195d915bcc828032330abe70e58793f54351f1ffc81cb6",
             "schema_version": 1,
             "self_attested": true,
             "sink_captures": [],
@@ -447,7 +447,7 @@
                 },
                 {
                   "name": "production data",
-                  "reason": "the sandbox only sees the Snapshot and trusted-base fixtures",
+                  "reason": "the sandbox only sees the revision and trusted-base fixtures",
                   "status": "not_verified"
                 }
               ],

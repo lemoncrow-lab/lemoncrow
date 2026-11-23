@@ -21,54 +21,6 @@ lemoncrow_cli_path() {
     command -v lc 2>/dev/null || command -v lemoncrow 2>/dev/null || true
 }
 
-# Is the LemonCode *host binary* present?
-#
-# Do not use `command -v lemoncode` as the managed-host check: users may have a
-# separate LemonCode executable on PATH. LemonCrow's managed binary is
-# deliberately named `lemoncode-host`.
-#
-# The CLI is authoritative when it exists - resolve_host_binary() in
-# src/lemoncrow/gateway/cli/lemoncode_host.py also accepts a build vendored in a
-# repo checkout, which no path probe here can see. Without a CLI (wizard, before
-# the wheel install) fall back to the two locations a released install uses.
-lemoncrow_lemoncode_host_installed() {
-    local override="${LEMONCODE_HOST_BIN:-}"
-    if [[ -n "$override" ]]; then
-        [[ -x "${override/#\~/$HOME}" ]] && return 0
-    fi
-
-    local cli resolved
-    cli="$(lemoncrow_cli_path)"
-    if [[ -n "$cli" ]]; then
-        # Parsed with python3, not sed: the CLI's JSON spacing varies between
-        # invocation styles, and resolved_path is null when nothing is found.
-        resolved="$("$cli" host status --json 2>/dev/null | python3 -c '
-import json, sys
-try:
-    print(json.load(sys.stdin).get("resolved_path") or "")
-except Exception:
-    pass
-' 2>/dev/null)"
-        [[ -n "$resolved" && -x "$resolved" ]] && return 0
-        return 1
-    fi
-
-    [[ -x "${LEMONCROW_ROOT:-${HOME}/.lemoncrow}/bin/lemoncode-host" ]] && return 0
-    command -v lemoncode-host >/dev/null 2>&1 && return 0
-    return 1
-}
-
-# Download the LemonCode host binary via the installed CLI. Selecting LemonCode
-# is taken as permission to install it, so callers provision instead of
-# skipping. Returns nonzero when no CLI is reachable or the download fails.
-lemoncrow_lemoncode_host_install() {
-    local cli
-    cli="$(lemoncrow_cli_path)"
-    [[ -n "$cli" ]] || return 1
-    "$cli" host install >&2 || return 1
-    lemoncrow_lemoncode_host_installed
-}
-
 lemoncrow_resolve_install_profile() {
     local host_tag="${1:-lemoncrow}"
     local repo_root="${2:-${LEMONCROW_REPO:-}}"
@@ -428,7 +380,7 @@ lemoncrow_json_value() {
 }
 lemoncrow_own_model() {
   for LEMONCROW_PASS in agent any; do
-    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex LEMONCODE_SESSION_ID:lemoncode OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
+    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
       LEMONCROW_HOST="${LEMONCROW_PAIR#*:}"
       if [ "$LEMONCROW_PASS" = agent ] && [ "$LEMONCROW_HOST" != "${LEMONCROW_AGENT:-}" ]; then continue; fi
       eval "LEMONCROW_SID=\"\${${LEMONCROW_PAIR%%:*}:-}\""

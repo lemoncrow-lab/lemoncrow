@@ -14,14 +14,14 @@ import { blindSpotNote, holdClaim, investigateModel, whatIfTargetFor, xrayLocati
 
 function target(fixture: { targets: readonly ReviewTarget[] }, id: string): ReviewTarget {
   const found = fixture.targets.find((row) => row.target_id === id);
-  if (!found) throw new Error(`no target ${id}`);
+  if (!found) throw new Error(`no part ${id}`);
   return found;
 }
 
 describe("investigateModel", () => {
   afterEach(() => window.sessionStorage.clear());
 
-  it("scopes context, blind spots, What if and decisions to the one target", () => {
+  it("scopes context, blind spots, What if and decisions to the one part", () => {
     const fixture = authRefreshWithConsumers();
     const projection = {
       ...fixture.projection,
@@ -61,7 +61,7 @@ describe("investigateModel", () => {
     const bare = investigateModel({ projection: null, targets: fixture.targets, target: client, map: false });
     expect(bare.analysed).toBe(false);
     expect(bare.context).toBeNull();
-    expect(bare.facts[0]).toEqual({ label: "Source", value: `${client.path}:${client.start_line}–${client.end_line}` });
+    expect(bare.facts[0]).toEqual({ label: "Source", value: `${client.path}:${client.start_line}–${client.end_line}`, code: true });
     expect(bare.facts.map((fact) => fact.label)).toEqual(["Source", "Kind", "Changed", "Your review", "Checks on it", "Open comments"]);
     expect(bare.walk).toMatchObject({ available: false });
     expect(bare.walk.reason).toMatch(/no Map graph/);
@@ -83,7 +83,7 @@ describe("investigateModel", () => {
     expect(JSON.stringify(clean)).not.toMatch(/all clear/i);
   });
 
-  it("walks from the target's own Map node, on the side it exists in", () => {
+  it("walks from the part's own Map node, on the side it exists in", () => {
     const { fixture, graph } = INVESTIGATION_MAP_FIXTURES.authRefreshMap();
     const location = xrayLocationFor(graph, target(fixture, "auth-refresh"));
     expect(location).toMatchObject({ level: "architecture", projection: "architecture_delta", node: "refresh", story: "refresh", path: "src/auth/refresh.ts" });

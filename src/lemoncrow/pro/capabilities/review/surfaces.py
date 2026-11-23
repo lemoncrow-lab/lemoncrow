@@ -26,6 +26,7 @@ from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.hermetic import HermeticContext
     from lemoncrow.pro.capabilities.review.store import ReviewStore
+    from lemoncrow.pro.environment.runner_host import RunnerHost
 
 CONFIG_RELATIVE_PATH = Path(".lemoncrow/review.yaml")
 PROVIDER_ENTRYPOINT_GROUP = "lemoncrow.review_surface_providers"
@@ -253,6 +254,14 @@ class SurfaceContext:
     # This callback never crosses the worker wire or enters reviewed code.
     cancellation: Callable[[], bool] | None = None
 
+    @property
+    def runner_host(self) -> RunnerHost:
+        """Review's pieces for the environment runners (:mod:`~lemoncrow.pro.capabilities.review.runner_host`)."""
+
+        from lemoncrow.pro.capabilities.review import runner_host
+
+        return runner_host
+
 
 @dataclass(frozen=True)
 class SetupCandidate:
@@ -413,25 +422,60 @@ def _mapping_list(node: object, *, field_name: str) -> list[Mapping[str, Any]]:
     return rows
 
 
+def environment_runtimes(repo_root: Path) -> tuple[RuntimeConfigEntry, ...] | None:
+    """``.lemoncrow/environment.toml`` ``[previews]`` as ``http-service`` runtimes; ``None`` when it declares none.
+
+    Each runtime is named after its preview: ``run`` serves on ``$PORT`` and ``ready`` is its
+    health path. An invalid file raises ``ValueError`` (nothing falls back to review.yaml).
+    """
+
+    from lemoncrow_client.environment import DefinitionError, load_environment
+
+    try:
+        definition = load_environment(repo_root)
+    except DefinitionError as exc:
+        raise ValueError(str(exc)) from exc
+    if definition is None or not definition.previews:
+        return None
+    return tuple(
+        RuntimeConfigEntry(
+            id=preview.name,
+            runner="http-service",
+            values={"command": ["sh", "-c", preview.run], "health": preview.ready, "port_env": "PORT"},
+        )
+        for preview in definition.previews
+    )
+
+
 def load_review_surface_config(repo_root: Path) -> ReviewSurfaceConfig:
+    """The surfaces and runtimes of ``.lemoncrow/review.yaml``.
+
+    When ``.lemoncrow/environment.toml`` declares ``[previews]``, they are the runtimes
+    (:func:`environment_runtimes`) and review.yaml ``runtimes`` are not read; its surfaces
+    then reference a preview by name.
+    """
+
+    defined = environment_runtimes(repo_root)
     path = repo_root / CONFIG_RELATIVE_PATH
     if not path.is_file():
-        return ReviewSurfaceConfig()
+        return ReviewSurfaceConfig(runtimes=defined or ())
     try:
         decoded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ValueError(f"invalid {CONFIG_RELATIVE_PATH.as_posix()}: {exc}") from exc
     if decoded is None:
-        return ReviewSurfaceConfig()
+        return ReviewSurfaceConfig(runtimes=defined or ())
     if not isinstance(decoded, Mapping):
         raise ValueError(f"{CONFIG_RELATIVE_PATH.as_posix()} must contain a mapping")
     version = decoded.get("version", 1)
     if not isinstance(version, int) or version != 1:
         raise ValueError(f"{CONFIG_RELATIVE_PATH.as_posix()} version must be 1")
 
-    runtimes: list[RuntimeConfigEntry] = []
-    runtime_ids: set[str] = set()
-    for index, raw in enumerate(_mapping_list(decoded.get("runtimes", []), field_name="runtimes")):
+    runtimes: list[RuntimeConfigEntry] = list(defined or ())
+    runtime_ids: set[str] = {runtime.id for runtime in runtimes}
+    for index, raw in enumerate(
+        _mapping_list(decoded.get("runtimes", []), field_name="runtimes") if defined is None else ()
+    ):
         runtime_id = str(raw.get("id") or "").strip()
         runner = str(raw.get("runner") or "").strip()
         if not runtime_id or not runner:
@@ -573,6 +617,7 @@ __all__ = [
     "SurfaceContext",
     "SurfaceRegistry",
     "built_in_registry",
+    "environment_runtimes",
     "load_entrypoint_providers",
     "load_entrypoint_providers_isolated",
     "load_review_surface_config",

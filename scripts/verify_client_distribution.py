@@ -118,7 +118,6 @@ if sys.argv[1:3] == ["mcp", "add"]:
         (".claude.json", False, "claude"),
         (".cursor/mcp.json", False, "cursor"),
         (".config/opencode/opencode.json", True, "opencode"),
-        (".config/lemoncode/opencode.jsonc", True, "lemoncode"),
     ]:
         old = [str(state / "uv-tools/lemoncrow/bin/lc"), "runtime", "lite-mcp", "--host", host]
         entry = {"command": old if array else old[0], "enabled": False, "env": {"PRESERVE": "yes"}}
@@ -155,7 +154,6 @@ if sys.argv[1:3] == ["mcp", "add"]:
         (".claude.json", "mcpServers"),
         (".cursor/mcp.json", "mcpServers"),
         (".config/opencode/opencode.json", "mcp"),
-        (".config/lemoncode/opencode.jsonc", "mcp"),
     ]:
         document = json.loads((home / relative).read_text())
         entry = document[group]["lc"]
@@ -180,7 +178,6 @@ if sys.argv[1:3] == ["mcp", "add"]:
         pi,
         home / ".pi/agent/settings.json",
         home / ".config/opencode/opencode.json",
-        home / ".config/lemoncode/opencode.jsonc",
     ]
     snapshots = {path: path.read_bytes() for path in protected}
     original_env = env.copy()

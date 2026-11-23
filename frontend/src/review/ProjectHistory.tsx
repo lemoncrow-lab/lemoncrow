@@ -1,270 +1,154 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { History } from "lucide-react";
-
-import { Button as UiButton } from "../components/ui/button";
-import { Input as UiInput } from "../components/ui/input";
-import { reviewHref } from "./reviewApi";
-import type { ReviewProjectContext, ReviewProjectContextEntry, ReviewProjectEvolutionEvent } from "./types";
-
 /**
- * PK2 landed history. Every surface that shows Project Knowledge labels it as
- * history from the canonical branch, never as a fact about this Snapshot, and
- * links each entry to the evolution event / Review it came from.
+ * Project history: what the repository's landed history says about the files this change touches. A plain read of
+ * derived Project Knowledge that starts no AI or background work. It is shown as background, never as a fact about the
+ * revision on screen, and nothing renders when the repository has no history, so a Review without it looks the same.
  */
+import { useEffect, useMemo, useState } from "react";
 
-const EVENT_LABEL: Record<string, string> = {
-  baseline: "Baseline observed",
-  merged_change: "Landed Change",
-  source_advance: "Canonical branch advanced",
-};
+import { Label } from "./overview/OverviewParts";
+import { plural } from "./overview/overviewModel";
+import { fetchReviewProjectContext, reviewHref } from "./reviewApi";
+import type { ReviewProjectContext, ReviewProjectContextEntry } from "./types";
 
-function eventLabel(event: ReviewProjectEvolutionEvent | null): string {
-  if (!event) return "";
-  return `${EVENT_LABEL[event.kind] ?? event.kind} · ${event.observed_at.slice(0, 10)}`;
+export interface ProjectHistoryProps {
+  apiReviewId: string;
+  revisionNumber: number;
+  purpose?: "brief" | "map";
+  /** History for these paths; the server uses the change's own paths when absent. */
+  paths?: readonly string[];
 }
 
-function stateTone(entry: ReviewProjectContextEntry): string {
-  if (entry.stale_for_snapshot) return "text-amber-300";
-  if (entry.state === "superseded" || entry.state === "historical") return "text-muted-foreground";
-  if (entry.state === "uncertain") return "text-amber-200";
-  return "text-cyan-300";
+/** The server accepts at most this many paths in one read. */
+const MAX_PATHS = 16;
+
+/** A bare "this path exists" row says nothing; the Map keeps inventory only where it records a replaced file. */
+export function historyRows(
+  context: ReviewProjectContext
+): ReviewProjectContextEntry[] {
+  return [...context.entries, ...context.narration].filter(
+    (row) => row.knowledge_kind !== "inventory" || row.state === "superseded"
+  );
 }
 
-export function ProjectHistoryEntry({ entry }: { entry: ReviewProjectContextEntry }) {
-  const [open, setOpen] = useState(false);
-  const reviewLinks = entry.citations.filter((citation) => citation.resolved && citation.review_id);
+function HistoryRow({ row }: { row: ReviewProjectContextEntry }) {
+  const reviews = row.citations.filter((citation) => citation.review_id);
+  const narrated = row.context_class === "ai_narration";
   return (
-    <li className="flex flex-col gap-0.5" data-testid="project-history-entry" data-state={entry.state}>
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-caption text-foreground">{entry.summary}</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-2 text-micro">
-        <span className={stateTone(entry)} data-testid="project-history-freshness">{entry.freshness_label}</span>
-        <span className="text-muted-foreground">{`${entry.subject.key} · ${entry.knowledge_kind}`}</span>
-        {entry.context_class === "ai_narration" && <span className="text-muted-foreground">AI narration · not evidence</span>}
-        <UiButton variant="ghost" size="compact" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          {open ? "Hide source history" : "Source history"}
-        </UiButton>
-      </div>
-      {open && (
-        <ul className="ml-2 flex flex-col gap-0.5 border-l border-border/70 pl-2 text-micro text-muted-foreground" data-testid="project-history-citations">
-          {entry.history.origin && <li>{`Introduced: ${eventLabel(entry.history.origin)}`}</li>}
-          {entry.history.superseded_by && <li>{`Superseded: ${eventLabel(entry.history.superseded_by)}`}</li>}
-          {reviewLinks.map((citation) => (
-            <li key={citation.ref}>
-              <a className="text-cyan-300 underline-offset-2 hover:underline" href={reviewHref(citation.review_id ?? "")}>
-                {citation.label ?? "Open Review"}
-              </a>
-            </li>
-          ))}
-          {entry.citations
-            .filter((citation) => !(citation.resolved && citation.review_id) && citation.kind !== "generation")
-            .map((citation) => <li key={citation.ref}>{citation.label ?? citation.ref}</li>)}
-          {(entry.citations_omitted ?? 0) > 0 && <li>{`${entry.citations_omitted} more sources not shown`}</li>}
-        </ul>
-      )}
+    <li
+      className="flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere]"
+      data-testid="project-history-row"
+    >
+      <span className="font-mono text-meta text-muted-foreground">
+        {row.subject.key}
+      </span>
+      <span className="text-caption text-foreground">{row.summary}</span>
+      <span
+        className="text-meta text-muted-foreground"
+        data-testid="project-history-freshness"
+      >
+        {narrated
+          ? `AI narration, not evidence · ${row.freshness_label}`
+          : row.freshness_label}
+      </span>
+      {row.citations.length > 0 ? (
+        <details
+          className="text-meta text-muted-foreground"
+          data-testid="project-history-sources"
+        >
+          <summary className="cursor-pointer">Sources</summary>
+          <ul className="mt-1 flex flex-col gap-0.5 pl-2">
+            {row.citations.map((citation) => (
+              <li key={citation.ref}>{citation.label ?? citation.ref}</li>
+            ))}
+            {row.citations_omitted ? (
+              <li>{`${row.citations_omitted} more`}</li>
+            ) : null}
+          </ul>
+        </details>
+      ) : null}
+      {reviews.map((citation) => (
+        <a
+          key={citation.ref}
+          className="self-start text-meta underline underline-offset-2"
+          href={reviewHref(citation.review_id ?? "")}
+          data-testid="project-history-review"
+        >
+          Open the Review it came from
+        </a>
+      ))}
     </li>
   );
 }
 
-export function ProjectHistoryList({ context, testId }: { context: ReviewProjectContext; testId: string }) {
-  const rows = [...context.entries, ...context.narration];
-  return (
-    <div className="flex flex-col gap-1.5" data-testid={testId}>
-      <ul className="flex flex-col gap-1.5">
-        {rows.map((entry) => <ProjectHistoryEntry key={entry.entry_id} entry={entry} />)}
-      </ul>
-      {context.omitted > 0 && (
-        <p className="text-micro text-muted-foreground">{`${context.omitted} more not shown · history is bounded`}</p>
-      )}
-    </div>
-  );
-}
+export default function ProjectHistory({
+  apiReviewId,
+  revisionNumber,
+  purpose = "brief",
+  paths,
+}: ProjectHistoryProps) {
+  const pathKey = (paths ?? []).slice(0, MAX_PATHS).join("\n");
+  const request = `${apiReviewId}:${revisionNumber}:${purpose}:${pathKey}`;
+  const [loaded, setLoaded] = useState<{
+    request: string;
+    context: ReviewProjectContext;
+  } | null>(null);
 
-/**
- * Brief: a compact "Relevant history" section, rendered only when landed
- * history exists for this Change. Loading is a plain read; it never starts AI.
- */
-export default function BriefProjectContext({ load }: { load: (term?: string, history?: "" | "decisions" | "checks", force?: boolean) => Promise<ReviewProjectContext | null> }) {
-  const [loadedContext, setContext] = useState<ReviewProjectContext | null>(null);
-  const [loadedFor, setLoadedFor] = useState<typeof load>(() => load);
-  // A new Snapshot supplies a new load callback. Hide the old revision's
-  // history during render, before the cleanup/reload effect runs.
-  const visibleContext = loadedFor === load ? loadedContext : null;
-  const [term, setTerm] = useState("");
-  const [browse, setBrowse] = useState<"related" | "decisions" | "checks" | "search">("related");
-  const [busy, setBusy] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [initialLoadFailed, setInitialLoadFailed] = useState(false);
-  const generationRef = useRef(0);
   useEffect(() => {
-    const generation = ++generationRef.current;
-    setLoadedFor(() => load);
-    setContext(null);
-    setTerm("");
-    setBrowse("related");
-    setSearchError("");
-    setInitialLoadFailed(false);
-    Promise.resolve()
-      .then(() => load())
-      .then((next) => { if (generationRef.current === generation) { setContext(next); setInitialLoadFailed(false); } })
-      .catch(() => { if (generationRef.current === generation) { setContext(null); setInitialLoadFailed(true); } });
-    return () => { generationRef.current += 1; };
-  }, [load]);
-  const search = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const generation = ++generationRef.current;
-    const bounded = term.trim().slice(0, 256);
-    setBusy(true);
-    setSearchError("");
-    Promise.resolve()
-      .then(() => load(bounded))
-      .then((next) => {
-        if (generationRef.current !== generation) return;
-        setContext(next);
-        setBrowse(bounded ? "search" : "related");
+    let live = true;
+    fetchReviewProjectContext(
+      apiReviewId,
+      revisionNumber,
+      purpose,
+      pathKey ? { paths: pathKey.split("\n") } : {}
+    )
+      .then((payload) => {
+        if (live) setLoaded({ request, context: payload.project_context });
       })
-      .catch(() => { if (generationRef.current === generation) setSearchError("Historical search is unavailable."); })
-      .finally(() => { if (generationRef.current === generation) setBusy(false); });
-  };
-  const switchBrowse = (next: "related" | "decisions" | "checks") => {
-    if (next === browse || busy) return;
-    const generation = ++generationRef.current;
-    setBusy(true);
-    setSearchError("");
-    setTerm("");
-    Promise.resolve()
-      .then(() => load("", next === "related" ? "" : next))
-      .then((nextContext) => {
-        if (generationRef.current !== generation) return;
-        setContext(nextContext);
-        setBrowse(next);
-      })
-      .catch(() => { if (generationRef.current === generation) setSearchError("Landed history is unavailable."); })
-      .finally(() => { if (generationRef.current === generation) setBusy(false); });
-  };
-  if (loadedFor === load && !visibleContext && initialLoadFailed) return (
-    <section aria-label="Relevant history unavailable" data-testid="brief-history-unavailable" className="border-t border-border/70 py-2 text-caption text-muted-foreground">
-      <p role="status">Landed history could not be loaded. This does not mean no previous decisions or checks exist.</p>
-      <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => {
-        const generation = ++generationRef.current;
-        setBusy(true);
-        setSearchError("");
-        void Promise.resolve().then(() => load("", "", true))
-          .then((next) => { if (generationRef.current === generation) { setContext(next); setInitialLoadFailed(false); } })
-          .catch(() => { if (generationRef.current === generation) setSearchError("Landed history is still unavailable."); })
-          .finally(() => { if (generationRef.current === generation) setBusy(false); });
-      }}>Retry history</UiButton>
-      {searchError && <p role="alert">{searchError}</p>}
-    </section>
-  );
-  if (!visibleContext) return null;
-  const context = visibleContext;
-  if (!context.available && context.reason === "no_canonical_generation") {
-    return (
-      <section aria-label="Project history sync" data-testid="brief-history-not-synced"
-        className="border-t border-border/70 py-2 text-micro text-muted-foreground">
-        <span>Past project history has not been synchronized for this repository.</span>
-        <UiButton variant="link" size="compact" type="button" disabled={busy}
-          onClick={() => {
-            const generation = ++generationRef.current;
-            setBusy(true);
-            void Promise.resolve().then(() => load("", "", true))
-              .then((next) => { if (generationRef.current === generation) setContext(next); })
-              .catch(() => { if (generationRef.current === generation) setSearchError("History still unavailable."); })
-              .finally(() => { if (generationRef.current === generation) setBusy(false); });
-          }}>Retry history</UiButton>
-        {searchError && <span role="status">{searchError}</span>}
-      </section>
-    );
-  }
-  if (!context.available) return null;
-  return (
-    <section aria-label="Relevant history" className="flex flex-col gap-1.5 border-t border-border/70 py-3" data-testid="brief-project-context">
-      <div className="flex items-center gap-2 text-label font-medium text-foreground">
-        <History size={14} aria-hidden="true" className="text-muted-foreground" />
-        <span>Relevant history</span>
-        <span className="text-micro font-normal text-muted-foreground">Landed history · advisory, not evidence for this Snapshot</span>
-      </div>
-      <div className="flex flex-wrap gap-1" aria-label="Browse landed history" data-testid="project-history-browse">
-        {(["related", "decisions", "checks"] as const).map((view) => (
-          <UiButton key={view} variant={browse === view ? "outline" : "ghost"} size="compact" type="button"
-            aria-pressed={browse === view} disabled={busy} onClick={() => switchBrowse(view)}>
-            {view === "related" ? "Related" : view === "decisions" ? "Past decisions" : "Past checks"}
-          </UiButton>
-        ))}
-      </div>
-      <form onSubmit={search} className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="project-history-search">
-        <UiInput uiSize="xs" aria-label="Search landed project history" placeholder="Search landed history" value={term}
-          onChange={(event) => setTerm(event.target.value)} maxLength={256} className="min-w-[160px] flex-1" />
-        <UiButton variant="outline" size="compact" type="submit" disabled={busy}>{busy ? "Searching…" : "Search"}</UiButton>
-      </form>
-      {searchError && <p role="status" className="text-micro text-amber-300">{searchError}</p>}
-      {context.entries.length + context.narration.length === 0
-        ? <p className="text-caption text-muted-foreground">
-            {browse === "search" ? "No matching landed history. This does not prove the change is safe."
-              : browse === "decisions" ? "No recorded landed reviewer decisions yet."
-              : browse === "checks" ? "No verified landed check history yet."
-              : "No history matched these changes. Browse earlier decisions or checks."}
-          </p>
-        : <ProjectHistoryList context={context} testId="brief-project-context-list" />}
-    </section>
-  );
-}
+      // History is optional context: a failed read leaves the screen as it is without it.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [apiReviewId, pathKey, purpose, request, revisionNumber]);
 
-/**
- * Map: history for one selected component or edge, loaded only on an explicit
- * request and drawn apart from the exact current edges.
- */
-export function MapProjectHistory({
-  load,
-  selectionKey,
-}: {
-  load: () => Promise<ReviewProjectContext | null>;
-  /** Identity of the selected component or edge; a new selection starts idle again. */
-  selectionKey: string;
-}) {
-  // Keyed by the selection: a new selection mounts fresh state, so the previous
-  // selection's history never paints (even for one frame) under a new node.
-  return <MapProjectHistoryForSelection key={selectionKey} load={load} />;
-}
+  const context = loaded?.request === request ? loaded.context : null;
+  const rows = useMemo(
+    () => (context?.available ? historyRows(context) : []),
+    [context]
+  );
+  if (!context || rows.length === 0) return null;
+  const hidden =
+    context.entries.length + context.narration.length - rows.length;
+  const more = context.omitted + hidden;
 
-function MapProjectHistoryForSelection({ load }: { load: () => Promise<ReviewProjectContext | null> }) {
-  const [state, setState] = useState<"idle" | "loading" | "loaded" | "failed">("idle");
-  const [context, setContext] = useState<ReviewProjectContext | null>(null);
-  // One request per mounted selection (the button shows only while idle); an
-  // answer that lands after the selection changed updates an unmounted body.
-  const request = () => {
-    setState("loading");
-    Promise.resolve()
-      .then(load)
-      .then((next) => {
-        setContext(next);
-        setState("loaded");
-      })
-      .catch(() => setState("failed"));
-  };
-  const rows = context ? context.entries.length + context.narration.length : 0;
   return (
     <section
-      aria-label="Landed history"
-      className="flex flex-col gap-1.5 rounded-md border border-dashed border-border/80 px-2 py-1.5"
-      data-testid="map-project-history"
+      aria-label="Project history"
+      className="rounded-lg border border-border bg-card"
+      data-testid="project-history"
     >
-      <p className="text-micro text-muted-foreground">Landed history · not part of this Snapshot</p>
-      {state === "idle" && (
-        <UiButton variant="ghost" size="compact" type="button" onClick={request}>Show landed history</UiButton>
-      )}
-      {state === "loading" && <p className="text-micro text-muted-foreground">Loading history…</p>}
-      {state === "failed" && <p className="text-micro text-amber-300">History is unavailable.</p>}
-      {state === "loaded" && context && rows > 0 && <ProjectHistoryList context={context} testId="map-project-history-list" />}
-      {state === "loaded" && (!context || rows === 0) && (
-        <p className="text-micro text-muted-foreground">
-          {context && !context.available && context.reason === "not_configured"
-            ? "Project Knowledge is not configured for this repository."
-            : "No landed history for this selection."}
+      <div className="flex min-h-9 items-center px-3 py-2">
+        <Label>{`Project history · ${plural(rows.length, "entry", "entries")}`}</Label>
+      </div>
+      <div className="flex flex-col gap-3 border-t border-border p-3">
+        <p
+          className="text-meta text-muted-foreground"
+          data-testid="project-history-note"
+        >
+          {context.authority_note}
         </p>
-      )}
+        <ul className="flex flex-col gap-3">
+          {rows.map((row) => (
+            <HistoryRow key={row.entry_id} row={row} />
+          ))}
+        </ul>
+        {more > 0 ? (
+          <p
+            className="text-meta text-muted-foreground"
+            data-testid="project-history-more"
+          >{`${more} more not shown`}</p>
+        ) : null}
+      </div>
     </section>
   );
 }

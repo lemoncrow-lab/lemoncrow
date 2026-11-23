@@ -84,7 +84,7 @@ function outlineRow(path: string, options: Partial<ReviewOutlineItem> = {}): Rev
 }
 
 describe("reader model", () => {
-  it("groups target order into one continuous file order", () => {
+  it("groups part order into one continuous file order", () => {
     const rows = [target("a", "src/a.py"), target("b", "src/a.py"), target("c", "src/b.py")];
     expect(groupReaderFiles(rows).map((file) => [file.path, file.targetCount])).toEqual([
       ["src/a.py", 2],
@@ -103,7 +103,20 @@ describe("reader model", () => {
         { side: "new", start_line: 664, end_line: 877, hunk_ordinal: 0 },
       ],
     });
-    expect(targetDisplayLabel(fallback)).toBe("Changes outside detected symbols · 2 regions");
+    expect(targetDisplayLabel(fallback)).toBe("Other changed lines · 2 places");
+  });
+
+  it("names a lone changed line and a plain module-level part", () => {
+    const single = target("line", "src/reader.tsx", "unreviewed", {
+      kind: "hunk",
+      symbol: "",
+      start_line: 2,
+      end_line: 2,
+      spans: [{ side: "new", start_line: 2, end_line: 2, hunk_ordinal: 0 }],
+    });
+    expect(targetDisplayLabel(single)).toBe("Changed line 2");
+    const section = target("top", "src/reader.tsx", "unreviewed", { kind: "document_section", symbol: "" });
+    expect(targetDisplayLabel(section)).toBe("Imports and top-level code");
   });
 
   it("uses diff semantics for scope tone instead of review state", () => {
@@ -141,7 +154,7 @@ describe("reader model", () => {
     expect(stepTarget(rows, "a", -1, { wrap: true })?.target_id).toBe("c");
   });
 
-  it("visits every eligible target exactly once around a wrapped cycle", () => {
+  it("visits every eligible part exactly once around a wrapped cycle", () => {
     const rows = [target("a", "a.py"), target("b", "a.py", "reviewed"), target("c", "b.py")];
     const seen: string[] = [];
     let current = "a";
@@ -159,13 +172,13 @@ describe("reader model", () => {
     expect(stepTarget([target("a", "a.py", "reviewed")], "a", 1, { actionableOnly: true, wrap: true })).toBeNull();
   });
 
-  it("J/K moves files and lands on an actionable target", () => {
+  it("J/K moves files and lands on an actionable part", () => {
     const rows = [target("a", "a.py"), target("b", "b.py", "reviewed"), target("c", "b.py")];
     expect(stepFile(rows, "a", 1)?.target_id).toBe("c");
     expect(stepFile(rows, "c", -1)?.target_id).toBe("a");
   });
 
-  it("search ANDs terms across target metadata without mutating review order", () => {
+  it("search ANDs terms across part metadata without mutating review order", () => {
     const rows = [
       target("a", "src/z.py", "needs_changes", { reasons: ["public contract changed"] }),
       target("b", "src/a.py"),
@@ -177,7 +190,7 @@ describe("reader model", () => {
     expect(filterTargets(rows, "").map((row) => row.target_id)).toEqual(["a", "b"]);
   });
 
-  it("computes progress only from targets", () => {
+  it("computes progress only from parts", () => {
     const rows = [target("a", "a.py", "reviewed"), target("b", "a.py"), target("c", "b.py", "unknown")];
     expect(progressFromTargets(rows)).toMatchObject({ target_count: 3, reviewed: 1, unreviewed: 1, unknown: 1 });
   });
@@ -370,15 +383,15 @@ describe("reader model", () => {
 
     it("classifies a synthetic compare row by its own state, in list order", () => {
       const compare = [
-        target("c:b", "b.py", "unknown", { reasons: ["Changed between Snapshot 2 and Snapshot 3"] }),
+        target("c:b", "b.py", "unknown", { reasons: ["Changed between Revision 3 and Revision 4"] }),
         target("c:a", "a.py", "unknown", { reasons: ["+3 -1"] }),
       ];
       expect(compare.map((row, index) => targetAttention(row, index))).toEqual([
-        { tier: 4, attention: "understand", reason_code: "", reason_label: "Changed between Snapshot 2 and Snapshot 3", actionable: true, attention_rank: 0 },
+        { tier: 4, attention: "understand", reason_code: "", reason_label: "Changed between Revision 3 and Revision 4", actionable: true, attention_rank: 0 },
         { tier: 4, attention: "understand", reason_code: "", reason_label: "Needs human judgment", actionable: true, attention_rank: 1 },
       ]);
       expect(reviewQueue(compare).map((row) => row.target_id)).toEqual(["c:b", "c:a"]);
-      expect(nextReviewGuideTarget(compare)).toMatchObject({ reason: "Changed between Snapshot 2 and Snapshot 3", reasonCode: "", attention: "" });
+      expect(nextReviewGuideTarget(compare)).toMatchObject({ reason: "Changed between Revision 3 and Revision 4", reasonCode: "", attention: "" });
     });
   });
 
@@ -400,7 +413,7 @@ describe("reader model", () => {
     ]);
   });
 
-  it("restores the viewport to the surviving active target after a revision", () => {
+  it("restores the viewport to the surviving active part after a revision", () => {
     const previous = target("b", "src/a.py", "reviewed", { start_line: 30 });
     const rows = [
       target("a", "src/a.py", "reviewed", { start_line: 10 }),
@@ -420,7 +433,7 @@ describe("reader model", () => {
     expect(bestTargetAfterRevision(previous, rows, delta)?.target_id).toBe("b");
   });
 
-  it("moves a removed viewport to the nearest active target in the same file", () => {
+  it("moves a removed viewport to the nearest active part in the same file", () => {
     const previous = target("gone", "src/a.py", "reviewed", { start_line: 50 });
     // The nearer target is deliberately second in review order, so picking the
     // first same-file row rather than the closest one fails this test.
@@ -469,7 +482,7 @@ describe("reader model", () => {
     ]);
   });
 
-  it("maps a target to a concrete CodeView line scroll location", () => {
+  it("maps a part to a concrete CodeView line scroll location", () => {
     expect(targetScrollLocation(target("a", "a.py"))).toEqual({ lineNumber: 12, side: "additions" });
     expect(
       targetScrollLocation(

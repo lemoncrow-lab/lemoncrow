@@ -61,22 +61,6 @@ from typing import Any, Final, Protocol
 from urllib.parse import urlsplit
 
 from lemoncrow.pro.capabilities.review.compute_ledger import ComputeRecorder
-from lemoncrow.pro.capabilities.review.execution import (
-    EnvironmentFingerprint,
-    ExecutorClass,
-    SinkCapture,
-    VerificationEnvironment,
-)
-from lemoncrow.pro.capabilities.review.preview_proxy import (
-    GateDecision,
-    LoopbackPreviewServer,
-    PreviewProxyCore,
-    PreviewUpstreamError,
-    ProxyRequest,
-    ProxyResponse,
-    enter_target,
-    mint_ticket,
-)
 from lemoncrow.pro.capabilities.review.preview_runtime import (
     PreparedSide,
     PreviewRecipe,
@@ -100,18 +84,34 @@ from lemoncrow.pro.capabilities.review.preview_sessions import (
     new_token,
     token_matches,
 )
-from lemoncrow.pro.capabilities.review.preview_state import (
-    STATE_RETENTION_SECONDS,
-    InMemoryPreviewState,
-    PreviewState,
-    side_key,
-)
 from lemoncrow.pro.capabilities.review.run_evidence import (
     RedactionPolicy,
     RunArtifactStore,
     access_allows,
     protect_mapping,
     protect_text,
+)
+from lemoncrow.pro.environment.execution import (
+    EnvironmentFingerprint,
+    ExecutorClass,
+    SinkCapture,
+    VerificationEnvironment,
+)
+from lemoncrow.pro.environment.preview_proxy import (
+    GateDecision,
+    LoopbackPreviewServer,
+    PreviewProxyCore,
+    PreviewUpstreamError,
+    ProxyRequest,
+    ProxyResponse,
+    enter_target,
+    mint_ticket,
+)
+from lemoncrow.pro.environment.preview_state import (
+    STATE_RETENTION_SECONDS,
+    InMemoryPreviewState,
+    PreviewState,
+    side_key,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -348,7 +348,7 @@ def review_state_of(store: Any, review_id: str, revision_id: str) -> tuple[Sessi
     if session is None or str(getattr(session, "status", "open")) != "open":
         return "closed", "the Review was closed"
     if latest is None or latest.id != revision_id:
-        return "superseded", "a newer Snapshot superseded this one"
+        return "superseded", "a newer revision superseded this one"
     return None
 
 
@@ -580,8 +580,11 @@ class InteractivePreviewManager:
         content_access: str = "ai_denied",
         managed_cap: ManagedSpendCap | None = None,
         slot: PreviewSlot | None = None,
+        preview: str = "",
     ) -> tuple[PreviewSession, str]:
         """Start both sides; returns the running record and the one-time token.
+
+        *preview* names the environment.toml preview *recipe* comes from (recorded on the session).
 
         *slot* is the reservation :meth:`reserve` took before the caller persisted anything (the API
         reserves before it amends the run plan); without one, the start reserves its own. Either way a
@@ -646,6 +649,7 @@ class InteractivePreviewManager:
                     redaction=redaction,
                     content_access=content_access,
                     managed_cap=managed_cap,
+                    preview=preview,
                 )
         except BaseException:
             if held is not None:
@@ -668,6 +672,7 @@ class InteractivePreviewManager:
         redaction: RedactionPolicy | None,
         content_access: str,
         managed_cap: ManagedSpendCap | None,
+        preview: str = "",
     ) -> tuple[PreviewSession, str]:
         now = self._clock()
         token = new_token()
@@ -688,6 +693,7 @@ class InteractivePreviewManager:
             executor_class=driver.executor_class.value,
             plan_digest=plan_digest,
             mode=recipe.mode,
+            preview=preview,
             limited_by_budget=cap < wanted,
         )
         self.sessions.put(record)
@@ -1098,7 +1104,7 @@ class InteractivePreviewManager:
         out: list[str] = []
         for live in self._live_for(review_id):
             if live.record.revision_id != current_revision_id:
-                self._teardown(live, "superseded", "a newer Snapshot superseded this one")
+                self._teardown(live, "superseded", "a newer revision superseded this one")
                 out.append(live.record.id)
         return out
 

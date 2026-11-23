@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("./reviewApi", () => api);
 
-import ReviewRecordExport, { UNSIGNED_RECORD_LABEL } from "./ReviewRecordExport";
+import ReviewRecordExport, { downloadDecisionRecord, UNSIGNED_RECORD_LABEL } from "./ReviewRecordExport";
 import ReviewReadinessSheet, { deriveReviewReadiness } from "./ReviewReadinessSheet";
 
 function summary(overrides: Partial<ReviewRecordSummary> = {}): ReviewRecordSummary {
@@ -93,8 +93,27 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("downloadDecisionRecord (Finish)", () => {
+  it("signs when it can, binds the export to the finished revision and downloads the stored envelope", async () => {
+    const record = summary();
+    api.fetchReviewRecordStatus.mockResolvedValue(status());
+    api.exportReviewRecord.mockResolvedValue(exported(record, "verified"));
+    await expect(downloadDecisionRecord("rev-1", "rr-1")).resolves.toBe("Signed with organization key rk_abc");
+    expect(api.exportReviewRecord).toHaveBeenCalledWith("rev-1", { signing: "auto", expected_revision_id: "rr-1" });
+    expect(api.fetchReviewRecordFile).toHaveBeenCalledWith("rev-1", "rec_signed");
+  });
+
+  it("falls back to an explicitly UNSIGNED record when no key can sign, and says so", async () => {
+    const record = summary({ record_id: "rec_unsigned", signing_state: "unsigned", signing_mode: "unsigned", key_id: "" });
+    api.fetchReviewRecordStatus.mockResolvedValue(status({ signing: { ...status().signing, available: false, code: "not_configured" } }));
+    api.exportReviewRecord.mockResolvedValue(exported(record, "unsigned"));
+    await expect(downloadDecisionRecord("rev-1", "rr-1")).resolves.toBe(UNSIGNED_RECORD_LABEL);
+    expect(api.exportReviewRecord).toHaveBeenCalledWith("rev-1", { signing: "unsigned", expected_revision_id: "rr-1" });
+  });
+});
+
 describe("ReviewRecordExport", () => {
-  it("exports a signed record of the shown Snapshot, downloads it and labels it signed", async () => {
+  it("exports a signed record of the shown revision, downloads it and labels it signed", async () => {
     const record = summary();
     api.fetchReviewRecordStatus.mockResolvedValueOnce(status()).mockResolvedValueOnce(status({ records: [record] }));
     api.exportReviewRecord.mockResolvedValue(exported(record, "verified"));
@@ -133,7 +152,7 @@ describe("ReviewRecordExport", () => {
       signing: { ...status().signing, available: false, code: "not_configured", key_id: "", reason: "No organization signing key exists yet." },
     });
     api.fetchReviewRecordStatus.mockResolvedValue(unavailable);
-    api.exportReviewRecord.mockRejectedValue(Object.assign(new Error("a newer Snapshot exists"), { status: 409 }));
+    api.exportReviewRecord.mockRejectedValue(Object.assign(new Error("a newer revision exists"), { status: 409 }));
     render(<ReviewRecordExport reviewId="rev-1" snapshotId="rr-1" />);
 
     expect(await screen.findByTestId("record-signing-status")).toHaveTextContent("Signing unavailable: No organization signing key exists yet.");
@@ -142,13 +161,13 @@ describe("ReviewRecordExport", () => {
     await userEvent.click(signed);
     expect(api.exportReviewRecord).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Export UNSIGNED record" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("a newer Snapshot exists");
+    expect(await screen.findByRole("alert")).toHaveTextContent("a newer revision exists");
   });
 
   it("offers no export before a decision or when read-only", async () => {
     api.fetchReviewRecordStatus.mockResolvedValue(status({ decision: null }));
     const { unmount } = render(<ReviewRecordExport reviewId="rev-1" />);
-    expect(await screen.findByText(/No decision on the latest Snapshot yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No decision on the latest revision yet/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Export/ })).not.toBeInTheDocument();
     unmount();
 

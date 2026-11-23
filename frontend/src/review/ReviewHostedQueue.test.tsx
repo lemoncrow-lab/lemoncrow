@@ -78,7 +78,7 @@ describe("HostedQueuePanel", () => {
     renderPanel(QUEUE);
     const items = screen.getAllByRole("listitem");
     expect(items.map((item) => item.getAttribute("data-state"))).toEqual(["conflict", "pending"]);
-    expect(items[0].textContent).toContain("Hosted has a newer Snapshot than the one you judged.");
+    expect(items[0].textContent).toContain("Hosted has a newer revision than the one you judged.");
     expect(items[0].textContent).toContain("Mark reviewed · sym:a");
     expect(items[1].textContent).toContain("Comment on src/a.py:L3: “why?”");
     // Only a conflict offers re-application; a pending action can only be discarded.

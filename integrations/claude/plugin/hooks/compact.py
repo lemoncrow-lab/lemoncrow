@@ -121,31 +121,13 @@ def _write_session_state(state: dict[str, Any]) -> None:
 
 
 def _context_occupancy(transcript_path: str) -> tuple[int, str | None]:
-    """Return ``(live_window_tokens, model)`` from the transcript's last usage block."""
+    """Bounded, compaction-aware live-window probe shared with MCP accounting."""
     try:
-        occ = 0
-        model: str | None = None
-        with open(transcript_path, encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    entry = json.loads(line)
-                except (ValueError, TypeError):
-                    continue
-                message = entry.get("message") or {}
-                usage = message.get("usage") or {}
-                turn = sum(
-                    int(usage.get(k, 0) or 0)
-                    for k in (
-                        "input_tokens",
-                        "cache_read_input_tokens",
-                        "cache_creation_input_tokens",
-                    )
-                )
-                if turn > 0:
-                    occ = turn
-                    model = message.get("model") or model
-        return occ, model
-    except OSError:
+        from lemoncrow.core.capabilities.savings_summary import transcript_context_from_path
+
+        occupancy, model = transcript_context_from_path(transcript_path)
+        return occupancy, model or None
+    except (ImportError, OSError, TypeError, ValueError):
         return 0, None
 
 
@@ -342,16 +324,19 @@ def _handle_pre_compact(session_id: str, trigger: str, transcript_path: str = ""
         # stop.py will add these pre-compact totals on top of post-compact transcript stats.
         _checkpoint_pre_compact_usage(session_id, transcript_path)
         occ, model = _context_occupancy(transcript_path)
-        state = _read_session_state()
-        if occ > 0:
-            state["precompact_occupancy"] = occ
-            state["precompact_model"] = model or ""
-            state["precompact_pending"] = True
-            state["precompact_attempts"] = 0
-        # Carry optimizer_notices across the session boundary so that one-shot
-        # nudges (ctx_high) survive compaction.
-        _carry_optimizer_notices_precompact(session_id, state)
-        _write_session_state(state)
+        from lemoncrow.core.foundation.claude_window_state import mutate_claude_window_state
+
+        def _update(state: dict[str, Any]) -> None:
+            if occ > 0:
+                state["precompact_occupancy"] = occ
+                state["precompact_model"] = model or ""
+                state["precompact_pending"] = True
+                state["precompact_attempts"] = 0
+            # Carry the one-shot optimizer notices through the same window,
+            # even when compaction changes Claude's session id.
+            _carry_optimizer_notices_precompact(session_id, state)
+
+        mutate_claude_window_state(os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()), session_id, _update)
 
 
 def _handle_post_compact(session_id: str, trigger: str) -> None:
@@ -372,15 +357,21 @@ def _handle_post_compact(session_id: str, trigger: str) -> None:
 
     _append_compact_event(session_id, "PostCompact", trigger, payload)
 
-    # Bump the compaction epoch so the MCP server's within-session content dedup
-    # resets — the compacted summary may no longer hold previously-returned bytes.
-    with contextlib.suppress(OSError, ValueError, TypeError):
-        state = _read_session_state()
-        state["compaction_epoch"] = int(state.get("compaction_epoch", 0) or 0) + 1
-        # Restore optimizer_notices from pre-compact session so the one-shot
-        # nudge guard survives the session_id change.
-        _restore_optimizer_notices_postcompact(session_id, state)
-        _write_session_state(state)
+    # Per-window epoch: a sibling session's compact must NOT reset this MCP
+    # server's dedup or warning state.
+    with contextlib.suppress(Exception):
+        from lemoncrow.core.foundation.claude_window_state import mutate_claude_window_state
+
+        def _update(state: dict[str, Any]) -> None:
+            state["compaction_epoch"] = int(state.get("compaction_epoch", 0) or 0) + 1
+            # Preserve pending savings until actual post-compact API usage.
+            state["prompt_topic_history"] = []
+            state.pop("drift_streak", None)
+            state.pop("last_compact_notice_count", None)
+            state.pop("last_occupancy", None)
+            _restore_optimizer_notices_postcompact(session_id, state)
+
+        mutate_claude_window_state(os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()), session_id, _update)
 
 
 # ---------------------------------------------------------------------------

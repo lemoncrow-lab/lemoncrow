@@ -1,0 +1,7 @@
+{
+  // The path aliases live in the file this one extends: the engine needs them flattened.
+  "extends": "./config/tsconfig.base.json",
+  "compilerOptions": {
+    "strict": true,
+  },
+}

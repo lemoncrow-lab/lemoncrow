@@ -19,13 +19,13 @@ describe("CsvReviewPreview", () => {
     expect(parsed.totalRows).toBe(3);
   });
 
-  it("renders one exact Snapshot table in preview mode and both sides in compare mode", () => {
+  it("renders one exact revision table in preview mode and both sides in compare mode", () => {
     const { rerender } = render(
       <CsvReviewPreview preview={preview} revisionId="rrv-1" status="modified" mode="preview" />,
     );
 
     expect(screen.getByTestId("csv-review-preview")).toBeTruthy();
-    expect(screen.getByText("Snapshot rrv-1 · rendered CSV")).toBeTruthy();
+    expect(screen.getByText("Revision · rendered CSV")).toBeTruthy();
     expect(screen.getByText("new, value")).toBeTruthy();
     expect(screen.queryByText("old, value")).toBeNull();
 

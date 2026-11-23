@@ -16,8 +16,11 @@ finding carries only the member path, the rule and the line; the raw bytes are
 never stored.
 
 Container images need a Docker/BuildKit daemon, which the offline sandbox does
-not provide: a trusted-base Dockerfile is detected and reported
-``not_available`` with a setup hint, never as a pass.
+not provide. A detected Dockerfile is ``not_available`` with a setup hint, never
+a pass; a ``container`` builder configured with base images pinned by digest is
+built by the ``container_image`` runner (``environment/image_build.py``), outside
+the sandbox under that runner's Dockerfile policy, and its root filesystem is
+diffed like any other artifact.
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ import shlex
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import Any, Final
+
+from lemoncrow_client.environment import image_digest
 
 from lemoncrow.pro.capabilities.review import artifact_inspection
 from lemoncrow.pro.capabilities.review.analysis_common import (
@@ -62,8 +67,9 @@ _SIZE_BYTES: Final[int] = 50_000
 _SKIP_DIRS: Final[tuple[str, ...]] = ("node_modules/", "tests/", "test/", "fixtures/", "examples/", "vendor/", ".")
 _CONTAINER_HINT: Final[str] = (
     "Container image layers need a Docker/BuildKit daemon, which the offline sandbox does not provide. "
-    "Declare a command builder under analyses.shipped that produces an archive (for example a rootfs tarball) "
-    "to diff image contents."
+    "Configure a container builder under analyses.shipped with base_images pinned by digest and a rootless "
+    "container engine on the executor, or declare a command builder that produces an archive (for example a "
+    "rootfs tarball) to diff image contents."
 )
 _TEST_PATH = re.compile(
     r"(?:^|/)(?:tests?|__tests__|fixtures?|testdata|spec)(?:/|$)|(?:^|/)test_[^/]+$|_test\.[a-z]+$|\.spec\.[a-z]+$",
@@ -258,7 +264,8 @@ def _argv(value: Any) -> tuple[str, ...] | None:
 
 
 def _spec(spec_id: str, builder: str, root: str, *, origin: str, source: str, **options: Any) -> AnalysisSpec:
-    container = builder == "container"
+    # A container build runs only from a trusted-base definition naming the base images it may start from.
+    container = builder == "container" and not options.get("base_images")
     label = {
         "python": "Python package",
         "npm": "npm package",
@@ -276,7 +283,7 @@ def _spec(spec_id: str, builder: str, root: str, *, origin: str, source: str, **
         options={"builder": builder, **options},
         executable=not container,
         reason="container image builds need a Docker/BuildKit daemon" if container else "",
-        setup_hint=_CONTAINER_HINT if container else "",
+        setup_hint=_CONTAINER_HINT if builder == "container" else "",
         timeout=int(options.get("timeout") or 600) if not container else 60,
     )
 
@@ -288,7 +295,10 @@ def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
         if not isinstance(row, Mapping):
             errors.append(f"{where} must be a mapping")
             continue
-        unknown = sorted(set(row) - {"id", "title", "builder", "root", "command", "artifacts", "timeout"})
+        unknown = sorted(
+            set(row)
+            - {"id", "title", "builder", "root", "command", "artifacts", "timeout", "dockerfile", "base_images"}
+        )
         if unknown:
             errors.append(f"{where} has unknown keys: {', '.join(unknown)}")
             continue
@@ -300,6 +310,8 @@ def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
             continue
         command = _argv(row.get("command")) if row.get("command") is not None else None
         artifacts = row.get("artifacts") or []
+        dockerfile = relative_path(row.get("dockerfile") or "Dockerfile", allow_root=False)
+        images = row.get("base_images") or []
         if not valid_spec_id(spec_id):
             errors.append(f"{where}.id must match [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}")
         elif builder not in BUILDERS:
@@ -315,16 +327,29 @@ def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
             errors.append(f"{where}: a command builder needs command and relative artifacts globs")
         elif builder != "command" and (row.get("command") is not None or row.get("artifacts") is not None):
             errors.append(f"{where}: only the command builder takes command and artifacts")
+        elif builder != "container" and (row.get("dockerfile") is not None or row.get("base_images") is not None):
+            errors.append(f"{where}: only the container builder takes dockerfile and base_images")
+        elif builder == "container" and (
+            dockerfile is None
+            or not isinstance(images, list)
+            or any(not isinstance(item, str) or not image_digest(item) for item in images)
+        ):
+            errors.append(f"{where}: dockerfile must be relative and base_images must be name@sha256:<digest> strings")
         else:
             extra: dict[str, Any] = {"title": str(row.get("title") or "")[:200], "timeout": timeout}
             if builder == "command":
                 extra.update(command=list(command or ()), artifacts=[str(item) for item in artifacts])
+            if builder == "container":
+                extra.update(dockerfile=dockerfile, base_images=[str(item) for item in images])
             specs.append(_spec(str(spec_id), builder, root, origin="configured", source=where, **extra))
     return specs
 
 
 def discover_specs(paths: Sequence[str], read_base: Callable[[str], str | None]) -> list[AnalysisSpec]:
-    """Packages and images the trusted base ships (manifests only; nothing under tests or node_modules)."""
+    """Packages and images the trusted base ships (manifests only; nothing under tests or node_modules).
+
+    A discovered Dockerfile stays not executable: only a configured builder names its base images.
+    """
 
     found: dict[tuple[str, str], str] = {}
     for path in sorted(paths):
@@ -369,7 +394,33 @@ def payload(spec: AnalysisSpec) -> dict[str, Any]:
     out: dict[str, Any] = {"builder": spec.tool}
     if spec.tool == "command":
         out.update(command=list(spec.options.get("command") or ()), artifacts=list(spec.options.get("artifacts") or ()))
+    if spec.tool == "container":
+        out.update(dockerfile=spec.options.get("dockerfile"), base_images=list(spec.options.get("base_images") or ()))
     return out
+
+
+def runtime_values(spec: AnalysisSpec) -> dict[str, Any]:
+    """What the ``container_image`` runner needs for one configured image build."""
+
+    return {
+        "root": spec.root,
+        "dockerfile": spec.options.get("dockerfile") or "Dockerfile",
+        "base_images": list(spec.options.get("base_images") or ()),
+        "timeout": spec.timeout,
+    }
+
+
+def inspect_image_report(report: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    """The ``container_image`` runner's report: built on the host, so it needs no seal; only its shape is checked."""
+
+    if report.get("exit") not in {0, 1, 4} or report.get("builder") != "container":
+        return None, "the image build returned no usable report"
+    if report.get("exit") == 4:
+        return dict(report), ""
+    derived, problem = _derived(report)
+    if derived is None:
+        return None, problem
+    return {**dict(report), **derived}, ""
 
 
 # --------------------------------------------------------------------------- #
@@ -541,8 +592,9 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
         changed = sorted(
             path for path in set(head_members) & set(base_members) if head_members[path][1] != base_members[path][1]
         )
-        unpacked_new, unpacked_old = int(new_row.get("unpacked") or 0), (
-            int(old_row.get("unpacked") or 0) if old_row else 0
+        unpacked_new, unpacked_old = (
+            int(new_row.get("unpacked") or 0),
+            (int(old_row.get("unpacked") or 0) if old_row else 0),
         )
         bytes_new, bytes_old = int(new_row.get("bytes") or 0), int(old_row.get("bytes") or 0) if old_row else 0
         summary_rows.append(

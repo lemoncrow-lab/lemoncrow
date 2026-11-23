@@ -36,9 +36,9 @@ const MOVED: ReadonlySet<string> = new Set(["added", "removed", "changed"]);
 const CLOSED_DISPOSITIONS: ReadonlySet<string> = new Set(["dismissed", "fixed", "superseded_stale"]);
 
 export const EXACTNESS_LABEL: Record<StoryExactness, string> = {
-  snapshot: "Snapshot-exact",
+  snapshot: "Exact for this revision",
   observed: "observed in a recorded run",
-  current_index: "from the current index, not this Snapshot",
+  current_index: "from the current index, not this revision",
   inferred: "inferred",
   unknown: "exactness unavailable",
 };
@@ -182,9 +182,11 @@ export function storyExactness(value: string | undefined): StoryExactness {
 export function nodeChange(node: ReviewMapNode): StoryChange {
   const delta = String(node.delta_status ?? "");
   if (delta === "added" || delta === "removed" || delta === "changed" || delta === "unchanged" || delta === "context_only") return delta;
-  if (delta === "unknown") return "unknown";
+  // The diff's own fact wins over an architecture comparison that could not run (delta "unknown"):
+  // a file this change edits is changed, whether or not a base map exists to compare it with.
   if (node.status === "new") return "added";
   if (node.status === "changed") return /^(d|deleted|removed)$/i.test(node.change ?? "") ? "removed" : "changed";
+  if (delta === "unknown") return "unknown";
   return node.status === "context" ? "context_only" : "unchanged";
 }
 
@@ -498,13 +500,17 @@ export function buildChangeStory(input: ChangeStoryInput): ChangeStory {
   const steps: ChangeStoryStep[] = [];
   chained.forEach((item, position) => {
     const role: StoryRole = !changedIds.has(item.node.id) ? "dependency" : position === 0 || !item.via ? "entry" : "changed";
-    steps.push(stepOf(item.node, item.via, role, steps.length));
+    const step = stepOf(item.node, item.via, role, steps.length);
+    // The role stays the pull request bot's (shared fixture); only the words change. An entry point that no linked step
+    // follows is read as a changed file, so a change with no recorded links does not call every file an entry point.
+    if (role === "entry" && !chained[position + 1]?.via) step.roleLabel = ROLE_LABEL.changed;
+    steps.push(step);
   });
   for (const item of affected) steps.push(stepOf(item.node, item.link.edge, "affected", steps.length));
 
   const observedSteps = steps.filter((step) => step.via?.exactness === "observed").length;
   const orderNote = ordering === "flow"
-    ? `Ordered by the changed-relationship flow between the base and this Snapshot. ${observedSteps ? `${plural(observedSteps, "step")} matched a recorded run; the rest are not a runtime order.` : "This is not a runtime order."}`
+    ? `Ordered by the changed-relationship flow between the base and this revision. ${observedSteps ? `${plural(observedSteps, "step")} matched a recorded run; the rest are not a runtime order.` : "This is not a runtime order."}`
     : "Ordered by recorded dependencies between changed files, dependents first. This is not a runtime order.";
 
   return {

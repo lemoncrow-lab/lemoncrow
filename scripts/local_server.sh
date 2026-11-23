@@ -795,7 +795,7 @@ prepare_server() {
 
 start_server() {
     if [[ "$TARGET_PRODUCT" == "none" || "$SERVER_PRODUCTS" == "none" ]]; then
-        lc_ui_printf '1;31' '%s\n' "no local LemonCrow product is enabled; install local Review or local Runtime before starting the server" >&2
+        lc_ui_printf '1;31' '%s\n' "no local LemonCrow product is enabled; install local Review or local Workspaces before starting the server" >&2
         return 2
     fi
     prepare_server
@@ -908,7 +908,7 @@ schedule_restart_worker() {
 restart_server() {
     local kind
     if [[ "$TARGET_PRODUCT" == "none" || "$SERVER_PRODUCTS" == "none" ]]; then
-        lc_ui_printf '1;31' '%s\n' "no local LemonCrow product is enabled; install local Review or local Runtime before restarting the server" >&2
+        lc_ui_printf '1;31' '%s\n' "no local LemonCrow product is enabled; install local Review or local Workspaces before restarting the server" >&2
         return 2
     fi
     prepare_server

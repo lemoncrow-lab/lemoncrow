@@ -176,6 +176,12 @@ def _condition(body: dict[str, Any], condition_id: str) -> dict[str, Any]:
 
 
 def _arm(workspace: Workspace, inspected: dict[str, Any]) -> Any:
+    # Merge when ready is offered only once the human finished the review.
+    finished = workspace.post(
+        f"/api/reviews/{workspace.review_id}/finish",
+        json={"status": "finished", "expected_revision_id": inspected["snapshot_id"]},
+    )
+    assert finished.status_code == 200, finished.text
     return workspace.post(
         f"/api/reviews/{workspace.review_id}/landing/arm",
         json={
@@ -1308,7 +1314,11 @@ def test_a_definite_regression_is_withdrawn_and_audited_exactly_once(clock: _Clo
     detail = json.loads(withdrawn.detail_json)
     assert detail["origin"] == "sweep"
     assert detail["blocked_by"] == [
-        {"id": "supply-chain-policy", "label": "Dependency / supply-chain policy passed", "reason": "evidence_expired"}
+        {
+            "id": "supply-chain-policy",
+            "label": "Dependency / supply-chain policy no longer current",
+            "reason": "evidence_expired",
+        }
     ]
     assert detail["generation"] == detail["previous_generation"] == inspected["policy_generation"]["digest"]
 
@@ -1572,6 +1582,60 @@ def test_the_core_accepts_a_supplied_trusted_base_layer_in_place_of_the_derived_
     assert (provisional["state"], provisional["reason"]) == ("unknown", "provisional_policy")
 
 
+def test_an_unmet_requirement_label_never_reads_as_met() -> None:
+    from lemoncrow.pro.capabilities.review.readiness import HumanFeedbackFacts, ReviewProgressFacts
+
+    def labels(**facts: object) -> dict[str, tuple[str, str]]:
+        result = DEFAULT_CONDITIONS.evaluate(_inputs(facts=facts))
+        return {row.id: (row.state, row.label) for row in result.conditions}
+
+    unmet = labels(
+        review_progress=ReviewProgressFacts(unreviewed=2),
+        human_feedback=HumanFeedbackFacts(request_changes=1, comments=1),
+    )
+    assert unmet["latest-snapshot-reviewed"] == ("pending", "Latest revision not reviewed yet")
+    assert unmet["human-change-requests"] == ("fail", "Unresolved request-change comments")
+    assert unmet["human-comments"] == ("pending", "Unresolved human comments")
+
+    met = labels(review_progress=ReviewProgressFacts(), human_feedback=HumanFeedbackFacts())
+    assert met["latest-snapshot-reviewed"] == ("pass", "Latest revision reviewed")
+    assert met["human-change-requests"] == ("pass", "No unresolved request-change comments")
+    assert met["human-comments"] == ("pass", "No unresolved human comments")
+
+
+def test_a_part_left_for_later_is_not_judged_and_keeps_the_revision_unreviewed() -> None:
+    """P0-4: `later` blocks exactly like an unanswered part, whatever else is true."""
+    from lemoncrow.pro.capabilities.review.readiness import ReviewProgressFacts
+
+    def condition(**counts: int) -> tuple[str, str, str]:
+        result = DEFAULT_CONDITIONS.evaluate(_inputs(facts={"review_progress": ReviewProgressFacts(**counts)}))
+        row = next(item for item in result.conditions if item.id == "latest-snapshot-reviewed")
+        return row.state, row.label, row.detail
+
+    state, label, detail = condition(later=1)
+    assert (state, label) == ("pending", "Latest revision not reviewed yet")
+    assert detail == "1 part still needs human judgment or re-review."
+    # It pends exactly as an unanswered part does, and adds to it.
+    assert condition(later=2) == condition(unreviewed=2)
+    assert condition(unreviewed=1, later=2)[2] == "3 parts still need human judgment or re-review."
+    assert condition()[0] == "pass"
+
+
+def test_a_withdrawn_pass_drops_its_passed_label() -> None:
+    from lemoncrow.pro.capabilities.review.readiness import _apply_freshness
+
+    passed = ReadinessCondition(
+        id="verification",
+        label="Verification passed",
+        state="pass",
+        detail="1 current check(s) passed.",
+        category="verification",
+        evidence_refs=(EvidenceRef(evidence_id="ev-gone"),),
+    )
+    expired = _apply_freshness(passed, {})
+    assert (expired.state, expired.label) == ("unknown", "Verification no longer current")
+
+
 def test_required_run_plan_work_that_will_not_run_is_a_core_condition_never_a_pass() -> None:
     from lemoncrow.pro.capabilities.review.readiness import RunPlanBlocker, RunPlanFacts, definite_blockers
 
@@ -1592,12 +1656,12 @@ def test_required_run_plan_work_that_will_not_run_is_a_core_condition_never_a_pa
     [blocked] = run_plan(RunPlanFacts(snapshot_number=2, blockers=blockers))
     assert (blocked.state, blocked.label, blocked.category, blocked.reason) == (
         "pending",
-        "Required checks planned",
+        "Required checks not planned",
         "verification",
         "not_planned",
     )
     assert blocked.detail == (
-        "Required on Snapshot 2 but not run: security:sast (no executor), ai.investigators (Limited by budget)."
+        "Required on Revision 3 but not run: security:sast (no executor), ai.investigators (Limited by budget)."
     )
     assert blocked.extra["required_blockers"] == ["check:security:sast", "ai.investigators"]
     assert [row["id"] for row in definite_blockers([blocked.to_wire()])] == ["run-plan-required"]

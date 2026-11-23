@@ -11,7 +11,7 @@ def test_trusted_base_document_distinguishes_present_absent_and_provisional() ->
     assert present.base_known is True
     assert present.provisional is False
     assert present.content == "version: 1\n"
-    assert present.source == "base Snapshot .lemoncrow/review.yaml"
+    assert present.source == "base revision .lemoncrow/review.yaml"
 
     absent = resolve_trusted_base_document(path, "")
     assert absent.state == "absent"

@@ -533,7 +533,7 @@ def summarize_thread(
     binding = bind_content_access(content_access, route_trust=route_governance(resolved.driver).trust)
     revision = store.get_revision(thread.root.revision_id) if thread.root.revision_id else None
     if revision is None or revision.review_id != thread.review_id:
-        return ThreadSummaryResult("unavailable", "the thread is not attached to a stored Snapshot")
+        return ThreadSummaryResult("unavailable", "the thread is not attached to a stored revision")
     plan = plan_thread_summary(thread)
     request = IntelligenceRunRequest(
         review_id=thread.review_id,

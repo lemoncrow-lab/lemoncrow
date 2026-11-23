@@ -5,7 +5,7 @@ This is the short version: create the prepared demo repository and open the same
 From a LemonCrow source checkout:
 
 ```bash
-./demo/review-surfaces/bootstrap.sh /tmp/lemoncrow-review-demo
+./examples/demo/bootstrap.sh /tmp/lemoncrow-review-demo
 uv run lc review --repo-root /tmp/lemoncrow-review-demo --setup
 uv run lc review --repo-root /tmp/lemoncrow-review-demo --open
 ```
@@ -16,7 +16,9 @@ The same steps as `make` targets (all accept `DEMO_DIR=/path`, default `/tmp/lem
 
 ```bash
 make review-demo          # create or reset the demo repository and open it in the Reader
+make review-demo SCENARIO=orders   # pick a scenario: standard (default), empty, orders, orders-revision-2, large, tenant-cache
 make review-demo-diff     # show the prepared, uncommitted demo change
+make review-demo-empty    # the empty state: baseline only, nothing to review (examples/empty)
 make review-demo-plugin   # install the example CSV preview plugin
 ```
 

@@ -272,7 +272,7 @@ export default function ProjectionInspector() {
       {error && <Card className="border-red-900/40 p-4 text-red-300">{error}</Card>}
       {!path.trim() && !error && (
         <Card className="p-4 text-muted-foreground">
-          Paste a file path or open this page from a Projection link.
+          Search for a project file above, or paste its path, to preview how the read tool shows it.
         </Card>
       )}
 

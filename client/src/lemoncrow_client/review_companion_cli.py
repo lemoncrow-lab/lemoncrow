@@ -317,11 +317,13 @@ def companion_main(arguments: list[str], *, sink: TextIO) -> int:
         return connect_main([], sink=sink)
     if arguments == ["status"]:
         return connect_main(["--status"], sink=sink)
+    if arguments[:1] == ["start"]:
+        # Lazy: the task runner imports this module's pairing helpers.
+        from .review_agent_task_cli import run_unattended_agent_tasks
+
+        return run_unattended_agent_tasks(arguments[1:], sink=sink)
     if arguments not in (["check"], ["online"], ["online", "--once"]):
-        sink.write(
-            "Review Companion execution is not enabled: a qualified local "
-            "executor and supervised lifecycle are still required.\n"
-        )
+        sink.write("Unknown Review Companion command. Use check, online, start, connect, status or watch.\n")
         return 2
     try:
         config = load_config(product="review")

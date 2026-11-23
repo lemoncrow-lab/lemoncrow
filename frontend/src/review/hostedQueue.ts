@@ -11,10 +11,10 @@ export const HOSTED_CONFLICT_TEXT: Record<string, string> = {
   thread_deleted: "The thread was deleted on hosted.",
   thread_changed: "Someone changed this thread on hosted after you replied.",
   request_changed: "Your request changed on hosted.",
-  snapshot_advanced: "Hosted has a newer Snapshot than the one you judged.",
-  target_changed: "Hosted's content for this target differs from what you saw.",
+  snapshot_advanced: "Hosted has a newer revision than the one you judged.",
+  target_changed: "Hosted's content for this part differs from what you saw.",
   judgment_changed: "Your judgment on hosted changed after you queued this.",
-  scope_unresolved: "The request still has unresolved targets on hosted.",
+  scope_unresolved: "The request still has unresolved parts on hosted.",
   rejected: "Hosted refused it.",
 };
 

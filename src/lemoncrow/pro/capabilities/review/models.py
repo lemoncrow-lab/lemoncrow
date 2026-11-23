@@ -395,6 +395,15 @@ class ProvenanceRecord:
     """Always states which evidence fired, so a wrong match stays auditable."""
 
 
+def session_task_title(task: str | None) -> str:
+    """The first non-blank line of an author session's task, as a Review title; ``""`` when it has none."""
+
+    for line in (task or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
+
+
 def unknown_provenance() -> ProvenanceRecord:
     """Return the honest-gap provenance record used before PR-4 correlation runs."""
 

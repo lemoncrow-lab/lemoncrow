@@ -20,7 +20,6 @@ CURRENT_DOCS = [
     ROOT / "docs" / "hosts" / "all-agent-clis.md",
     ROOT / "docs" / "hosts" / "host-capability-matrix.md",
     ROOT / "docs" / "hosts" / "pi-install.md",
-    ROOT / "docs" / "hosts" / "lemoncode-install.md",
     ROOT / "docs" / "legal" / "licensing.md",
 ]
 
@@ -48,7 +47,7 @@ def test_pi_host_lifecycle_is_public() -> None:
         assert action in result.output
     status_help = CliRunner().invoke(cli, ["host", "status", "--help"])
     assert status_help.exit_code == 0, status_help.output
-    assert "lemoncode" in status_help.output
+    assert "lemoncode" not in status_help.output
     assert "pi" in status_help.output
 
 
@@ -83,7 +82,7 @@ def test_hosted_runtime_discovery_does_not_overclaim_unwired_features() -> None:
 def test_public_lite_index_has_one_canonical_command() -> None:
     public_index = CliRunner().invoke(cli, ["runtime", "index", "--help"])
     assert public_index.exit_code == 0, public_index.output
-    assert "Runtime Lite" in public_index.output
+    assert "Workspaces Lite" in public_index.output
 
     legacy_code_index = CliRunner().invoke(cli, ["runtime", "code", "index"])
     assert legacy_code_index.exit_code == 1

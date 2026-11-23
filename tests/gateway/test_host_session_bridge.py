@@ -103,40 +103,6 @@ def test_opencode_prompt_claims_exact_session_review_inbox_once(
     assert "additionalContext" not in second
 
 
-def test_lemoncode_prompt_claims_only_lemoncode_review_inbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.pro.capabilities.review.session_inbox import enqueue_session_message
-
-    monkeypatch.setenv("LEMONCROW_AGENT", "lemoncode")
-    root = tmp_path / ".lemoncrow"
-    payload = {"session_id": "ses-review", "cwd": str(tmp_path), "prompt": "continue"}
-    enqueue_session_message(
-        root,
-        host="lemoncode",
-        session_id="ses-review",
-        message="Apply LemonCode review annotation ann-lemon and verify it.",
-    )
-    enqueue_session_message(
-        root,
-        host="opencode",
-        session_id="ses-review",
-        message="opencode feedback must stay isolated",
-    )
-
-    first = plugin_runtime.build_opencode_user_prompt_output(root, payload, host="lemoncode")
-    assert "ann-lemon" in first["additionalContext"]
-    assert "opencode feedback" not in first["additionalContext"]
-
-    state_path = plugin_runtime._opencode_session_state_path(root, payload)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["host"] == "lemoncode"
-
-    from lemoncrow.core.foundation.paths import session_dir
-
-    run_file = session_dir(root, "lemoncode", "ses-review") / "run.json"
-    run = json.loads(run_file.read_text(encoding="utf-8"))
-    assert run["agent"] == "lemoncode"
-
-
 def test_opencode_session_bridge_marks_active_then_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
     root = tmp_path / ".lemoncrow"
@@ -292,55 +258,6 @@ def test_opencode_edit_records_opencode_provenance_and_signals_review_prewarm(
     assert edit["payload"]["host"] == "opencode"
 
 
-def test_lemoncode_shared_bridge_keeps_exact_host_for_inbox_prompt_and_edit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
-    from lemoncrow.pro.capabilities.review import live_runtime
-    from lemoncrow.pro.capabilities.review.session_inbox import enqueue_session_message
-
-    monkeypatch.setenv("LEMONCROW_AGENT", "lemoncode")
-    root = tmp_path / ".lemoncrow"
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    payload = {"session_id": "lemon-sid", "cwd": str(workspace), "model": "gpt-test"}
-    enqueue_session_message(root, host="lemoncode", session_id="lemon-sid", message="Address annotation ann-lemon.")
-    prepared: list[tuple[Path, Path, str, str]] = []
-    monkeypatch.setattr(
-        live_runtime,
-        "request_live_review_prepare",
-        lambda store_root, repo_root, *, host, session_id: prepared.append(
-            (Path(store_root), Path(repo_root), host, session_id)
-        )
-        or object(),
-    )
-
-    output = plugin_runtime.build_opencode_user_prompt_output(
-        root, {**payload, "prompt": "Continue the fix"}, host="lemoncode"
-    )
-    assert "ann-lemon" in output["additionalContext"]
-    state = json.loads(
-        plugin_runtime._opencode_session_state_path(root, payload, host="lemoncode").read_text(encoding="utf-8")
-    )
-    assert state["host"] == "lemoncode"
-    assert prepared == [(root, workspace, "lemoncode", "lemon-sid")]
-
-    plugin_runtime.build_opencode_post_tool_use_output(
-        root,
-        {
-            **payload,
-            "tool_name": "apply_patch",
-            "tool_input": {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"},
-            "tool_response": {"output": "ok"},
-        },
-        host="lemoncode",
-    )
-    run = json.loads((session_dir(root, "lemoncode", "lemon-sid") / "run.json").read_text(encoding="utf-8"))
-    edit = next(event for event in run["events"] if event["kind"] == "file_edit")
-    assert edit["payload"]["host"] == "lemoncode"
-    assert prepared[-1] == (root, workspace, "lemoncode", "lemon-sid")
-
-
 def test_codex_first_prompt_seeds_live_review_prepare_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.pro.capabilities.review import live_runtime
 
@@ -351,10 +268,9 @@ def test_codex_first_prompt_seeds_live_review_prepare_once(tmp_path: Path, monke
     monkeypatch.setattr(
         live_runtime,
         "request_live_review_prepare",
-        lambda store_root, repo_root, *, host, session_id: calls.append(
-            (Path(store_root), Path(repo_root), host, session_id)
-        )
-        or object(),
+        lambda store_root, repo_root, *, host, session_id: (
+            calls.append((Path(store_root), Path(repo_root), host, session_id)) or object()
+        ),
     )
     payload = {
         "hook_event_name": "UserPromptSubmit",
@@ -411,10 +327,9 @@ def test_opencode_first_prompt_seeds_live_review_prepare_once(tmp_path: Path, mo
     monkeypatch.setattr(
         live_runtime,
         "request_live_review_prepare",
-        lambda store_root, repo_root, *, host, session_id: calls.append(
-            (Path(store_root), Path(repo_root), host, session_id)
-        )
-        or object(),
+        lambda store_root, repo_root, *, host, session_id: (
+            calls.append((Path(store_root), Path(repo_root), host, session_id)) or object()
+        ),
     )
     payload = {"session_id": "opencode-seed", "cwd": str(workspace), "prompt": "inspect"}
 

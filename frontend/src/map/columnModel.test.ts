@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildColumnModel, foldId, foldModules, stronglyConnected, type ColumnNode } from "./columnModel";
+import { buildColumnModel, fitZoom, foldId, foldModules, stronglyConnected, type ColumnNode } from "./columnModel";
 
 function module(id: string, extra: Partial<ColumnNode> = {}): ColumnNode {
   const slash = id.lastIndexOf("/");
@@ -27,6 +27,58 @@ describe("buildColumnModel", () => {
       expect(model.cardById.get(edge.from)!.x).toBeLessThan(model.cardById.get(edge.to)!.x);
     }
     expect(model.cycles).toEqual([]);
+  });
+
+  it("fits five dependency columns into the Code map pane at 1440 px without sideways scrolling", () => {
+    // The centre pane between the 270 px explorer and the 320 px inspector is about 850 px wide.
+    const chain = ["pages", "components", "hooks", "lib", "billing"];
+    const model = buildColumnModel(
+      chain.map((id) => module(`src/${id}`)),
+      chain.slice(1).map((id, index) => ({ source: `src/${chain[index]}`, target: `src/${id}`, weight: 2 })),
+      { ...OPTIONS, width: 850 },
+    );
+    expect(new Set(model.cards.map((card) => card.column)).size).toBe(5);
+    expect(model.width).toBeLessThanOrEqual(850);
+    for (const card of model.cards) expect(card.x + card.w).toBeLessThanOrEqual(850);
+    expect(fitZoom(model.width, 850)).toBe(1);
+    // A roomy pane keeps the full-size cards.
+    const roomy = buildColumnModel(chain.map((id) => module(`src/${id}`)), [], { ...OPTIONS, width: 1600 });
+    expect(Math.min(...roomy.cards.map((card) => card.w))).toBeGreaterThanOrEqual(168);
+  });
+
+  it("draws a map wider than its pane smaller, down to a readable floor", () => {
+    expect(fitZoom(1000, 0)).toBe(1);
+    expect(fitZoom(800, 850)).toBe(1);
+    expect(fitZoom(1000, 850)).toBe(0.85);
+    expect(fitZoom(3000, 850)).toBe(0.7);
+  });
+
+  it("keeps every edge label in the gap beside its left card, never over a card", () => {
+    const model = buildColumnModel(
+      [module("cli"), module("api"), module("core"), module("util")],
+      [
+        { source: "cli", target: "api", weight: 3 },
+        { source: "api", target: "core", weight: 5 },
+        { source: "cli", target: "util", weight: 1 },
+        { source: "core", target: "util", weight: 2 },
+      ],
+      OPTIONS,
+    );
+    for (const edge of model.edges) {
+      const left = [model.cardById.get(edge.from)!, model.cardById.get(edge.to)!].sort((p, q) => p.x - q.x)[0];
+      expect(edge.labelMin).toBeGreaterThanOrEqual(left.x + left.w);
+      expect(edge.labelX).toBeGreaterThanOrEqual(edge.labelMin);
+      expect(edge.labelX).toBeLessThanOrEqual(edge.labelMax);
+      // No card overlaps the gap, so a label inside it covers none.
+      for (const card of model.cards) {
+        expect(card.x >= edge.labelMax || card.x + card.w <= edge.labelMin).toBe(true);
+      }
+    }
+    // The edge spanning three columns is labelled in its first gap, on its own row.
+    const span = model.edges.find((edge) => edge.from === "cli" && edge.to === "util")!;
+    const cli = model.cardById.get("cli")!;
+    expect(span.labelY).toBeGreaterThanOrEqual(cli.y - 20);
+    expect(span.labelY).toBeLessThanOrEqual(cli.y + cli.h + 20);
   });
 
   it("condenses a dependency cycle into one marked group in one column", () => {

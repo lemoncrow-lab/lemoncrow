@@ -26,11 +26,11 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     surface_validation_scenario,
     trusted_policy_digest,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
+from lemoncrow.pro.environment.runners import SurfaceRunResult
 
 TOKEN = "behavior-token"
 PORT = 45998
@@ -148,7 +148,11 @@ def _api_run(workspace: Workspace, *, side: str, status_code: int, body: Any) ->
         metadata={"expected_status": 200},
     )
     request = build_surface_validation_request(
-        revision, surface, runtime, side=side, policy_digest=trusted_policy_digest("version: 1")  # type: ignore[arg-type]
+        revision,
+        surface,
+        runtime,
+        side=side,
+        policy_digest=trusted_policy_digest("version: 1"),  # type: ignore[arg-type]
     )
     scenario = surface_validation_scenario(surface, runtime)
     record = normalize_surface_run(

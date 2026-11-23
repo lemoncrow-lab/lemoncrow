@@ -25,7 +25,9 @@ LemonCrow review is three steps. You can stop at any of them.
 AI review runs where your key is: on your machine (`lc review --ai`) or in your CI (the Action). Hosted Review is where
 your team reviews together. It does not run AI review yet, and the app says so (once) instead of showing a button
 that cannot work: **AI review on hosted isn't enabled for this workspace yet.** Hosted has no AI review of its own, so the Action and a hosted workspace never post competing reviews; the Action's
-comments show up in the hosted Review as bot feedback, separate from human comments.
+comments show up in the hosted Review as bot feedback, separate from human comments. The **Automatic Review defaults**
+in Settings ("Open / ready is on") say when a pull request becomes a Review for your team to work on; they do not start
+an AI review.
 
 ## What works, and what does not yet
 
@@ -160,6 +162,11 @@ Tell your contact which GitHub account is which member and they set it up.
 | Developer | Everything a Reviewer can, plus managing Reviews and their work |
 | Admin | Everything, including the Organization page, Settings for the organization, invitations, audit and jobs |
 
+The roles table on the organization settings page also lists **Author**, **CODEOWNER** and **Org admin**. Org admin is
+the Admin role above. Author and CODEOWNER are not membership roles: they apply per pull request (its author, and a
+code owner from the repository's CODEOWNERS file). A second reviewer and whoever may approve a change to the policy
+come from CODEOWNERS, not from an organization role.
+
 On **Organization > People** an administrator can:
 
 - set a member's organization role (Admin, Developer or Reviewer);
@@ -272,14 +279,47 @@ Action, and what does not:
   carried-forward findings or suppressions (kept in the pull request's summary comment). A Review shared from a checkout
   and the GitHub-connected pull request of the same repository are two separate repositories in the workspace.
 
+## 12. Unattended AI tasks on a paired machine (experimental)
+
+Off by default. A machine paired in **Settings > Review connections** with Review AI tasks allowed normally runs only a
+task its owner approves, one at a time (`lcr task run JOB_ID`). An organization administrator can let one such machine
+run queued AI tasks without that per-task step:
+
+1. On **Settings > Review connections**, load the repository, then **Show unattended execution**.
+2. **Allow for the organization**, then **Turn on** the machine with three required limits: maximum USD per task,
+   maximum USD per UTC day, and maximum tasks per UTC day.
+3. On the machine, run `lcr companion start` with its model route, prices, `--max-cost` and `--allow-external-source`
+   (`lcr companion start --help` lists them). The provider API key is typed once and stays on that machine.
+
+What holds while it runs:
+
+- Hosted Review reserves the per-task limit against the machine's daily limits before it hands out each task, and
+  refuses the task when either daily limit would be crossed, also when several claims arrive at once. A task whose cost
+  is not reported counts as the full per-task limit; the task count limits spending when no cost is known.
+- The per-task limit is signed into the task's lease. The machine caps its one model call at the smaller of that limit
+  and its own `--max-cost`. A result that reports a cost above the limit is refused and recorded as over the cap.
+- Tasks are still the queued, human-requested tasks with source approval, on their exact revision. Each runs one model
+  call through the machine's own route and key; LemonCrow bills no model task. Results stay unverified author-agent
+  observations and never mark a check as passed.
+- Any administrator can **Stop now** for one machine or **Stop for the whole organization**. Leased tasks are revoked at
+  once: the machine's next heartbeat or report is refused and `lcr companion start` exits.
+- Every change is in **Audit history** (`review.unattended.*`, with who changed it and the limits). The same page lists
+  the last 50 unattended runs: machine, task, job, outcome, cost, who enabled it, and who stopped it. Runs are kept for
+  90 days.
+
+The reported cost is the machine's own estimate from the route's prices; Hosted Review cannot read your provider's bill.
+
 ## What is not available yet
 
 - **AI review on hosted.** No hosted executor and model route are enabled, so the Reader offers no AI control; AI runs
   locally or in your CI. A **model key per organization** is not a setting either: any model route is one LemonCrow sets
   for the deployment, never yours.
-- **Unattended agent execution.** A connected machine does not run agents on its own for a Review; executor-backed checks
-  need separately qualified workers.
-- **External sandbox providers** as a supported place to run Review work.
+- **Unattended agent execution beyond the experimental opt-in.** A connected machine runs AI tasks on its own only when an
+  administrator turned it on with limits ([section 12](#12-unattended-ai-tasks-on-a-paired-machine-experimental));
+  executor-backed checks still need separately qualified workers.
+- **External sandbox providers** as a supported place to run Review work. The E2B and Daytona adapters stay opt-in
+  one-shot runs whose result is always `external_provider_unverified`.
+- **Model tasks billed by LemonCrow.** Every Review AI task on a paired machine uses that machine's own provider key.
 - **Coding-agent dashboards.** Home, Activity and Usage show no agent telemetry for a hosted organization (there is no
   tenant ingest yet), so they are not offered; Code appears once an indexed project exists. Hosted Home shows the next step
   instead.
@@ -302,12 +342,21 @@ production rollout plans):
    - repository **Contents: Read**, **Pull requests: Read and write** (read alone cannot publish), **Metadata: Read**;
    - **Checks: Write** only if GitHub Checks are enabled; **Commit statuses: Read and write** only for repositories that
      opt in to the merge readiness status;
+   - **Actions: Read**, so a review can read the workflow run the Action's `LemonCrow Proof` check names and that run's
+     `lemoncrow-proof-report` artifact, which is where the per-part proof comes from (a run, its attempts and its artifacts
+     are read once per check, and the zip once per run). Without it that check is shown as "Couldn't run" with the reason
+     "the GitHub App cannot read workflow runs; it needs Actions: Read", never as proof, and the connection's readiness
+     lists the missing permission. The report is believed only with the GitHub Actions identity token the artifact carries
+     (the Action's `proof-report` job needs `id-token: write`): the server verifies it against GitHub's published keys
+     (`https://token.actions.githubusercontent.com`; a GitHub Enterprise Server host has `https://HOST/_services/token`, or
+     set `LEMONCROW_SERVER_GITHUB_REVIEW_OIDC_ISSUER`), and a report without a valid token reads "Couldn't run: the proof
+     report could not be attested";
    - organization **Members: Read-only**, the owner proof that self-service connect needs;
    - events: pull requests and their reviews and comments, **Installation** and **Installation repositories**;
    - a callback URL at `/settings/code-providers`, **Request user authorization during installation**, and **Any account**
      only when onboarding other GitHub organizations.
    The steps and the server settings are in [GitHub App installations per
-   organization](../operations/hosted-github-installations.md).
+   organization](https://github.com/lemoncrow-lab/lemoncrow/blob/main/docs/operations/hosted-github-installations.md).
 4. Link GitHub accounts to members (the principal map) and give each new organization its members.
 5. For AI on hosted, a durable queue, a managed worker and a model route. Until they exist the app hides AI, by design.
 
@@ -326,5 +375,5 @@ production rollout plans):
 Report a security issue to [security@lemoncrow.com](mailto:security@lemoncrow.com). If that address does not work, use
 [contact@lemoncrow.com](mailto:contact@lemoncrow.com).
 
-See also [LemonCrow Pro: Hosted Runtime](./pro-hosted-runtime.md) for hosted search in your coding agents, the
+See also [LemonCrow Pro: hosted retrieval](./pro-hosted-runtime.md) for hosted search in your coding agents, the
 [GitHub Action](./github-action.md) for AI review in your CI, and [Privacy & network](./privacy.md).

@@ -21,6 +21,8 @@ function node(id: string, status: ReviewMapNode["status"]): ReviewMapNode {
     boundaries: [],
     boundary_basis: "",
     selection: { kind: "review_map_node", review_id: "r", revision_id: "v", node_id: id, path, line: 1, side: "new", exactness: "snapshot" },
+    // The Map draws this as "0/4"; the walkthrough's cards must not.
+    review: { targets: 4, reviewed: 0, needs_changes: 0, changed_since_review: 0, open_threads: 0, attention: "normal" },
   };
 }
 
@@ -70,15 +72,18 @@ describe("ChangeStory", () => {
     const position = screen.getByTestId("change-story-position");
     expect(position).toHaveTextContent("1 / 3");
     expect(screen.getByTestId("change-story-step")).toHaveTextContent("Entry point");
-    expect(screen.getByTestId("change-story-order")).toHaveTextContent("This is not a runtime order.");
+    // The order is the walkthrough's; no disclaimer line about runtime order, and no per-file marked counters.
+    expect(screen.queryByText(/runtime order/)).toBeNull();
+    expect(screen.getByTestId("change-story-stage").textContent).not.toMatch(/\d+\/\d+/);
     // Whole-Snapshot checks use the Brief's words and are never tied to a step.
     expect(screen.getByTestId("change-story-snapshot-checks")).toHaveTextContent("unit");
-    expect(screen.getByTestId("change-story-snapshot-checks")).toHaveTextContent("did not run");
+    // None ran: one line that names them, not a "did not run" row per check.
+    expect(screen.getByTestId("change-story-none-ran")).toHaveTextContent("No check ran on this revision (unit). That is not a pass.");
 
     await user.click(screen.getByRole("button", { name: /Next/ }));
     expect(position).toHaveTextContent("2 / 3");
-    expect(screen.getByTestId("change-story-exactness")).toHaveTextContent("Snapshot-exact");
-    expect(screen.getByTestId("change-story-link-legend")).toHaveTextContent("imports · Snapshot-exact");
+    expect(screen.getByTestId("change-story-exactness")).toHaveTextContent("Exact for this revision");
+    expect(screen.getByTestId("change-story-link-legend")).toHaveTextContent("imports · Exact for this revision");
 
     const story = screen.getByTestId("change-story");
     fireEvent.keyDown(story, { key: "ArrowRight" });
@@ -98,27 +103,31 @@ describe("ChangeStory", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the X-Ray on the current step in place of the stage; Escape leaves the X-Ray first", async () => {
+  it("opens on the step the host names and offers no X-Ray unless the host can open one", async () => {
     const user = userEvent.setup();
-    const onXRayChange = vi.fn();
-    const { onClose } = renderStory({ onXRayChange });
-    await user.click(screen.getByRole("button", { name: "X-Ray this step" }));
-    expect(onXRayChange).toHaveBeenLastCalledWith("after~r@v~api");
-    expect(screen.getByTestId("xray")).toBeInTheDocument();
-    expect(screen.queryByTestId("change-story-stage")).toBeNull();
-    // The X-Ray follows the walkthrough.
+    const { onStepChange, onClose } = renderStory({ stepNodeId: "service" });
+    expect(screen.getByTestId("change-story-position")).toHaveTextContent("2 / 3");
+    expect(screen.getByTestId("change-story-location")).toHaveTextContent("src/service.ts");
+    await waitFor(() => expect(onStepChange).toHaveBeenLastCalledWith("service"));
+    expect(screen.queryByRole("button", { name: "X-Ray this step" })).toBeNull();
+    expect(screen.getByTestId("change-story-stage")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Next/ }));
-    expect(onXRayChange).toHaveBeenLastCalledWith("after~r@v~service");
-    fireEvent.keyDown(screen.getByTestId("change-story"), { key: "Escape" });
-    expect(screen.queryByTestId("xray")).toBeNull();
+    await waitFor(() => expect(onStepChange).toHaveBeenLastCalledWith("store"));
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("labels itself as the older path when told a newer Snapshot exists", () => {
+  it("opens the X-Ray at the step in hand", async () => {
+    const onOpenXRay = vi.fn();
+    renderStory({ stepNodeId: "service", onOpenXRay });
+    await userEvent.click(screen.getByRole("button", { name: "X-Ray this step" }));
+    expect(onOpenXRay).toHaveBeenCalledWith("service");
+  });
+
+  it("labels itself as the older path when told a newer revision exists", () => {
     renderStory();
     expect(screen.queryByTestId("change-story-stale")).toBeNull();
     cleanup();
-    renderStory({ stale: "A newer Snapshot exists. This walkthrough shows Snapshot 2, which is no longer the current path." });
+    renderStory({ stale: "A newer revision exists. This walkthrough shows Revision 3, which is no longer the current path." });
     expect(screen.getByTestId("change-story-stale")).toHaveTextContent("no longer the current path");
     // The steps stay readable; only the label changes.
     expect(screen.getByTestId("change-story-position")).toHaveTextContent("1 / 3");

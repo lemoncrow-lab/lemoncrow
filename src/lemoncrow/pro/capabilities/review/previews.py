@@ -33,19 +33,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 from lemoncrow.core.foundation.run_file_io import RunFileLock
-from lemoncrow.pro.capabilities.review.execution import (
-    ExecutionRecipe,
-    ExecutionResult,
-    ExecutionSubject,
-    StageOutcome,
-)
 from lemoncrow.pro.capabilities.review.run_evidence import MaskingUnavailable, mask_png, protect_text
-from lemoncrow.pro.capabilities.review.sandbox_limits import (
-    SandboxCapacityBusy,
-    limit_note,
-    limit_prefix,
-    sandbox_slot,
-)
 from lemoncrow.pro.capabilities.review.surfaces import (
     PREVIEW_CONTRACT_VERSION,
     SUPPORTED_PREVIEW_CONTRACT_VERSIONS,
@@ -56,6 +44,18 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     SurfaceContext,
     _entry_points,
     _safe_relative_path,
+)
+from lemoncrow.pro.environment.execution import (
+    ExecutionRecipe,
+    ExecutionResult,
+    ExecutionSubject,
+    StageOutcome,
+)
+from lemoncrow.pro.environment.sandbox_limits import (
+    SandboxCapacityBusy,
+    limit_note,
+    limit_prefix,
+    sandbox_slot,
 )
 
 if TYPE_CHECKING:
@@ -137,7 +137,7 @@ def _confined(root: Path, relative: str, *, field_name: str) -> Path:
     base = root.resolve()
     candidate = (base / safe).resolve() if safe != "." else base
     if candidate != base and base not in candidate.parents:
-        raise PreviewUnavailable(f"{field_name} escapes the reviewed snapshot")
+        raise PreviewUnavailable(f"{field_name} escapes the reviewed revision")
     return candidate
 
 
@@ -198,7 +198,7 @@ class PreviewSandbox:
         project = _confined(self.workspace, project_root, field_name="preview project root")
         live_project = _confined(self.trusted_checkout, project_root, field_name="preview project root")
         if not (project / "package.json").is_file():
-            raise PreviewUnavailable(f"project root {project_root} has no package.json in the reviewed snapshot")
+            raise PreviewUnavailable(f"project root {project_root} has no package.json in the reviewed revision")
         if not (live_project / "package.json").is_file():
             raise PreviewUnavailable(f"project root {project_root} has no package.json in the proven checkout")
         if _dependency_signature(project) != _dependency_signature(live_project):
@@ -785,7 +785,7 @@ def render_surface_preview(
     ``hermetic`` (built by the trusted dispatcher from trusted-base policy)
     lets a side whose dependency graph differs from the trusted checkout run
     in the hermetic environment instead of being refused, and records a typed
-    :class:`~lemoncrow.pro.capabilities.review.execution.ExecutionResult`.
+    :class:`~lemoncrow.pro.environment.execution.ExecutionResult`.
     """
 
     if side not in {"old", "new"}:
@@ -979,9 +979,9 @@ def _ensure_workspace(
             store=context.store,
         )
     except ReviewSnapshotUnavailable as exc:
-        raise PreviewUnavailable(f"exact Snapshot {side} side is unavailable: {exc}") from exc
+        raise PreviewUnavailable(f"exact revision {side} side is unavailable: {exc}") from exc
     except (KeyError, OSError, RuntimeError, ValueError) as exc:
-        raise PreviewUnavailable(f"exact Snapshot {side} side could not be materialized: {exc}") from exc
+        raise PreviewUnavailable(f"exact revision {side} side could not be materialized: {exc}") from exc
     workspace.mkdir(parents=True, exist_ok=True)
     _write_json_atomic(marker, {"identity": identity, "revision_id": context.revision.id, "scope": scope, "side": side})
     return identity

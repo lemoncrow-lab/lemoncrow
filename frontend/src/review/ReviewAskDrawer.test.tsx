@@ -49,6 +49,39 @@ beforeEach(() => {
 });
 
 describe("ReviewAskDrawer", () => {
+  it("says which files Ask could not read, without offering them as sources", async () => {
+    const onOpenReference = vi.fn();
+    vi.mocked(api.fetchReviewAsk).mockResolvedValue({
+      review_id: "review-1",
+      latest_revision_number: 5,
+      messages: [message({
+        references: [{
+          kind: "source_unavailable",
+          label: "docs/demo.gif was not available to Ask",
+          paths: ["docs/demo.gif"],
+        }],
+      })],
+    });
+
+    render(
+      <ReviewAskDrawer
+        reviewId="review-1"
+        revisionNumber={5}
+        revisionId="revision-5"
+        latestRevisionNumber={5}
+        onClearScope={vi.fn()}
+        onClose={vi.fn()}
+        onSwitchLatest={vi.fn()}
+        onOpenReference={onOpenReference}
+      />,
+    );
+
+    const notice = await screen.findByText("docs/demo.gif was not available to Ask");
+    expect(notice.closest("button")).toBeNull();
+    fireEvent.click(notice);
+    expect(onOpenReference).not.toHaveBeenCalled();
+  });
+
   it("asks against the viewed revision and attaches selected code without copying it into the prompt", async () => {
     vi.mocked(api.streamReviewAsk).mockResolvedValue({
       review_id: "review-1",
@@ -182,7 +215,7 @@ describe("ReviewAskDrawer", () => {
     await waitFor(() => expect(api.createReviewAskConversation).toHaveBeenCalledWith(
       "review-1", expect.objectContaining({ kind: "review", revision_number: 5 }),
     ));
-    expect(await screen.findByText("Ask, challenge, or request a change")).toBeTruthy();
+    expect(await screen.findByText("Ask about this change")).toBeTruthy();
     expect(screen.queryByText("Yes, under concurrent replacement.")).toBeNull();
   });
 
@@ -277,6 +310,110 @@ describe("ReviewAskDrawer", () => {
     expect(vi.mocked(api.streamReviewAsk).mock.calls[0][1]).not.toHaveProperty("driver");
   });
 
+  const SETUP_HELP = {
+    headline: "No AI model is set up.",
+    steps: [
+      { lead: "Set a key:", command: "export ANTHROPIC_API_KEY=sk-ant-...", note: "(or OPENAI_API_KEY=sk-...)" },
+      { lead: "Or use an agent you are signed in to:", command: "lc review --ai --agent claude", note: "(also codex, opencode)" },
+    ],
+    docs_url: "https://docs.lemoncrow.ai/review/ai",
+  };
+
+  function renderDrawer() {
+    render(
+      <ReviewAskDrawer
+        reviewId="review-1"
+        revisionNumber={5}
+        latestRevisionNumber={5}
+        onClearScope={vi.fn()}
+        onClose={vi.fn()}
+        onSwitchLatest={vi.fn()}
+        onOpenReference={vi.fn()}
+      />,
+    );
+  }
+
+  it("says up front that no AI model is set up and holds the question until one is chosen", async () => {
+    vi.mocked(api.fetchReviewAsk).mockResolvedValue({
+      review_id: "review-1",
+      latest_revision_number: 5,
+      messages: [],
+      ai: {
+        driver: "configured",
+        model: "",
+        models: [],
+        drivers: ["configured", "claude", "codex", "opencode"],
+        setup_help: SETUP_HELP,
+      },
+    });
+    vi.mocked(api.streamReviewAsk).mockResolvedValue({
+      review_id: "review-1",
+      latest_revision_number: 5,
+      human: message({ id: "ram-human-setup", role: "human", body: "Explain this." }),
+      assistant: message({ id: "ram-setup-answer", body: "Here is the explanation." }),
+    });
+
+    renderDrawer();
+
+    const notice = await screen.findByTestId("ask-setup-help");
+    expect(notice.textContent).toContain("No AI model is set up.");
+    expect(notice.textContent).toContain("export ANTHROPIC_API_KEY=sk-ant-...");
+    expect(notice.textContent).toContain("lc review --ai --agent claude");
+    expect(notice.textContent).toContain("pick an installed agent under Provider");
+    expect((screen.getByLabelText("Ask Review") as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Send Ask question" }) as HTMLButtonElement).disabled).toBe(true);
+    // review-11.2: no suggestion chips while nothing can answer them; the setup help is the one call to action.
+    expect(screen.queryByRole("button", { name: "Walk me through this change" })).toBeNull();
+    expect(api.streamReviewAsk).not.toHaveBeenCalled();
+
+    // Choosing an installed agent is a route that can answer, so the composer opens again.
+    await userEvent.click(screen.getByLabelText("Ask AI driver"));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Claude" }));
+    await waitFor(() => expect((screen.getByLabelText("Ask Review") as HTMLTextAreaElement).disabled).toBe(false));
+    expect(screen.queryByTestId("ask-setup-help")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Explain this." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
+    await waitFor(() => expect(api.streamReviewAsk).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.streamReviewAsk).mock.calls[0][1]).toMatchObject({ driver: "claude" });
+  });
+
+  it("maps a failed send with no AI model to the same setup help instead of raw error text", async () => {
+    vi.mocked(api.streamReviewAsk).mockRejectedValue(
+      Object.assign(new Error("No AI model is set up."), {
+        status: 503,
+        code: "ai_not_set_up",
+        setup_help: SETUP_HELP,
+      }),
+    );
+
+    renderDrawer();
+    await waitFor(() => expect(api.fetchReviewAsk).toHaveBeenCalled());
+    expect(screen.queryByTestId("ask-setup-help")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Explain this." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
+
+    const notice = await screen.findByTestId("ask-setup-help");
+    expect(notice.textContent).toContain("export ANTHROPIC_API_KEY=sk-ant-...");
+    expect(screen.getAllByText(/No AI model is set up\./).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/provider is disabled/i)).toBeNull();
+  });
+
+  it("shows no setup help when the server reports a model is ready", async () => {
+    vi.mocked(api.fetchReviewAsk).mockResolvedValue({
+      review_id: "review-1",
+      latest_revision_number: 5,
+      messages: [],
+      ai: { driver: "openai", model: "", models: [] },
+    });
+
+    renderDrawer();
+
+    await waitFor(() => expect(screen.getByLabelText("Ask AI driver").textContent).toContain("OpenAI"));
+    expect(screen.queryByTestId("ask-setup-help")).toBeNull();
+    expect((screen.getByLabelText("Ask Review") as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
   it("renders an optimistic chat turn and live working feedback before the answer arrives", async () => {
     let emit: ((event: api.ReviewAskStreamEvent) => void) | null = null;
     let resolveResult: ((result: Awaited<ReturnType<typeof api.streamReviewAsk>>) => void) | null = null;
@@ -319,12 +456,12 @@ describe("ReviewAskDrawer", () => {
     expect(screen.getByText("Starting…")).toBeTruthy();
 
     act(() => emit?.({ type: "working", elapsed_ms: 3200, driver: "claude", model: "sonnet" }));
-    expect(screen.getByText("Working on this snapshot…")).toBeTruthy();
+    expect(screen.getByText("Working on this revision…")).toBeTruthy();
     expect(screen.getByText("3s")).toBeTruthy();
 
     act(() => emit?.({ type: "delta", text: "Partial streamed answer." }));
     expect(screen.getByText(/Partial streamed answer/)).toBeTruthy();
-    expect(screen.queryByText("Working on this snapshot…")).toBeNull();
+    expect(screen.queryByText("Working on this revision…")).toBeNull();
 
     await act(async () => {
       resolveResult?.({
@@ -335,7 +472,7 @@ describe("ReviewAskDrawer", () => {
       });
     });
     expect(await screen.findByText(/Collapse the two wrappers/)).toBeTruthy();
-    expect(screen.queryByText("Working on this snapshot…")).toBeNull();
+    expect(screen.queryByText("Working on this revision…")).toBeNull();
   });
 
   it("opens @ file suggestions immediately and dismisses them on space, Escape, or outside click", async () => {
@@ -535,7 +672,7 @@ describe("ReviewAskDrawer", () => {
     expect(await screen.findByText("pasted-text.txt")).toBeTruthy();
   });
 
-  it("attaches changed files from @ suggestions and sends them as snapshot mentions", async () => {
+  it("attaches changed files from @ suggestions and sends them as revision mentions", async () => {
     vi.mocked(api.streamReviewAsk).mockResolvedValue({
       review_id: "review-1",
       latest_revision_number: 5,
@@ -802,7 +939,7 @@ describe("ReviewAskDrawer", () => {
       }),
       assistant: message({
         id: "ram-map-answer",
-        body: "The current graph shows handle_request around this Snapshot change.",
+        body: "The current graph shows handle_request around this revision change.",
         context: { selection, label: "handle_request" },
         references: [mapReference],
       }),
@@ -856,11 +993,11 @@ describe("ReviewAskDrawer", () => {
       />,
     );
 
-    expect(await screen.findByText("Snapshot 6 available")).toBeTruthy();
-    expect(screen.getAllByText("Snapshot 5").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Revision 7 available")).toBeTruthy();
+    expect(screen.getAllByText("Revision 6").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Switch to latest" }));
     expect(onSwitchLatest).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Ask about Snapshot 5")).toBeNull();
+    expect(screen.queryByText("Ask about Revision 6")).toBeNull();
   });
 
   describe("cancellation", () => {
@@ -909,7 +1046,7 @@ describe("ReviewAskDrawer", () => {
       expect(screen.getByLabelText("Syncing conversation")).toBeInTheDocument();
     });
 
-    it("rejects a late answer when the viewed Snapshot changes during the stream", async () => {
+    it("rejects a late answer when the viewed revision changes during the stream", async () => {
       let emit: ((event: api.ReviewAskStreamEvent) => void) | undefined;
       let finish: ((result: Awaited<ReturnType<typeof api.streamReviewAsk>>) => void) | undefined;
       let signal: AbortSignal | undefined;
@@ -924,11 +1061,11 @@ describe("ReviewAskDrawer", () => {
       };
       const view = render(<ReviewAskDrawer {...shared} revisionId="rev-5" revisionNumber={5} />);
       await askQuestion("Why is this token trusted?");
-      act(() => emit?.({ type: "delta", text: "An unverified assertion about the old Snapshot" }));
+      act(() => emit?.({ type: "delta", text: "An unverified assertion about the old revision" }));
       expect(screen.getByText(/An unverified assertion/)).toBeInTheDocument();
       view.rerender(<ReviewAskDrawer {...shared} revisionId="rev-6" revisionNumber={6} latestRevisionNumber={6} />);
       expect(signal?.aborted).toBe(true);
-      expect(await screen.findByText(/Snapshot changed while Ask was running/)).toBeInTheDocument();
+      expect(await screen.findByText(/The revision changed while Ask was running/)).toBeInTheDocument();
       act(() => emit?.({ type: "delta", text: " INJECTED LATE" }));
       await act(async () => finish?.({
         review_id: "review-1", latest_revision_number: 6,

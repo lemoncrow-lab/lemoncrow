@@ -9,7 +9,6 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 
 import AnnotationCard from "./AnnotationCard";
-import ReviewActionMenu from "./ReviewActionMenu";
 import ReviewFixSheet from "./ReviewFixSheet";
 import { ReviewCorrectionsProvider, type ReviewCorrectionsContextValue } from "./reviewCorrections";
 import { actionProvenance, correctionPaletteActions, latestActionBySubject } from "./reviewActionsModel";
@@ -140,10 +139,10 @@ describe("action provenance", () => {
     },
   );
 
-  it("names the route, the resulting Snapshot and re-review, and says failure leaves the finding unchanged", () => {
-    expect(actionProvenance(record()).text).toBe("Fix sent to Claude s-claude · waiting for a new Snapshot");
+  it("names the route, the resulting revision and re-review, and says failure leaves the finding unchanged", () => {
+    expect(actionProvenance(record()).text).toBe("Fix sent to Claude s-claude · waiting for a new revision");
     expect(actionProvenance(record({ status: "snapshot_recorded", resulting_revision_number: 2, result_certainty: "exact" })).text)
-      .toBe("Addressed by Fix → Snapshot 2 · re-review");
+      .toBe("Addressed by Fix → Revision 3 · re-review");
     expect(actionProvenance(record({ status: "snapshot_recorded", resulting_revision_number: 2, result_certainty: "unattributed", route: { ...EXACT, tier: "prompt_fallback", mode: "copy" } })).text)
       .toContain("not attributed to the fixer");
     expect(actionProvenance(record({ status: "failed", message: "session not found" })).text)
@@ -159,13 +158,13 @@ describe("action provenance", () => {
 });
 
 describe("finding cards show which action addressed which finding", () => {
-  it("links the finding to its action and resulting Snapshot without changing its disposition label", () => {
+  it("links the finding to its action and resulting revision without changing its disposition label", () => {
     const recorded = record({ status: "snapshot_recorded", resulting_revision_id: "rrv-2", resulting_revision_number: 2, result_certainty: "exact" });
     const other = record({ id: "act-2", subjects: [{ ...record().subjects[0], id: "ann-other" }] });
     mountCard(contextWith([recorded, other]), vi.fn(), [finding(), finding({ id: "ann-untouched", title: "Another finding" })]);
     const lines = screen.getAllByTestId("finding-action-provenance");
     expect(lines).toHaveLength(1);
-    expect(lines[0].textContent).toContain("Addressed by Fix → Snapshot 2 · re-review");
+    expect(lines[0].textContent).toContain("Addressed by Fix → Revision 3 · re-review");
     // The disposition is still the reviewer's: the finding reads Open, not Fixed.
     const actions = screen.getAllByLabelText("AI finding actions")[0];
     expect(within(actions).getByText("Open")).toBeTruthy();
@@ -182,7 +181,7 @@ describe("finding cards show which action addressed which finding", () => {
   it("disables Fix and offers Cancel while an action is in flight", async () => {
     const cancel = vi.fn();
     mountCard(contextWith([record()], { cancel }));
-    expect(screen.getByTestId("finding-action-provenance").textContent).toContain("Fix sent to Claude s-claude · waiting for a new Snapshot");
+    expect(screen.getByTestId("finding-action-provenance").textContent).toContain("Fix sent to Claude s-claude · waiting for a new revision");
     expect((screen.getByRole("button", { name: "Fix" }) as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(cancel).toHaveBeenCalledWith("act-1");
@@ -212,10 +211,10 @@ function previewOf(overrides: Partial<ReviewActionPreview> = {}): ReviewActionPr
     route: EXACT,
     candidates: [
       EXACT,
-      { ...EXACT, tier: "preferred_agent", mode: "new_session", available: false, host: "", session_id: "", target_ref: "", label: "", reason: "no preferred fixing agent is set; run `lemoncrow settings set review.fix_agent <claude|codex|opencode|lemoncode>`" },
+      { ...EXACT, tier: "preferred_agent", mode: "new_session", available: false, host: "", session_id: "", target_ref: "", label: "", reason: "no preferred fixing agent is set; run `lemoncrow settings set review.fix_agent <claude|codex|opencode>`" },
       { ...EXACT, tier: "prompt_fallback", mode: "copy", host: "", session_id: "", target_ref: "", label: "Copy the fix prompt" },
     ],
-    handoff: "LemonCrow Review · correction handoff act-op · Snapshot 1\n\n## Authority\n...",
+    handoff: "LemonCrow Review · correction handoff act-op · Revision 2\n\n## Authority\n...",
     handoff_digest: "digest-1",
     limit: 20,
     code_changing: true,
@@ -250,7 +249,7 @@ describe("ReviewFixSheet", () => {
     expect(actionsApi.previewReviewAction).toHaveBeenCalledWith("review-1", "rrv-1", { kind: "fix_all", subject_ids: ["ann-a", "ann-b", "ann-h"], route: undefined, directive: "" });
     const routes = screen.getByRole("radiogroup", { name: "Fix route" });
     expect(within(routes).getByText("Authoring session")).toBeTruthy();
-    expect(within(routes).getByText("no preferred fixing agent is set; run `lemoncrow settings set review.fix_agent <claude|codex|opencode|lemoncode>`")).toBeTruthy();
+    expect(within(routes).getByText("no preferred fixing agent is set; run `lemoncrow settings set review.fix_agent <claude|codex|opencode>`")).toBeTruthy();
     expect((within(routes).getAllByRole("radio")[1] as HTMLInputElement).disabled).toBe(true);
     const excluded = screen.getByRole("region", { name: "Excluded" });
     expect(excluded.textContent).toContain("goes to Codex s-codex, not Claude s-claude");
@@ -314,8 +313,8 @@ describe("ReviewFixSheet", () => {
 
 const CATALOG: ReviewActionAvailability[] = [
   { kind: "fix_all", label: "Fix all", available: true, reason: "", setup: "", subject_ids: ["ann-a", "ann-b"], code_changing: true },
-  { kind: "fix_ci_failure", label: "Fix CI failure", available: false, reason: "no failing check on this Snapshot", setup: "", subject_ids: [], code_changing: true },
-  { kind: "resolve_merge_conflicts", label: "Resolve merge conflicts", available: false, reason: "LemonCrow does not observe this Change's mergeability yet", setup: "Resolve conflicts in your agent session, then capture a Snapshot", subject_ids: [], code_changing: true },
+  { kind: "fix_ci_failure", label: "Fix CI failure", available: false, reason: "no failing check on this revision", setup: "", subject_ids: [], code_changing: true },
+  { kind: "resolve_merge_conflicts", label: "Resolve merge conflicts", available: false, reason: "LemonCrow does not observe this Change's mergeability yet", setup: "Resolve conflicts in your agent session, then capture a revision", subject_ids: [], code_changing: true },
   { kind: "create_follow_up_issue", label: "Create follow-up issue", available: false, reason: "no issue tracker is connected", setup: "Connect an issue tracker", subject_ids: [], code_changing: false },
 ];
 
@@ -330,7 +329,7 @@ describe("expert correction actions", () => {
       "Create follow-up issue…",
     ]);
     expect(entries.map((item) => Boolean(item.disabled))).toEqual([false, true, true, true]);
-    expect(entries[2].detail).toBe("LemonCrow does not observe this Change's mergeability yet · Resolve conflicts in your agent session, then capture a Snapshot");
+    expect(entries[2].detail).toBe("LemonCrow does not observe this Change's mergeability yet · Resolve conflicts in your agent session, then capture a revision");
     entries[0].run();
     expect(open).toHaveBeenCalledWith("fix_all", ["ann-a", "ann-b"]);
   });
@@ -349,42 +348,5 @@ describe("expert correction actions", () => {
     entries[0].run();
     expect(open).toHaveBeenCalledWith("revert", ["outcome:deployment:production"]);
     expect(correctionPaletteActions(CATALOG, open).some((item) => /Revert|Fix forward/.test(item.label))).toBe(false);
-  });
-
-  it("are reachable from the More menu", async () => {
-    const open = vi.fn();
-    render(
-      <ReviewActionMenu
-        busy={false}
-        readOnly={false}
-        historical={false}
-        allowRefresh={false}
-        showFinish={false}
-        reviewId="review-1"
-        codeTheme="github-dark"
-        diffStyle="split"
-        diffOverflow="scroll"
-        contextOpen={false}
-        focusMode={false}
-        onRefresh={vi.fn()}
-        onFinish={vi.fn()}
-        onDownloadPatch={vi.fn()}
-        onCodeThemeChange={vi.fn()}
-        onDiffStyleChange={vi.fn()}
-        onToggleDiffOverflow={vi.fn()}
-        onToggleContext={vi.fn()}
-        onToggleFocus={vi.fn()}
-        onShowShortcuts={vi.fn()}
-        onOpenFeedback={vi.fn()}
-        correctionActions={correctionPaletteActions(CATALOG, open)}
-      />,
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Review actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Fix & corrections/ }));
-    const unavailable = await screen.findByRole("menuitem", { name: /Resolve merge conflicts/ });
-    expect(unavailable.getAttribute("aria-disabled")).toBe("true");
-    expect(unavailable.textContent).toContain("does not observe this Change's mergeability");
-    await userEvent.click(screen.getByRole("menuitem", { name: /Fix all open findings \(2\)/ }));
-    expect(open).toHaveBeenCalledWith("fix_all", ["ann-a", "ann-b"]);
   });
 });

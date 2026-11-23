@@ -27,7 +27,10 @@ PROVIDER_NAME = {"anthropic": "Anthropic", "openai": "OpenAI"}
 
 @dataclass(frozen=True)
 class ModelFailure:
-    """``kind`` is one of ``auth``, ``credit``, ``rate_limit``, ``model``, ``overloaded``, ``json`` or ``other``."""
+    """``kind`` is one of ``snapshot``, ``federation``, ``auth``, ``credit``, ``rate_limit``, ``model``, ``overloaded``,
+    ``json`` or ``other``. ``snapshot`` is no model failure at all: the files the model reads could not be rebuilt, so none
+    was asked.
+    """
 
     kind: str
     #: What happened, no advice.
@@ -57,6 +60,12 @@ def _code(*numbers: str) -> str:
 # Order matters: the first pattern that matches wins, and the credit message must beat the rate-limit one (Anthropic
 # words an empty balance as a rate_limit_error on some routes).
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("snapshot", re.compile(r"\bReviewSnapshotUnavailable\b")),
+    # Before "auth": a refused token exchange is an HTTP 401 too, but no API key is involved and the fix is elsewhere.
+    (
+        "federation",
+        re.compile(r"workload identity|OIDC token|token exchange|id-token: write", re.IGNORECASE),
+    ),
     (
         "credit",
         re.compile(
@@ -94,7 +103,14 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("json", re.compile(r"invalid JSON|could not be read as JSON", re.IGNORECASE)),
 )
 #: Which kinds mean the next run will fail the same way until the person changes something.
-PERMANENT = frozenset({"auth", "credit", "model"})
+PERMANENT = frozenset({"auth", "credit", "model", "federation"})
+#: What to check when Anthropic refuses a workload identity exchange: it says only "Authentication failed".
+FEDERATION_FIX = (
+    "Open the Claude Console, Settings > Workload identity > Authentication history "
+    "(platform.claude.com/settings/workload-identity-federation?tab=history), for the reason. The usual one is a rule "
+    "whose subject does not match the token's `sub` claim: a pull_request run's is `repo:<owner>/<repo>:pull_request`. "
+    "Check also the federation IDs passed to the Action and that the workflow has `permissions: id-token: write`"
+)
 
 
 def classify(
@@ -119,6 +135,7 @@ def classify(
     key = KEY_ENV.get(provider, "")
     where = f"your API key ({key})" if key else "your model credentials"
     fix, short = {
+        "federation": (failure.fix, failure.short),
         "auth": (f"Check {where}: it must be a valid, active key", f"check {where}"),
         "credit": (
             f"Add credit or raise the spend limit in the {who} console, then run the review again",
@@ -137,6 +154,10 @@ def classify(
             "run again in a few minutes",
         ),
         "json": ("Run the review again; if it repeats, use a stronger model", "run again"),
+        "snapshot": (
+            "Which files and why are in the `model call errors` line printed with this review",
+            "see the model call errors line",
+        ),
     }.get(
         failure.kind,
         (
@@ -158,6 +179,20 @@ def _classify(errors: Iterable[str], *, provider: str, key_input: str, model: st
     key = key_input or KEY_INPUT.get(provider, "")
     where = f"the secret passed as `{key}`" if key else "the model credentials"
     kind = next((name for name, pattern in _PATTERNS if pattern.search(text)), "other")
+    if kind == "snapshot":
+        return ModelFailure(
+            kind,
+            "the review snapshot could not be rebuilt, so no model was asked",
+            "Which files and why are in the job log, under `Review the pull request`. Re-run the job",
+            "see the workflow log",
+        )
+    if kind == "federation":
+        return ModelFailure(
+            kind,
+            "Anthropic workload identity authentication failed",
+            FEDERATION_FIX,
+            "see Workload identity > Authentication history in the Claude Console",
+        )
     if kind == "auth":
         forbidden = re.search(r"PermissionDeniedError|permission_error|" + _code("403"), text, re.IGNORECASE)
         return ModelFailure(
@@ -211,7 +246,8 @@ def _classify(errors: Iterable[str], *, provider: str, key_input: str, model: st
 
 
 _SECRET_SHAPES = re.compile(
-    r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[abprs]-[A-Za-z0-9-]{8,})"
+    r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[abprs]-[A-Za-z0-9-]{8,}"
+    r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*)"
 )
 
 
@@ -227,7 +263,15 @@ def scrub(text: str, secrets: Iterable[str] = ()) -> str:
 def key_values(environ: Mapping[str, str]) -> tuple[str, ...]:
     """The credentials in *environ* a log line must never repeat."""
 
-    names = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LEMONCROW_OPENAI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")
+    names = (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "LEMONCROW_OPENAI_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+    )
     return tuple(value for name in names if len(value := str(environ.get(name) or "").strip()) >= 6)
 
 

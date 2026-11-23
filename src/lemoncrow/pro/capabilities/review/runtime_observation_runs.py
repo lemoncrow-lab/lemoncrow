@@ -26,7 +26,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult, ExecutorClass
 from lemoncrow.pro.capabilities.review.recipes import CheckRecipe
 from lemoncrow.pro.capabilities.review.run_evidence import protect_text
 from lemoncrow.pro.capabilities.review.runtime_observation import (
@@ -44,10 +43,12 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     snapshot_semantic_identity,
     stamp_execution_record,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.store import new_evidence_id
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
+from lemoncrow.pro.environment.execution import ExecutionResult, ExecutorClass
+from lemoncrow.pro.environment.runners import SurfaceRunResult
+from lemoncrow.pro.environment.services import ServiceSet
 
 Side = Literal["old", "new"]
 RunSide = Callable[[RuntimeConfigEntry, ReviewSurface, str], SurfaceRunResult]
@@ -126,6 +127,14 @@ def observation_runtime(recipe: CheckRecipe, spec: ObservationSpec) -> tuple[Run
         "report": bool(recipe.report),
         "observe": spec,
     }
+    definition = recipe.environment
+    if definition is not None:
+        # environment.toml: the check's services and pinned image, as an ordinary run of this recipe gets them.
+        services = tuple(found for name in recipe.needs if (found := definition.service(name)) is not None)
+        if services:
+            values["services"] = ServiceSet(services)
+        if definition.toolchain is not None and definition.toolchain.digest:
+            values["toolchain"] = definition.toolchain
     runtime = RuntimeConfigEntry(id=runtime_id, runner="command", values=values)
     surface = ReviewSurface(
         id=f"observe:{recipe.id}",
@@ -223,7 +232,7 @@ class _Run:
             )
         except ValueError as exc:
             inputs.store.discard_artifact(rel)
-            raise ObservationRunSuperseded("runtime observation Snapshot was superseded before publication") from exc
+            raise ObservationRunSuperseded("runtime observation revision was superseded before publication") from exc
         except Exception:
             inputs.store.discard_artifact(rel)
             raise

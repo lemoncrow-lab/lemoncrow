@@ -92,7 +92,7 @@ export function HostedQueuePanel({ reviewId, hosted, status, error = "", onStatu
     <div className="space-y-2 text-label leading-5" data-testid="hosted-queue-panel">
       <p className="text-subtle">
         Hosted <a className="text-cyan-300 hover:underline" href={hosted.url}>{hosted.reference}</a> owns comments,
-        judgments and outcomes. What you do here queues for it, bound to the hosted Snapshot you saw, and applies
+        judgments and outcomes. What you do here queues for it, bound to the hosted revision you saw, and applies
         when you run <code>lc review hosted sync</code>.
       </p>
       {error && <p role="alert" className="text-amber-300">{error}</p>}
@@ -110,7 +110,7 @@ export function HostedQueuePanel({ reviewId, hosted, status, error = "", onStatu
               </div>
               {action.state === "conflict" && (
                 <p className="text-muted-foreground">
-                  {HOSTED_CONFLICT_TEXT[action.reason] ?? action.reason} Re-apply it on hosted's current Snapshot, or discard it.
+                  {HOSTED_CONFLICT_TEXT[action.reason] ?? action.reason} Re-apply it on hosted's current revision, or discard it.
                 </p>
               )}
               <div className="mt-1 flex justify-end gap-1.5">

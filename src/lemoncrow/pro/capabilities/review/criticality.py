@@ -393,7 +393,7 @@ def parse_trusted_base_triage(content: str, *, source: str, commit: str = "") ->
     trusted-base content (``TrustedBaseDocument.content``), never head bytes.
     """
 
-    origin = PolicyOrigin("trusted_base_repository", source or "base Snapshot .lemoncrow/review.yaml", commit)
+    origin = PolicyOrigin("trusted_base_repository", source or "base revision .lemoncrow/review.yaml", commit)
     try:
         decoded = yaml.safe_load(content) if content.strip() else None
     except yaml.YAMLError as exc:
@@ -670,7 +670,7 @@ def triage_policy_for(effective: object, config: Any, *, commit: str = "") -> Ef
 
     content = str(getattr(config, "content", "") or "")
     source = (
-        str(getattr(config, "source", "") or "") or f"base Snapshot {getattr(config, 'path', '.lemoncrow/review.yaml')}"
+        str(getattr(config, "source", "") or "") or f"base revision {getattr(config, 'path', '.lemoncrow/review.yaml')}"
     )
     trusted = parse_trusted_base_triage(content, source=source, commit=commit) if content else None
     return resolve_triage_policy(
@@ -752,7 +752,9 @@ def severity_for(category: str, *, impact: str = "", verified: bool = False, rul
 
     ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
     none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
-    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1. A
+    ``medium`` rating is P1 when verified or in :data:`P0_CATEGORIES`: a possible wrong result, security hole or data
+    loss must not read as optional.
 
     A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
     the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
@@ -768,7 +770,7 @@ def severity_for(category: str, *, impact: str = "", verified: bool = False, rul
     if impact == "high":
         return "p0" if verified and category in P0_CATEGORIES else "p1"
     if impact == "medium":
-        return "p1" if verified else "p2"
+        return "p1" if verified or category in P0_CATEGORIES else "p2"
     if impact == "low":
         return "p2"
     # Unrated keeps the category's own severity (never P0 from here, never below P2).
@@ -840,24 +842,25 @@ _SENSITIVE_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset(
         ".sql",
     }
 )
+# Plain category words: ``sensitive_area`` turns ``access-control`` into ``access-control code``.
 _SENSITIVE_SEGMENTS: Final[Mapping[str, str]] = {
-    "auth": "authentication",
-    "authentication": "authentication",
-    "authorization": "authorization",
+    "auth": "access-control",
+    "authentication": "access-control",
+    "authorization": "access-control",
     "security": "security",
-    "permissions": "permissions",
-    "payment": "payments",
-    "payments": "payments",
+    "permissions": "access-control",
+    "payment": "payment",
+    "payments": "payment",
     "billing": "billing",
     "migrations": "database migration",
 }
 _SENSITIVE_FILE_STEMS: Final[Mapping[str, str]] = {
-    "auth": "authentication",
-    "authorization": "authorization",
+    "auth": "access-control",
+    "authorization": "access-control",
     "security": "security",
-    "permissions": "permissions",
-    "payment": "payments",
-    "payments": "payments",
+    "permissions": "access-control",
+    "payment": "payment",
+    "payments": "payment",
     "billing": "billing",
     "migration": "database migration",
 }
@@ -901,6 +904,12 @@ def sensitive_path_attention(path: str) -> str:
     return _SENSITIVE_FILE_STEMS.get(PurePosixPath(name).stem, "")
 
 
+def sensitive_area(label: str) -> str:
+    """``access-control code``: the plain words for a :func:`sensitive_path_attention` label."""
+
+    return label if label.endswith(("configuration", "automation", "migration")) else f"{label} code"
+
+
 def sensitivity_attention_reasons(
     targets: Iterable[Any], policy: EffectiveTriagePolicy
 ) -> dict[str, list[QueueReason]]:
@@ -916,12 +925,9 @@ def sensitivity_attention_reasons(
         if path not in by_path:
             focus = policy.classify(path)
             label = sensitive_path_attention(path)
+            area = sensitive_area(label) if label else ""
             by_path[path] = (
-                [
-                    QueueReason(
-                        "sensitive_path_attention", f"Review first: {label} path changed (not a verified finding)"
-                    )
-                ]
+                [QueueReason("sensitive_path_attention", f"{area[:1].upper()}{area[1:]} changed")]
                 if label
                 and focus.review_first != "last"
                 and focus.criticality not in {"high", "critical"}

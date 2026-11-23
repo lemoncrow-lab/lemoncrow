@@ -1,4 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
+import { fmtWhen } from "../lib/format";
 import { Input as UiInput } from "../components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +30,7 @@ import {
 } from "./ContextSections";
 import { annotationSource, partition } from "./annotationModel";
 import { lazyPanel } from "./lazyPanel";
+import { plainCode, plainCodeSentence, unitKeyLabel, usePrincipalLabel } from "./plainWords";
 import { targetDisplayLabel } from "./readerModel";
 import { fetchTargetHistory } from "./reviewApi";
 import type { InvestigateHost } from "./investigate/Investigate";
@@ -46,8 +48,10 @@ import type {
 
 export type ContextDrawerTab = "context" | "investigate" | "checks" | "discussion" | "activity";
 
-// The investigation surfaces load only once the tab is opened.
-const Investigate = lazyPanel("Investigate", () => import("./investigate/Investigate"));
+// The investigation surfaces are a separate chunk; it starts loading when the drawer opens
+// (below), so choosing the tab renders from prepared data instead of waiting on a download.
+const loadInvestigate = () => import("./investigate/Investigate");
+const Investigate = lazyPanel("Investigate", loadInvestigate);
 
 interface ContextDrawerProps {
   reviewId: string;
@@ -150,11 +154,17 @@ export default function ContextDrawer({
   // Code Peek is a Runtime consumer: no entry point in a Review-only install,
   // nor while product discovery is still pending.
   const runtimeCode = useResolvedProductCapabilities()?.features["runtime.code"] === true;
+  const hasInvestigate = Boolean(investigate);
+  useEffect(() => {
+    // A prefetch only: a failure here is retried by the tab's own lazy load.
+    if (hasInvestigate) void loadInvestigate().catch(() => undefined);
+  }, [hasInvestigate]);
   const closeRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [history, setHistory] = useState<ReviewMarkEvent[]>([]);
+  const principalName = usePrincipalLabel();
   const [historyError, setHistoryError] = useState("");
   /**
    * The file's comments split the way spec §15.6 requires them to be read: the
@@ -410,7 +420,7 @@ export default function ContextDrawer({
               <details className="border-t border-border pt-3">
                 <summary className="cursor-pointer text-meta text-amber-300/80">Analysis limitations · {degraded.length}</summary>
                 <div className="mt-2 space-y-2 border-l border-border pl-2">
-                  {degraded.map((item) => <div key={item.name} className="text-caption leading-relaxed text-muted-foreground"><span className="font-mono text-muted-foreground">{item.name}</span><div>{item.note}</div></div>)}
+                  {degraded.map((item) => <div key={item.name} className="text-caption leading-relaxed text-muted-foreground">{item.note || plainCodeSentence(item.name)}</div>)}
                 </div>
               </details>
             )}
@@ -514,7 +524,7 @@ export default function ContextDrawer({
                             )}
                           </div>
                           {item.detail && <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-micro leading-4 text-muted-foreground">{item.detail}</div>}
-                          {item.at && <div className="mt-0.5 text-micro text-muted-foreground">{new Date(item.at).toLocaleTimeString()}</div>}
+                          {item.at && <div className="mt-0.5 text-micro text-muted-foreground">{fmtWhen(item.at)}</div>}
                         </div>
                       ))}
                     </div>
@@ -554,7 +564,7 @@ export default function ContextDrawer({
               <InteractivePreviewPanel reviewId={reviewId} revisionId={detail?.revision_id ?? ""} readOnly={readOnly} openedFrom="checks_rail" />
             )}
             <div className="text-caption leading-relaxed text-muted-foreground">
-              Review-wide passes are context, not proof that this review area is correct.
+              Review-wide passes are context, not proof that this part is correct.
             </div>
           </div>
         )}
@@ -564,7 +574,7 @@ export default function ContextDrawer({
             {screenshotPairs.map(({ before, after }) => (
               <ScreenshotEvidenceCompare key={`${before.id}:${after.id}`} before={before} after={after} />
             ))}
-            <PanelCard title="Current Snapshot" action={<span className="font-mono text-caption text-muted-foreground">{currentEvidence.length}</span>}>
+            <PanelCard title="Current revision" action={<span className="font-mono text-caption text-muted-foreground">{currentEvidence.length}</span>}>
               {currentEvidence.length === 0 ? (
                 <div className="text-caption text-muted-foreground">No current screenshots, video, traces, or previews attached.</div>
               ) : (
@@ -573,7 +583,7 @@ export default function ContextDrawer({
             </PanelCard>
             {staleEvidence.length > 0 && (
               <details className="border-t border-border pt-2">
-                <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">Previous Snapshots · {staleEvidence.length}</summary>
+                <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">Previous revisions · {staleEvidence.length}</summary>
                 <div className="mt-2 space-y-2">{staleEvidence.map((artifact) => <ArtifactCard key={artifact.id} artifact={artifact} />)}</div>
               </details>
             )}
@@ -690,7 +700,7 @@ export default function ContextDrawer({
               the last known line reads as history rather than as a location.
             */}
             <OrphanedComments comments={orphanedComments} onSetState={readOnly ? undefined : onSetAnnotationState} />
-            {humanNotes.length === 0 && <div className="text-caption leading-relaxed text-muted-foreground">Line comments remain inline in the diff. Human judgment remains distinct from AUTHOR, LEMONCROW, and AI REVIEW claims.</div>}
+            {humanNotes.length === 0 && <div className="text-caption leading-relaxed text-muted-foreground">Line comments stay inline in the diff. What people write is kept apart from author, LemonCrow and AI notes.</div>}
           </div>
         )}
 
@@ -700,22 +710,22 @@ export default function ContextDrawer({
               {historyError ? (
                 <div className="text-caption text-red-300">{historyError}</div>
               ) : history.length === 0 ? (
-                <div className="text-caption text-muted-foreground">No recorded judgment transitions for this review area yet.</div>
+                <div className="text-caption text-muted-foreground">No recorded judgment transitions for this part yet.</div>
               ) : (
                 <div className="space-y-2">
                   {[...history].reverse().map((event) => (
                     <div key={event.id} className="border-l border-border pl-2 text-caption">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={event.actor_type === "human" ? "text-emerald-300" : event.actor_type === "agent" ? "text-muted-foreground" : "text-muted-foreground"}>
-                          {event.reviewer_id || (event.actor_type === "agent" ? "agent" : "LemonCrow")}
+                          {event.actor_type === "human" ? principalName(event.reviewer_id, "a reviewer") : event.actor_type === "agent" ? "agent" : "LemonCrow"}
                         </span>
-                        <span className="font-mono text-subtle">{event.from_state || "none"} → {event.to_state || "removed"}</span>
-                        <span className="text-muted-foreground">{event.event_kind}</span>
+                        <span className="text-subtle">{plainCode(event.from_state) || "none"} → {plainCode(event.to_state) || "removed"}</span>
+                        <span className="text-muted-foreground">{plainCode(event.event_kind)}</span>
                       </div>
-                      <div className="mt-0.5 text-caption text-muted-foreground">{event.created_at ? new Date(event.created_at).toLocaleString() : ""}</div>
+                      <div className="mt-0.5 text-caption text-muted-foreground">{event.created_at ? fmtWhen(event.created_at) : ""}</div>
                       {event.reason && <div className="mt-1 leading-relaxed text-muted-foreground">{event.reason}</div>}
                       {event.previous_unit_key && event.previous_unit_key !== event.unit_key && (
-                        <div className="mt-1 font-mono text-caption text-muted-foreground">moved from {event.previous_unit_key}</div>
+                        <div className="mt-1 font-mono text-caption text-muted-foreground">moved from {unitKeyLabel(event.previous_unit_key)}</div>
                       )}
                     </div>
                   ))}

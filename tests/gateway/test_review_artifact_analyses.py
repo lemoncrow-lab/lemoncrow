@@ -773,7 +773,7 @@ def test_a_command_too_large_analysis_plans_not_available_and_reserves_no_budget
         config = "analyses:\n  shipped:\n    - " + json.dumps(_config_rows(command_chars)[0]) + "\n"
         catalog = build_analysis_catalog(config, ["pyproject.toml"], lambda _path: "")
         detected = apply_analysis_facts(DetectedCapabilities(facts=frozenset(), base_state="present"), catalog)
-        repo = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+        repo = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
         settings = resolve_run_settings([parse_run_settings({"effort": "deep"}, origin=repo)], default_run_on="local")
         inputs = PlanInputs(
             review_id="r",

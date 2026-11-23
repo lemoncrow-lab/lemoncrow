@@ -7,6 +7,7 @@ capability can share the same execution primitive without sharing prompts.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -58,6 +59,8 @@ ReviewIntelligenceCapability = Literal[
     "rule_check",
     # DS0: one source-linked summary of a Review discussion thread.
     "thread_summary",
+    # X-Ray: names, groups, flows and a tour for one revision's index graph (``xray_graph_ai``).
+    "xray_graph",
 ]
 #: Drivers that start a local agent CLI process.
 AGENT_CLI_DRIVERS = frozenset({"claude", "codex", "opencode"})
@@ -291,6 +294,9 @@ def _resolve_explicit_model(driver: ReviewIntelligenceDriver, model: str | None)
         from lemoncrow.infra.internal_llm.ollama_client import _resolve_model as resolve_ollama_model
 
         return resolve_ollama_model(None)
+    if driver == "claude":
+        # What a review run chose for this process (`ci_env.apply_model_route`); set by nothing else.
+        return os.environ.get("LEMONCROW_CLAUDE_MODEL", "").strip()
     # Subscription CLIs own their default aliases. Empty is deliberate durable
     # identity: it means the driver's configured/default model, not a guessed
     # model name or fabricated billing identity.
@@ -323,13 +329,23 @@ def bound_intelligence_policy(policy: EffectiveIntelligencePolicy | None) -> Ite
         _bound_policy.reset(token)
 
 
+def operator_off_reason(policy: EffectiveIntelligencePolicy) -> str:
+    """Why an operator layer's AI-off reads on this machine: a $0 budget, naming who set it (SPEC §7.1 OWNER-2)."""
+
+    origin = policy.enabled.origin
+    return f"AI budget is $0 (set by {origin.scope_id or 'the ' + origin.layer + ' policy'})"
+
+
 def require_intelligence_enabled(policy: EffectiveIntelligencePolicy | None = None) -> EffectiveIntelligencePolicy:
     """The effective policy, or :class:`IntelligenceDisabled`.
 
     *policy* ``None`` takes the policy bound to this context
-    (:func:`bound_intelligence_policy`), else this process's. The kill switch
-    every model call consults: an invalid or disabled policy refuses before
-    any route is chosen or any byte leaves the process.
+    (:func:`bound_intelligence_policy`), else this process's. The policy half of
+    the gate: an invalid policy, or one an operator layer (organization or
+    repository) turned off, refuses before any route is chosen. It is also what
+    route resolution for a label consults, so it never reads the personal AI
+    budget; ``ai_budget.require_call_allowed`` adds that for a call that sends
+    something to a model.
     """
 
     if policy is None:
@@ -341,7 +357,7 @@ def require_intelligence_enabled(policy: EffectiveIntelligencePolicy | None = No
     if not policy.valid:
         raise IntelligenceDisabled("intelligence policy is invalid: " + "; ".join(policy.errors))
     if not policy.enabled.value:
-        raise IntelligenceDisabled(f"intelligence is turned off ({policy.enabled.origin.source})")
+        raise IntelligenceDisabled(operator_off_reason(policy))
     return policy
 
 
@@ -444,6 +460,27 @@ def _schema_answer(value: Any, schema: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _gated_and_metered[**P](call: Callable[P, StructuredExecution]) -> Callable[P, StructuredExecution]:
+    """Gate one structured model call before anything is sent and meter it once it has run (P8-4).
+
+    The gate is ``ai_budget.model_call``: the policy must be readable and on, and
+    the personal AI budget must have room. A route that is only being labelled
+    never comes through here (see :func:`resolve_driver_model`).
+    """
+
+    @functools.wraps(call)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> StructuredExecution:
+        from lemoncrow.pro.capabilities.review.ai_budget import model_call
+
+        with model_call(cast("EffectiveIntelligencePolicy | None", kwargs.get("policy"))) as meter:
+            execution = call(*args, **kwargs)
+            meter.report(execution.driver, execution.model, execution.usage)
+        return execution
+
+    return wrapper
+
+
+@_gated_and_metered
 def execute_structured(
     *,
     system: str,
@@ -503,7 +540,7 @@ def execute_structured(
 
     if resolved.driver in {"claude", "codex", "opencode"}:
         if source_kind == "review" and project_root is None:
-            raise InternalLLMError(f"{resolved.driver} Review Intelligence requires an immutable Review snapshot")
+            raise InternalLLMError(f"{resolved.driver} Review Intelligence requires an immutable Review revision")
         cli_origin: ExecutionOrigin = "human_ask" if tool_profile_for(origin) == "review" else "machine"
         if project_root is None:
             raise InternalLLMError(f"{resolved.driver} execution requires a project root")
@@ -539,6 +576,20 @@ def execute_structured(
                 )
             except CliExecutionCancelled as exc:
                 raise IntelligenceCancelled(str(exc)) from exc
+            except Exception:
+                if cli_usage:
+                    # The CLI ran and reported its use before the answer was rejected: that run is paid for.
+                    from lemoncrow.infra.internal_llm.usage import note_response
+
+                    note_response(
+                        resolved.model,
+                        {
+                            "input_tokens": optional_nonnegative("input_tokens"),
+                            "output_tokens": optional_nonnegative("output_tokens"),
+                        },
+                        provider_cost=reported_cost(),
+                    )
+                raise
         if _cancelled(cancellation):
             raise IntelligenceCancelled("Review Intelligence run was cancelled")
         cli_cost = reported_cost()
@@ -694,6 +745,9 @@ class IntelligenceRunOutcome:
     execution_mode: str = "standard"
     #: BI0: the configured/requested route (``auto`` kept as asked), when the run recorded one.
     configured: RouteRequest | None = None
+    #: Why the run was refused before it started (``budget_zero``, ``budget_used_up``, ...): nothing was claimed,
+    #: written or sent, and ``error`` holds the reason in words. Empty for every run that started.
+    refused: str = ""
 
     def to_wire(self) -> dict[str, Any]:
         configured = {} if self.configured is None else {"configured_route": self.configured.to_wire()}
@@ -749,7 +803,7 @@ def build_intelligence_identity(
     """
 
     if not revision_id or not snapshot_identity:
-        raise ValueError("Review Intelligence identity requires revision and Snapshot identity")
+        raise ValueError("Review Intelligence identity requires revision and revision identity")
     scope_digest = intelligence_input_digest(scope)
     context_digest = intelligence_input_digest(context)
     policy_digest = intelligence_input_digest(policy)
@@ -988,6 +1042,25 @@ def _content_access_refusal(request: IntelligenceRunRequest, resolved: ResolvedD
     return ""
 
 
+def _has_ready_result(store: Any, request: IntelligenceRunRequest, run_key: str) -> bool:
+    return any(
+        row.run_key == run_key and row.status == "ready"
+        for row in store.list_intelligence_runs(
+            request.review_id, revision_id=request.revision_id, capability=request.capability
+        )
+    )
+
+
+def _budget_refusal(policy: EffectiveIntelligencePolicy | None) -> IntelligenceDisabled | None:
+    from lemoncrow.pro.capabilities.review.ai_budget import require_call_allowed
+
+    try:
+        require_call_allowed(policy)
+    except IntelligenceDisabled as exc:
+        return exc
+    return None
+
+
 def _run_intelligence(
     *,
     store: Any,
@@ -1065,6 +1138,24 @@ def _run_intelligence(
         )
         if replay is not None:
             return _outcome_from_run(replay, cache_hit=True)
+    if fresh_action_id or not _has_ready_result(store, request, identity.run_key):
+        # Only a run that would send something is refused, and before it claims or writes anything: a ready result
+        # already made is always returned (SPEC 7.1 OWNER-1), and a refusal leaves no row behind.
+        budget_refusal = _budget_refusal(request.route_policy)
+        if budget_refusal is not None:
+            return IntelligenceRunOutcome(
+                run_id="",
+                status="failed",
+                result={},
+                driver=resolved.driver,
+                model=resolved.model,
+                usage=ModelCallUsage(),
+                provider_calls_this_request=0,
+                duration_ms=0,
+                cache_hit=False,
+                error=str(budget_refusal),
+                refused=str(getattr(budget_refusal, "code", "") or "policy"),
+            )
     row, claimed = store.claim_intelligence_run(
         pending,
         stale_after_s=max(60.0, request.budget.timeout_s * 2.0),
@@ -1234,6 +1325,7 @@ __all__ = [
     "exact_table_cost_usd",
     "execute_structured",
     "intelligence_input_digest",
+    "operator_off_reason",
     "require_intelligence_enabled",
     "resolve_driver_model",
     "run_configured_route",

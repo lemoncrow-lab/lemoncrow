@@ -182,7 +182,7 @@ def _rule(mode: str, path: str) -> ContentAccessRule:
     return ContentAccessRule(
         mode=mode,  # type: ignore[arg-type]
         path_scope=(path,),
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class="trusted_base_repository",
         source_identity="base:review.yaml",
     )

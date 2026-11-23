@@ -34,6 +34,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, cast
 
+import pygit2
+
 from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
 from lemoncrow.pro.capabilities.review.project_knowledge import (
     KnowledgeQuery,
@@ -139,6 +141,20 @@ class KnowledgeSource:
         }
 
 
+def _git_common_dir(path: Path) -> Path | None:
+    """The Git directory shared by every worktree of the repository at *path*."""
+
+    try:
+        discovered = pygit2.discover_repository(str(path.expanduser().resolve()))
+        if not discovered:
+            return None
+        git_dir = Path(discovered)
+        link = git_dir / "commondir"  # present only in a linked worktree's Git directory
+        return (git_dir / link.read_text(encoding="utf-8").strip()).resolve() if link.is_file() else git_dir.resolve()
+    except (OSError, ValueError, pygit2.GitError):
+        return None
+
+
 class LocalKnowledgeSources:
     """``<root>/project_knowledge_sources.json``: repository id -> where it was synced from.
 
@@ -180,6 +196,20 @@ class LocalKnowledgeSources:
 
     def get(self, repository_id: str) -> KnowledgeSource | None:
         return self.all().get(repository_id)
+
+    def for_checkout(self, checkout: Path) -> KnowledgeSource | None:
+        """The one source synced from *checkout*'s Git repository, else ``None``.
+
+        Identity is the shared Git directory, so a linked worktree reads what
+        its main checkout synced. Names and partial paths never match, and two
+        repository keys over one Git directory are ambiguous, so neither binds.
+        """
+
+        target = _git_common_dir(checkout)
+        if target is None:
+            return None
+        matches = [source for source in self.all().values() if _git_common_dir(Path(source.repo_root)) == target]
+        return matches[0] if len(matches) == 1 else None
 
     def record(self, repository: RepositoryIdentity, *, canonical_ref: str, repo_root: Path) -> KnowledgeSource:
         source = KnowledgeSource(

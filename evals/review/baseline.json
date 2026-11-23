@@ -2,8 +2,8 @@
   "acceptance": null,
   "decision": "passed",
   "kind": "review_eval_gate_baseline",
-  "previous_snapshot_digest": "1c4066fad7ed7ff05b04888852ae808825bfd95c40cb01cda9929d51a8f92f47",
-  "recorded_at": "2026-10-26T02:06:06+00:00",
+  "previous_snapshot_digest": "57292574910a48160097d2942a5eaa4449d488b7c5895ea60fb819f939cecf68",
+  "recorded_at": "2026-11-17T11:41:10+00:00",
   "snapshot": {
     "corpus": {
       "id": "builtin-public",
@@ -17,12 +17,12 @@
         },
         "digest": "a1a403c9baa0dcf3b31a9eddd09a5e7cfcdc164a8c199d1050c7a620d9da2275"
       },
-      "digest": "7e3133d05d6caa0095f8dedef872ce47f2a76cc252d24717f744d34c2eb5e223",
+      "digest": "b12989f3da35bce5bcba2b2ce5b74c5a8ab92c85ba5bdfc3e4b9fad983476e23",
       "fixtures": {
         "detail": {
-          "fixtures": "e9b0862fcb630acb9ec29b58f5f8d8773c3b088703af1f6046563347b9af4445"
+          "fixtures": "6594f608bc20916cc30c55fe889522834062f54aad50c8192f9fee6fdd87e465"
         },
-        "digest": "47ecc121b3da9b81c8e96ba6a6dba60f5c1d464dcf0ae79ec422e3a52c140cbd"
+        "digest": "6a37ba777774bb7c9afe105cf832546f6f92b935732e982e8ef4008f756bf008"
       },
       "model": {
         "detail": {
@@ -467,6 +467,26 @@
               "setup_hint": "Needs a contract surface in the trusted base: plain SQL migrations (executed on SQLite in the sandbox), OpenAPI documents, or proto/Avro/JSON Schema message formats; configure more under analyses.compatibility in the trusted-base .lemoncrow/review.yaml.",
               "title": "Mixed-version compatibility"
             },
+            "data_path.diff": {
+              "calls_per_run": 0,
+              "cost_class": "medium",
+              "degrade_tier": "deep_extra",
+              "dependencies": [],
+              "dependency_sides": "head",
+              "executor": "data_path",
+              "external": false,
+              "family": "static",
+              "id": "data_path.diff",
+              "loci": [
+                "local"
+              ],
+              "locus_hint": "The data path runs the pinned Opengrep v2.0.0 binary of the machine that holds the revision.",
+              "minimum_minutes": 0.0,
+              "omit_when_inapplicable": false,
+              "requires": "",
+              "setup_hint": "Needs the pinned Opengrep v2.0.0 release on this machine: set LEMONCROW_DATA_PATH_OPENGREP_BIN to it (or put it on PATH as opengrep). A review never downloads it. It runs only sandboxed: sandbox-exec on macOS, bubblewrap on Linux.",
+              "title": "Data path difference (experimental)"
+            },
             "infra.render": {
               "calls_per_run": 0,
               "cost_class": "medium",
@@ -558,7 +578,7 @@
               "loci": [
                 "local"
               ],
-              "locus_hint": "Rendered diffs run a headless browser against the Snapshot's own build, which exists only on the machine that holds it.",
+              "locus_hint": "Rendered diffs run a headless browser against the revision's own build, which exists only on the machine that holds it.",
               "minimum_minutes": 0.0,
               "omit_when_inapplicable": false,
               "requires": "web_app",
@@ -598,7 +618,7 @@
               "loci": [
                 "local"
               ],
-              "locus_hint": "Rendered diffs run a headless browser against the Snapshot's own build, which exists only on the machine that holds it.",
+              "locus_hint": "Rendered diffs run a headless browser against the revision's own build, which exists only on the machine that holds it.",
               "minimum_minutes": 0.0,
               "omit_when_inapplicable": false,
               "requires": "web_app",
@@ -879,6 +899,12 @@
                 "id": "visual.interactive_preview",
                 "sides": "base+head",
                 "when": "manual"
+              },
+              {
+                "escalate": false,
+                "id": "data_path.diff",
+                "sides": "base+head",
+                "when": "manual"
               }
             ],
             "quick": [
@@ -1055,7 +1081,7 @@
             ]
           }
         },
-        "digest": "2254b8359326f32ac642825a2cf01343dfefc9df260515ae8ec34e7c2cbd661c"
+        "digest": "c1cefd1e4fa82ffeba91f86c03d64f86ae3a9241e3ff5385b5459a13f3b89041"
       },
       "prompt": {
         "detail": {
@@ -1497,8 +1523,8 @@
         "noise_rate": 0.125
       }
     },
-    "snapshot_digest": "1512f148145536555fd3670fff4bd0aef989e80f2640bd2bd785a816dcefef70"
+    "snapshot_digest": "f1bfaa477761b0deb17240c896cd77c0a5e756942fd5eabd14c6097cc971d208"
   },
-  "snapshot_digest": "1512f148145536555fd3670fff4bd0aef989e80f2640bd2bd785a816dcefef70",
+  "snapshot_digest": "f1bfaa477761b0deb17240c896cd77c0a5e756942fd5eabd14c6097cc971d208",
   "version": 1
 }

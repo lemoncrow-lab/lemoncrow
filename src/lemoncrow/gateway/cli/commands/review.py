@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 import click
+from lemoncrow_client.browser import open_by_hand
+from lemoncrow_client.review_words import part_count
 
 from lemoncrow.gateway.cli.commands._shared import _emit
 from lemoncrow.gateway.cli.commands.review_record_cli import ReviewCommand
@@ -72,11 +74,19 @@ def _review_scope_label(rng: Any) -> str:
     return f"{rng.base_rev} → {rng.head_rev}"
 
 
+def _revision_label(number: Any) -> str:
+    """``Revision N`` for a person: the server's zero-based number counted from one (``--json`` keeps it raw)."""
+
+    from lemoncrow_client.review_terminal import revision_label
+
+    return str(revision_label(number))
+
+
 # Mirrors ``session_models.MARK_STATES``. Restated rather than imported because
 # ``click.Choice`` needs the values at decoration time, and this module's whole
 # import discipline is that ``lc --help`` pays for nothing. Pinned equal to the
 # real tuple by ``test_cli_review.py::test_mark_state_choices_match_the_model``.
-_MARK_STATE_CHOICES = ("unreviewed", "reviewed", "needs_changes", "changed_since_review", "unknown")
+_MARK_STATE_CHOICES = ("unreviewed", "reviewed", "needs_changes", "changed_since_review", "unknown", "later")
 
 # Mirrors ``session_models.ANNOTATION_KINDS``, restated for the same reason and
 # pinned by ``test_cli_review.py::test_annotation_kind_choices_match_the_model``.
@@ -122,12 +132,16 @@ class _ReviewCliProgress:
 
         self("browser", "Opening Review Reader")
         try:
-            if config.token:
+            armed = (
                 self._remote.pair_local_review_browser(urlsplit(self.preparation_url).path, timeout_s=2.0)
-            if not _launch_browser_url(self.preparation_url):
-                click.echo(f"(could not open a browser; open {self.preparation_url} manually.)", err=True)
+                if config.token
+                else None
+            )
+            launched = _launch_browser_url(self.preparation_url)
+            if not launched:
+                click.echo(open_by_hand(self.preparation_url, armed), err=True)
             self.browser_opened = True
-            self("browser_done", "Review Reader opened; preparation continues")
+            self("browser_done", f"{_opened_text(launched)}; preparation continues")
         except ClientError as exc:
             click.echo(f"  ! {_review_server_click_error(exc, hosted=False)}", err=True)
 
@@ -219,9 +233,10 @@ class _ReviewCliProgress:
     "ai_review",
     is_flag=True,
     help=(
-        "Run the AI review headlessly on your own model route (no browser, no server) and print the findings: of "
+        "Run the AI review on your own model route and print the findings: of "
         "the pull request --pr names, or, with no --pr, of the working tree, --staged, REV or --base/--head, posting "
-        "nothing. With --pr it prints what the bot would post (the summary and each inline comment with its place) and "
+        "nothing; a local review then opens the same change in the Reader (--no-open or --json: terminal only). "
+        "With --pr it prints what the bot would post (the summary and each inline comment with its place) and "
         "writes nothing to GitHub, so it also reviews a closed or merged pull request. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local "
         "review exits 0 when clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, "
         "3 on a usage error."
@@ -292,8 +307,8 @@ class _ReviewCliProgress:
         "With --publish-bot, stop reviewing a pull request once its reviews have cost this much in total, read from "
         "the usage the summary comment carries (for a local --ai review, the usage carried for this working tree or "
         "range). Needs a known cost (the provider's, or a model in the local price table); a cancelled run's spend is "
-        f"not counted. `none` for no cap. Default: ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request; no cap for a local "
-        "--ai review."
+        f"not counted. `none` for no cap. Default: ${DEFAULT_MAX_USD_PER_PR:.2f} per pull request, and per run for a "
+        "local --ai review."
     ),
 )
 @click.option(
@@ -324,7 +339,7 @@ class _ReviewCliProgress:
     show_default=True,
     help=(
         "With --publish-bot, the open Diagram section of the summary comment: auto draws the relationships the "
-        "pull request added, removed or changed (from the Snapshot's architecture delta, no model call) when there is "
+        "pull request added, removed or changed (from the revision's architecture delta, no model call) when there is "
         "one worth drawing; off never builds it."
     ),
 )
@@ -333,7 +348,7 @@ class _ReviewCliProgress:
     "snapshot_title",
     default=None,
     metavar="TITLE",
-    help="Title this Snapshot for the reviewer; a hosted server applies it only to a new Review.",
+    help="Title this revision for the reviewer; a hosted server applies it only to a new Review.",
 )
 @click.option(
     "--intent",
@@ -405,14 +420,14 @@ class _ReviewCliProgress:
     is_flag=True,
     help="Update the durable review even when you are not opening the browser.",
 )
-@click.option("--units", "show_units", is_flag=True, help="List the reviewable units and their keys (implies --track).")
+@click.option("--units", "show_units", is_flag=True, help="List the parts and their keys (implies --track).")
 @click.option(
     "--mark",
     "mark_targets",
     multiple=True,
-    metavar="TARGET",
+    metavar="PART",
     help=(
-        "Record a verdict on a review target: the label a surface printed for it, a hun:/sym: unit key, "
+        "Record a verdict on a part: the label a surface printed for it, a hun:/sym: part key, "
         "or a repo-relative file path. A path -- or the file's fil: key -- is the imprecise spelling: it "
         "widens onto every target in that file rather than marking the file itself, and names them on "
         "stderr. Repeatable; implies --track."
@@ -490,7 +505,7 @@ class _ReviewCliProgress:
     default=None,
     metavar="NAME",
     help=(
-        "Run --run COMMAND in this checkout and record its result as check NAME on the exact Snapshot it ran "
+        "Run --run COMMAND in this checkout and record its result as check NAME on the exact revision it ran "
         "against: PASS on exit 0, FAIL otherwise, UNKNOWN if the checkout changed while it ran. Exits with the "
         "command's status, so local git or agent hooks can call it."
     ),
@@ -581,14 +596,14 @@ class _ReviewCliProgress:
     "fix_snapshot",
     metavar="REVIEW.N",
     default=None,
-    help="Create or reuse a local fix worktree for Snapshot N of an existing Review.",
+    help="Create or reuse a local fix worktree for revision N of an existing Review.",
 )
 @click.option(
     "--apply-fix",
     "apply_fix_snapshot",
     metavar="REVIEW.N",
     default=None,
-    help="Apply the latest captured fix for Snapshot N back to the main worktree.",
+    help="Apply the latest captured fix for revision N back to the main worktree.",
 )
 @click.option(
     "--with-conflict-markers",
@@ -682,43 +697,12 @@ def review_cmd(
     show_all: bool,
     no_color: bool,
 ) -> None:
-    """Review the current change.
+    """Review the current change in the LemonCrow Review Reader.
 
-    With no range flags, reviews uncommitted working-tree changes against HEAD.
-    On a clean tree, reviews the last commit instead and says so. Use --staged,
-    REV, or --base/--head to choose a different change.
-
-    Normal `lc review` updates one durable Review for this repository/source and
-    opens its stable Reader URL. Run it again after edits: the Review ID and URL
-    stay the same, and changed content becomes a new immutable revision. Existing
-    human review state is reconciled against that revision.
-
-    Local and hosted installs use the configured LEMONCROW_URL. `lc review` does
-    not start a per-repository server. Use --no-open for terminal-only inspection;
-    add --track when a terminal-only invocation should still update durable Review
-    state. Stateful options such as comments, marks, feedback, and finish also use
-    the durable Review automatically.
-
-    The browser Reader is optimized for the human loop: read the diff, leave
-    feedback, rerun after fixes, and return to the same URL to review only what
-    changed. ``--current`` reports that same Review/agent binding in the terminal;
-    ``--resume-author`` continues its exact author session without copying IDs.
-
-    With --ai (and no --pr) your own model reviews the change instead: nothing is opened or posted, and the
-    exit code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
-    --strict, 3 on a usage error. `lc review hook install` runs it before a push; `lc review init-action` writes
-    the GitHub Action workflow.
-
-    \b
-    A pull request, on your own model (needs the `gh` CLI):
-      --pr N --ai            review it and print what the bot would post:
-                             the summary and each inline comment with its
-                             place. Nothing is written to GitHub, so a
-                             closed or merged pull request works too.
-      --pr N --ai --dry-run  the same; --dry-run just says so.
-      --pr N --publish-bot   post those comments as a bot. Only in GitHub
-                             Actions; from a terminal add --dry-run (or use
-                             --ai) to see them instead.
+    Captures what changed (the uncommitted working tree by default, the last commit on a clean tree) as a new
+    Revision of this branch's Review, prints a short summary and opens the Reader. Run it again after edits:
+    same Review, same URL, a new Revision, and what you reviewed stays reviewed unless it changed. No model is
+    called unless you add --ai.
     """
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root, resolve_rev_range
@@ -779,11 +763,11 @@ def review_cmd(
     if snapshot_title is not None and (
         management_actions or fix_actions or setup_mode or write_review_config or publish_pr
     ):
-        raise click.ClickException("--title requires a Snapshot capture")
+        raise click.ClickException("--title requires a revision capture")
     if (intent_specs or description_file is not None) and (
         management_actions or fix_actions or setup_mode or write_review_config or publish_pr or check_name
     ):
-        raise click.ClickException("--intent and --description-file require a Snapshot capture")
+        raise click.ClickException("--intent and --description-file require a revision capture")
     if management_actions > 1:
         raise click.ClickException(
             "--current, --resume-author, --list-reviews, --show-review and --open-review are mutually exclusive"
@@ -985,26 +969,48 @@ def review_cmd(
         _publish_pull_request(client_config, detect_repo_root(repo_root), pr_spec, dry_run=dry_run, as_json=as_json)
         return
     if local_ai:
-        _review_local_with_ai(
-            ctx,
-            repo_root,
-            store_root=store_root,
-            rev=rev,
-            base_rev=base_rev,
-            head_rev=head_rev,
-            staged=staged,
-            working_tree=working_tree,
-            depth=depth,
-            fail_on=fail_on or DEFAULT_LOCAL_FAIL_ON,
-            strict=strict,
-            fresh=fresh,
-            max_usd=max_usd_per_pr,
-            max_runs=max_runs_per_pr,
-            with_impact=not no_impact,
-            as_json=as_json,
-            no_color=no_color,
-            show_all=show_all,
-        )
+        ai_exit = 0
+        try:
+            _review_local_with_ai(
+                ctx,
+                repo_root,
+                store_root=store_root,
+                rev=rev,
+                base_rev=base_rev,
+                head_rev=head_rev,
+                staged=staged,
+                working_tree=working_tree,
+                depth=depth,
+                fail_on=fail_on or DEFAULT_LOCAL_FAIL_ON,
+                strict=strict,
+                fresh=fresh,
+                max_usd=max_usd_per_pr,
+                max_runs=max_runs_per_pr,
+                with_impact=not no_impact,
+                as_json=as_json,
+                no_color=no_color,
+                show_all=show_all,
+            )
+        except click.exceptions.Exit as done:
+            ai_exit = int(done.exit_code or 0)
+        if effective_open and ai_exit in (0, 1):  # 2 and 3: the review did not run or is incomplete under --strict
+            # The findings are printed above; the same change then opens in the Reader, as plain `lc review` does.
+            # --no-open (or --json) keeps the terminal-only review a script or hook relies on.
+            ctx.invoke(
+                ctx.command,
+                **{
+                    **ctx.params,
+                    "ai_review": False,
+                    "agent": None,
+                    "remember": False,
+                    "strict": False,
+                    "fresh": False,
+                    "fail_on": None,
+                    "open_html": True,
+                },
+            )
+        if ai_exit:
+            ctx.exit(ai_exit)
         return
     if ai_review or publish_bot:
         assert pr_spec is not None
@@ -1060,6 +1066,12 @@ def review_cmd(
                         client_config, store_root=store_root, repo_root=resolved_root
                     )
                     implicit_working_tree = bool(branch_review_base)
+                if bare_request and not branch_review_base and not (new_review or continue_review):
+                    # Nothing says otherwise: review against the remote copy of this branch, so unpushed commits count.
+                    from lemoncrow.pro.capabilities.review.gitdiff import default_review_base
+
+                    branch_review_base = default_review_base(resolved_root)
+                    implicit_working_tree = implicit_working_tree or bool(branch_review_base)
                 if new_review:
                     from lemoncrow.pro.capabilities.review.gitdiff import resolve_new_review_range
 
@@ -1224,6 +1236,38 @@ def review_cmd(
         )
         return
 
+
+review_cmd.help_all_text = """Review the current change in the LemonCrow Review Reader.
+
+With no range, reviews uncommitted working-tree changes against HEAD; on a clean tree, the last commit
+instead, and says so. Use --staged, REV (main...HEAD, HEAD~1) or --base/--head for another change.
+
+`lc review` updates one durable Review for this repository and branch and opens its stable Reader URL. Run
+it again after edits: the Review and URL stay the same, the changed content becomes a new immutable
+Revision, and your marks are reconciled against it. --no-open alone is a terminal-only look that records
+nothing; add --track (or any of --mark, --comment, --feedback, --finish, ...) to update the Review without a
+browser. `lc review status` reports the Review without capturing.
+
+--mark, --comment, --finish, --reopen-review, --discard-review and --publish record human judgment and are
+refused inside a coding-agent session; capture, status, --feedback, --since-my-review and --check stay
+available to agents. Text says Revision N counted from 1; --json keeps the server's zero-based numbers.
+
+With --ai (and no --pr) your own model reviews the change, prints the findings, posts nothing, and then opens the same change in the Reader (--no-open or --json: terminal only). The exit
+code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
+--strict, 3 on a usage error. `lc review hook install` runs it before a push; `lc review init-action` writes
+the GitHub Action workflow.
+
+\b
+A pull request, on your own model (needs the `gh` CLI):
+  --pr N --ai            review it and print what the bot would post:
+                         the summary and each inline comment with its
+                         place. Nothing is written to GitHub, so a
+                         closed or merged pull request works too.
+  --pr N --ai --dry-run  the same; --dry-run just says so.
+  --pr N --publish-bot   post those comments as a bot. Only in GitHub
+                         Actions; from a terminal add --dry-run (or use
+                         --ai) to see them instead.
+"""
 
 _MAX_INTENT_FILE_BYTES = 65536
 
@@ -1403,7 +1447,7 @@ def _review_server_capture(
         browser_opened = progress.browser_opened
         progress("capture", "Starting source preparation")
         from lemoncrow.pro.capabilities.review.hosted import capture_server_review, server_review_request
-        from lemoncrow.pro.capabilities.review.render import render_review
+        from lemoncrow.pro.capabilities.review.render import render_review, without_pending
 
         progress("capture_done", "Source preparation started")
 
@@ -1443,9 +1487,9 @@ def _review_server_capture(
                     open_url = capture.review_url
                 if browser_opened and progress.preparation_url and progress.source_ready(open_url):
                     return
-                _open_server_review(open_url, config=config, review_id=browser_id, open_browser=True)
+                opened = _open_server_review(open_url, config=config, review_id=browser_id, open_browser=True)
                 browser_opened = True
-                progress("browser_done", "Review Reader opened; remaining context continues")
+                progress("browser_done", f"{_opened_text(opened)}; remaining context continues")
             except click.ClickException as exc:
                 # Browser pairing/opening must not strand an otherwise valid Review
                 # before its base/runtime context has finished attaching. Surface the
@@ -1487,7 +1531,7 @@ def _review_server_capture(
         revision_row = revision_value if isinstance(revision_value, dict) else {}
         revision_number = revision_row.get("revision_number")
         if not isinstance(revision_number, int):
-            raise click.ClickException("Review server did not return a Snapshot number")
+            raise click.ClickException("Review server did not return a revision number")
         try:
             server_review_request(
                 config,
@@ -1507,7 +1551,10 @@ def _review_server_capture(
             raise _review_server_click_error(exc, hosted=bool(config.hosted)) from exc
 
         _warn_unapplied_title(captured.response, snapshot_title)
-        packet = captured.build.packet
+        # Passes still running in the background are reported as pending, never
+        # as the `*_disabled` codes of the first-phase packet they were left out of.
+        pending = captured.pending
+        packet = without_pending(captured.build.packet, pending)
         written = _write_html(packet, html_path) if html_path is not None else None
         review_value = captured.response.get("review")
         review_row = review_value if isinstance(review_value, dict) else {}
@@ -1547,28 +1594,28 @@ def _review_server_capture(
             if written is not None:
                 click.echo(f"HTML report: {written}", err=True)
             click.echo(json.dumps(terminal_state, ensure_ascii=False), err=True)
-            _emit(packet.to_dict(), as_json=True)
+            _emit({**packet.to_dict(), "pending": list(pending)}, as_json=True)
             if not browser_opened:
                 progress("browser", "Pairing and opening Review Reader")
-                _open_server_review(
+                opened = _open_server_review(
                     captured.review_url, config=config, review_id=browser_review_id, open_browser=effective_open
                 )
-                progress("browser_done", "Review Reader opened")
+                progress("browser_done", _opened_text(opened))
             return
 
         if fell_back:
             click.secho(_CLEAN_TREE_NOTICE, dim=not no_color)
-        _emit(render_review(packet, no_color=no_color, show_all=show_all), as_json=False)
+        _emit(render_review(packet, no_color=no_color, show_all=show_all, pending=pending), as_json=False)
         click.echo(_render_state(terminal_state))
         click.echo(f"\nReview  {captured.canonical_url}")
         if written is not None:
             click.echo(f"HTML report: {written}")
         if not browser_opened:
             progress("browser", "Pairing and opening Review Reader")
-            _open_server_review(
+            opened = _open_server_review(
                 captured.review_url, config=config, review_id=browser_review_id, open_browser=effective_open
             )
-            progress("browser_done", "Review Reader opened")
+            progress("browser_done", _opened_text(opened))
 
 
 def _warn_unapplied_title(response: dict[str, Any], requested: str) -> None:
@@ -1585,7 +1632,7 @@ def _warn_unapplied_title(response: dict[str, Any], requested: str) -> None:
     review_row = review_value if isinstance(review_value, dict) else {}
     title = str(review_row.get("title") or "")
     if requested not in {title, str(review_row.get("auto_title") or "")}:
-        click.echo(f'  ! --title was not applied; the Review this Snapshot joined keeps the title "{title}"', err=True)
+        click.echo(f'  ! --title was not applied; the Review this revision joined keeps the title "{title}"', err=True)
 
 
 def _reproduce_execution(
@@ -1746,7 +1793,7 @@ def _review_server_check(
     )
     if not in_checkout:
         raise click.ClickException(
-            "--check can only bind to a Snapshot the checkout holds: a working-tree Review, or the commit HEAD "
+            "--check can only bind to a revision the checkout holds: a working-tree Review, or the commit HEAD "
             "checks out on a clean tree; drop REV/--base/--head/--staged/--pr or check out that commit first"
         )
     try:
@@ -1771,9 +1818,9 @@ def _review_server_check(
     revision = revision_value if isinstance(revision_value, dict) else {}
     revision_id = str(revision.get("id") or "")
     if not revision_id:
-        raise click.ClickException("the Review server captured the Snapshot without returning its id")
+        raise click.ClickException("the Review server captured the revision without returning its id")
     if _checkout_identity(repo_root) != before:
-        raise click.ClickException("the checkout changed while its Snapshot was captured; run the check again")
+        raise click.ClickException("the checkout changed while its revision was captured; run the check again")
 
     started = time.monotonic()
     exit_code: int | None
@@ -1791,7 +1838,7 @@ def _review_server_check(
         status = "UNKNOWN"
         detail = (
             f"`{command}` exited {exit_code} after {elapsed:.1f}s, but the checkout changed while it ran, "
-            "so the result describes no Snapshot."
+            "so the result describes no revision."
         )
     else:
         status = "PASS" if exit_code == 0 else "FAIL"
@@ -1828,7 +1875,9 @@ def _review_server_check(
             as_json=True,
         )
     else:
-        click.echo(f"{status}  {name.strip()}  {elapsed:.1f}s  Revision {revision_number}  {captured.canonical_url}")
+        click.echo(
+            f"{status}  {name.strip()}  {elapsed:.1f}s  {_revision_label(revision_number)}  {captured.canonical_url}"
+        )
     if status == "PASS":
         return 0
     # A signal-killed command reports a negative status; hooks still need a failure.
@@ -1894,28 +1943,6 @@ def _review_server_click_error(exc: Any, *, hosted: bool) -> click.ClickExceptio
     return click.ClickException(f"Review server failed: {message}")
 
 
-def _server_annotation_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Normalize Reader annotation JSON for the terminal renderer."""
-
-    start = int(row.get("start_line") or 0)
-    end = int(row.get("end_line") or start)
-    path = str(row.get("path") or "")
-    location = path if start <= 0 else f"{path}:L{start}" + (f"-L{end}" if end != start else "")
-    return {**row, "location": location}
-
-
-def _attached_terminal_refusal(reference: Any, url: Any) -> str:
-    """Why ``--mark``/``--comment``/``--reply-to`` do nothing on a Review attached to hosted (RC5)."""
-
-    where = str(reference or "a hosted Review")
-    return (
-        f"this Review is attached to hosted {where}, which owns judgments and comments; "
-        "terminal --mark, --comment and --reply-to are not queued for sync. "
-        + (f"Act on the hosted Review at {url}" if url else "Act on the hosted Review")
-        + ", or in the Reader, where your own writes queue for `lc review hosted sync`"
-    )
-
-
 def _server_terminal_state(
     config: Any,
     review_id: str,
@@ -1936,306 +1963,38 @@ def _server_terminal_state(
     discard_review: bool,
     progress: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
-    """Apply terminal actions through the same Reader API used by the browser."""
+    """Apply terminal actions through the Reader API: the one implementation the installed `lc` runs too."""
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from urllib.parse import quote
+    from lemoncrow_client.review_terminal import TerminalError, terminal_state
 
-    from lemoncrow.pro.capabilities.review.hosted import server_review_request
-    from lemoncrow.pro.capabilities.review.sources.local import parse_line_target
+    from lemoncrow.pro.capabilities.review import hosted
 
-    base = f"/api/reviews/{quote(review_id, safe='')}"
+    def request(method: str, path: str, body: Mapping[str, Any] | None) -> Mapping[str, Any]:
+        return hosted.server_review_request(config, method, path, body=dict(body) if body is not None else None)
 
-    read_steps = {
-        "": ("state_overview", "Loading review overview", "Review overview loaded"),
-        "/units": ("state_units", "Loading review targets and marks", "Review targets and marks loaded"),
-        "/annotations": ("state_annotations", "Loading review comments", "Review comments loaded"),
-    }
-
-    def request(method: str, suffix: str = "", body: dict[str, Any] | None = None) -> dict[str, Any]:
-        step = read_steps.get(suffix) if method == "GET" else None
-        if step is not None and progress is not None:
-            progress(step[0], step[1])
-        result = server_review_request(config, method, f"{base}{suffix}", body=body)
-        if step is not None and progress is not None:
-            progress(f"{step[0]}_done", step[2])
-        return result
-
-    def parallel_reads(suffixes: tuple[str, ...]) -> dict[str, dict[str, Any]]:
-        # Progress stays on the caller thread: its terminal output and startup
-        # session are shared, while every Reader request owns its own client.
-        for suffix in suffixes:
-            step = read_steps[suffix]
-            if progress is not None:
-                progress(step[0], step[1])
-        results: dict[str, dict[str, Any]] = {}
-        with ThreadPoolExecutor(max_workers=len(suffixes), thread_name_prefix="review-state") as pool:
-            futures = {
-                pool.submit(server_review_request, config, "GET", f"{base}{suffix}"): suffix for suffix in suffixes
-            }
-            for future in as_completed(futures):
-                suffix = futures[future]
-                results[suffix] = future.result()
-                if progress is not None:
-                    step = read_steps[suffix]
-                    progress(f"{step[0]}_done", step[2])
-        return results
-
-    has_actions = bool(
-        mark_targets or comment_body is not None or send_feedback or finish_review or reopen_review or discard_review
-    )
-    initial_reads = {} if has_actions else parallel_reads(("", "/units", "/annotations"))
-
-    # Snapshot the reviewer-owned frontier before this invocation mutates any
-    # judgments. A verdict discarded by capture belongs to the revision the
-    # reviewer arrived at and must still be reported on the very command that
-    # advances their frontier past it.
-    overview_before = request("GET") if has_actions else initial_reads[""]
-    revision_raw = overview_before.get("revision")
-    revision_before = revision_raw if isinstance(revision_raw, dict) else {}
-    expected_revision_id = str(revision_before.get("id") or "")
-    if not expected_revision_id:
-        raise click.ClickException("Review server did not return the current Snapshot identity")
-    session_raw = overview_before.get("session")
-    attached_raw = session_raw.get("hosted") if isinstance(session_raw, dict) else None
-    if isinstance(attached_raw, dict) and (mark_targets or comment_body is not None):
-        # Hosted owns judgments and comments once attached (RC5). The Reader queues a
-        # human's own writes for their offline sync; a terminal (or agent) write never
-        # enters that queue.
-        raise click.ClickException(_attached_terminal_refusal(attached_raw.get("reference"), attached_raw.get("url")))
-
-    def refuse_queued(response: dict[str, Any]) -> None:
-        """A write the server queued for hosted (attached while this ran) is withdrawn, never left queued."""
-
-        if response.get("queued") is not True:
-            return
-        from lemoncrow_client.errors import ClientError
-
-        raw_actions = response.get("actions")
-        stranded: list[str] = []
-        for action in raw_actions if isinstance(raw_actions, list) else ():
-            action_id = str(action.get("id") or "") if isinstance(action, dict) else ""
-            if not action_id:
-                continue
-            try:
-                request("POST", f"/hosted/actions/{quote(action_id, safe='')}", {"op": "discard"})
-            except ClientError:
-                stranded.append(action_id)
-        message = _attached_terminal_refusal(response.get("reference"), None)
-        if stranded:
-            message += f"; could not withdraw queued action(s) {', '.join(stranded)}: discard them in the Reader"
-        else:
-            message += "; the write it queued was withdrawn"
-        raise click.ClickException(message)
-
-    needs_frontier = bool(
-        since_my_review
-        or mark_targets
-        or comment_body is not None
-        or send_feedback
-        or finish_review
-        or reopen_review
-        or discard_review
-    )
-    frontier_before = request("GET", "/frontier") if needs_frontier else {}
-
-    path_marks: list[dict[str, Any]] = []
-    downgraded: list[dict[str, str]] = []
-    shadowed: list[dict[str, Any]] = []
-    for target in mark_targets:
-        marked = request(
-            "POST",
-            "/marks",
-            {"unit_key": target, "state": mark_state, "expected_revision_id": expected_revision_id},
+    try:
+        state: dict[str, Any] = terminal_state(
+            request,
+            review_id,
+            mark_targets=mark_targets,
+            mark_state=mark_state,
+            show_units=show_units,
+            show_marks=show_marks,
+            comment_body=comment_body,
+            comment_target=comment_target,
+            comment_kind=comment_kind,
+            reply_to=reply_to,
+            show_comments=show_comments,
+            since_my_review=since_my_review,
+            send_feedback=send_feedback,
+            finish_review=finish_review,
+            reopen_review=reopen_review,
+            discard_review=discard_review,
+            progress=progress,
+            warn=lambda message: click.echo(message, err=True),
         )
-        refuse_queued(marked)
-        raw_rows = marked.get("marks")
-        rows = [dict(item) for item in raw_rows if isinstance(item, dict)] if isinstance(raw_rows, list) else []
-        labels = [str(item.get("label") or item.get("path") or item.get("unit_key") or "") for item in rows]
-        widened = len(rows) > 1 or bool(
-            rows and str(rows[0].get("unit_key") or "") != target and labels and labels[0] != target
-        )
-        if widened:
-            click.echo(
-                f"{target}: recorded on {len(rows)} review target"
-                + ("" if len(rows) == 1 else "s")
-                + (f" -- {', '.join(labels)}" if labels else ""),
-                err=True,
-            )
-            path_marks.append(
-                {
-                    "target": target,
-                    "covered": [
-                        {"unit_key": str(item.get("unit_key") or ""), "label": label}
-                        for item, label in zip(rows, labels, strict=True)
-                    ],
-                }
-            )
-        for item in rows:
-            if item.get("downgraded"):
-                note = str(item.get("note") or "requested verdict was downgraded")
-                downgraded.append(
-                    {
-                        "target": target,
-                        "requested": mark_state,
-                        "recorded": str(item.get("recorded") or ""),
-                        "reason": note,
-                    }
-                )
-                click.echo(f"{target}: {note}", err=True)
-        raw_shadowed = marked.get("shadowed")
-        if isinstance(raw_shadowed, list) and raw_shadowed:
-            shadowed.append({"target": target, "shadowed": raw_shadowed})
-            click.echo(
-                f"{target}: also the label of another review target; the repository file wins. "
-                "Use the other target's unit key to mark it instead.",
-                err=True,
-            )
-
-    created_annotation: dict[str, Any] | None = None
-    if comment_body is not None:
-        if reply_to:
-            current = request("GET", "/annotations")
-            raw_annotations = current.get("annotations")
-            parent = (
-                next(
-                    (dict(item) for item in raw_annotations if isinstance(item, dict) and item.get("id") == reply_to),
-                    None,
-                )
-                if isinstance(raw_annotations, list)
-                else None
-            )
-            if parent is None:
-                raise click.ClickException(f"no comment {reply_to!r} exists in Review {review_id}")
-            path = str(parent.get("path") or "")
-            start = int(parent.get("start_line") or 0)
-            end = int(parent.get("end_line") or start)
-        else:
-            if not comment_target:
-                raise click.ClickException("--comment needs --on PATH:L10 (or --reply-to an existing comment)")
-            try:
-                path, start, end = parse_line_target(comment_target)
-            except ValueError as exc:
-                raise click.ClickException(str(exc)) from exc
-        created = request(
-            "POST",
-            "/annotations",
-            {
-                "path": path,
-                "body": comment_body,
-                "kind": comment_kind,
-                "parent_id": reply_to or "",
-                "file_level": start <= 0,
-                "range": {"start_line": start, "end_line": end},
-                "expected_revision_id": expected_revision_id,
-            },
-        )
-        refuse_queued(created)
-        raw_created = created.get("annotation")
-        if isinstance(raw_created, dict):
-            created_annotation = _server_annotation_row(dict(raw_created))
-
-    feedback = request("POST", "/feedback/export", {}) if send_feedback else None
-
-    closure: dict[str, Any] | None = None
-    if finish_review or reopen_review or discard_review:
-        wanted = "open" if reopen_review else ("archived" if discard_review else "finished")
-        finish_body: dict[str, Any] = {"status": wanted}
-        if wanted != "open":
-            finish_body["expected_revision_id"] = expected_revision_id
-        closure = request("POST", "/finish", finish_body)
-
-    mutated = bool(mark_targets or comment_body is not None or finish_review or reopen_review or discard_review)
-    final_reads = (
-        parallel_reads(("", "/units", "/annotations") if mutated else ("/units", "/annotations"))
-        if has_actions
-        else initial_reads
-    )
-    overview = final_reads[""] if mutated else overview_before
-    units_payload = final_reads["/units"]
-    annotations_payload = final_reads["/annotations"]
-
-    raw_units = units_payload.get("units")
-    units = [dict(item) for item in raw_units if isinstance(item, dict)] if isinstance(raw_units, list) else []
-    raw_annotations = annotations_payload.get("annotations")
-    annotations = (
-        [_server_annotation_row(dict(item)) for item in raw_annotations if isinstance(item, dict)]
-        if isinstance(raw_annotations, list)
-        else []
-    )
-
-    unit_kinds: dict[str, int] = {}
-    mark_counts: dict[str, int] = {}
-    marks: list[dict[str, Any]] = []
-    stale_marks = 0
-    for unit in units:
-        kind = str(unit.get("kind") or "")
-        unit_kinds[kind] = unit_kinds.get(kind, 0) + 1
-        recorded = str(unit.get("state") or "unreviewed")
-        if recorded != "unreviewed":
-            mark_counts[recorded] = mark_counts.get(recorded, 0) + 1
-            content_changed = bool(unit.get("changed_since_mark"))
-            stale_marks += int(content_changed)
-            marks.append(
-                {
-                    "state": recorded,
-                    "content": "changed" if content_changed else "same",
-                    "kind": kind,
-                    "path": str(unit.get("path") or ""),
-                    "symbol": str(unit.get("symbol") or ""),
-                    "label": str(unit.get("label") or unit.get("path") or unit.get("unit_key") or ""),
-                    "unit_key": str(unit.get("unit_key") or ""),
-                }
-            )
-
-    session_value = overview.get("session")
-    revision_value = overview.get("revision")
-    progress_value = overview.get("progress")
-    counts_value = annotations_payload.get("counts")
-    discarded_value = frontier_before.get("discarded_verdicts")
-    if not isinstance(discarded_value, list) or not discarded_value:
-        discarded_value = overview.get("discarded")
-    session: dict[str, Any] = dict(session_value) if isinstance(session_value, dict) else {}
-    revision: dict[str, Any] = dict(revision_value) if isinstance(revision_value, dict) else {}
-    progress_data: dict[str, Any] = dict(progress_value) if isinstance(progress_value, dict) else {}
-    counts: dict[str, Any] = dict(counts_value) if isinstance(counts_value, dict) else {}
-    discarded = list(discarded_value) if isinstance(discarded_value, list) else []
-    state: dict[str, Any] = {
-        "review_id": str(session.get("ref") or f"r/{review_id}"),
-        "revision_id": str(revision.get("ref") or (f"rr/{revision.get('id')}" if revision.get("id") else "")),
-        "revision_number": int(revision.get("revision_number") or 0),
-        "range_mode": str(revision.get("range_mode") or session.get("range_mode") or ""),
-        "degraded": [
-            str(item.get("name") or "") for item in (overview.get("degraded") or []) if isinstance(item, dict)
-        ],
-        "unit_count": len(units),
-        "unit_kinds": unit_kinds,
-        "target_count": int(overview.get("target_count") or progress_data.get("target_count") or 0),
-        "target_progress": progress_data,
-        "mark_counts": mark_counts,
-        "stale_marks": stale_marks,
-        "downgraded_marks": downgraded,
-        "annotation_counts": counts,
-        "discarded_verdicts": discarded,
-    }
-    if path_marks:
-        state["path_marks"] = path_marks
-    if shadowed:
-        state["shadowed_marks"] = shadowed
-    if created_annotation is not None:
-        state["created_annotation"] = created_annotation
-    if show_units:
-        state["units"] = units
-    if show_marks:
-        state["marks"] = marks
-    if show_comments:
-        state["annotations"] = annotations
-    if feedback is not None:
-        state["feedback"] = feedback
-    if closure is not None:
-        state["closure"] = closure
-    if since_my_review:
-        state["frontier"] = frontier_before
+    except TerminalError as exc:
+        raise click.ClickException(str(exc)) from exc
     return state
 
 
@@ -2391,24 +2150,24 @@ def _manage_current_review(
     viewing_base = viewing.get("base_revision_number")
     viewing_target = viewing.get("target_revision_number")
     viewing_text = (
-        f"Revision {viewing_base} → Revision {viewing_target}"
+        f"{_revision_label(viewing_base)} → {_revision_label(viewing_target)}"
         if viewing_base is not None and viewing_target is not None and viewing_base != viewing_target
-        else f"Revision {viewing_target}" if viewing_target is not None else f"Revision {status['revision_number']}"
+        else _revision_label(viewing_target if viewing_target is not None else status["revision_number"])
     )
     reviewed_text = (
-        f"Revision {status['last_reviewed_revision_number']}"
+        _revision_label(status["last_reviewed_revision_number"])
         if status.get("last_reviewed_revision_number") is not None
         else "—"
     )
     commented_text = (
-        f"Revision {status['last_commented_revision_number']}"
+        _revision_label(status["last_commented_revision_number"])
         if status.get("last_commented_revision_number") is not None
         else "—"
     )
     click.echo(
         f"Review    {review_ref} · {status['review_status'] or 'open'}\n"
         f"Viewing   {viewing_text}\n"
-        f"Latest    Revision {status['latest_revision_number']}\n"
+        f"Latest    {_revision_label(status['latest_revision_number'])}\n"
         f"Reviewed  {reviewed_text}\n"
         f"Commented {commented_text}\n"
         f"Reader    {reader_url}\n"
@@ -2429,7 +2188,7 @@ def _manage_current_review(
             f"Source    {source_state.get('path_count', 0)} newer file(s) · {source_state.get('fingerprint', '')}\n"
             if source_state.get("supported") and source_state.get("changed")
             else (
-                "Source    matches frozen Review Snapshot\n"
+                "Source    matches frozen Review revision\n"
                 if source_state.get("supported")
                 else f"Source    unavailable · {source_state.get('reason') or 'source state is not available'}\n"
             )
@@ -2501,7 +2260,7 @@ def _manage_server_reviews(
                 revision = revision_value if isinstance(revision_value, dict) else {}
                 click.echo(
                     f"{review.get('ref') or f'r/{review.get("id", wanted_id)}'}  {review.get('status', '')}  "
-                    f"Revision {revision.get('revision_number', 0)}\n"
+                    f"{_revision_label(revision.get('revision_number', 0))}\n"
                     f"{review.get('title') or '(untitled review)'}\n"
                     f"Repository  {repo_id}\n"
                     f"Revisions   {detail.get('revision_count', 0)}\n"
@@ -2522,7 +2281,7 @@ def _manage_server_reviews(
             title = str(row.get("title") or "(untitled)").replace("\n", " ")
             shown_id = str(row.get("ref") or (f"r/{row.get('id')}" if row.get("id") else ""))
             click.echo(
-                f"{shown_id:<21} {row.get('status') or ''!s:<10} {int(row.get('revision_number') or 0):>8}  {title}"
+                f"{shown_id:<21} {row.get('status') or ''!s:<10} {int(row.get('revision_number') or 0) + 1:>8}  {title}"
             )
     except ClientError as exc:
         raise click.ClickException(f"Review server failed: {exc.message}") from exc
@@ -2534,11 +2293,13 @@ def _parse_fix_snapshot_ref(value: str) -> tuple[str, int]:
         review_ref, number_raw = raw.rsplit(".", 1)
         number = int(number_raw)
     except (ValueError, TypeError) as exc:
-        raise click.ClickException("fix target must look like REVIEW.N, for example k7q2.3") from exc
+        raise click.ClickException(
+            "fix ref must look like REVIEW.N, N being the Revision number, for example k7q2.3"
+        ) from exc
     review_ref = review_ref.removeprefix("r/").strip()
-    if not review_ref or number < 0:
-        raise click.ClickException("fix target must look like REVIEW.N, for example k7q2.3")
-    return review_ref, number
+    if not review_ref or number < 1:
+        raise click.ClickException("fix ref must look like REVIEW.N, N being the Revision number, for example k7q2.3")
+    return review_ref, number - 1
 
 
 def _manage_fix_line(
@@ -2574,7 +2335,7 @@ def _manage_fix_line(
             rows = [row for row in revisions or [] if isinstance(row, dict)]
             matches = [row for row in rows if int(row.get("revision_number") or -1) == snapshot_number]
             if len(matches) != 1:
-                raise click.ClickException(f"Review {review_ref!r} has no unique Snapshot {snapshot_number}")
+                raise click.ClickException(f"Review {review_ref!r} has no unique {_revision_label(snapshot_number)}")
             revision_id = str(matches[0].get("id") or "")
             result = server_review_request(
                 config,
@@ -2602,7 +2363,7 @@ def _manage_fix_line(
         line = (open_lines or matching)[-1] if (open_lines or matching) else None
         if line is None:
             raise click.ClickException(
-                f"Snapshot {snapshot_number} has no fix line; run lc review --fix {wanted} first"
+                f"{_revision_label(snapshot_number)} has no fix line; run lc review --fix {wanted} first"
             )
         fix_id = str(line.get("id") or "")
         result = server_review_request(
@@ -2637,8 +2398,14 @@ def _manage_fix_line(
         raise click.ClickException(f"Review server failed: {exc.message}") from exc
 
 
-def _open_server_review(url: str, *, config: Any, review_id: str, open_browser: bool) -> None:
-    """Open a credential-free Reader URL with local browser pairing.
+def _opened_text(opened: bool) -> str:
+    """The progress line after opening: say "opened" only when a browser took the link."""
+
+    return "Review Reader opened" if opened else "Reader link ready"
+
+
+def _open_server_review(url: str, *, config: Any, review_id: str, open_browser: bool) -> bool:
+    """Open a credential-free Reader URL with local browser pairing; whether a browser took it.
 
     Hosted Review relies on its normal browser identity shell. Local Review
     first uses the machine bearer over HTTP to arm the exact clean URL, then the
@@ -2647,8 +2414,9 @@ def _open_server_review(url: str, *, config: Any, review_id: str, open_browser: 
     """
     del review_id
     if not open_browser:
-        return
+        return False
 
+    armed = None
     if not config.hosted and config.token:
         from urllib.parse import urlsplit
 
@@ -2658,13 +2426,14 @@ def _open_server_review(url: str, *, config: Any, review_id: str, open_browser: 
 
         path = urlsplit(url).path or "/reviews"
         try:
-            pair_local_review_browser(config, path)
+            armed = pair_local_review_browser(config, path)
         except ClientError as exc:
             raise _review_server_click_error(exc, hosted=False) from exc
 
     opened = _launch_browser_url(url)
     if not opened:
-        click.echo(f"(could not open a browser; open {url} manually.)", err=True)
+        click.echo(open_by_hand(url, armed), err=True)
+    return opened
 
 
 def arm_local_browser_url(url: str) -> None:
@@ -2697,86 +2466,17 @@ def arm_local_browser_url(url: str) -> None:
 
 
 def _launch_browser_url(url: str) -> bool:
-    """Launch *url* in the graphical desktop browser.
-
-    Do not use Python's controller return value as proof that a desktop browser
-    accepted the URL: Chrome and desktop opener helpers may exit immediately
-    after handing the URL to an already-running browser.  Successful process
-    creation is the useful contract here.  On Linux we also avoid Python's
-    browser fallback chain entirely so a failed GUI launch can never fall back
-    to links/lynx/w3m and hijack the terminal.
-    """
+    """Launch *url* in the graphical desktop browser, never a terminal one."""
 
     import os
-    import shutil
-    import subprocess
-    import sys
-    import webbrowser
+
+    from lemoncrow_client.browser import launch_browser_url
 
     if os.environ.get("LEMONCROW_NO_BROWSER", "").strip() not in {"", "0"}:
-        # Tests/CI: print the URL instead of launching a desktop browser.
-        click.echo(f"Review URL: {url}")
-        return True
-
-    def spawn(argv: list[str]) -> bool:
-        try:
-            subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-                start_new_session=True,
-            )
-            return True
-        except (OSError, subprocess.SubprocessError):
-            return False
-
-    if sys.platform == "darwin":
-        opener = shutil.which("open")
-        return bool(opener and spawn([opener, url]))
-
-    if os.name == "nt":
-        try:
-            os.startfile(url)  # type: ignore[attr-defined]
-            return True
-        except OSError:
-            return False
-
-    if sys.platform.startswith("linux"):
-        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-            return False
-
-        # Let the desktop choose its configured graphical browser.  We count a
-        # successful spawn, not the helper's eventual exit status: xdg-open may
-        # hand the URL to an existing Chrome process and exit immediately.
-        opener = shutil.which("xdg-open")
-        if opener and spawn([opener, url]):
-            return True
-
-        # Minimal GUI-only fallback when xdg-open is unavailable/broken.
-        for name in (
-            "google-chrome",
-            "google-chrome-stable",
-            "chromium",
-            "chromium-browser",
-            "firefox",
-            "brave-browser",
-            "brave-browser-stable",
-            "microsoft-edge",
-            "vivaldi",
-        ):
-            executable = shutil.which(name)
-            if executable and spawn([executable, url]):
-                return True
+        # Tests/CI: launch nothing, like the client's launcher, so the caller
+        # takes the same hand-open path (paired URL printed) as a no-display host.
         return False
-
-    # Non-Linux Unix fallback.  Linux intentionally avoids this because
-    # webbrowser.open() may continue into terminal-only browsers.
-    try:
-        return bool(webbrowser.open(url))
-    except Exception:
-        return False
+    return bool(launch_browser_url(url))
 
 
 def _review_state(
@@ -2891,7 +2591,7 @@ def _review_state(
         if not covered:
             # Never a silent no-op: a reviewer who typed a stale path would
             # otherwise believe they had recorded something.
-            raise click.ClickException(f"no review area matches {target!r} in Revision {revision.revision_number - 1}")
+            raise click.ClickException(f"no part matches {target!r} in Revision {revision.revision_number}")
         if resolution.shadowed:
             # One word, two readings: a file the repository really contains, and
             # some other file's target label spelled identically. The file wins
@@ -2902,7 +2602,7 @@ def _review_state(
             others = ", ".join(f"{unit.unit_key} in {unit.path}" for unit in resolution.shadowed)
             click.echo(
                 f"{target}: matched the file in the repository; it is also the label of another "
-                f"review target -- mark that one by its unit key instead: {others}",
+                f"part -- mark that one by its part key instead: {others}",
                 err=True,
             )
             shadowed_marks.append(
@@ -2923,7 +2623,7 @@ def _review_state(
             # exactly the target it named -- a unit key, a target label, or a path
             # whose only target is the file itself -- widened nothing, and
             # announcing the word the reviewer just typed back at them is noise.
-            counted = f"{len(covered)} review target" + ("" if len(covered) == 1 else "s")
+            counted = part_count(len(covered))
             click.echo(f"{target}: recorded on {counted} -- {', '.join(labels)}", err=True)
             path_marks.append(
                 {
@@ -2984,7 +2684,12 @@ def _review_state(
     # to `changed_since_review` is revision reconciliation's decision, not this
     # command's. But a bare "3 reviewed" over three rewritten units tells the
     # reader something false, so the count of moved marks rides alongside it.
-    stale = sum(1 for mark in marks if _content_status(mark.content_fingerprint, by_key.get(mark.unit_key)) != "same")
+    # "later" attests nothing about content, so its fingerprint moving makes it neither stale nor reopened.
+    stale = sum(
+        1
+        for mark in marks
+        if mark.state != "later" and _content_status(mark.content_fingerprint, by_key.get(mark.unit_key)) != "same"
+    )
     annotations = store.list_annotations(session.id)
     from lemoncrow.pro.capabilities.review.targets import progress_payload, review_progress
 
@@ -3003,7 +2708,7 @@ def _review_state(
         "unit_count": len(units),
         "unit_kinds": kinds,
         "target_count": target_progress.target_count,
-        "target_progress": progress_payload(target_progress),
+        "target_progress": progress_payload(target_progress, answers=False),
         "mark_counts": _mark_counts(marks),
         "stale_marks": stale,
         "downgraded_marks": downgraded,
@@ -3085,6 +2790,7 @@ def _review_state(
             "changed_since_review": closure.changed_since_review,
             "needs_changes": closure.needs_changes,
             "unknown_targets": closure.unknown_targets,
+            "later_targets": closure.later_targets,
             "open_comments": closure.open_comments,
             "orphaned_comments": closure.orphaned_comments,
         }
@@ -3495,7 +3201,10 @@ def _mark_row(
         or mark.unit_key,
         "reviewed_revision_id": mark.reviewed_revision_id,
         "actor_type": mark.actor_type,
-        "content": _content_status(mark.content_fingerprint, unit),
+        # A part left for later says nothing about content, so moved content is not a stale verdict on it.
+        "content": (
+            "same" if mark.state == "later" and unit is not None else _content_status(mark.content_fingerprint, unit)
+        ),
         "updated_at": mark.updated_at,
     }
 
@@ -3583,320 +3292,11 @@ def _content_status(fingerprint: str, unit: ReviewUnit | None) -> str:
 
 
 def _render_state(state: dict[str, Any]) -> str:
-    """The tracked-review block appended under the packet, in terminal shape."""
+    """The tracked-Review block appended under the packet (shared with the installed `lc`)."""
 
-    kinds = state.get("unit_kinds") or {}
-    breakdown = " · ".join(f"{count} {name}" for name, count in sorted(kinds.items()))
-    target_progress = state.get("target_progress") or {}
-    target_count = int(state.get("target_count") or 0)
-    reviewed_targets = int(target_progress.get("reviewed") or 0)
-    lines = [
-        "",
-        f"REVIEW SESSION  {state['review_id']}  Revision {state['revision_number']}  ({state['range_mode']})",
-    ]
-    revision_id = str(state.get("revision_id") or "")
-    if revision_id:
-        lines.append(f"  checkpoint {revision_id}")
-    lines.extend(
-        [
-            f"  files   {int(kinds.get('file') or 0)}",
-            f"  review areas {target_count}  ({reviewed_targets}/{target_count} reviewed)",
-            f"  units   {state['unit_count']} raw" + (f"  ({breakdown})" if breakdown else ""),
-        ]
-    )
-    counts = state.get("mark_counts") or {}
-    summary = " · ".join(f"{count} {name}" for name, count in sorted(counts.items()))
-    stale = int(state.get("stale_marks") or 0)
-    if stale:
-        # Never let the headline count read as "this much is done" when the
-        # content underneath it has since changed.
-        summary = f"{summary}  ({stale} against content that has since changed)"
-    lines.append(f"  marks   {summary or 'none yet'}")
+    from lemoncrow_client.review_terminal import render_state
 
-    comments = state.get("annotation_counts") or {}
-    if comments:
-        # Printed in the headline, not only under `--comments`: an unresolved
-        # objection that a reviewer has to ask for is an objection that gets
-        # committed over.
-        order = ("open", "orphaned", "obsolete", "resolved")
-        parts = [f"{comments[name]} {name}" for name in order if comments.get(name)]
-        parts.extend(f"{count} {name}" for name, count in sorted(comments.items()) if name not in order)
-        lines.append(f"  comments {' · '.join(parts)}")
-
-    discarded = state.get("discarded_verdicts") or []
-    if discarded:
-        # Above everything else this command has to say. A verdict a human
-        # recorded and this run deleted is the only thing on the screen that
-        # cannot be discovered by looking again later.
-        lines.append("")
-        lines.append(f"VERDICTS DISCARDED  ({len(discarded)})")
-        for item in discarded:
-            kind = item["kind"] or "?"
-            lines.append(f"  {item['state']:<20} {kind:<7} {item['label']}")
-            lines.append(f"    {item['reason']}")
-
-    created = state.get("created_annotation")
-    if created is not None:
-        lines.append("")
-        lines.append(f"COMMENT RECORDED  {created['id']}")
-        lines.append(
-            f"  {created['kind']:<15} {created['location']}" + (f"  {created['symbol']}" if created["symbol"] else "")
-        )
-        if not created["anchored"]:
-            lines.append(f"  not anchored: {created['anchor_detail']}")
-
-    units = state.get("units")
-    if units is not None:
-        lines.append("")
-        lines.append("UNITS")
-        for unit in units:
-            lines.append(f"  {unit['unit_key']:<30} {unit['kind']:<7} {unit['label']}")
-
-    marks = state.get("marks")
-    if marks is not None:
-        lines.append("")
-        lines.append("MARKS")
-        if not marks:
-            lines.append("  none recorded")
-        for mark in marks:
-            # kind + label, never the bare path: file, hunk and symbol marks on
-            # one file are three different claims and must not print alike.
-            kind = mark["kind"] or "?"
-            lines.append(f"  {mark['state']:<20} {mark['content']:<8} {kind:<7} {mark['label']}")
-
-    annotations = state.get("annotations")
-    if annotations is not None:
-        lines.extend(_render_comments(annotations))
-
-    frontier = state.get("frontier")
-    if frontier is not None:
-        lines.extend(_render_frontier(frontier, state))
-
-    downgraded = state.get("downgraded_marks") or []
-    if downgraded:
-        lines.append("")
-        lines.append("NOT RECORDED AS ASKED")
-        for item in downgraded:
-            lines.append(f"  {item['target']}: {item['reason']}")
-
-    closure = state.get("closure")
-    if closure is not None:
-        lines.extend(_render_closure(closure))
-
-    feedback = state.get("feedback")
-    if feedback is not None:
-        lines.extend(_render_feedback(feedback))
-    return "\n".join(lines)
-
-
-def _render_closure(closure: dict[str, Any]) -> list[str]:
-    """Render a human status choice beside the exact target-based remainder."""
-
-    status = str(closure["status"])
-    verb = {"finished": "REVIEW FINISHED", "archived": "REVIEW DISCARDED"}.get(status, "REVIEW REOPENED")
-    lines = ["", f"{verb}  {closure['target_count']} targets"]
-    outstanding = [
-        ("still unreviewed", closure["unreviewed_targets"]),
-        ("changed since reviewed", closure["changed_since_review"]),
-        ("still needs changes", closure["needs_changes"]),
-        ("unknown identity", closure["unknown_targets"]),
-        ("comments still open", closure["open_comments"]),
-        ("comments orphaned", closure["orphaned_comments"]),
-    ]
-    lines.append(f"  {'reviewed':<24} {closure['reviewed_targets']}")
-    for label, count in outstanding:
-        if count:
-            lines.append(f"  {label:<24} {count}")
-    if status in ("finished", "archived") and not any(count for _, count in outstanding):
-        lines.append("  nothing outstanding")
-    if status == "archived":
-        lines.append("  read-only now; retention may permanently delete this review and its evidence")
-    return lines
-
-
-def _render_feedback(feedback: dict[str, Any]) -> list[str]:
-    """``--feedback``: the bundle, and the fact that nothing was delivered.
-
-    The disclaimer is not boilerplate. This command renders Markdown and stops;
-    a reviewer who read ``FEEDBACK BUNDLE`` and assumed the agent had been told
-    would stop watching for a reply that is never coming.
-    """
-
-    counts = f"{feedback['open']} open · {feedback['orphaned']} orphaned · {feedback['resolved']} resolved"
-    return [
-        "",
-        f"FEEDBACK BUNDLE  ({counts})",
-        "  rendered here and nowhere else — nothing was sent to any agent, host or pull request",
-        "",
-        *feedback["markdown"].rstrip("\n").splitlines(),
-    ]
-
-
-_COMMENT_BODY_CHARS = 96
-
-
-def _render_comments(rows: Sequence[dict[str, Any]]) -> list[str]:
-    """The ``--comments`` block: every comment, and *how* it still points anywhere.
-
-    Every row states its rung, in words. A comment re-found by rung 4 -- its
-    text happened to occur exactly once in a file whose function has since been
-    renamed and re-documented -- and a comment whose file never changed at all
-    are two completely different claims, and drawing them with the same weight
-    is how the second one's credibility gets lent to the first. Plan SS4.4:
-    *never silently move a comment to a different line after a revision*, and a
-    move the reader is not told about is a silent one whether or not the line
-    number happened to change.
-
-    An unanchored or orphaned comment prints the reason too, rather than being
-    filtered out or quietly listed beside a line number.
-    """
-
-    lines = ["", "ANNOTATIONS"]
-    if not rows:
-        lines.append("  none recorded")
-        return lines
-    for row in rows:
-        body = " ".join(str(row["body"]).split())
-        if len(body) > _COMMENT_BODY_CHARS:
-            body = body[: _COMMENT_BODY_CHARS - 1] + "…"
-        marker = "  " if not row["parent_id"] else "    ↳ "
-        source = str(row.get("source") or "human").upper().replace("_", " ")
-        lines.append(f"{marker}{source:<11} {row['state']:<10} {row['kind']:<15} {row['location']}")
-        if row.get("title"):
-            lines.append(f"    {row['title']}")
-        lines.append(f"    {body}")
-        anchor = f"    anchor: {row['anchor_method_label']}"
-        if row["symbol"]:
-            # The definition is re-derived on every relocation, so this names
-            # where the comment sits *now*, not what it was written against.
-            anchor = f"{anchor} · in {row['symbol']}"
-        elif row["origin_symbol"]:
-            # Nothing was located, so the stored name is history, not an
-            # address. "not relocated · in gone_forever" reads as a definition
-            # the reader can go open; "originally in" reads as what it is.
-            anchor = f"{anchor} · originally in {row['origin_symbol']}"
-        lines.append(anchor)
-        if not row["anchored"]:
-            lines.append(f"      {row['anchor_detail'] or 'no reason recorded'}")
-    return lines
-
-
-_FRONTIER_GROUPS = (
-    ("changed_since_review", "CHANGED SINCE MY REVIEW"),
-    ("new", "NEW SINCE MY LAST REVIEW"),
-    ("unresolved", "STILL UNRESOLVED"),
-    ("unchanged_reviewed", "UNCHANGED REVIEWED"),
-)
-_FRONTIER_ROWS = 12
-
-
-def _render_frontier(frontier: dict[str, Any], state: dict[str, Any]) -> list[str]:
-    """The ``--since-my-review`` block: what your marks are worth on this revision.
-
-    Ordered by what it costs the reader, never alphabetically. *Changed since my
-    review* is first because it is the only group no ordinary diff viewer can
-    show -- code a human approved and an agent then rewrote -- and putting it
-    under a list of files that are still fine is how it gets missed.
-
-    ``UNCHANGED REVIEWED`` is listed as a count rather than expanded: it is the
-    group whose entire value is that the reader does **not** have to look at it.
-    """
-
-    counts = {
-        "changed since my review": len(frontier["changed_since_review"]),
-        "new": len(frontier["new"]),
-        "still unresolved": len(frontier["unresolved"]),
-        "unchanged reviewed": len(frontier["unchanged_reviewed"]),
-        "not yet reviewed": int(frontier["not_yet_reviewed"]),
-    }
-    current = int(state["revision_number"])
-    previous_raw = frontier.get("previous_revision_number")
-    previous = int(previous_raw) if previous_raw is not None else None
-    if previous is None:
-        # No mark yet, so no Snapshot has been looked at. Not "first Snapshot":
-        # this may well be the fifth, and saying otherwise would date the
-        # reviewer's position to the tree's history rather than to their own.
-        headline = f"SINCE MY REVIEW  Revision {current}  (nothing reviewed yet)"
-    elif previous == current:
-        # Idempotency is a feature and has to be visible, or a reviewer who ran
-        # the command twice will read an unchanged frontier as a broken one.
-        # Keyed on their last review rather than on this invocation's write:
-        # whether *this* command was the one that recorded the Snapshot is an
-        # accident of typing order and must not change what they are told.
-        headline = f"SINCE MY REVIEW  Revision {current}  (unchanged since your last review)"
-    elif previous > current:
-        # An undo puts the tree back on a Snapshot already on file, so the
-        # number in front of the reviewer is *lower* than the one they last
-        # recorded a verdict against. Name the Snapshot movement directly.
-        headline = f"SINCE MY REVIEW  Revision {current}  (the tree went back; you last saw Revision {previous})"
-    else:
-        headline = f"SINCE MY REVIEW  Revision {current}  (you last saw Revision {previous})"
-
-    lines = ["", headline]
-    for label, count in counts.items():
-        lines.append(f"  {label:<24} {count}")
-    annotations = int(frontier["open_annotations"])
-    orphaned = int(frontier["orphaned_annotations"])
-    if annotations or orphaned:
-        lines.append(f"  {'comments':<24} {annotations} open · {orphaned} orphaned")
-
-    for key, title in _FRONTIER_GROUPS:
-        rows = frontier[key]
-        if not rows:
-            continue
-        lines.append("")
-        lines.append(f"{title}  ({len(rows)})")
-        if key == "unchanged_reviewed":
-            plural = "judgment" if len(rows) == 1 else "judgments"
-            lines.append(f"  {len(rows)} {plural} still valid — nothing to re-read")
-            continue
-        for row in rows[:_FRONTIER_ROWS]:
-            lines.append(f"  {row['label']}")
-        if len(rows) > _FRONTIER_ROWS:
-            lines.append(f"  … {len(rows) - _FRONTIER_ROWS} more")
-
-    left = frontier["removed_units"]
-    if left:
-        # The other half of "nothing about your review disappears quietly". A
-        # unit that left the review takes any comment thread and any verdict on
-        # it out of every other list on this screen, and it is the one
-        # disappearance a reviewer cannot find by scrolling.
-        lines.append("")
-        lines.append(f"LEFT THE REVIEW  ({len(left)})")
-        for row in left[:_FRONTIER_ROWS]:
-            line = f"  {(row['kind'] or '?'):<7} {row['label']}"
-            verdict = str(row.get("discarded_state") or "")
-            if verdict:
-                line = f"{line}  — your '{verdict}' verdict went with it"
-            lines.append(line)
-        if len(left) > _FRONTIER_ROWS:
-            lines.append(f"  … {len(left) - _FRONTIER_ROWS} more")
-        if any(row.get("discarded_state") for row in left):
-            # "Nothing here to re-read" is a true sentence about a unit nobody
-            # had judged and a false one about a unit a human approved: their
-            # verdict was destroyed, and the destruction is the thing to read.
-            lines.append("  no longer in the change set — see VERDICTS DISCARDED above")
-        else:
-            lines.append("  no longer in the change set — nothing here to re-read")
-
-    # Every attempt, including the ones that landed on the line they started on.
-    # Filtering on `status != "unchanged"` was the same mistake twice: it hid
-    # every re-find that happened not to move, and it did so on the surface
-    # whose entire job is to say what the ladder did.
-    moves = list(frontier["annotation_moves"])
-    if moves:
-        lines.append("")
-        lines.append(f"COMMENT ANCHORS  ({len(moves)})")
-        for move in moves[:_FRONTIER_ROWS]:
-            where = f"L{move['from_line']}→L{move['to_line']}" if move["from_line"] != move["to_line"] else "same line"
-            lines.append(f"  {move['status']:<11} {move['path']} {where}")
-            lines.append(f"    {move['method_label']} — {move['detail']}")
-        if len(moves) > _FRONTIER_ROWS:
-            lines.append(f"  … {len(moves) - _FRONTIER_ROWS} more")
-
-    for note in frontier["notes"]:
-        lines.append(f"  note: {note}")
-    return lines
+    return str(render_state(state))
 
 
 def _active_local_branch_review(config: Any, *, store_root: Path, repo_root: Path) -> tuple[str, str]:

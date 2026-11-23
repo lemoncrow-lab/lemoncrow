@@ -149,7 +149,7 @@ describe("WebReviewPreview", () => {
     expect(screen.getByRole("button", { name: "Mobile viewport" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("renders an inspectable frozen before/after screenshot diff for the exact Snapshot", async () => {
+  it("renders an inspectable frozen before/after screenshot diff for the exact revision", async () => {
     render(<WebReviewPreview {...props()} />);
     await userEvent.click(screen.getByRole("radio", { name: "Pixels" }));
 
@@ -198,7 +198,7 @@ describe("WebReviewPreview", () => {
     );
   });
 
-  it("shows the exact-Snapshot browser result for this route without another pane", async () => {
+  it("shows the exact-revision browser result for this route without another pane", async () => {
     api.fetchReviewVerification.mockResolvedValue({
       checks: [
         {

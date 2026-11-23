@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with the product surface you are actually using. Normal local Runtime use is a coding-agent plugin/integration and does not depend on a LemonCrow Runtime daemon or port `7420`.
+Start with the product surface you are actually using. Normal local Workspaces use is a coding-agent plugin/integration and does not depend on a LemonCrow Workspaces daemon or port `7420`.
 
 ## `lc` is not found after install
 
@@ -38,7 +38,7 @@ lc with opencode
 
 If that works and you want the integration always available, persist it with `lc rt enable <host>`.
 
-If `lc with` says it needs a Git repository, `cd` into the repository first. Runtime Lite prepares repository intelligence under `.lemoncrow/workspace/`.
+If `lc with` says it needs a Git repository, `cd` into the repository first. Workspaces Lite prepares repository intelligence under `.lemoncrow/workspace/`.
 
 ### Cursor
 
@@ -62,24 +62,23 @@ See [Cursor integration](../hosts/cursor-install.md).
 
 The old local Pro execution mode is removed; `--pro` is not a compatibility flag. `lc code` now means the Hosted LemonCrow-owned coding agent, which is not yet available.
 
-For local Runtime Lite, use `lc with claude|codex|opencode|pi`, Cursor's integration from a source checkout, or a persistent local integration. Pi is public, managed with `lc rt host ... --engine pi`, and launchable for one Lite session with `lc with pi`; LemonCode host lifecycle needs the full CLI from a source checkout.
+For local Workspaces Lite, use `lc with claude|codex|opencode|pi`, Cursor's integration from a source checkout, or a persistent local integration. Pi is public, managed with `lc rt host ... --engine pi`, and launchable for one Lite session with `lc with pi`.
 
-If `lc code` reports `This OSS Runtime client does not contain the Hosted owned-agent execution loop`, that is expected: use a local Runtime Lite integration, or Hosted Runtime through `lc rt enable <host> --hosted` (see [LemonCrow Pro: Hosted Runtime](pro-hosted-runtime.md)).
+If `lc code` reports `This OSS Workspaces client does not contain the Hosted owned-agent execution loop`, that is expected: use a local Workspaces Lite integration, or hosted retrieval through `lc rt enable <host> --hosted` (see [LemonCrow Pro: hosted retrieval](pro-hosted-runtime.md)).
 
 ## A command says it is not part of this client
 
-The installed `lc` client carries Review capture, the AI review in the terminal (`lc review --ai`, `hook`, `init-action`, `config`), Runtime Lite and product management. Some documented commands belong to the full LemonCrow CLI, which a source checkout runs as `uv run lc ...` (see [CLI reference](../reference/cli.md)). The installed client says so instead of running them:
+The installed `lc` client carries Review capture, the AI review in the terminal (`lc review --ai`, `hook`, `init-action`, `config`), Workspaces Lite and product management. Some documented commands belong to the full LemonCrow CLI, which a source checkout runs as `uv run lc ...` (see [CLI reference](../reference/cli.md)). The installed client says so instead of running them:
 
 | You ran | What it means |
 | --- | --- |
-| `unknown command: host` | Use `lc rt host`. Other Runtime verbs also live under `lc rt` |
+| `unknown command: host` | Use `lc rt host`. Other Workspaces verbs also live under `lc rt` |
 | `unknown command: usage`, `doctor` | Full CLI only. Check this install with `lc status` and `lc rt status` |
-| `lc session ... is not part of serverless Runtime Lite` (also `run`, `context`, `rt model`, `rt savings`, `rt work`, `rt map`, `rt dashboard`) | Full CLI only |
-| `lc rt telemetry ...` | The installed client sends no product telemetry (`lc audit` shows `"product_telemetry": false`), so there is nothing to turn off |
+| `lc session ... is not part of serverless Workspaces Lite` (also `run`, `context`, `rt model`, `rt savings`, `rt work`, `rt map`, `rt dashboard`) | Full CLI only |
+| `lc rt telemetry ...` | The installed client supports `status`, `show`, `remote on` and `remote off`. Destinations belong to the full CLI |
 | `unknown review option: --since-my-review` (also `--mark`, `--comment`, `--feedback`, ...) | Full Review CLI only. Use the Review Reader (`lc review --open`) to mark, comment, see changes since your review and copy feedback |
 | `unknown review option: --agent` (also `--pr`, `--fail-on`, `--strict`) without `--ai` | These belong to the AI review: add `--ai`, for example `lc review --pr 123 --ai`. Nothing calls a model until `--ai` is on the command line |
 | `lc review --ai needs the local Review engine` | This install has no local engine (a Hosted install does not). Run the installer again: `curl -fsSL https://lemoncrow.com/install.sh \| bash` |
-| `LemonCode host lifecycle requires the managed/full CLI` | Full CLI only. Pi works in the installed client: `lc rt host install --engine pi` |
 
 ## `lc review --ai` does not review
 
@@ -90,12 +89,13 @@ The installed `lc` client carries Review capture, the AI review in the terminal 
 | `Anthropic says your account has no credit left (HTTP 400): add credit at ...` | Add credit at the billing page it names, then run it again |
 | `Anthropic rate limit reached (HTTP 429): wait a minute and run it again.` | Wait; an unchanged tree makes no new model call |
 | `could not reach Anthropic` | A network or proxy problem; `ANTHROPIC_BASE_URL` points a gateway or a local server |
-| `AI review is turned off` | The intelligence policy's kill switch is off: `lc settings set intelligence.enabled true` |
+| `AI review did not run: AI budget is $0` | The monthly AI budget is `0`, so no new AI runs. Raise it with `lc settings set intelligence.monthly_budget_usd <dollars>`, or remove the limit with `lc settings reset intelligence.monthly_budget_usd`. An older `intelligence.enabled: false` became a `$0` budget when LemonCrow first read it |
+| `AI review did not run: AI budget used up until <date>` | This month's known AI cost has reached the budget (the month is UTC; it resets on the date shown). Raise or remove the budget as above. Results already made stay |
 | `lc settings set` says nothing about where the key went | It says `Stored as plain text in .../plugin_settings.json, readable only by you (mode 600)`; there is no system keychain |
 
 When the review could not run, `lc review --ai` exits `3` (`2` with `--strict`) so a script can tell it did not happen; a git hook exits `0` instead. A pre-push hook never stops a push because LemonCrow broke: it stops only for an open finding at or above `--fail-on`, or, with `--strict`, an incomplete review.
 
-## Runtime Lite index problems
+## Workspaces Lite index problems
 
 The local repository index lives under:
 
@@ -140,7 +140,7 @@ unauthenticated: Hosted Review requires sign-in; run `lc auth login` first
 
 Run `lc auth login`, then `lc review --open`. Check sign-in with `lc auth status`. In hosted mode the client ignores `~/.lemoncrow/token`; for an operator-provided credential set `LEMONCROW_TOKEN_FILE` or `LEMONCROW_TOKEN`. If you meant to review locally without an account, reinstall with `curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --local`.
 
-Review and Runtime are separate product surfaces; a healthy Runtime plugin does not imply that a hosted/local Review service is configured, and vice versa.
+Review and Workspaces are separate product surfaces; a healthy Workspaces plugin does not imply that a hosted/local Review service is configured, and vice versa.
 
 ## `403 forbidden` from the Local Review server
 
@@ -155,7 +155,7 @@ A browser session is bound to its exact origin, so after changing how you reach 
 
 ## A deliberately configured local/shared service is down
 
-This section applies only when you intentionally run a Review/shared HTTP service or contributor deployment. It is **not** a prerequisite for normal local Runtime plugin use.
+This section applies only when you intentionally run a Review/shared HTTP service or contributor deployment. It is **not** a prerequisite for normal local Workspaces plugin use.
 
 From a source checkout, use the service/operations commands documented by your deployment and see [Production readiness](../operations/production-readiness.md).
 
@@ -179,7 +179,7 @@ When comparing totals:
 
 ## Optional Postgres / pgvector problems
 
-Postgres is not required for the normal local Runtime plugin path.
+Postgres is not required for the normal local Workspaces plugin path.
 
 If a self-hosted/enterprise setup reports:
 
@@ -187,17 +187,17 @@ If a self-hosted/enterprise setup reports:
 ERROR: extension "vector" is not available
 ```
 
-pgvector is optional unless that deployment explicitly enables vector-backed features. Follow the deployment's storage configuration rather than enabling it for Local Lite.
+pgvector is optional unless that deployment explicitly enables vector-backed features. Follow the deployment's storage configuration rather than enabling it for Workspaces Lite.
 
 ## Source checkout / contributor issues
 
-### `make verify` fails with Ruff or Black
+### `make verify-full` fails with Ruff or Black
 
 ```bash
 cd lemoncrow
 uv run ruff check --fix src tests
 uv run python -m black src tests
-make verify
+make verify-full
 ```
 
 ### Postgres-gated tests are skipped

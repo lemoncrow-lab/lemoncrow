@@ -4,10 +4,12 @@ auth_cli.py
 authward.py
 capture_polling.py
 blobs.py
+browser.py
 cli.py
 config.py
 credentials.py
 development.py
+environment.py
 errors.py
 manifest.py
 memory_budget.py
@@ -18,7 +20,13 @@ review.py
 review_base.py
 review_engine.py
 review_session.py
+review_terminal.py
+review_verbs.py
+review_words.py
 state.py
 transport.py
 uninstall.py
+usage.py
+usage_cli.py
+usage_upload.py
 workspace_paths.py

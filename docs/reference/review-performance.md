@@ -28,7 +28,7 @@ queue remains available across pages and filters. Arrow keys, Home, End and page
 keys move keyboard focus across windows; native button activation selects the
 file. Search and collapsed attention sections retain their existing semantics.
 Map/architecture work for large changes starts only after the reviewer requests
-it, and stale architecture replies cannot cross Snapshot identity.
+it, and stale architecture replies cannot cross revision identity.
 
 This package has no native macOS qualification environment. Linux tests of mocked
 macOS wiring do not qualify Seatbelt sandbox, rendered reproduction or native

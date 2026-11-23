@@ -159,6 +159,93 @@ def test_actual_git_canonical_bootstrap_advance_and_cli(tmp_path: Path):
     assert "Landed contract changed." in result.output
 
 
+def _knowledge_cli(root: Path, state: Path, *args: str):
+    from lemoncrow.gateway.cli.commands.knowledge import knowledge_group
+
+    return CliRunner().invoke(
+        knowledge_group,
+        [
+            "project",
+            *args,
+            "--repo",
+            str(root),
+            "--repository-key",
+            "qualified",
+            "--canonical-ref",
+            "refs/heads/main",
+        ],
+        obj={"root": str(state)},
+    )
+
+
+def test_a_partial_baseline_keeps_documents_first_and_says_what_it_left_out(tmp_path: Path):
+    from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
+
+    init_git(tmp_path)
+    for name in ("a.py", "b.py", "z.md"):
+        (tmp_path / name).write_text("x = 1\n", encoding="utf-8")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-m", "more")
+    repository = RepositoryIdentity("local", "qualified")
+    store = ProjectKnowledgeStore(tmp_path / "state.sqlite3")
+
+    # At the bound nothing is left out; one under it, the code path goes first.
+    exact = CanonicalGitKnowledge(tmp_path, repository, "refs/heads/main", max_paths=4)
+    assert exact.sync(store, partial_baseline=True)["paths_omitted"] == 0
+    bounded = CanonicalGitKnowledge(tmp_path, repository, "refs/heads/main", max_paths=3)
+    result = bounded.sync(store, rebuild=True, partial_baseline=True)
+
+    assert result["coverage"] == "partial_documents_first" and result["paths_omitted"] == 1
+    assert "baseline limited to 3 of 4 committed paths, documents first" in result["degraded_reasons"]
+    assert {row.subject.key for row in store.query(repository).entries} == {"README.md", "a.py", "z.md"}
+    first = store.deterministic_digest(repository)
+    bounded.sync(store, rebuild=True, partial_baseline=True)
+    assert store.deterministic_digest(repository) == first
+
+
+def test_the_cli_starts_large_repositories_and_finds_its_own_previous_commit(tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    init_git(root)
+    for index in range(1001):
+        (root / f"f{index}.py").write_text("x = 1\n", encoding="utf-8")
+    git(root, "add", ".")
+    git(root, "commit", "-m", "large")
+    state = tmp_path / "state"
+
+    started = _knowledge_cli(root, state, "sync")
+    assert started.exit_code == 0, started.output
+    assert '"coverage": "partial_documents_first"' in started.output and '"paths_omitted": 2' in started.output
+
+    (root / "README.md").write_text("Landed contract changed.", encoding="utf-8")
+    git(root, "commit", "-am", "advance")
+    advanced = _knowledge_cli(root, state, "sync")
+    assert advanced.exit_code == 0, advanced.output
+    assert '"kind": "source_advance"' in advanced.output
+    assert "Landed contract changed." in _knowledge_cli(root, state, "query", "--term", "contract").output
+
+
+def test_generation_order_comes_from_git_ancestry(tmp_path: Path):
+    from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
+
+    first = init_git(tmp_path)
+    source = CanonicalGitKnowledge(tmp_path, RepositoryIdentity("local", "qualified"), "refs/heads/main")
+    store = ProjectKnowledgeStore(tmp_path / "state.sqlite3")
+    source.sync(store)
+    baseline = store.current_generation(source.repository)
+    (tmp_path / "README.md").write_text("Second.", encoding="utf-8")
+    git(tmp_path, "commit", "-am", "second")
+    second = git(tmp_path, "rev-parse", "HEAD")
+    source.sync(store, previous_revision=first)
+    latest = store.current_generation(source.repository)
+
+    assert source.generation_order({baseline, latest}, first) == {baseline: "predates", latest: "after_base"}
+    assert source.generation_order({baseline, latest}, second) == {baseline: "predates", latest: "predates"}
+    assert source.generation_order({"generation:" + "0" * 64}, first) == {}
+    with pytest.raises(ValueError):
+        source.generation_order({baseline}, "f" * 40)
+
+
 def test_committed_deny_filters_old_context_and_workspace_policy_cannot_relax(tmp_path: Path):
     from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
 

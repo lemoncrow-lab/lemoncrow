@@ -41,6 +41,7 @@ import json
 import os
 import re
 import tempfile
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -59,6 +60,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
 )
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
+    NO_HUMAN_REVIEW,
     Verdict,
     coverage_words,
     human_review_words,
@@ -70,7 +72,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
 )
 from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, budget_reached
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoisePolicy
-from lemoncrow.pro.capabilities.review.pr_bot.spend import SpendGuard
+from lemoncrow.pro.capabilities.review.pr_bot.spend import SpendGuard, resolve_max_usd
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     MAX_DETAIL,
     MAX_STATE_BYTES,
@@ -85,6 +87,7 @@ from lemoncrow.pro.capabilities.review.working_tree_authority import config_line
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.gitdiff import RevRange
+    from lemoncrow.pro.capabilities.review.model_identity import ModelIdentity
 
 #: ``--fail-on`` for a local review: which open findings make the exit code 1. The Action takes the same three values
 #: (``findings.GATES`` is the one table), so a setting means the same thing in a hook and in a workflow.
@@ -126,7 +129,9 @@ class LocalOptions:
     with_impact: bool = True
     #: Ignore the result carried from the last review of this scope and review everything again.
     fresh: bool = False
-    #: Ceilings on this scope's cumulative spend, read from the carried state (the same rule as a pull request's).
+    #: Ceilings on this scope's cumulative spend, read from the carried state (the same rule as a pull request's). With
+    #: no ``max_usd``, each run is held to :func:`spend.resolve_max_usd`'s default: a working tree is one scope per
+    #: branch for as long as the branch lives, so a default on its running total would end up refusing every review.
     max_usd: float | None = None
     max_runs: int | None = None
     #: Names the branch a range ends on, for the identity of its carried result. Default: the current branch for
@@ -146,6 +151,8 @@ class LocalReport:
     base: str = ""
     head: str = ""
     depth: str = "auto"
+    #: What ``depth`` resolved to in the run plan: ``auto`` under ``review.effort: quick`` ran Quick.
+    effort: str = ""
     fail_on: str = DEFAULT_FAIL_ON
     strict: bool = False
     exit_code: int = EXIT_CLEAN
@@ -194,6 +201,11 @@ class LocalReport:
     #: Other repositories of the workspace that depend on what changed (the packet's ``workspace_impact``): shown after
     #: the findings, never a finding, in no verdict count and never in the exit code. Empty with no workspace.
     workspace_impact: dict[str, Any] = field(default_factory=dict)
+    #: The change's Risk as the Review Reader states it (:meth:`impact.RiskBasis.assess` on the checks recorded for the
+    #: revision); ``None`` when the change was not read. Shown in the terminal only: ``--json`` keeps the impact.
+    risk: impact.ChangeRisk | None = None
+    #: The models the AI review ran on, as Review's run records name them (independence: who reviewed).
+    reviewers: tuple[ModelIdentity, ...] = ()
 
     @property
     def incomplete(self) -> bool:
@@ -259,6 +271,7 @@ class LocalReport:
                 ),
             },
             "depth": self.depth,
+            **({"effort": self.effort} if self.effort else {}),
             "model": self.model,
             **({"config": self.config} if self.config else {}),
             "usage": self.usage.to_wire(),
@@ -369,10 +382,14 @@ def save_state(path: Path, state: ReviewState) -> ReviewState:
         if len(block) <= MAX_STATE_BYTES:
             break
     path.parent.mkdir(parents=True, exist_ok=True)
-    scratch = path.with_suffix(".tmp")
-    scratch.write_text(block, encoding="utf-8")
-    os.chmod(scratch, 0o600)
-    scratch.replace(path)
+    scratch = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        scratch.write_text(block, encoding="utf-8")
+        os.chmod(scratch, 0o600)
+        scratch.replace(path)
+    except BaseException:
+        scratch.unlink(missing_ok=True)
+        raise
     _prune(path.parent)
     return fitted
 
@@ -510,7 +527,7 @@ def _policy_fix(why: str) -> str:
 
 
 def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalReport) -> tuple[str, str]:
-    """``("", "")`` when a model can be used; else ``(kind, why)``: ``disabled`` (the switch is off) or ``no_route``.
+    """``("", "")`` when a model can be used; else ``(kind, why)``: ``disabled`` (the AI budget is $0 or used up) or ``no_route``.
 
     The same resolver every model call goes through. With no key, the agent the person saved with ``--remember`` is the
     route (they named it, once, on purpose); an agent that was merely found on the PATH never is.
@@ -522,19 +539,23 @@ def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalRepo
     if route is None:
         agent = saved_agent(store_root)
         if agent:
-            route = ci_env.ModelRoute(agent, agent, "", AGENT_SETTING)
+            model = ci_env.agent_cli_model(agent, str(environ.get(ci_env.MODEL_ENV) or "").strip())
+            route = ci_env.ModelRoute(agent, agent, model, AGENT_SETTING)
             report.route_line = (
                 f"Using {_AGENT_NAMES[agent]}, as you chose with --remember "
                 f"(stop: lc settings reset {AGENT_SETTING}; an exported API key is used instead)."
             )
     if route is not None:
         ci_env.apply_model_route(route, os.environ)  # the drivers read the process environment
-    status, why = engine.route_problem()
+    status, why = engine.run_problem()
     if status == "disabled":
         if why.startswith(POLICY_INVALID):
-            # Not the switch: the settings contradict each other, so turning the switch on would change nothing.
+            # Not the budget: the settings contradict each other, so changing the budget would change nothing.
             return "disabled", f"AI review is not set up ({why}). {_policy_fix(why)}"
-        return "disabled", f"AI review is turned off ({why}). Turn it on: lc settings set intelligence.enabled true"
+        return "disabled", (
+            f"AI review did not run: {why}. Raise the budget: lc settings set intelligence.monthly_budget_usd <dollars>"
+            " (or remove the limit: lc settings reset intelligence.monthly_budget_usd)"
+        )
     if status:
         if why.startswith("Unsupported"):
             backend = why.rsplit(": ", 1)[-1]
@@ -571,6 +592,35 @@ def _refusal(errors: Sequence[str]) -> str:
         message = _plain_error(error)
         if refusal_kind(message):
             return message
+    return ""
+
+
+#: What to do when a working-tree or staged review could not rebuild its Snapshot from the files it captured: a commit's
+#: Snapshot is read from git, never from the capture.
+SNAPSHOT_REMEDY: Final[str] = (
+    "commit the change and review the commit with lc review --ai HEAD~1..HEAD, which reads its files from git"
+)
+
+
+def _snapshot_message(error: str) -> str:
+    """*error*'s message when it is the Snapshot failing to rebuild (no model was reached), else ``""``."""
+
+    from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable
+
+    _, found, message = error.partition(f"{ReviewSnapshotUnavailable.__name__}: ")
+    return message.strip() if found else ""
+
+
+def _snapshot_failure(errors: Sequence[str], mode: str) -> str:
+    """Why the review's Snapshot could not be rebuilt, and what to do, when that is why its calls failed; else ``""``."""
+
+    from lemoncrow.pro.capabilities.review.snapshot import NOT_CAPTURED
+
+    for error in errors:
+        message = _snapshot_message(error)
+        if message:
+            remedy = message.startswith(NOT_CAPTURED) and mode != "commit_range"
+            return f"{message}; {SNAPSHOT_REMEDY}" if remedy else message
     return ""
 
 
@@ -633,6 +683,18 @@ def _is_bare(options: LocalOptions) -> bool:
     return not (options.rev or options.base or options.head or options.staged or options.working_tree)
 
 
+def _reviewers(captured: Any) -> tuple[ModelIdentity, ...]:
+    """The model identities of the AI review runs recorded for the captured revision (``()`` when none are)."""
+
+    from lemoncrow.pro.capabilities.review.independence import reviewer_identities
+
+    try:
+        rows = captured.store.list_intelligence_runs(captured.session.id, revision_id=captured.revision.id)
+    except Exception:  # an identity that cannot be read proves nothing; independence then fails closed
+        return ()
+    return reviewer_identities(rows)
+
+
 def run_local_review(
     options: LocalOptions,
     *,
@@ -671,6 +733,10 @@ def run_local_review(
     spent = budget_reached(limits, previous)
     if previous is not None and spent:
         return _decided(_over_budget(report, previous, spent))
+    try:
+        run_cap = None if options.max_usd is not None else resolve_max_usd(None, environ)
+    except ValueError as exc:
+        raise LocalReviewError(str(exc)) from exc
 
     problem = ""
     ai = None
@@ -711,11 +777,12 @@ def run_local_review(
                     depth=options.depth,
                     previous=previous,
                     structured_executor=structured_executor,
-                    # A local scope has no default cap; one that was asked for is held before every call, as in CI.
+                    # Held before every call, as in CI: a cap that was asked for on the scope's total, else the
+                    # default on this run alone. `--max-usd-per-pr none` leaves no guard.
                     spend=(
                         SpendGuard(options.max_usd, prior=previous.spent if previous is not None else None)
                         if options.max_usd is not None
-                        else None
+                        else SpendGuard(run_cap) if run_cap is not None else None
                     ),
                     # A person at the command gets the overview (one more model call); a git hook, which must stay
                     # cheap and fail open, does not.
@@ -729,6 +796,10 @@ def run_local_review(
                         else None
                     ),
                 )
+                if ai.risk_basis is not None:
+                    recorded, unmeasured = _recorded_checks(captured)
+                    report.risk = ai.risk_basis.assess(recorded, checks_unmeasured=unmeasured)
+                report.reviewers = _reviewers(captured)
         except Exception as exc:  # a bug or a refusal in the review is an incomplete review, never a found P0 (exit 1)
             problem = f"the review could not run ({type(exc).__name__}: {trimmed(str(exc), 200)})"
     if ai is None or not ai.ran:
@@ -762,8 +833,12 @@ def run_local_review(
     tracked, dropped = cap_findings(list(merged.findings))
     reason = ""
     refused = _refusal(ai.errors)
+    unbuilt = _snapshot_failure(ai.errors, rng.mode)
     if refused:
         reason = refused
+    elif unbuilt:
+        # No model was reached: the files it reads could not be rebuilt. Not a model failure, and not worded as one.
+        reason = unbuilt
     elif ai.errors:
         reason = "model calls failed: " + trimmed(_plain_error(ai.errors[0]), 160)
     elif not ai.complete:
@@ -837,6 +912,7 @@ def run_local_review(
     report.general_investigated = ai.general_investigated
     report.usage = ai.usage
     report.model = ai.model
+    report.effort = ai.effort
     report.cached = ai.status == "nothing_changed"
     report.notes.extend(f"config: {note}" for note in noise.notes)
     if ai.overview_note:
@@ -846,6 +922,10 @@ def run_local_review(
     if refused:
         # The key, the credit or the rate: the provider's sentence is the whole story, said once.
         report.setup, report.setup_message = "refused", refused
+    elif unbuilt:
+        others = [error for error in ai.errors if not _snapshot_message(error)]
+        if others:
+            report.notes.append("model call errors: " + " | ".join(_plain_error(error)[:200] for error in others))
     elif len(ai.errors) > 1:
         # The first error is in the headline already; say only what else went wrong.
         report.notes.append(
@@ -859,6 +939,30 @@ def _captured_packet(captured: Any) -> dict[str, Any]:
 
     packet = read_packet_json(captured.store, captured.revision)
     return packet if isinstance(packet, dict) else {}
+
+
+#: What the Risk rule says it could not measure when the revision's check records could not be read.
+CHECKS_UNREAD: Final[str] = "whether any check ran on this revision (its check records could not be read)"
+
+
+def _recorded_checks(captured: Any) -> tuple[dict[str, str], str]:
+    """The checks recorded for the captured revision, for the Risk rule: ``({name: STATUS}, "")`` over the same check
+    rows the Reader's Brief reads (the Review API's own, ``review_worker_ai_publication_context``), or
+    ``({}, CHECKS_UNREAD)`` when they could not be read, so the rule says not measured, never "no check ran"."""
+
+    from lemoncrow.pro.capabilities.review.brief_summary import recorded_checks
+    from lemoncrow.pro.capabilities.review.pr_bot import engine
+
+    try:
+        context = engine._mount(captured).state.review_worker_ai_publication_context(
+            captured.session.id, captured.revision.id
+        )
+        rows = context.get("checks")
+    except Exception:  # an unreadable record is a gap the Risk line names, never a failed review
+        rows = None
+    if not isinstance(rows, (list, tuple)):
+        return {}, CHECKS_UNREAD
+    return recorded_checks([row for row in rows if isinstance(row, Mapping)]), ""
 
 
 def _changed_files(packet: Mapping[str, Any]) -> bool:
@@ -924,13 +1028,22 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append("Nothing to review: no changed files in this range.")
         return "\n".join(lines) + "\n"
     view = report.verdict
+    nothing = _examined_nothing(report)
     if view is not None:
         mark = {"must_fix": "red", "clean": "green"}.get(view.state, "yellow")
         # The same top as the pull request comment: the verdict in words, the coverage and whether a person must look,
-        # then the impact and what the change does. A local review has no CI to report, so there is no proof of work.
-        lines.append(paint(plain(verdict_title(view)), fg=mark, bold=True))
-        lines.append(f"{_coverage_words(report)} · {human_review_words(_impact(report))}")
-        lines.extend(_impact_lines(report, paint))
+        # then the Risk line and what the change does. A local review has no CI to report, so there is no proof of work.
+        title = verdict_title(view)
+        if nothing and view.state == "partial":
+            title = "Not reviewed" + (f" · {view.counts}" if view.counts else "")  # there is no "part reviewed"
+        lines.append(paint(plain(title), fg=mark, bold=True))
+        human = human_review_words(_impact(report))
+        if nothing:
+            # Nothing was examined, so nothing reassures: a flagged human review still shows, "none flagged" never does.
+            lines.append(nothing + (f" · {human}" if human != NO_HUMAN_REVIEW else ""))
+        else:
+            lines.append(f"{_coverage_words(report)} · {human}")
+        lines.extend(_risk_lines(report, paint))
     if report.cached:
         lines.append("Nothing changed since the last review of this scope: its results are reused, with no model call.")
     lines.append("")
@@ -958,8 +1071,10 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append(f"Fixed since the last review: {', '.join(plain(finding.title) for finding in closed)}")
         lines.append("")
     if report.state is not None:
-        lines.append(_coverage_line(report))
-        lines.append(f"Model: {report.model or 'none'} · depth {report.depth} · {usage_text(report.usage)}")
+        if not nothing:  # said at the top already, and "Reviewed N targets" would claim what no model did
+            lines.append(_coverage_line(report))
+        depth = report.depth if report.effort in {"", report.depth} else f"{report.depth} ({report.effort})"
+        lines.append(f"Model: {report.model or 'none'} · depth {depth} · {usage_text(report.usage)}")
         if (
             report.rereviewed
             and report.candidates == 0
@@ -1007,6 +1122,20 @@ def _impact(report: LocalReport) -> impact.Impact | None:
     return impact.Impact.from_state(report.state.impact) if report.state is not None else None
 
 
+def _examined_nothing(report: LocalReport) -> str:
+    """``Nothing was reviewed: <why>`` when the review set out to examine changed code and examined none of it, else
+    ``""``. The verdict line above it says why the calls did not happen or failed."""
+
+    asked = report.candidates + report.general
+    if report.cached or asked <= 0 or report.investigated + report.general_investigated > 0:
+        return ""
+    unit = "changed area" if report.general else "risk signal"
+    why = "no model call ran" if report.usage.calls == 0 else "no model call returned a review"
+    if asked == 1:
+        return f"Nothing was reviewed: {why}, so the one {unit} was not examined"
+    return f"Nothing was reviewed: {why}, so none of the {plural(asked, unit)} was examined"
+
+
 def _coverage_words(report: LocalReport) -> str:
     """The headline's coverage phrase, as the pull request comment words it (:func:`render.coverage_words`)."""
 
@@ -1022,28 +1151,61 @@ def _coverage_words(report: LocalReport) -> str:
     )
 
 
-def _impact_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
-    """``[Medium impact] <what the change does>`` and the reasons the label rests on, as the pull request comment has them."""
+#: What the terminal's Risk line is measured from, as the pull request comment says it (``render.RISK_BASIS``).
+RISK_MEASURED: Final[str] = "measured from the change and the run record, not a model"
 
-    weighed = _impact(report)
+
+def _risk_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
+    """``Risk: <Label> · <reason>`` (the Reader's Risk, :attr:`LocalReport.risk`), what the change does, then a dim line
+    with the size, what the Risk is measured from and what it could not measure."""
+
+    risk = report.risk
     described = report.state.overview.one_line if report.state is not None and report.state.overview else ""
-    lead = f"[{weighed.label}]" if weighed is not None else ""
-    lines = [f"{lead} {plain(described)}".strip()] if lead or described else []
-    if weighed is not None:
-        lines.append(paint(f"  {weighed.summary()} (from the change itself, not a model)", dim=True))
+    if risk is None:
+        lines = ["Risk: Not measured · the change was not read on this run"]
+        basis = RISK_MEASURED
+    else:
+        lines = [f"Risk: {plain(risk.label)} · {plain(' '.join(risk.reason.split()))}"]
+        basis = f"{plural(risk.files, 'file')}, {plural(risk.lines, 'changed line')} · {RISK_MEASURED}"
+        # A gap the Risk line already gives as its reason ("could not measure <gap>") is said once, there.
+        unsaid = [gap for gap in risk.not_measured if gap not in risk.reason]
+        if unsaid:
+            basis += " · not measured: " + "; ".join(plain(gap) for gap in unsaid)
+    if described:
+        lines.append(plain(described))
+    lines.append(paint(f"  {basis}", dim=True))
     return lines
 
 
 def _workspace_lines(report: LocalReport, paint: Callable[..., str], *, show_all: bool) -> list[str]:
-    """``Workspace impact``: the other repositories that depend on what changed, after the findings; never a finding."""
+    """``Workspace impact``: the other repositories that use a changed file, after the findings; never a finding.
+
+    A repository that depends on this one only as a whole (its HTTP API, its package, with no evidence that reaches a
+    changed path) is counted in one line, not listed: ``--all`` and ``lc workspace impact`` list it.
+    """
 
     if not report.workspace_impact:
         return []
     from lemoncrow.pro.capabilities.review.workspace_impact import heading, impact_lines
 
     found = report.workspace_impact
-    lines = [paint("Workspace impact", bold=True) + "  " + paint(plain(heading(found)), dim=True)]
-    lines.extend(f"  {plain(line)}" for line in impact_lines(found, show_all=show_all))
+    reached = [hit for hit in found.get("reached") or [] if isinstance(hit, Mapping)]
+    shown = reached if show_all else [hit for hit in reached if hit.get("direct")]
+    whole = len(reached) - len(shown)
+    view = {**found, "reached": shown}
+    body = impact_lines(view, show_all=show_all)
+    others = f"{whole} {'repository depends' if whole == 1 else 'repositories depend'} on this repository as a whole"
+    if whole and not shown:
+        lines = [
+            paint(
+                f"Workspace impact  no other repository uses a changed file; {others} (lc workspace impact)", dim=True
+            )
+        ]
+    else:
+        lines = [paint("Workspace impact", bold=True) + "  " + paint(plain(heading(view)), dim=True)]
+        if whole:
+            body.append(f"{others}, not on a changed file (--all lists them)")
+    lines.extend(f"  {plain(line)}" for line in body)
     lines.append("")
     return lines
 

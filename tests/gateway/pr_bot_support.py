@@ -462,7 +462,11 @@ class FakeGitHub:
         if "reactions" in query:
             return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": self._feedback_page()}}}})
         nodes = [
-            {"id": thread["id"], "isResolved": thread["resolved"], "comments": {"nodes": [{"databaseId": comment_id}]}}
+            {
+                "id": thread["id"],
+                "isResolved": thread["resolved"],
+                "comments": {"nodes": [{"fullDatabaseId": str(comment_id)}]},
+            }
             for comment_id, thread in self.threads.items()
         ]
         page = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
@@ -473,7 +477,7 @@ class FakeGitHub:
 
         def comment(row: dict[str, Any]) -> dict[str, Any]:
             return {
-                "databaseId": row["id"],
+                "fullDatabaseId": str(row["id"]),
                 "body": row["body"],
                 "author": {"login": row["user"]["login"], "__typename": row["user"]["type"]},
                 "authorAssociation": row.get("author_association", "NONE"),

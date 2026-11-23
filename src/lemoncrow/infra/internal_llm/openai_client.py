@@ -24,6 +24,7 @@ from typing import Any
 
 from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable, refusal_from_exception
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+from lemoncrow.infra.internal_llm.usage import note_response
 
 
 def _openai_module() -> Any:
@@ -106,6 +107,7 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
         )
     except Exception as exc:
         raise OpenAIClientUnavailable(f"OpenAI-compatible API unavailable: {exc}") from exc
+    note_response(chosen_model, getattr(response, "usage", None))
     return str(response.choices[0].message.content or "")
 
 
@@ -149,6 +151,8 @@ def chat_with_result(
         raise OpenAIClientUnavailable(
             refusal_from_exception("OpenAI", exc) or f"OpenAI-compatible API unavailable: {exc}"
         ) from exc
+    # The answer is in hand and paid for: report its use before anything below can reject it.
+    note_response(chosen_model, getattr(response, "usage", None))
     content = str(response.choices[0].message.content or "")
     parsed_json: dict[str, Any] | None = None
     if json_schema is not None:
@@ -187,6 +191,15 @@ def chat(
     return dict(result.parsed_json or {})
 
 
+def _refuses_the_request_shape(exc: Exception) -> bool:
+    """Whether a server answered 400 or 422 (OpenAI's ``BadRequestError``/``UnprocessableEntityError``), or named the option."""
+
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    named = type(exc).__name__ in {"BadRequestError", "UnprocessableEntityError"}
+    text = str(exc)
+    return status in (400, 422) or named or "stream_options" in text or "include_usage" in text
+
+
 def chat_stream(
     messages: list[dict[str, Any]],
     *,
@@ -200,10 +213,23 @@ def chat_stream(
     kwargs: dict[str, Any] = {"model": chosen_model, "messages": messages, "stream": True}
     if json_schema is not None:
         kwargs["response_format"] = {"type": "json_object"}
+    streamed_usage: Any = None
+    reached = False
     try:
-        response = client.chat.completions.create(**kwargs)
+        # The last chunk carries the use when asked to. A server that refuses the option (a strict proxy answers a
+        # generic 400 or 422) is asked again without it, once, and that call then reports no use.
+        try:
+            response = client.chat.completions.create(**kwargs, stream_options={"include_usage": True})
+        except Exception as exc:
+            if not _refuses_the_request_shape(exc):
+                raise
+            response = client.chat.completions.create(**kwargs)
+        reached = True
         chunks: list[str] = []
         for chunk in response:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                streamed_usage = usage
             try:
                 text = str(chunk.choices[0].delta.content or "")
             except (AttributeError, IndexError, TypeError):
@@ -214,6 +240,11 @@ def chat_stream(
             on_delta(text)
     except Exception as exc:
         raise OpenAIClientUnavailable(f"OpenAI-compatible API unavailable: {exc}") from exc
+    finally:
+        # A stream that was opened is a call that was made, however it ends (a reset, a timeout, a cancel in on_delta):
+        # with no usage seen it is a call with cost not reported.
+        if reached:
+            note_response(chosen_model, streamed_usage)
     content = "".join(chunks)
     if json_schema is None:
         return content

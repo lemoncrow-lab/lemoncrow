@@ -54,6 +54,11 @@ class Tag:
     # keyword-less definition (every C function) is unclassifiable from its
     # signature line alone.
     node_kind: str | None = None
+    # Kind of the nearest enclosing definition or function-expression node of a
+    # tree-sitter definition tag (e.g. "function_declaration" for a local
+    # inside a function, "interface_declaration" for an interface member).
+    # None at file scope and on the reference/call and non-tree-sitter paths.
+    container_kind: str | None = None
 
 
 def _line_offsets(text: str) -> list[int]:
@@ -228,12 +233,23 @@ _LOCAL_SCOPE_KINDS: dict[str, frozenset[str]] = {
 }
 
 
-def _definition_candidates(root: Any, language: str, definition_kinds: frozenset[str]) -> list[Any]:
+# Anonymous function nodes. Not definitions themselves, but a definition inside
+# one is inside a function body, so they count as a container for
+# ``Tag.container_kind`` (`const h = () => { const z = 1 }`: z's container is
+# the arrow function, not the `h` declaration).
+_FUNCTION_EXPRESSION_KINDS = frozenset(
+    {"arrow_function", "class_static_block", "function", "function_expression", "generator_function"}
+)
+
+
+def _definition_candidates(root: Any, language: str, definition_kinds: frozenset[str]) -> list[tuple[Any, str | None]]:
+    """Definition nodes in file order, each with its container kind (see ``Tag.container_kind``)."""
+
     from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import transparent_node_kinds
 
     if language in {"json", "yaml"}:
         unwrap = transparent_node_kinds(language)
-        candidates: list[Any] = []
+        candidates: list[tuple[Any, str | None]] = []
 
         def visit(node: Any) -> None:
             for child in _children(node):
@@ -241,25 +257,25 @@ def _definition_candidates(root: Any, language: str, definition_kinds: frozenset
                 if kind in unwrap:
                     visit(child)
                 elif kind in definition_kinds:
-                    candidates.append(child)
+                    candidates.append((child, None))
 
         visit(root)
         return candidates
-    local_scopes = _LOCAL_SCOPE_KINDS.get(language)
-    if not local_scopes:
-        return [node for node in _walk(root) if _kind(node) in definition_kinds]
+    local_scopes = _LOCAL_SCOPE_KINDS.get(language, frozenset())
     # Scope-aware walk: a definition-shaped node nested inside a local scope is
     # skipped. A scope-opening node is itself still a candidate (a ruby `method`
     # is kept; only its body contents are locals).
-    scoped: list[Any] = []
-    stack: list[tuple[Any, bool]] = [(root, False)]
+    scoped: list[tuple[Any, str | None]] = []
+    stack: list[tuple[Any, bool, str | None]] = [(root, False, None)]
     while stack:
-        node, in_local = stack.pop()
+        node, in_local, container = stack.pop()
         kind = _kind(node)
-        if not in_local and kind in definition_kinds:
-            scoped.append(node)
+        is_definition = kind in definition_kinds
+        if not in_local and is_definition:
+            scoped.append((node, container))
         child_local = in_local or kind in local_scopes
-        stack.extend((child, child_local) for child in reversed(_children(node)))
+        child_container = kind if is_definition or kind in _FUNCTION_EXPRESSION_KINDS else container
+        stack.extend((child, child_local, child_container) for child in reversed(_children(node)))
     return scoped
 
 
@@ -289,7 +305,7 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
     tags: list[Tag] = []
     seen: set[tuple[str, TagKind, int, int]] = set()
 
-    for node in _definition_candidates(root, language, definition_kinds):
+    for node, container_kind in _definition_candidates(root, language, definition_kinds):
         # C-family grammars parse the bare type reference in `struct foo *x`
         # as a struct_specifier node too -- only the body-bearing form is a
         # definition. Without this, every parameter/field naming a struct
@@ -308,7 +324,17 @@ def _treesitter_tags(path: Path, text: str, language: str) -> list[Tag] | None:
         if key in seen:
             continue
         seen.add(key)
-        tags.append(Tag(name, kind, str(path), _line_for_byte(offsets, start), (start, end), node_kind=_kind(node)))
+        tags.append(
+            Tag(
+                name,
+                kind,
+                str(path),
+                _line_for_byte(offsets, start),
+                (start, end),
+                node_kind=_kind(node),
+                container_kind=container_kind,
+            )
+        )
 
     call_fields = _CALL_NODE_FIELDS.get(language, {})
     if language not in _NO_REFERENCE_LANGUAGES:

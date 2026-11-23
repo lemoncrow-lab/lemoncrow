@@ -2,14 +2,6 @@
 
 LemonCrow is infrastructure around coding agents: repository intelligence and tools while the agent works, plus a Review surface for understanding what changed afterwards.
 
-The product has three public layers:
-
-- **Runtime** — use LemonCrow with the coding agent you already have. Claude Code, Codex, OpenCode, and Cursor are supported external integrations.
-- **Review** — inspect agent-written changes, evidence, discussion, and durable human review state.
-- **Enterprise** — shared infrastructure, policy, managed workspaces, organization-wide visibility, and broader agent workloads.
-
-Runtime Lite stays local through existing-agent integrations and `lc runtime index`. `lc code` is the Hosted LemonCrow-owned coding agent. A Pro plan grants Hosted Runtime access; advanced private intelligence and owned execution are Hosted/Enterprise capabilities, not a second local engine.
-
 ## Start here
 
 Install LemonCrow:
@@ -17,6 +9,12 @@ Install LemonCrow:
 ```bash
 curl -fsSL https://lemoncrow.com/install.sh | bash
 ```
+
+The product has three public layers:
+
+- **Workspaces** — use LemonCrow with the coding agent you already have. Claude Code, Codex, OpenCode, and Cursor are supported external integrations.
+- **Review** — inspect agent-written changes, evidence, discussion, and durable human review state.
+- **Enterprise** — shared infrastructure, policy, managed workspaces, organization-wide visibility, and broader agent workloads.
 
 Use it with an existing agent:
 
@@ -28,13 +26,9 @@ lc with opencode
 
 Those commands add LemonCrow to that launch without changing the agent's saved model, credentials, or settings. Cursor uses its installed LemonCrow integration instead of `lc with`.
 
-To use LemonCrow's Hosted owned coding agent, the CLI entry point is:
+To have an agent work in a task of its own that lands on `main` only when your checks pass, follow the [Workspaces Lite quickstart](./setup/workspaces-lite-quickstart.md): about ten minutes, no account.
 
-```bash
-lc code
-```
-
-For local Runtime Lite, use `lc with claude|codex|opencode|pi`, Cursor's installed integration, or a persistent `lc rt enable <host>` integration.
+For local Workspaces Lite, use `lc with claude|codex|opencode|pi`, Cursor's installed integration, or a persistent `lc rt enable <host>` integration. LemonCrow's hosted coding agent (`lc code`) is not yet available.
 
 Get an AI review of your own change in your terminal (a key, or an agent you are signed in to; [details](./setup/ai-review.md)):
 
@@ -54,16 +48,18 @@ lc review --open
 | Document | What it covers |
 | --- | --- |
 | [Your first AI review](./setup/ai-review.md) | Install, a key or `--agent`, `lc review --ai`: three steps, what it says when something is missing, saving a key |
-| [Installation](./setup/installation.md) | Install, first run, external-agent integrations, `lc code`, and uninstall |
-| [LemonCrow Pro: Hosted Runtime](./setup/pro-hosted-runtime.md) | Pro onboarding: install, `lc rt enable --hosted`, sign-in, device approval, and checking hosted search |
+| [Installation](./setup/installation.md) | Install, first run, external-agent integrations, and uninstall |
+| [Workspaces Lite quickstart](./setup/workspaces-lite-quickstart.md) | Install to a landed agent task on your own machine: `lc verify init`, `lc task start`, `land`, `finish`, then the move to a server |
+| [LemonCrow Pro: hosted retrieval](./setup/pro-hosted-runtime.md) | Pro onboarding: install, `lc rt enable --hosted`, sign-in, device approval, and checking hosted search |
 | [Privacy & network](./setup/privacy.md) | What stays local, what can make network calls, and telemetry |
 | [Troubleshooting](./setup/troubleshooting.md) | Common installation and runtime problems |
-| [Runtime Lite architecture](./architecture/runtime-lite.md) | Local repository intelligence and the local/managed boundary |
+| [Workspaces Lite architecture](./architecture/runtime-lite.md) | Local repository intelligence and the local/managed boundary |
 | [OSS/private intelligence boundary](./architecture/oss-private-code-intelligence.md) | Which code-intelligence capabilities are public versus private |
 | [Review authority map](./architecture/review-authority-map.md) | Which code owns each Review decision, and the rule that trust features never add a second authority |
 | [`lc review`](./reference/review.md) | Review concepts and the core review loop |
 | [Review walkthrough](./reference/review-walkthrough.md) | Hands-on Review tour |
 | [CLI reference](./reference/cli.md) | Current public CLI |
+| [Environment definition](./reference/environment.md) | `.lemoncrow/environment.toml`, `lc verify init`, `lc verify` and its pre-push hook |
 | [Support matrix](./reference/support-matrix.md) | What is supported today, and where: capabilities, platforms, browsers, source hosts and deployment |
 
 ## Coding-agent integrations
@@ -75,7 +71,6 @@ lc review --open
 | [OpenCode](./hosts/opencode-install.md) | LemonCrow plugin; temporary `lc with opencode` or persistent integration |
 | [Cursor](./hosts/cursor-install.md) | Installed IDE/CLI integration with lifecycle hooks |
 | [Pi](./hosts/pi-install.md) | Public managed coding-agent host; install with `lc rt host ... --engine pi`, try with `lc with pi` |
-| [LemonCode](./hosts/lemoncode-install.md) | Alternative LemonCrow-managed frontend |
 | [All integrations](./hosts/all-agent-clis.md) | Full integration overview |
 | [Capability matrix](./hosts/host-capability-matrix.md) | Technical differences between hosts |
 
@@ -95,4 +90,4 @@ lc review --open
 
 ---
 
-[GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Runtime](https://lemoncrow.com/runtime) · [Review](https://lemoncrow.com/review) · [Enterprise](https://lemoncrow.com/enterprise) · [Privacy](./setup/privacy.md)
+[GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Workspaces](https://lemoncrow.com/runtime) · [Review](https://lemoncrow.com/review) · [Enterprise](https://lemoncrow.com/enterprise) · [Privacy](./setup/privacy.md)

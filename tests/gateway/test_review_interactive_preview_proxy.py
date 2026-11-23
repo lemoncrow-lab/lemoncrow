@@ -5,8 +5,10 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import shutil
 import socket
 import socketserver
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -16,7 +18,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from lemoncrow.pro.capabilities.review.preview_proxy import (
+from lemoncrow.pro.capabilities.review.preview_runtime import forward_unix
+from lemoncrow.pro.environment.preview_proxy import (
     ENTER_PATH,
     TICKET_TTL_SECONDS,
     GateDecision,
@@ -29,7 +32,6 @@ from lemoncrow.pro.capabilities.review.preview_proxy import (
     ProxyResponse,
     safe_location,
 )
-from lemoncrow.pro.capabilities.review.preview_runtime import forward_unix
 
 ANCESTOR = "http://127.0.0.1:45990"
 
@@ -291,7 +293,7 @@ class _UnixHTTP(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 @pytest.fixture
-def unix_upstream(tmp_path: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+def unix_upstream() -> Iterator[tuple[Path, dict[str, Any]]]:
     behaviour: dict[str, Any] = {"body": b"ok", "delay": 0.0}
 
     class Handler(socketserver.StreamRequestHandler):
@@ -305,7 +307,9 @@ def unix_upstream(tmp_path: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
                     time.sleep(behaviour["delay"])
                 self.wfile.write(body[start : start + 65536])
 
-    path = tmp_path / "up.sock"
+    # A unix socket path is limited to 104 bytes on macOS, which pytest's tmp_path exceeds.
+    short = Path(tempfile.mkdtemp(prefix="lcup"))
+    path = short / "up.sock"
     server = _UnixHTTP(str(path), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -314,6 +318,7 @@ def unix_upstream(tmp_path: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
     finally:
         server.shutdown()
         server.server_close()
+        shutil.rmtree(short, ignore_errors=True)
 
 
 def test_forward_caps_response_size(unix_upstream: tuple[Path, dict[str, Any]]) -> None:

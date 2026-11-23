@@ -81,6 +81,28 @@ def test_session_dir_still_builds_the_canonical_layout(tmp_path: Path) -> None:
     assert built.name == "019e4764-8065"
 
 
+def test_resumed_session_keeps_its_newest_partition(tmp_path: Path) -> None:
+    """A session resumed past the search window must not mint a new partition.
+
+    A second partition restarts the stop hook's cumulative turn_cut/input_style
+    top-ups from zero, and readers resolving the session by id would see a
+    different folder than the one being written.
+    """
+    sid = "f747c526-95af"
+    old = tmp_path / "sessions/2026/08/01/claude" / sid
+    newer = tmp_path / "sessions/2026/08/06/claude" / sid
+    old.mkdir(parents=True)
+    newer.mkdir(parents=True)
+    (tmp_path / "sessions/2026/08/09/codex" / "other").mkdir(parents=True)
+
+    assert session_dir(tmp_path, "claude", sid) == newer
+    assert find_session_dir(tmp_path, sid) == newer
+    # Another host's partition is never adopted; an unknown id mints today's.
+    assert session_dir(tmp_path, "claude", "other").parent.name == "claude"
+    assert not session_dir(tmp_path, "claude", "other").exists()
+    assert not session_dir(tmp_path, "claude", "brand-new").exists()
+
+
 def test_session_dir_snapshot_answers_like_the_per_id_glob(tmp_path: Path) -> None:
     from lemoncrow.core.foundation.paths import session_dir_snapshot
 
@@ -88,7 +110,7 @@ def test_session_dir_snapshot_answers_like_the_per_id_glob(tmp_path: Path) -> No
         (tmp_path / "sessions" / rel).mkdir(parents=True)
     ids = ["s1", "s2", "s3", "missing"]
     expected = {sid: find_session_dir(tmp_path, sid) for sid in ids}
-    assert expected["s1"] == tmp_path / "sessions/2026/09/01/claude/s1"
+    assert expected["s1"] == tmp_path / "sessions/2026/09/02/codex/s1"
 
     with session_dir_snapshot():
         assert {sid: find_session_dir(tmp_path, sid) for sid in ids} == expected

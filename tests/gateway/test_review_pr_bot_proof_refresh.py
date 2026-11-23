@@ -95,3 +95,19 @@ def test_the_block_is_replaced_in_place_and_a_body_without_one_is_left_alone() -
     new = proof_refresh.replace_proof(body, ["**Proof of work** · Reported by CI on `abc`", "", "- Passed: 3"])
     assert new == "<h2>x</h2>\n\n**Proof of work** · Reported by CI on `abc`\n\n- Passed: 3\n\n<sub>next</sub>"
     assert proof_refresh.replace_proof("<h2>x</h2>", ["**Proof of work** · y"]) is None
+
+
+def test_ci_that_reported_nothing_at_review_time_gets_its_block_and_the_gap_goes(world: World) -> None:
+    world.github.check_runs = []
+    world.origin.push({"src/plain.py": "VALUE = 2\n"})
+    world.review()
+    before, head = summary(world), world.origin.head
+    assert "Proof of work" not in before and "- Tests: no CI run was reported on this commit" in before
+
+    world.github.check_runs = [{"name": "unit", "status": "completed", "conclusion": "success"}]
+    (done,) = ci_finished(world, head)
+    after = summary(world)
+    assert done.updated and "- Passed: 1 · `unit`" in after and "- Tests:" not in after
+    first = after.split("\n---\n", 1)[0]
+    assert first.index("**Risk:") < first.index("**Proof of work**"), "added where the review puts it"
+    assert first.endswith("- Passed: 1 · `unit`\n"), "last in the first screen, one blank line before the rule"

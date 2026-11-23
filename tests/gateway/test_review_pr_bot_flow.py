@@ -571,16 +571,16 @@ def test_publishing_outside_github_actions_is_refused_because_the_login_would_be
     assert not world.review(dry_run=True).skipped  # a dry run writes nothing, so it may run anywhere
 
 
-def test_the_kill_switch_stops_the_review_before_anything_is_captured_or_sent(world: World, tmp_path: Path) -> None:
+def test_a_zero_ai_budget_stops_the_review_before_anything_is_captured_or_sent(world: World, tmp_path: Path) -> None:
     world.origin.push(FIRST_PUSH)
     root = tmp_path / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
-    (root / "plugin_settings.json").write_text(json.dumps({"intelligence.enabled": False}))
+    (root / "plugin_settings.json").write_text(json.dumps({"intelligence.monthly_budget_usd": 0}))
     report = world.review()
-    assert report.skipped and "turned off" in report.reason and report.exit_code == 0
+    assert report.skipped and "AI budget is $0" in report.reason and report.exit_code == 0
     assert world.model.calls == [] and world.github.issue_comments == []
     assert [(row["state"], row["description"]) for row in world.github.statuses] == [
-        ("success", "skipped: AI review is turned off")
+        ("success", "skipped: AI review did not run")
     ]
 
 

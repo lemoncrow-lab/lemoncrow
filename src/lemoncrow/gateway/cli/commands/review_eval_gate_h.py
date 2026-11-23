@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
+from lemoncrow_client.review_words import revision_name
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.evidence_qualification import GateHConfig
@@ -248,7 +249,7 @@ def gate_h_import(
     session = store.resolve_session(review_ref)
     revision = store.latest_revision(session.id) if session is not None else None
     if session is None or revision is None:
-        raise click.ClickException(f"no Review with a Snapshot matches {review_ref!r}")
+        raise click.ClickException(f"no Review with a revision matches {review_ref!r}")
     try:
         count = store_measurements(
             store,
@@ -259,7 +260,9 @@ def gate_h_import(
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(f"imported {count} measurement(s) for {session.repo_root} on Snapshot {revision.revision_number}")
+    click.echo(
+        f"imported {count} measurement(s) for {session.repo_root} on {revision_name(revision.revision_number - 1)}"
+    )
 
 
 __all__ = ["gate_h"]

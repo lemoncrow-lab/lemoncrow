@@ -179,7 +179,7 @@ def _resnapshot(store: ReviewStore, review_id: str, title: str, *, changed: int,
     return revision.id
 
 
-_WORKFLOW_COUNTS = ("target_count", "reviewed", "unreviewed", "changed_since_review", "unknown")
+_WORKFLOW_COUNTS = ("target_count", "reviewed", "unreviewed", "changed_since_review", "unknown", "later")
 
 
 def _comment(store: ReviewStore, review_id: str, revision_id: str) -> None:
@@ -323,6 +323,99 @@ def test_an_unreviewed_local_review_without_findings_is_needs_review_never_ready
     _run(tmp_path, body)
 
 
+def test_a_review_with_a_part_left_for_later_is_still_needing_review_never_complete(tmp_path: Path) -> None:
+    """P0-4: `later` is not judged. Setting a part aside must not turn "needs review" into "needs decision"."""
+
+    async def body(local: _Local) -> None:
+        store = local.store()
+        aside, aside_rev = _review(store, "aside", units=2)
+        done, done_rev = _review(store, "done", units=2)
+        _review_everything(store, done, done_rev)
+        first, second = store.list_units(aside_rev)
+        for unit, state in ((first, "reviewed"), (second, "later")):
+            store.set_mark(
+                ReviewMark(
+                    review_id=aside,
+                    unit_key=unit.unit_key,
+                    state=state,  # type: ignore[arg-type]
+                    reviewed_revision_id=aside_rev,
+                    content_fingerprint=unit.content_fingerprint,
+                    reviewer_id=REVIEWER,
+                )
+            )
+        page = await local.inbox()
+        row = _row(page, aside)
+        assert row["progress"]["later"] == 1 and row["progress"]["reviewed"] == 1
+        assert row["workflow"]["state"] == "needs_review", row["workflow"]
+        assert _row(page, done)["workflow"]["state"] == "needs_decision"
+        # The repository-level actionable count sees it too.
+        assert row["axes"]["your_review"]["state"] != "complete"
+
+    _run(tmp_path, body)
+
+
+def test_a_part_left_for_later_keeps_a_review_out_of_the_waiting_buckets(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """The handoff fields treat a review with only `later` parts left as still the reviewer's turn."""
+    from lemoncrow.pro.capabilities.review import handoff
+
+    store = ReviewStore(tmp_path / "store")
+    session_id, _revision = _review(store, "aside")
+    session = store.get_session(session_id)
+    assert session is not None
+    items = list(store.review_list_inputs([session]).items())
+    seen: list[int] = []
+
+    def capture(_handoff: Any, *, status: str, actionable_targets: int) -> dict[str, Any]:
+        seen.append(actionable_targets)
+        return {}
+
+    monkeypatch.setattr(handoff, "handoff_row_fields", capture)
+    key = ("repo", session_id)  # progress is keyed (repo_id, review_id)
+    base = {"unreviewed": 0, "changed_since_review": 0, "unknown": 0}
+    for counts in ({**base, "later": 2}, {**base}, {**base, "unreviewed": 1}):
+        local_review_service._review_handoff(store, [(session, items[0][1])], {key: counts}, "repo")
+    assert seen == [2, 0, 1]
+
+
+def test_an_approved_revision_leaves_came_back_to_you(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Notes came back on Revision 2 and the reviewer approved it: it is no longer back with them."""
+
+    from lemoncrow_server_core import local_inbox
+
+    from lemoncrow.pro.capabilities.review import handoff
+
+    real = handoff.review_handoff
+
+    def returned(*args: Any, **kwargs: Any) -> handoff.ReviewHandoff:
+        return handoff.ReviewHandoff(**{**real(*args, **kwargs).__dict__, "returned": 1})
+
+    monkeypatch.setattr(local_inbox, "review_handoff", returned)
+    monkeypatch.setattr(handoff, "review_handoff", returned)
+
+    async def body(local: _Local) -> None:
+        store = local.store()
+        back, _first = _review(store, "back")
+        approved, _old = _review(store, "approved")
+        current = _resnapshot(store, approved, "approved", changed=1, units=1)
+        store.record_outcome(approved, current, REVIEWER, outcome="lgtm")
+        page = await local.inbox()
+        kinds = {row["id"]: [reason["kind"] for reason in row["next_action"]["my_reasons"]] for row in page["reviews"]}
+        assert "thread_returned" in kinds[back]
+        # Approved: neither back with the reviewer nor left to review (landing it is still the one user's decision).
+        assert not {"thread_returned", "review_pending"} & set(kinds[approved]), kinds[approved]
+        assert _row(page, approved)["axes"]["your_review"]["state"] == "complete"
+        assert _row(page, approved)["axes"]["your_review"]["approved"] is True
+        assert _row(page, back)["axes"]["your_review"]["approved"] is False
+        assert _row(page, approved).get("primary_bucket") != "returned_to_me"
+        assert _row(page, back)["primary_bucket"] == "returned_to_me"
+        # The plain Reviews list (the legacy rows) agrees.
+        legacy = await _ok(await local.get("/v1/reviews"))
+        assert _row(legacy, approved).get("primary_bucket") != "returned_to_me"
+        assert _row(legacy, back)["primary_bucket"] == "returned_to_me"
+
+    _run(tmp_path, body)
+
+
 def test_a_stale_or_foreign_local_readiness_record_never_makes_a_review_ready(tmp_path: Path) -> None:
     async def body(local: _Local) -> None:
         store = local.store()
@@ -338,7 +431,7 @@ def test_a_stale_or_foreign_local_readiness_record_never_makes_a_review_ready(tm
         assert _row(page, foreign)["readiness"]["state"] == "unknown"
         for review_id in (stale, foreign):
             assert _row(page, review_id)["workflow"]["state"] != "ready_to_merge"
-            assert _row(page, review_id)["axes"]["scm"]["state"] == "unknown"
+            assert _row(page, review_id)["axes"]["scm"]["state"] == "not_connected"
 
     _run(tmp_path, body)
 
@@ -360,10 +453,11 @@ def test_local_priority_workflow_owner_and_readiness_are_distinct_fields(tmp_pat
         assert after["readiness"]["state"] == "not_ready"
         assert after["priority"] == before["priority"]
         assert after["next_action"]["for_me"] is False
-        # Honest axes: your review complete, no team review locally, SCM not ready.
+        # Honest axes: your review complete, no team review locally, and no merge claim
+        # without source control (the failed check is still counted).
         assert after["axes"]["your_review"]["state"] == "complete"
         assert after["axes"]["team_review"]["state"] == "not_applicable"
-        assert after["axes"]["scm"]["state"] == "not_ready" and after["axes"]["scm"]["failed_checks"] == 1
+        assert after["axes"]["scm"]["state"] == "not_connected" and after["axes"]["scm"]["failed_checks"] == 1
 
     _run(tmp_path, body)
 
@@ -505,8 +599,8 @@ def test_local_attention_is_deterministic_explained_and_a_warm_read_never_writes
         assert order.index(large) < order.index(small)
         selected = _row(first, small)["attention"]
         keys = {factor["key"]: factor for factor in selected["factors"]}
-        assert keys["ownership"]["detail"] == "1 target(s) left to review"
-        assert keys["effort"]["detail"] == "small: 1 targets"
+        assert keys["ownership"]["detail"] == "1 part left to review"
+        assert keys["effort"]["detail"] == "small: 1 part"
         assert selected["score"] == sum(factor["points"] for factor in selected["factors"])
 
     _run(tmp_path, body)

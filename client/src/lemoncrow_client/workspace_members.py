@@ -4,9 +4,9 @@ A session root is served together with its member repositories:
 
 * a Git repository: the repository itself plus its checked-out submodules,
   recursively (paths read from ``.gitmodules``);
-* a folder that is not a Git repository: its immediate children that are Git
-  repositories, each plus its checked-out submodules. Nothing deeper is
-  scanned; a non-Git child folder is not explored.
+* a folder that is not a Git repository: repositories up to three directory
+  levels below it, including those inside plain grouping folders, plus their
+  checked-out submodules. Discovery never descends into a Git checkout.
 
 Each member keeps its own Runtime Lite index in its own checkout, so a session
 started inside a member and one started at the root share that index. Nothing
@@ -41,12 +41,34 @@ __all__ = [
     "head_commit",
     "head_label",
     "is_repository",
+    "main_checkout",
     "recorded_commits",
     "resolve_root",
 ]
 
 #: Members one root indexes and searches without being named.
 MAX_REPOSITORIES: Final[int] = 64
+#: Maximum path segments beneath a non-Git root at which a repository can be discovered.
+MAX_DISCOVERY_DEPTH: Final[int] = 3
+#: Bound container traversal even when a workspace has many non-Git folders.
+_MAX_DISCOVERY_CONTAINERS: Final[int] = 2048
+#: Generated trees and archives are never workspace grouping directories.
+_SKIP_CONTAINERS: Final[frozenset[str]] = frozenset(
+    {
+        "node_modules",
+        "vendor",
+        "dist",
+        "build",
+        "target",
+        "__pycache__",
+        "venv",
+        "site-packages",
+        "archive",
+        "archives",
+        "backup",
+        "backups",
+    }
+)
 #: How long a membership read is trusted; a repository cloned later joins after this.
 _CATALOG_TTL_S: Final[float] = 30.0
 _GIT_TIMEOUT_S: Final[float] = 2.0
@@ -145,6 +167,16 @@ def _common_dir(gitdir: Path) -> tuple[Path, bool]:
         return gitdir, False
     common = Path(text)
     return (common if common.is_absolute() else gitdir / common).resolve(), True
+
+
+def main_checkout(checkout: Path) -> Path:
+    """The main checkout of a linked worktree, which is the member; ``checkout`` itself otherwise."""
+
+    gitdir = _git_dir(checkout)
+    if gitdir is None:
+        return checkout
+    common, linked = _common_dir(gitdir)
+    return common.parent if linked and common.name == ".git" else checkout
 
 
 def _read_head(gitdir: Path) -> str:
@@ -331,30 +363,45 @@ def discover_members(root: Path) -> Membership:
             truncated=builder.truncated,
         )
 
-    try:
-        with os.scandir(base) as iterator:
-            entries = sorted(iterator, key=lambda entry: entry.name)
-    except OSError:
-        entries = []
-    # Checkouts grouped by repository (Git common directory), in name order.
+    # Search only plain grouping folders, to a fixed depth. Do not walk into a
+    # repository: its declared submodules are handled by _Builder.add, while
+    # ignored nested clones and .worktrees must not become workspace members.
     groups: dict[Path, list[tuple[Path, Path, bool]]] = {}
-    for entry in entries:
-        if entry.name.startswith("."):
-            continue
+    candidates: list[Path] = []
+    pending: list[tuple[Path, int]] = [(base, 0)]
+    inspected = 0
+    while pending:
+        if inspected >= _MAX_DISCOVERY_CONTAINERS:
+            builder.truncated = True
+            break
+        folder, depth = pending.pop()
+        inspected += 1
         try:
-            if not entry.is_dir(follow_symlinks=False):
-                continue
+            with os.scandir(folder) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name)
         except OSError:
             continue
-        child = Path(entry.path)
-        if not _has_git_marker(child):
-            continue
-        gitdir = _git_dir(child)
-        if gitdir is None or not is_repository(child):
-            builder.broken.append(builder.relpath(child))
-            continue
-        common, linked = _common_dir(gitdir)
-        groups.setdefault(common, []).append((child, gitdir, not linked))
+        containers: list[tuple[Path, int]] = []
+        for entry in entries:
+            if entry.name.startswith(".") or entry.name.casefold() in _SKIP_CONTAINERS:
+                continue
+            try:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            child = Path(entry.path)
+            if _has_git_marker(child):
+                gitdir = _git_dir(child)
+                if gitdir is None or not is_repository(child):
+                    builder.broken.append(builder.relpath(child))
+                    continue
+                common, linked = _common_dir(gitdir)
+                groups.setdefault(common, []).append((child, gitdir, not linked))
+                candidates.append(child)
+            elif depth + 1 < MAX_DISCOVERY_DEPTH:
+                containers.append((child, depth + 1))
+        pending.extend(reversed(containers))
 
     chosen: dict[Path, Path] = {}
     others: list[tuple[str, str]] = []
@@ -372,8 +419,7 @@ def discover_members(root: Path) -> Membership:
                 chosen[child] = child
             else:
                 others.append((builder.relpath(child), builder.relpath(main)))
-    for entry in entries:
-        child = Path(entry.path)
+    for child in candidates:
         if child in chosen:
             builder.add(child.resolve(), None)
     return Membership(

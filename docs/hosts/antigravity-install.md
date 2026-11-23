@@ -23,7 +23,7 @@ The installer can write:
 ## Verify
 
 ```bash
-make verify
+make verify-full
 lc rt status
 ```
 
@@ -35,7 +35,7 @@ Antigravity does not expose the same deep lifecycle hook surface as Claude Code 
 
 ## Implementation/debug details
 
-Antigravity stores its external-tool connection in an MCP-shaped configuration file. Current installer entries invoke the Runtime protocol adapter under:
+Antigravity stores its external-tool connection in an MCP-shaped configuration file. Current installer entries invoke the Workspaces protocol adapter under:
 
 ```text
 lc runtime mcp --host antigravity

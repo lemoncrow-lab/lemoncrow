@@ -1,0 +1,8 @@
+{
+  "currency": "USD",
+  "plans": [
+    { "name": "Starter", "monthly": 0, "seats": 3 },
+    { "name": "Team", "monthly": 49, "seats": 25 },
+    { "name": "Business", "monthly": 199, "seats": 100 }
+  ]
+}

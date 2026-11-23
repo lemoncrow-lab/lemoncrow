@@ -14,8 +14,8 @@ from collections.abc import Callable, Sequence
 from itertools import pairwise
 from typing import Any
 
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult, canonical_digest
 from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
+from lemoncrow.pro.environment.execution import ExecutionResult, canonical_digest
 
 _TYPED = frozenset({"provider_ci", "lemoncrow_verification", "signed_attestation", "trusted_security_feed"})
 _STATUSES = frozenset({"PASS", "FAIL", "NOT_RUN", "UNKNOWN"})
@@ -235,7 +235,7 @@ def _typed_execution_provenance(store: Any, record: dict[str, Any], evidence: An
             raise ValueError("executor class mismatch")
         subject = execution.subject
         if subject.review_id != evidence.review_id or subject.revision_id != evidence.revision_id:
-            raise ValueError("execution belongs to another Snapshot")
+            raise ValueError("execution belongs to another revision")
         # ExecutionSubject identifies its materialized source/overlay, while
         # ValidationRequest identifies the semantic scenario Snapshot. Both
         # must bind to the same Review/revision; their two digests are not
@@ -558,6 +558,6 @@ def evaluation_timeline(
         "limitations": [
             "This is a historical view of existing evidence, not a new execution or calibrated score.",
             "Reported observations and unrun checks never count as passing executed checks.",
-            "Cross-Snapshot evaluator configurations are not yet independently verified; trend scores are withheld.",
+            "Cross-revision evaluator configurations are not yet independently verified; trend scores are withheld.",
         ],
     }

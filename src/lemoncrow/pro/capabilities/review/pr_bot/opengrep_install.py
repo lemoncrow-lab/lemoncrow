@@ -79,6 +79,32 @@ PINS: dict[tuple[str, str], Pin] = {
     ("darwin", "arm64"): Pin("opengrep_osx_arm64", "e161746226bccef5b85c57611946fa21dc3b00a2dc2591343d6160af99397e2f"),
 }
 
+#: The release Review's experimental data path runs (cross-file taint needs 2.x). A pin of its own: the security scan
+#: above stays on :data:`VERSION`. Nothing downloads this one; a local ``lc review`` finds it the way it finds the
+#: scan's binary, and :func:`pin_for` with ``pins=DATA_PATH_PINS`` decides whether that file is the pinned one.
+DATA_PATH_VERSION = "v2.0.0"
+
+#: ``(system, machine)`` -> asset and digest, for ``DATA_PATH_VERSION``.
+#:
+#: Provenance of these digests: each asset was downloaded on 2026-11-15 from
+#: ``https://github.com/opengrep/opengrep/releases/download/v2.0.0/<asset>`` over TLS and hashed with SHA-256; each
+#: digest also equals the ``digest`` the GitHub release API lists for that asset. Its ``<asset>.sig`` verified (ECDSA,
+#: SHA-256, ``openssl dgst -verify``) against the public key of its ``<asset>.cert``, whose subject alternative name is
+#: ``https://github.com/opengrep/opengrep/.github/workflows/rolling-release.yml@refs/heads/main`` (OIDC issuer
+#: ``https://token.actions.githubusercontent.com``, ``workflow_dispatch``, commit
+#: ``526deafe6f0519c272bbee316fea8df26dd85dfa``, run ``actions/runs/43428906940``), issued by ``sigstore-intermediate``
+#: and valid for the ten minutes before the release was published (2026-11-13T13:14:27Z). The certificate chain to the
+#: Sigstore root was not verified (no ``cosign`` in the environment that computed them), and Opengrep publishes no
+#: checksum file to compare against.
+DATA_PATH_PINS: dict[tuple[str, str], Pin] = {
+    ("linux", "x86_64"): Pin("opengrep_linux_x86", "37e93f4da5fd04a18c5c1febbdd12f7e98dfccd4d0c9cf2593bcb25eeb462da0"),
+    ("linux", "aarch64"): Pin(
+        "opengrep_linux_aarch64", "6257b65423a744b704af2ff9beeb8f222c2f6925236af386b56b031d4c06d6d8"
+    ),
+    ("darwin", "x86_64"): Pin("opengrep_osx_x86", "51d2f918d7aad0afc1426bb4fbf56e32fc70c3ffd5ddb78e32e7d61e51c029a2"),
+    ("darwin", "arm64"): Pin("opengrep_osx_arm64", "b51b3d83f165a2e0934497b8f1b08abb1c3041ef20ef911c97e04cb39af1ad55"),
+}
+
 Fetch = Callable[[str, Path], None]
 
 
@@ -97,11 +123,11 @@ def platform_key(system: str, machine: str) -> tuple[str, str]:
     return kind, arch
 
 
-def pin_for(system: str, machine: str) -> tuple[Pin | None, str]:
+def pin_for(system: str, machine: str, *, pins: Mapping[tuple[str, str], Pin] = PINS) -> tuple[Pin | None, str]:
     """The pin to install on this platform, or ``(None, why not)``."""
 
     key = platform_key(system, machine)
-    pin = PINS.get(key)
+    pin = pins.get(key)
     if pin is None:
         return None, f"no Opengrep release is pinned for {key[0]} {key[1]}"
     if not is_sha256(pin.sha256):
@@ -132,8 +158,8 @@ def fetch_https(url: str, destination: Path) -> None:
             handle.write(chunk)
 
 
-def smoke_test(binary: Path, env: Mapping[str, str]) -> str:
-    """``""`` when the binary runs and reports the pinned version, else why not."""
+def smoke_test(binary: Path, env: Mapping[str, str], *, version: str = VERSION) -> str:
+    """``""`` when the binary runs and reports the pinned *version*, else why not."""
 
     try:
         done = subprocess.run(
@@ -141,8 +167,8 @@ def smoke_test(binary: Path, env: Mapping[str, str]) -> str:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return f"the binary did not run ({type(exc).__name__})"
-    if done.returncode != 0 or VERSION.lstrip("v") not in done.stdout:
-        return f"the binary did not report {VERSION}"
+    if done.returncode != 0 or version.lstrip("v") not in done.stdout:
+        return f"the binary did not report {version}"
     return ""
 
 

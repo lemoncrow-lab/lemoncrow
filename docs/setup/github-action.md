@@ -30,9 +30,9 @@ jobs:
 
 3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes, a minute or two later.
 
-That is the whole install, and the one decision in it is which key you pass: `anthropic-api-key` or `openai-api-key`. There is no `actions/checkout` step (the Action checks out the pull request itself, with the history its merge base needs; a checkout you already have is used, and deepened if it is shallow), no `fetch-depth`, no cleanup step (if the job is cancelled the Action settles its own `pending` status) and no `fail-on` (the check is advisory until you ask for more).
+That is the whole install, and the one decision in it is which key you pass: `anthropic-api-key` or `openai-api-key`. There is no `actions/checkout` step (the Action checks out the pull request itself, with the history its merge base needs; a checkout you already have is used, and deepened if it is shallow), no `fetch-depth`, no cleanup step (if the job is cancelled the Action settles its own `pending` status) and no `fail-on` (the check is advisory until you ask for more). No API key to store? See "No API key": Workload Identity Federation, or a Claude subscription.
 
-**The permissions are the least that works.** Each of the three is used by something the Action always does, and a token without one fails the run with a message that names it. Two more are optional and left out on purpose, each one line under `permissions:`; "Permissions" below says what each adds and what you lose without it:
+**The permissions are the least that works.** `contents`, `pull-requests` and `statuses` are used by something the Action always does, and a token without one fails the run with a message that names it. `checks: read` only feeds the summary's proof of work: without it the review still runs, and CI reads as not reported. Two more are optional and left out on purpose, each one line under `permissions:`; "Permissions" below says what each adds and what you lose without it:
 
 - **Pull requests that say `Fixes #12`?** On a private repository, add `issues: read` and the review reads the linked issue to learn what the change is for. Without it the review is the same, and its summary carries one note, `issue #12 not read: this workflow's token lacks the optional issues: read permission`.
 - **Want the 👀 and 👍 on the pull request itself, and on an `@lemoncrow review` typed in the conversation?** Add `issues: write` (it includes `issues: read`). Without it those reactions are skipped silently and nothing else changes.
@@ -49,9 +49,59 @@ lc review init-action --force                   # replace a workflow file that a
 
 It never overwrites a different file without `--force`, and running it twice leaves the file as it is. It pins the Action for you: it lists the release tags of the public repository, takes the newest `vX.Y.Z` (an annotated tag is followed to the commit it names) and writes `uses: lemoncrow-lab/lemoncrow@<that commit's 40-character SHA>  # vX.Y.Z`. If it cannot look them up (offline, no `git`, no release yet), it leaves `<sha>` in place and its next steps say exactly what to put there ("Pin the Action").
 
+## No API key
+
+Two routes need no `anthropic-api-key` secret. An API key, when one is also passed (or `ANTHROPIC_API_KEY` is set on the step), wins over both, as it does in Anthropic's own SDKs: remove it when you switch.
+
+### Workload Identity Federation (nothing stored)
+
+The job asks GitHub for a signed OIDC token for itself, and the review exchanges it at Anthropic for an access token that lives minutes. No secret is stored in the repository; the four inputs below are IDs, not secrets.
+
+1. In the Claude Console, open **Settings > Workload identity** (`platform.claude.com/settings/workload-identity-federation`), click **Connect workload** and pick the **GitHub Actions** tile. The wizard registers GitHub's issuer (`https://token.actions.githubusercontent.com`, discovery mode), creates a service account and a federation rule.
+2. Scope the rule to this repository's pull request runs. A `pull_request` run's token has the `sub` claim `repo:<owner>/<repo>:pull_request` (not `repo:<owner>/<repo>:ref:refs/heads/<branch>`, which is a push), so set the rule's subject to exactly that, the audience to `https://api.anthropic.com`, and add the claim `repository_owner` = `<owner>`. A prefix such as `repo:<owner>/*` would let every repository of the owner, and pull requests from forks of them, get a token.
+3. Note the rule ID (`fdrl_...`), the service account ID (`svac_...`) and your organization ID (**Settings > Organization**), and the workspace ID (`wrkspc_...`) when the rule covers more than one workspace.
+4. Give the workflow `id-token: write` and pass the IDs:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+  checks: read
+  id-token: write       # lets the job request its GitHub OIDC token
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2
+        with:
+          anthropic-federation-rule-id: fdrl_...
+          anthropic-organization-id: 00000000-0000-0000-0000-000000000000
+          anthropic-service-account-id: svac_...
+          # anthropic-workspace-id: wrkspc_...   # when the rule covers more than one workspace
+```
+
+What happens: for each token exchange the review fetches a **fresh** GitHub OIDC token (audience `https://api.anthropic.com`) from the job's token endpoint, because a GitHub token lives about five minutes and Anthropic accepts each one only once. It posts it to `/v1/oauth/token` (the `jwt-bearer` grant with the rule, organization and, when given, service account and workspace IDs), keeps the access token in memory only, sends it as `Authorization: Bearer` on every model call, and exchanges again 120 seconds before it expires. Neither token is written to disk or printed; both are masked in the job log. The standard variables `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID` and `ANTHROPIC_IDENTITY_TOKEN_FILE` (a file re-read for every exchange, kept fresh by something else) work too, here and with `lc review --ai` anywhere. `model-provider: auto` counts a federation as Anthropic, and the cost is reported and capped as on an API key.
+
+**When it is refused.** Anthropic answers a refused exchange with a bare `401 Authentication failed`, whatever the reason. The status then reads `Review incomplete: Anthropic workload identity authentication failed`, and the annotation says where the reason is: the Console's **Workload identity > Authentication history** tab. The usual one is `match_subject_prefix`: the rule's subject does not match the token's `sub` (a rule written for `ref:refs/heads/main` never matches a `pull_request` run). Without `id-token: write` the job cannot request a token at all, and the gate stops with an error that names the permission. A pull request from a fork never gets a token (and is skipped anyway, see "Pull requests from forks").
+
+### A Claude subscription, through Claude Code
+
+1. On your machine, run `claude setup-token` and copy the token it prints.
+2. Add it as a repository secret, `CLAUDE_CODE_OAUTH_TOKEN`.
+3. Pass it to the Action:
+
+```yaml
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2
+        with:
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+```
+
+The Action then installs a pinned `claude` CLI from npm (the `Install Claude Code` step; GitHub's hosted runners have Node) and the review's model calls run through it, as `lc review --agent claude` does locally: headless, from an empty directory, with only the read-only repository tools (no shell, no edits, no web). The token is handled like a key: masked, given to the gate and the review step only. It is used only when there is no Anthropic key and no federation. On this route the CLI picks its own default model (the `model` input is not passed), the footer's cost is the CLI's own list-price estimate rather than a bill, and chat answers are refused, because an agent CLI runs tools: chat needs an API route.
+
 ## Pin the Action
 
-`uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2` is the one line to pin. `<sha>` is the full 40-character SHA of a **release commit** of the public `lemoncrow-lab/lemoncrow` repository, and the release notes of every stable release print the line with the real SHA filled in, ready to copy: <https://github.com/lemoncrow-lab/lemoncrow/releases/latest>. The text after `#` is the version the SHA is, as a reminder for the person reading the file. `lc review init-action` fills both in from the newest release tag when it can reach GitHub.
+`uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2` is the one line to pin. `<sha>` is the full 40-character SHA of a **release commit** of the public `lemoncrow-lab/lemoncrow` repository, and the release notes of every stable release print the line with the real SHA filled in, ready to copy: [github.com/lemoncrow-lab/lemoncrow/releases/latest](https://github.com/lemoncrow-lab/lemoncrow/releases/latest). The text after `#` is the version the SHA is, as a reminder for the person reading the file. `lc review init-action` fills both in from the newest release tag when it can reach GitHub.
 
 Pin a commit, not a branch: the Action installs LemonCrow from its own checkout at that ref, so the commit you name is the version that reviews, with its prompt, its checks and its dependencies. A branch would change the prompt under you; the 7-character short SHA does not resolve in `uses:`; and a SHA from the private repository does not exist in the public one. A release that changes the prompt or the checks changes what "reviewed" means, so every open pull request is re-reviewed once on its next push after you upgrade: upgrade on purpose, by changing the SHA in the workflow.
 
@@ -99,7 +149,7 @@ jobs:
       - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.2
 ```
 
-It rewrites the proof-of-work block of the summary and nothing else: not the verdict, not the findings, not the status, not the hidden state. It touches a summary only when the head it reviewed is exactly the commit CI finished on; a summary of an older or newer head is left alone, and the next review reads CI itself. The review's own job is never listed as a check. GitHub runs `workflow_run` from your default branch, so the file has to be merged there first, and it leaves `workflow_run.pull_requests` empty for a pull request from a fork, so those are not refreshed (the review skips them anyway). Each run says in its log what it did for each pull request: refreshed, already current, or left alone and why.
+It rewrites the proof-of-work block of the summary (adding it under the Risk line when CI had reported nothing at review time) and the `Tests:` item of `What was not checked` that goes with it, and nothing else: not the verdict, not the findings, not the status, not the hidden state. It touches a summary only when the head it reviewed is exactly the commit CI finished on; a summary of an older or newer head is left alone, and the next review reads CI itself. The review's own job is never listed as a check. GitHub runs `workflow_run` from your default branch, so the file has to be merged there first, and it leaves `workflow_run.pull_requests` empty for a pull request from a fork, so those are not refreshed (the review skips them anyway). Each run says in its log what it did for each pull request: refreshed, already current, or left alone and why.
 
 ## Options
 
@@ -110,7 +160,7 @@ Everything below is a `with:` input of the Action step, and every one has a defa
 | `depth` | `auto` | How hard the review looks. `auto` looks at every changed code target, in as few calls as fit a prompt, up to the hard cap of 20 model calls, and says `Partially reviewed` for what the cap left; `thorough` and `deep` cover the change the same way and spend what is left of the cap on hypotheses the model proposes, so they cost more. See "What gets a model call" and "Cost and limits". |
 | `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open and when the review could not run. `p1` does the same while a P0 **or a P1** is open, so it blocks on every "should fix" too; read "What `p1` gates on" before you choose it. `none` keeps the check advisory. Start at `none` for a few weeks. |
 | `strictness` | the file, else `2` | `1`, `2` or `3`: how much the bot reports (`1` also comments on P2, `3` never does). See "Reducing noise". |
-| `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. |
+| `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. No key at all: see "No API key". |
 | `security-scan` | `auto` | `auto` runs a pinned, checksum-verified [Opengrep](https://github.com/opengrep/opengrep) over the changed files; `off` downloads and runs nothing. See "Security scan". |
 | `diagram` | `auto` | The open `### Diagram` in the summary, drawn on a pull request that is not trivial: the diagram the model proposed, checked and drawn by LemonCrow, else the one from the Architecture Delta when it added or removed a relationship between files. `off` never builds either. |
 | `max-usd-per-pr`, `max-runs-per-pr` | `$3.00`, none | The most a pull request's reviews may cost in total (`none` turns the cap off), and the most reviews it may get. The dollar cap is held before every model call. See "A budget per pull request". |
@@ -166,6 +216,8 @@ The Action says so in four places: an `::error` annotation on the run page (show
 | What went wrong | `LemonCrow Review` status | Annotation | Job |
 | --- | --- | --- | --- |
 | The key is rejected (expired, revoked, wrong), the account has no credit, the rate limit is hit, the model name is unknown, or the provider is down | `error`: `Review incomplete: <cause>; <fix>`, also the summary's headline | `::error` naming the cause and the fix, e.g. `Anthropic rejected the API key (HTTP 401). Check the secret passed as anthropic-api-key` | Green. Red with `fail-on: p0` or `p1`. |
+| Anthropic refused the workload identity exchange (`401 Authentication failed`) | `error`: `Review incomplete: Anthropic workload identity authentication failed; see Workload identity > Authentication history in the Claude Console` | `::error` naming the Console's Authentication history and the `sub` claim a `pull_request` run has | Green. Red with `fail-on: p0` or `p1`. |
+| Federation IDs were passed but the workflow lacks `id-token: write` | `error`: `No model credential: the workflow needs permissions: id-token: write for workload identity` | `::error` naming the permission | Red |
 | No key was passed | `error`: `No model key: add an ANTHROPIC_API_KEY or OPENAI_API_KEY secret and pass it as anthropic-api-key or openai-api-key` | `::error` with both ways to pass a key | Red |
 | `.lemoncrow/review.yaml` on the base branch is not valid YAML, or not a mapping | `error`: `Review incomplete: config error in .lemoncrow/review.yaml: it is not valid YAML (line 2); fix it on the base branch`, also the summary's headline | `::error` naming the file and the line | Green. Red with `fail-on: p0` or `p1`. |
 | An input is invalid (`fail-on: p9`, `max-usd-per-pr: -1`), or the pull request cannot be read | `error`: `Review not run: <the reason>` | `::error` with the reason | Red |
@@ -186,8 +238,13 @@ The job stays green when only the model failed and `fail-on` is `none`, because 
 | --- | --- | --- |
 | `anthropic-api-key` | none | Your Anthropic API key, from a secret. The Action masks it, hands it to the gate and the review step only, and never prints it. |
 | `openai-api-key` | none | Your OpenAI API key, same handling. |
+| `anthropic-federation-rule-id` | none | No API key: the Workload Identity Federation rule (`fdrl_...`). Needs `anthropic-organization-id` and `permissions: id-token: write`. An API key, when also set, wins. See "No API key". |
+| `anthropic-organization-id` | none | Your Anthropic organization ID, for the federation. |
+| `anthropic-service-account-id` | none | The service account (`svac_...`) the federation rule targets. |
+| `anthropic-workspace-id` | none | The workspace (`wrkspc_...`), when the federation rule covers more than one. |
+| `claude-code-oauth-token` | none | No API key: a Claude subscription token from `claude setup-token`, from a secret. The review runs through a pinned `claude` CLI; chat is refused on this route. See "No API key". |
 | `github-token` | `${{ github.token }}` | Token the bot comments with. |
-| `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses the key you passed (Anthropic first when both are set). |
+| `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses the key you passed (Anthropic first when both are set); a federation counts as Anthropic after a key, then `claude-code-oauth-token`, then OpenAI. |
 | `model` | the provider's own | Model id (also `LEMONCROW_REVIEW_MODEL`). OpenAI defaults to `gpt-4o-mini`; Anthropic to `claude-sonnet-5-5`. Both are provisional until review cost per catch is measured. |
 | `depth` | `auto` | `auto`, `thorough` or `deep`. `auto` follows `review.effort` in `.lemoncrow/review.yaml` (Auto by default, `quick` if you set it there); the others go deeper for the run. It is also the depth of an `@lemoncrow review` comment that names none. |
 | `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open or when the review could not run. `p1` does the same while a P0 or a P1 is open (see "What `p1` gates on"). `none` keeps it advisory. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
@@ -205,7 +262,7 @@ The job stays green when only the model failed and `fail-on` is `none`, because 
 | `pr-number` | the event's pull request (also for a comment on one) | Set it for `workflow_dispatch` runs. |
 | `working-directory` | `.` | Where the repository is checked out, or where the Action checks it out when there is none. |
 
-LiteLLM users can set `model-provider: litellm` and the variables LiteLLM already reads for their cloud (`AWS_*`, `AZURE_*`, `VERTEXAI_*`) plus `LEMONCROW_LITELLM_MODEL`. `LEMONCROW_LLM_BACKEND` is respected if you set it yourself. The intelligence policy and its kill switch (`intelligence.enabled` in the LemonCrow settings, `LEMONCROW_ROOT` on a self-hosted runner) apply exactly as they do locally: when AI is off, the run exits 0, posts no comment, and sets the `LemonCrow Review` status to `skipped: AI review is turned off`.
+LiteLLM users can set `model-provider: litellm` and the variables LiteLLM already reads for their cloud (`AWS_*`, `AZURE_*`, `VERTEXAI_*`) plus `LEMONCROW_LITELLM_MODEL`. `LEMONCROW_LLM_BACKEND` is respected if you set it yourself. The intelligence policy and the monthly AI budget (`intelligence.monthly_budget_usd` in the LemonCrow settings, `LEMONCROW_ROOT` on a self-hosted runner) apply exactly as they do locally: when the budget is `0` or used up, the run exits 0, posts no comment, and sets the `LemonCrow Review` status to `skipped: AI review did not run`. A runner with no budget set has no limit.
 
 ### Notes on the workflow
 
@@ -238,10 +295,10 @@ No LemonCrow host is contacted: the step that runs `lc` sets `DO_NOT_TRACK=1`, w
 1. **The re-review line.** A small `Re-review: comment `@lemoncrow review``. LemonCrow has no hosted one-click button, and a comment starts a review only where the workflow listens to comments (see "Add chat"); in a workflow that does not, the line says to re-run the job instead, so it never promises what would do nothing.
 2. **The verdict in words, as the heading**, read off the same facts as the status and `fail-on`, so it cannot disagree with them: `1 must-fix before merge · 1 should-fix`, `No must-fix findings · 2 should-fix`, `No issues found` when nothing is open, `No must-fix in the part reviewed` when the review finished but the call cap or `max_files` left part of the change unexamined, or `Review incomplete: <why>` when it could not finish. Then the rest of the first screen:
    - **Coverage and human review**, one line, always there: what was reviewed (`All 12 changed files reviewed`, `Re-reviewed all 3 files changed since the last review`, `Partially reviewed: 14 of 22 changed areas examined`, `Coverage not confirmed: the review did not finish`), then `Human review required: touches security-sensitive code and persistence or a migration` or `No extra human review flagged`. Human review comes only from fixed signals in the change (a critical path, security, payments, persistence, a public API, a matched rule), never from the model.
-   - **`Proof of work`**: what CI reported for the exact reviewed commit, labelled `Reported by CI on `abc1234`, not run by LemonCrow`, grouped as failed, still running, did not pass (skipped, cancelled or neutral) and passed. It reads the commit's check runs and its combined status, leaves out LemonCrow's own status and its own job, and never shows a result from an older commit. When the description says the tests pass and no completed passing run is reported on that commit, a line says so. When the token cannot read checks, the block says `CI results not readable: the workflow needs `checks: read``; the review is otherwise unchanged.
-   - **Independence**, a small line: the reviewer's model family and the author's, and `independent`, `same family` or `unknown`. The author's family is read only from exact `Co-authored-by` trailers of known coding agents on the pull request's commits; with none, it says `unknown` rather than guess.
+   - **The Risk line**, right under it: `**Risk: High · can_view_order is access-control code · and 2 more**`, then a small line `Checked on commit abc1234 · 2 files, 10 changed lines · Risk is measured from the change and the run record, not a model`. The level and the reason come from the same rule the Review Reader uses, with no model input (see "Risk, impact and the risks examined").
+   - **`Proof of work`**, when CI reported something for the exact reviewed commit: labelled `Reported by CI on `abc1234`, not run by LemonCrow`, grouped as failed, still running, did not pass (skipped, cancelled or neutral) and passed. It reads the commit's check runs and its combined status, leaves out LemonCrow's own status and its own job, and never shows a result from an older commit. When the description says the tests pass and no completed passing run is reported on that commit (or CI could not be read to back it), a line says so. A gap in CI (no check reported, CI not read, or a token that cannot read checks: `CI results not readable: the workflow needs `checks: read``) is said once, under `What was not checked`, never here; the review is otherwise unchanged.
    - A rule.
-3. **`**[Low|Medium|High impact]**` and one sentence** saying what the pull request does: the overview's sentence, else the pull request's title. A small line under it gives the reasons for the label, computed from the change by a fixed rule (see "Impact and the risks examined").
+3. **One sentence** saying what the pull request does: the overview's sentence, else the pull request's title.
 4. **The status strip** (`Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`) and, when the pull request has more files than `max_files`, a block quote saying how many files were left for the next run.
 5. **`### Findings`**, numbered, P0 first, then P1: each is its severity badge, its title in bold linking to its inline thread, then the `path` and the lines. When a finding cites a rule or an excerpt of another file, a small line under it says so (see "Attribution trailers"). P2 findings continue the numbering in a collapsed block, `N low-priority findings held back`; with a stricter setting, findings below your threshold are counted in the verdict (`· 2 held back`) and listed once in their own collapsed block (see "Reducing noise").
 6. **`### Summary`**: one intro sentence and three or four bullets of what changed (see "The overview").
@@ -249,7 +306,8 @@ No LemonCrow host is contacted: the step that runs `lc` sets `DO_NOT_TRACK=1`, w
 8. **`Fix with agent prompt`**, collapsed: one prompt listing every open finding with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor.
 9. Collapsed blocks for what the review looked at and what people said: `Risks examined` (each changed piece of code that carries a risk signal and whether it was found, examined with nothing found, or not investigated yet), `N findings fixed since last review` (each with a `Fixed` badge), `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback").
 10. **On a clean review, `### What we checked`**: the files, the risk signals and how many were examined, the rules applied, the depth, and what the security scan did (see "Security scan"). A clean review is a list of named, countable things, never just "no comments".
-11. **The footer**: `Reviews (N) · Last reviewed commit: the commit subject, as a link · Reviewed by LemonCrow`, and under it the model, the depth, the model calls and tokens of this review (the overview call is one of them), how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when the provider reports one, when LemonCrow's local price table knows the model, or when the claude CLI route (`lc review --agent claude`) reports its own figure. It never guesses a price: an unknown model that reports none shows tokens only.
+11. **On every review, `### What was not checked`**: what this run could not verify, from facts it has, never from a model. When CI gave the review nothing to list as proof of work, the tests line says why (`Tests: no CI run was reported on this commit`, `Tests: CI was not read on this run`, or the reason CI could not be read, such as `Tests: CI results not readable: the workflow needs `checks: read``); checks CI did report, still running ones included, are listed once in `Proof of work` instead. Every input the Risk line could not measure follows as `Not measured: callers of the changed code (no code index)`; then changed code the model has not investigated yet, files left for the next run, a security scan that could not run, and always `Callers in other repositories: none were searched`. A docs-only pull request reads `No issues found`, gets no inline comment, and keeps these receipts.
+12. **The footer**: first the **independence** line: the reviewer's model family and the author's, and `independent`, `same family` or `unknown`. The author's family is read only from exact `Co-authored-by` trailers of known coding agents on the pull request's commits; with none, it says `unknown` rather than guess, and a run that did not assess it says `Independence: unknown (not assessed on this run)`. Then `Reviews (N) · Last reviewed commit: the commit subject, as a link · Reviewed by LemonCrow`, and under it the model, the depth, the model calls and tokens of this review (the overview call is one of them), how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when the provider reports one, when LemonCrow's local price table knows the model, or when the claude CLI route (`lc review --agent claude`) reports its own figure. It never guesses a price: an unknown model that reports none shows tokens only, with no `est. $`.
 
 **The badges** are four small images (`P0`, `P1`, `P2` and `Fixed`) served from `https://lemoncrow.com/badges/` in the design system's colours, each written as `<img alt="P1" src="https://lemoncrow.com/badges/p1.svg?v=1" align="top">`. The alt text is the badge's text, so a comment still reads when an image cannot load, and `?v=1` is bumped when a badge changes so GitHub's image cache lets go of the old one. The images are fetched by the reader's browser through GitHub's image proxy; the Action itself sends nothing to LemonCrow.
 
@@ -284,7 +342,7 @@ The comment does not show a score; the heading says the verdict in words. A 1 to
 
 What the review could not look at lowers the ceiling and never raises the number: a **partial** review (changed code or risk signals left unexamined, a large pull request cut to its riskiest files) is at most **4**, and one that is **incomplete** (a model call failed, the call cap ran out) or did not run (the pull request's review budget is spent) is at most **3**. Findings held back below your threshold are not counted, because the verdict does not count them. A 5 therefore means a finished review of everything the review set out to look at that found nothing open.
 
-The score says how confident the review is that the pull request is ready, from what it found; it does not say how risky the change is. That is the impact label: a careful change to the auth code is **High impact** and can still be a 5.
+The score says how confident the review is that the pull request is ready, from what it found; it does not say how risky the change is. That is the Risk line: a careful change to the auth code is **Risk: High** and can still be a 5.
 
 ### The overview
 
@@ -325,8 +383,8 @@ One rule gives each finding its severity, and everything the bot shows reads tha
 | Level | Meaning | What puts a finding there |
 | --- | --- | --- |
 | **P0** | Must fix before merge: a wrong result, a security hole, data loss | A violation of a rule you wrote in `.lemoncrow/review.yaml` (a critical rule) that cites that rule, or a **verified** finding the investigator rated **high** in the `correctness`, `security` or `persistence_migration` category. |
-| **P1** | Should fix | Every other **high** finding (not verified, or in concurrency, API, performance and the like), and **medium** findings that are verified. |
-| **P2** | Optional | Everything else, including every finding rated **low**, and a medium one with nothing but the changed code behind it. |
+| **P1** | Should fix | Every other **high** finding (not verified, or in concurrency, API, performance and the like), and **medium** findings that are verified or in the `correctness`, `security` or `persistence_migration` category. |
+| **P2** | Optional | Everything else, including every finding rated **low**, and a medium one in another category with nothing but the changed code behind it. |
 
 - **Rated** is the investigator's own `low`, `medium` or `high` for the impact of the defect on the code it cites. It only nominates a finding: it can lower one, and it can never make one P0 on its own. Its wording is never read, so a title that says "critical" changes nothing.
 - **Verified** means evidence from beyond the finding's own changed code backs it, evidence the model did not write: a recorded check, an attached artifact, a static-analysis result, or an excerpt of a *different* file from the repository context pack (a caller the change breaks, a test, a definition). The finding's own changed unit and the exact source of that same unit do **not** count, because every changed unit comes with both and the model is shown those bytes anyway; neither does an excerpt of the finding's own file, or a related repository. A model's rating of `high` with nothing but the changed code behind it is therefore a **P1**, never a P0, and so never fails the check. What the Action can corroborate today is the pack and, unless you turn it off, the security scan (see "Security scan"): it records no other checks of its own, so a P0 needs a finding whose cause the pack shows in another file (the stale caller of a function whose behavior the change broke), a scanner result on a changed line that the finding cites, or a rule you wrote. Expect P0 to be rare; that is the point.
@@ -363,18 +421,51 @@ Every inline comment (after its `Prompt To Fix With AI` block), and the row of e
 - **`AGENTS.md` and `CLAUDE.md`** are context only. The investigator is shown them, but a finding has no reference to cite them by, so nothing proves it relied on them and no trailer names them.
 - **In the state.** The trailers travel in the hidden state (`used`, at most five items per finding and a count of the rest), so a carried finding keeps its trailer in the summary with no model call. They are the first detail given up when the state has to shrink to fit the comment, before any finding text. An inline comment that is already posted is not edited by later pushes, so its trailer is the one it had when it was posted.
 
-### Impact and the risks examined
+### Risk, impact and the risks examined
 
-Two things in the summary say how much the change could break and what the review looked at, before you read a single finding. Neither calls a model, and neither is ever an input to an approval, the check or `fail-on`.
+Three things say how much the change could break and what the review looked at, before you read a single finding. None calls a model, and none is ever an input to an approval, the check or `fail-on`.
 
-**The impact label** is **[High impact]**, **[Medium impact]** or **[Low impact]**, in brackets and bold in front of the one sentence that says what the pull request does (under the verdict heading), with its reasons and size in a small line beneath:
+**The Risk line** is the first thing under the verdict and its coverage line:
 
 ```text
-**[High impact]** Adds a ledger and posts an entry for every order
-<sub>security-sensitive code, persistence or a migration · 12 files, 340 changed lines · from the change itself, not a model</sub>
+**Risk: High · can_view_order is access-control code · and 2 more**
+<sub>Checked on commit abc1234 · 2 files, 10 changed lines · Risk is measured from the change and the run record, not a model</sub>
 ```
 
-The sentence is the overview's (see "The overview"), else the pull request's title; the label and the line under it are computed and never come from a model.
+It is the rule the Review Reader's Risk uses (`brief_summary.change_risk`, `change_risk.risk_level`), run on what the Action measured: the pull request's Snapshot (its changed parts and the diff), who calls the changed code at the reviewed commit, and the checks CI finished on that commit. The facts, each with its own level, highest first:
+
+| Fact | Level |
+| --- | --- |
+| a part on a sensitive path (`can_view_order is access-control code`) | High, whether or not a check ran |
+| a removed or narrowed safeguard (a guard, raise or assert the diff drops or weakens, in Python, JavaScript or TypeScript) | High |
+| files outside the change that call it, and no check finished on the commit | High |
+| files outside the change that call it, and a check finished (or CI could not be read) | Medium |
+| tests that exercise it, and no check finished | Medium |
+| callers or checks could not be measured, and none of the above | Not measured |
+| callers and checks measured, and none of the above | Low |
+
+The reason is the top fact, then `· and N more` for the rest. A check counts as run only when CI reports it passed or failed on that commit; one still running, skipped or cancelled has not run. What cannot be read is `Not measured`, never guessed: a token that cannot read checks leaves whether any check ran unknown, and a changed function whose callers the search below could not finish has its callers not measured. Each gap is listed under `What was not checked`, naming the functions, and only when it is real.
+
+**Who calls the changed code.** A CI checkout has no code index, so the Action finds the callers itself, from git at the pull request's head commit (never from files on disk), with no model and no network: one `git grep` over the head tree, limited to the changed functions' languages, finds every line that names one of them; each file that does is read from the head commit and parsed where the name appears (Python with its own parser, other languages with the tree-sitter rules the repository map uses); a file outside the change that calls the name, or otherwise uses it, is a caller when the name is defined in exactly one file, the changed one. A name defined in two files is ambiguous: a use does not say which one it calls, so that function's callers read as not measured, never as none. Test files among the callers are the tests that exercise the change. Callers in another language than the changed function's are not searched. Measured on this repository (6,000 files) and on two of 500 and 1,200 files, a typical push takes 0.05 to 0.4 seconds; a change of 50 to 130 functions in the large repository took 2 to 5 seconds on a loaded machine.
+
+The search has bounds, and past each one the functions it affects read as not measured, never as having no callers:
+
+| Bound | Past it |
+| --- | --- |
+| 200 changed functions | the rest are not searched |
+| a name more than 400 files mention | that function is not measured |
+| 2,000 files read, 64 MB read, or 5 seconds | functions whose files were not all read are not measured (callers found before the bound are still listed) |
+| a file over 1 MB, or one that does not parse | functions it mentions are not measured |
+| a name defined in another file too | that function is not measured |
+| a language whose grammar is not downloaded on the runner | functions its files mention are not measured (the search never downloads a grammar mid-review) |
+| 16 MB of matching lines, or `git grep` failing | nothing is measured |
+| a language with no parser here (shell, SQL) | that function is not measured |
+
+Functions in JSON, TOML, YAML, HTML, CSS and Markdown files are not code anything calls, and are not searched. A removed function is left to the capture's removed-symbol check, which lists the files that still use it. The same pull request and the same CI state give the same line. A push the spent budget stops is not read, and says `Risk: Not measured · this push was not reviewed`.
+
+**The impact label** (`High impact`, `Medium impact` or `Low impact`) is the blast radius by a points rule. It is no longer shown in the comment: it is kept in the hidden state (`impact`) and in `--json`, and it is what the `Human review required: touches …` line and the `LemonCrow / human review` status read.
+
+It is the blast radius of the pull request, not a judgment of its quality: a careful change to the auth code is still High impact. It is computed from the change itself by this rule, so the same pull request gets the same label on every run and on every machine:
 
 It is the blast radius of the pull request, not a judgment of its quality: a careful change to the auth code is still High impact. It is computed from the change itself by this rule, so the same pull request gets the same label on every run and on every machine:
 
@@ -390,7 +481,7 @@ It is the blast radius of the pull request, not a judgment of its quality: a car
 | a sizeable change (8 or more files, or 250 or more changed lines) | 1 |
 | a large change (25 or more files, or 1,000 or more changed lines) | 2 |
 
-High is 4 points or more, Medium 2 or 3, Low 0 or 1. The signals are the ones the review already uses to decide what to investigate (the same deterministic risk markers on path, symbol and the queue's reasons), plus the path policy from the trusted base; payments is the one family this adds, by path only. With the security scan on (see "Security scan"), an error-level scanner result on a changed line also counts as security-sensitive code. Generated, vendored, mechanical, comment-only and formatting-only changes count for nothing, so a lockfile bump is not a large change. The size is the whole pull request, not only what the last push changed. A model's rating, its wording and any comment on the pull request are not inputs: a finding titled "critical impact" changes nothing here. The label is kept in the hidden state (`impact`), so a summary that is re-rendered without a review (a spent budget) still says it, and `--json` carries it as `impact`.
+High is 4 points or more, Medium 2 or 3, Low 0 or 1. The signals are the ones the review already uses to decide what to investigate (the same deterministic risk markers on path, symbol and the queue's reasons), plus the path policy from the trusted base; payments is the one family this adds, by path only. With the security scan on (see "Security scan"), an error-level scanner result on a changed line also counts as security-sensitive code. Generated, vendored, mechanical, comment-only and formatting-only changes count for nothing, so a lockfile bump is not a large change. The size is the whole pull request, not only what the last push changed. A model's rating, its wording and any comment on the pull request are not inputs: a finding titled "critical impact" changes nothing here. The label is kept in the hidden state (`impact`), so a summary that is re-rendered without a review (a spent budget) still decides human review from it, and `--json` carries it as `impact`.
 
 **Risks examined** is a collapsed block listing each changed piece of code that carries a risk signal and what the review did about it, found first, then the ones not yet looked at, then the ones with nothing found:
 
@@ -407,7 +498,7 @@ Risks examined: 2 of 3 · 1 found · 1 not investigated yet
 - Code that was examined by an earlier review and has not changed since is listed too, marked `examined in an earlier review, unchanged since`, so the list covers the whole pull request and not only the last push.
 - Up to seven rows are shown, then `+N more` with how many of each kind. The block comes after the fix prompt, and on a clean review it sits beside `What we checked`.
 - Every word is fixed or is a path, a symbol name or a rule key from your repository (neutralised like every path in a comment). No finding title, explanation or rating is in it.
-- Limit: the list is rebuilt by each review and is not kept in the hidden state, so the summary written when a spent budget stops a push does not repeat it (it keeps the impact label).
+- Limit: the list is rebuilt by each review and is not kept in the hidden state, so the summary written when a spent budget stops a push does not repeat it.
 
 ### The check
 
@@ -436,6 +527,7 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 - **Expect more red than with `p0`.** A P1 is any other `high` finding (usually one with only the changed code behind it) plus the `medium` findings that are verified: mostly a judgment of the model, not a corroborated bug. Some will be wrong. Start at `none`, read what it would have blocked for a few weeks, then choose.
 - **A P1 can be dismissed by its author.** The rule that only an owner, member or collaborator who did not open the pull request can dismiss a P0 (see "Learning from feedback") covers P0 only. Under `p1`, anyone on `chat-allowed-associations`, the author included, can dismiss a P1 with a thumbs-down, a reply, a resolved thread or `@lemoncrow ignore`, and the check then turns green on the next run. That is the way out of a wrong P1; if you need a gate its author cannot clear, use `p0` and require a human review in branch protection.
 - **The same setting is on the command line:** `lc review --ai --fail-on p1` exits 1 while a P0 or P1 is open, with the rule above; `lc review init-action --fail-on p1` writes the workflow with the input set.
+- **A Workspaces server's land** reads it from the trusted base's `.lemoncrow/review.yaml` instead, as `review:` `fail_on: p1` (`p0` by default; the Action input does not reach it).
 
 #### Required checks and skipped runs
 
@@ -446,7 +538,7 @@ A required status check waits for a status with that exact name on the head comm
 | A draft (`review-drafts` is off) | `skipped: draft pull request` |
 | A push, with `on-push: false` | `skipped: push to an open pull request, on-push is off` |
 | The pull request is closed | `skipped: pull request is closed` |
-| The intelligence kill switch is off | `skipped: AI review is turned off` |
+| The AI budget is `0` or used up | `skipped: AI review did not run` |
 | A Dependabot run with no model key | `skipped: Dependabot run without a model key` |
 | A pull request from a fork | **none posted**, see below |
 
@@ -831,7 +923,7 @@ The review looks at **every changed code target**, not only the ones a keyword m
 - **Repeats are removed.** Calls over different slices of one change can find the same defect and each report it. When a review has two or more findings and the cap still has a call left after the per-rule questions and the summary's overview, one more call shows the model every finding with its file and asks which of them are the same underlying defect (the same wrong behavior from the same code or the same mistake, repeated in two files or three tests). The clearer one stays and the others are dropped; findings about different causes stay. A call it cannot answer leaves the findings as they are and does not make the review incomplete, a change that already uses the whole cap on investigations is not checked, and `LEMONCROW_REVIEW_DUPLICATE_CHECK=off` skips it.
 - **Calls are batched.** The targets of a file go into one call; small files that carry a risk signal share a call whatever the signal, plain production code fills the room that is left, and a big file is cut into several. A call carries at most about 12,000 estimated input tokens (about 2,500 of instructions, the rest code and diff; on a model-API route the repository context pack, 3,000 tokens in Auto, comes out of that room). A call can report up to seven distinct defects: the most serious as its answer and up to six more. A rule you wrote is never merged into another question.
 - **The order when the cap is short:** a rule you wrote, then a risk signal in production code, then plain production code, then configuration, then test code (a marker on a test file does not outrank production code); inside each, the higher score and then the larger change. `quick` makes one call, the first of them. `thorough` and `deep` cover the change as Auto does, then spend what is left of the cap on up to 4 or 8 hypotheses the model proposes after one synthesis call.
-- **Nothing changes in what a finding is worth.** A model-only finding is at most a P1 (a P2 when its own rating is medium or low), a P0 still needs evidence from outside the changed code or a critical rule you wrote, and the strictness, ignore, `max_files` and inline-comment settings apply as before.
+- **Nothing changes in what a finding is worth.** A model-only finding is at most a P1 (a P2 when its own rating is low, or medium outside correctness, security and persistence), a P0 still needs evidence from outside the changed code or a critical rule you wrote, and the strictness, ignore, `max_files` and inline-comment settings apply as before.
 
 ## Cost and limits
 
@@ -1076,7 +1168,7 @@ lc review --ai --fail-on p0 --json  # exit 1 while a P0 is open; machine-readabl
 lc review hook install              # a pre-push hook that runs it on what you are about to push
 ```
 
-It uses the same findings, severity, noise controls (threshold and strictness, `ignore`, per-rule severity, read from `.lemoncrow/review.yaml`: your working tree for a local review, the base for a pull request) and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
+It uses the same findings, severity, noise controls (threshold and strictness, `ignore`, per-rule severity, read from `.lemoncrow/review.yaml`: your working tree for a local review, the base for a pull request) and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and the AI budget; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 

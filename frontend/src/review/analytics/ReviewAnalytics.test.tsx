@@ -148,6 +148,11 @@ function report(overrides: Partial<ReviewAnalyticsReport> = {}): ReviewAnalytics
           cost_class: "managed",
           locus: "managed",
         }),
+        row("cost.calls.customer.review_host", "Your compute and provider accounts (review_host)", 1, {
+          value: 1,
+          cost_class: "customer",
+          locus: "review_host",
+        }),
       ],
       provider_spend: [],
       calls_without_cost: [],
@@ -165,9 +170,9 @@ function report(overrides: Partial<ReviewAnalyticsReport> = {}): ReviewAnalytics
     cost_per_useful_finding: [],
     correction_loops: {
       started: row("loops.started", "Fix requests started"),
-      snapshot_recorded: row("loops.snapshot_recorded", "New Snapshot recorded"),
+      snapshot_recorded: row("loops.snapshot_recorded", "New revision recorded"),
       re_reviewed: row("loops.re_reviewed", "Re-reviewed after the fix"),
-      in_flight: row("loops.in_flight", "Waiting for a new Snapshot"),
+      in_flight: row("loops.in_flight", "Waiting for a new revision"),
       failed: row("loops.failed", "Failed"),
       cancelled: row("loops.cancelled", "Cancelled"),
       completion_rate: null,
@@ -296,6 +301,9 @@ describe("Review analytics on the Usage page", () => {
     expect(screen.getByText(/never blocks Merge when ready/)).toBeTruthy();
     expect(screen.getByText("semgrep:py.sqli")).toBeTruthy();
     expect(screen.getByText("Your compute & keys · local")).toBeTruthy();
+    // The internal review_host locus is not shown: the cost class alone names it.
+    expect(screen.getByText("Your compute & keys")).toBeTruthy();
+    expect(screen.queryByText(/review_host/)).toBeNull();
     expect(screen.getByText("LemonCrow-managed · managed")).toBeTruthy();
     expect(screen.getByText("LemonCrow-managed · job time on lemoncrow_managed")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Review" }).getAttribute("href")).toBe("/r/rev-7");
@@ -315,7 +323,7 @@ describe("Review analytics on the Usage page", () => {
     expect(drillUrl?.searchParams.get("until")).toBe(SCOPE.until);
     expect(drillUrl?.searchParams.get("days")).toBeNull();
     // Internal vocabulary stays out of the page.
-    expect(document.body.textContent).not.toMatch(/intelligence|session|revision|landing gate/i);
+    expect(document.body.textContent).not.toMatch(/intelligence|session|landing gate/i);
   });
 
   it("offers the team filter where teams exist and sends the filters it applies", async () => {

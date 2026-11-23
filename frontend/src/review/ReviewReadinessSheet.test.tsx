@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import ReviewReadinessSheet, { blockingSummary, deriveReviewReadiness, scmRequirementBlockers } from "./ReviewReadinessSheet";
 import type { EvidenceRow, ReviewLandingReadiness, ReviewOutcome, ReviewProgress } from "./types";
+import { fmtWhen } from "../lib/format";
 
 const progress: ReviewProgress = {
   target_count: 4,
@@ -31,7 +32,7 @@ function outcome(overrides: Partial<ReviewOutcome> = {}): ReviewOutcome {
 }
 
 describe("deriveReviewReadiness", () => {
-  it("is ready only when target, feedback, verification, and policy blockers are clear", () => {
+  it("is ready only when part, feedback, verification, and policy blockers are clear", () => {
     const result = deriveReviewReadiness({
       progress,
       openComments: 0,
@@ -106,7 +107,7 @@ describe("deriveReviewReadiness", () => {
     expect(result.blockers.map((item) => item.id)).toEqual(["failed-checks", "unresolved-checks"]);
   });
 
-  it("accepts extra blockers without changing local target truth", () => {
+  it("accepts extra blockers without changing local part truth", () => {
     const result = deriveReviewReadiness({
       progress: { ...progress, reviewed: 3, unreviewed: 1 },
       openComments: 0,
@@ -192,7 +193,7 @@ describe("ReviewReadinessSheet focus", () => {
 
     expect(screen.getByText("Your review")).toBeTruthy();
     expect(screen.getByText("3/4 reviewed")).toBeTruthy();
-    expect(screen.getByText("1 review area need judgment")).toBeTruthy();
+    expect(screen.getByText("1 part need judgment")).toBeTruthy();
     expect(screen.getByText("Verification")).toBeTruthy();
     expect(screen.getByText("Unit tests")).toBeTruthy();
     expect(screen.getByText("API contract")).toBeTruthy();
@@ -306,7 +307,7 @@ describe("ReviewReadinessSheet focus", () => {
     expect(screen.getByText("Provider requires renewed approval")).toBeTruthy();
     expect(screen.getByText("Code-owner approval")).toBeTruthy();
     expect(screen.getByText(/invalidated the previous approval/)).toBeTruthy();
-    expect(screen.getByText("1 review area need judgment")).toBeTruthy();
+    expect(screen.getByText("1 part need judgment")).toBeTruthy();
     expect(screen.queryByText(/changed since your review/)).toBeNull();
   });
 
@@ -320,7 +321,7 @@ describe("ReviewReadinessSheet focus", () => {
       tree_fingerprint: "tree-2",
       source_fingerprint: "source-2",
       conditions: [
-        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
+        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
         { id: "checks", label: "Required checks", state: "pending", detail: "GitHub is waiting on CI.", owner: "scm", category: "scm", url: "https://github.example/pr/7" },
       ],
       ready: false,
@@ -332,7 +333,7 @@ describe("ReviewReadinessSheet focus", () => {
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "https://github.example/pr/7", mechanism: "" },
     };
 
-    render(<ReviewReadinessSheet model={model} landing={landing} onArmLanding={onArmLanding} onClose={vi.fn()} />);
+    render(<ReviewReadinessSheet model={model} landing={landing} finished onArmLanding={onArmLanding} onClose={vi.fn()} />);
 
     expect(screen.getByText("Not ready · 1 condition")).toBeTruthy();
     expect(screen.getByText("Latest revision reviewed")).toBeTruthy();
@@ -348,7 +349,7 @@ describe("ReviewReadinessSheet focus", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "merged", armed: false, semantic_stale: false, revision_id: "rr-2", tree_fingerprint: "tree-2", conditions_hash: "conditions-2", detail: "GitHub merged exactly the reviewed head bbbbbbbbbbbb.", url: "https://github.example/pr/7", mechanism: "exact_head_merge" },
     };
@@ -381,7 +382,7 @@ describe("ReviewReadinessSheet focus", () => {
     const onCancelLanding = vi.fn();
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "armed", armed: true, semantic_stale: false, revision_id: "rr-2", tree_fingerprint: "tree-2", conditions_hash: "conditions-2", detail: "Waiting for GitHub requirements.", url: "https://github.example/pr/7", mechanism: "lemoncrow_watch" },
     };
@@ -396,7 +397,7 @@ describe("ReviewReadinessSheet focus", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "" },
     };
@@ -410,7 +411,7 @@ describe("ReviewReadinessSheet focus", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "verification", label: "Verification waived", state: "waived", detail: "1 check(s) waived by a human on this Snapshot, not passed: CI (retired).", owner: "lemoncrow", category: "verification", url: "" }],
+      conditions: [{ id: "verification", label: "Verification waived", state: "waived", detail: "1 check(s) waived by a human on this revision, not passed: CI (retired).", owner: "lemoncrow", category: "verification", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "" },
     };
@@ -432,7 +433,7 @@ describe("ReviewReadinessSheet focus", () => {
           ],
         },
         {
-          id: "feed", label: "Required advisory feed", state: "unknown", detail: "The advisory observation is no longer current; re-observe on this Snapshot.", owner: "lemoncrow", category: "verification", url: "", reason: "evidence_expired",
+          id: "feed", label: "Required advisory feed", state: "unknown", detail: "The advisory observation is no longer current; re-observe on this revision.", owner: "lemoncrow", category: "verification", url: "", reason: "evidence_expired",
           evidence_refs: [{ evidence_id: "ev-feed", freshness_class: "external_observation", state: "expired", observed_at: "2026-09-29T12:00:00Z", source_revision: "", expires_at: "2026-09-30T12:00:00Z", reason: "external observation expired" }],
         },
       ],
@@ -460,7 +461,7 @@ describe("ReviewReadinessSheet focus", () => {
     expect(policyDetails.textContent).toContain("Generation abcdef123456");
     expect(policyDetails.getAttribute("title")).toBeNull();
     expect(within(policyDetails).getByTitle(/policy:abcdef1234567890/)).toBeTruthy();
-    expect(screen.getByText("External observation valid until 2026-10-02 12:00:00 UTC")).toBeTruthy();
+    expect(screen.getByText(`External observation valid until ${fmtWhen("2026-10-02T12:00:00Z")}`)).toBeTruthy();
     expect(screen.getByText("1 external observation is no longer current")).toBeTruthy();
     expect(screen.getByText(/Enabled under an earlier Review policy/)).toBeTruthy();
     expect(screen.queryByText("Ready to merge")).toBeNull();
@@ -474,7 +475,7 @@ describe("ReviewReadinessSheet focus", () => {
       ready: false, armable: false, blocker_count: 1, local_blocker_count: 1, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "" },
     };
-    render(<ReviewReadinessSheet model={model} landing={landing} onArmLanding={vi.fn()} onClose={vi.fn()} />);
+    render(<ReviewReadinessSheet model={model} landing={landing} finished onArmLanding={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Merge when ready" })).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -487,7 +488,8 @@ describe("ReviewReadinessSheet focus", () => {
       tree_fingerprint: "tree-2",
       source_fingerprint: "source-2",
       conditions: [
-        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
+        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
+        { id: "supply-chain-policy", label: "Dependency / supply-chain policy", state: "not_applicable", detail: "No dependency / supply-chain policy evidence is required.", owner: "lemoncrow", category: "supply_chain", url: "" },
       ],
       ready: true,
       armable: true,
@@ -502,6 +504,11 @@ describe("ReviewReadinessSheet focus", () => {
 
     expect(screen.getByText("Review ready · merge unavailable")).toBeTruthy();
     expect(screen.queryByText("Ready to merge")).toBeNull();
+    // Nothing to do here: met and not-required conditions fold into one line, and no merge box says merge is unavailable.
+    const settled = screen.getByTestId("readiness-settled-conditions");
+    expect(settled.hasAttribute("open")).toBe(false);
+    expect(within(settled).getByText("1 met · 1 not required")).toBeTruthy();
+    expect(screen.queryByText("Automatic merge is unavailable for this Change.")).toBeNull();
   });
 
   it("shows an authoritative-readiness failure instead of silently presenting local readiness as complete", () => {
@@ -579,16 +586,17 @@ describe("ReviewReadinessSheet landing decisions", () => {
   it("shows who broke glass, what was bypassed and the follow-up review state", () => {
     const record = (state: "open" | "overdue" | "completed") => ({
       id: `bg_${state}`, revision_id: "rr-2", actor_id: "user_admin", reason: "Checkout outage", incident_url: "https://status.example.com/7",
-      bypassed: [{ id: "latest-snapshot-reviewed", label: "Latest Snapshot reviewed", state: "pending", reason: "" }],
+      bypassed: [{ id: "latest-snapshot-reviewed", label: "Latest revision reviewed", state: "pending", reason: "" }],
       created_at: "2026-10-05T09:00:00Z", policy_generation: "gen",
       follow_up: { state, due_at: "2026-10-06T09:00:00Z", completed_at: state === "completed" ? "2026-10-05T12:00:00Z" : "", completed_by: state === "completed" ? "bob" : "" },
     });
     render(<ReviewReadinessSheet model={model()} landing={landing({ break_glass: [record("completed"), record("overdue"), record("open")] })} onClose={vi.fn()} />);
     const section = screen.getByTestId("readiness-break-glass");
-    expect(within(section).getAllByText("user_admin bypassed Latest Snapshot reviewed")).toHaveLength(3);
+    // A principal id is shown as a name, never raw.
+    expect(within(section).getAllByText("admin bypassed Latest revision reviewed")).toHaveLength(3);
     expect(within(section).getByText("Follow-up review by bob")).toBeTruthy();
-    expect(within(section).getByText("Follow-up review overdue (was due 2026-10-06 09:00:00 UTC)")).toBeTruthy();
-    expect(within(section).getByText("Follow-up review due 2026-10-06 09:00:00 UTC")).toBeTruthy();
+    expect(within(section).getByText(`Follow-up review overdue (was due ${fmtWhen("2026-10-06T09:00:00Z")})`)).toBeTruthy();
+    expect(within(section).getByText(`Follow-up review due ${fmtWhen("2026-10-06T09:00:00Z")}`)).toBeTruthy();
     expect(within(section).getAllByRole("link", { name: /Incident/ })).toHaveLength(3);
   });
 });
@@ -597,7 +605,7 @@ describe("ReviewReadinessSheet landing recovery", () => {
   function landingFor(armed: boolean): ReviewLandingReadiness {
     return {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All parts reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: {
         supported: true, provider: "github", state: armed ? "armed" : "not_armed", armed, semantic_stale: false,
@@ -609,7 +617,7 @@ describe("ReviewReadinessSheet landing recovery", () => {
 
   it("holds merge when ready while the request is in flight so it cannot be sent twice", () => {
     const onArmLanding = vi.fn();
-    render(<ReviewReadinessSheet model={model()} landing={landingFor(false)} landingBusy onArmLanding={onArmLanding} onClose={vi.fn()} />);
+    render(<ReviewReadinessSheet model={model()} landing={landingFor(false)} finished landingBusy onArmLanding={onArmLanding} onClose={vi.fn()} />);
     const enable = screen.getByRole("button", { name: "Enabling…" });
     expect(enable).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(enable);
@@ -622,6 +630,7 @@ describe("ReviewReadinessSheet landing recovery", () => {
       <ReviewReadinessSheet
         model={model()}
         landing={landingFor(false)}
+        finished
         landingError="Could not arm landing: GitHub refused"
         onArmLanding={onArmLanding}
         onClose={vi.fn()}
@@ -630,6 +639,45 @@ describe("ReviewReadinessSheet landing recovery", () => {
     expect(screen.getByText("Could not arm landing: GitHub refused")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Merge when ready" }));
     expect(onArmLanding).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Merge when ready only once the review is finished, and keeps an armed merge and its cancel visible", () => {
+    const onArmLanding = vi.fn();
+    const onCancelLanding = vi.fn();
+    const { rerender } = render(
+      <ReviewReadinessSheet model={model()} landing={landingFor(false)} onArmLanding={onArmLanding} onClose={vi.fn()} />,
+    );
+    expect(screen.queryByRole("button", { name: "Merge when ready" })).toBeNull();
+    expect(screen.getByTestId("readiness-merge-after-finish")).toHaveTextContent("Finish review first");
+    // Every requirement met, but nothing merges before Finish: the heading says so.
+    expect(screen.getByText("Ready to merge once finished")).toBeTruthy();
+
+    rerender(<ReviewReadinessSheet model={model()} landing={landingFor(false)} finished onArmLanding={onArmLanding} onClose={vi.fn()} />);
+    expect(screen.queryByTestId("readiness-merge-after-finish")).toBeNull();
+    expect(screen.getByText("Ready to merge")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Merge when ready" }));
+    expect(onArmLanding).toHaveBeenCalledTimes(1);
+
+    // Reopened with a merge still armed: the state and its cancel stay; enabling is not offered.
+    rerender(<ReviewReadinessSheet model={model()} landing={landingFor(true)} onCancelLanding={onCancelLanding} onClose={vi.fn()} />);
+    expect(screen.getByText("enabled")).toBeTruthy();
+    expect(screen.queryByTestId("readiness-merge-after-finish")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel merge when ready" }));
+    expect(onCancelLanding).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a Needs changes part as reviewed and keeps its own counter and blocker", () => {
+    const judged = deriveReviewReadiness({
+      progress: { ...progress, reviewed: 2, needs_changes: 1, unreviewed: 1 },
+      openComments: 0,
+      verification,
+      outcome: null,
+    });
+    render(<ReviewReadinessSheet model={judged} onClose={vi.fn()} />);
+    expect(screen.getByText("3/4 reviewed")).toBeTruthy();
+    expect(screen.getByText("1 need changes")).toBeTruthy();
+    expect(screen.getByText("1 part need changes")).toBeTruthy();
+    expect(judged.ready).toBe(false);
   });
 
   it("keeps Cancel available after cancelling failed, and holds it while in flight", () => {

@@ -452,7 +452,7 @@ def execute_rule_checks(
         for ref in refs:
             rule = by_ref.get(ref)
             if rule is None:
-                state(ref, "not_applicable", "the rule is no longer authoritative in this Snapshot's governance")
+                state(ref, "not_applicable", "the rule is no longer authoritative in this revision's governance")
                 continue
             if cancellation is not None and cancellation():
                 state(ref, "cancelled", "the Review moved on before this rule question was asked")

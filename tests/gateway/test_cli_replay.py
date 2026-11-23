@@ -229,7 +229,7 @@ def test_replay_opencode_from_db(tmp_path: Path) -> None:
 def test_replay_host_choices_cover_all_hosts() -> None:
     result = CliRunner().invoke(cli, ["runtime", "session", "replay", "--help"])
     assert result.exit_code == 0
-    for host in ("claude", "codex", "opencode", "lemoncode", "copilot", "hermes", "cursor", "antigravity"):
+    for host in ("claude", "codex", "opencode", "copilot", "hermes", "cursor", "antigravity"):
         assert host in result.output
 
 

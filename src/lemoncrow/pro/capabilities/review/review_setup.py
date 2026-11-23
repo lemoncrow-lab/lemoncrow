@@ -6,11 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.review.runtimes import (
-    RunnerRegistry,
-    RunnerSetupCandidate,
-    built_in_runner_registry,
-)
+from lemoncrow.pro.capabilities.review.runner_host import built_in_runner_registry
 from lemoncrow.pro.capabilities.review.surfaces import (
     CONFIG_RELATIVE_PATH,
     ReviewSurfaceConfig,
@@ -20,6 +16,7 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     load_review_surface_config,
     write_review_surface_config,
 )
+from lemoncrow.pro.environment.runners import RunnerRegistry, RunnerSetupCandidate
 
 
 @dataclass(frozen=True)

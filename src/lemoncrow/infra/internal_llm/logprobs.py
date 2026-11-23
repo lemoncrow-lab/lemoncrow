@@ -28,6 +28,8 @@ import os
 import re
 from collections import Counter
 
+from lemoncrow.infra.internal_llm.usage import note_response
+
 __all__ = ["chunk_entropy", "logprobs", "token_surprisals"]
 
 # Word/identifier-ish tokens plus standalone punctuation/operators. Splitting
@@ -117,23 +119,19 @@ def logprobs(text: str, model: str | None = None) -> list[float] | None:
         return None
     if not text.strip():
         return []
-    from lemoncrow.infra.internal_llm.exceptions import InternalLLMError
-    from lemoncrow.pro.capabilities.review.intelligence_runtime import require_intelligence_enabled
+    if backend not in ("openai", "openai_compatible", "litellm"):
+        # ollama / unknown backends: no logprobs contract -> structural fallback.
+        return None
+    from lemoncrow.pro.capabilities.review.ai_budget import model_call
 
     try:
-        # The BI0 kill switch: a disabled or invalid policy sends nothing.
-        require_intelligence_enabled()
-    except InternalLLMError:
-        return None
-    try:
-        if backend in ("openai", "openai_compatible"):
-            return _openai_logprobs(text, model)
-        if backend == "litellm":
-            return _litellm_logprobs(text, model)
+        # The BI0 kill switch and the AI budget: a disabled policy, a $0 or used-up budget sends nothing.
+        with model_call() as meter:
+            meter.route(backend, model or "")
+            values = _openai_logprobs(text, model) if backend != "litellm" else _litellm_logprobs(text, model)
     except Exception:
         return None
-    # ollama / unknown backends: no logprobs contract -> structural fallback.
-    return None
+    return values
 
 
 def _extract_logprobs(response: object) -> list[float] | None:
@@ -168,6 +166,7 @@ def _openai_logprobs(text: str, model: str | None) -> list[float] | None:
         max_tokens=max(16, len(text)),
         temperature=0.0,
     )
+    note_response(chosen, getattr(response, "usage", None))
     return _extract_logprobs(response)
 
 
@@ -186,4 +185,5 @@ def _litellm_logprobs(text: str, model: str | None) -> list[float] | None:
         max_tokens=max(16, len(text)),
         temperature=0.0,
     )
+    note_response(chosen, getattr(response, "usage", None))
     return _extract_logprobs(response)

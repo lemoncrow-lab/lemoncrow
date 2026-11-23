@@ -401,10 +401,10 @@ def test_a_severity_from_a_settings_file_cannot_make_a_model_only_finding_p0() -
             )
     # ... and the file raised a P2-rated finding to P1, which is what a high severity is for.
     ref = refs[f"{KEY}:high"]
-    assert severity_for("correctness", impact="medium", verified=False) == "p2"
+    assert severity_for("performance", impact="medium", verified=False) == "p2"
     assert (
         severity_with_overrides(
-            "correctness", impact="medium", verified=False, rule_refs=[ref], overrides=policy.rule_severity
+            "performance", impact="medium", verified=False, rule_refs=[ref], overrides=policy.rule_severity
         )
         == "p1"
     )

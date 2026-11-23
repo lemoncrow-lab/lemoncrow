@@ -25,8 +25,8 @@ from lemoncrow.pro.capabilities.review.sources.local import open_or_create_sessi
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from lemoncrow.pro.capabilities.review.surfaces import SurfaceContext, built_in_registry, load_review_surface_config
 
-DEMO_ROOT = Path(__file__).resolve().parents[2] / "demo" / "review-surfaces"
-PLUGIN_SRC = DEMO_ROOT.parent / "review-preview-plugin" / "src"
+DEMO_ROOT = Path(__file__).resolve().parents[2] / "examples" / "demo"
+PLUGIN_SRC = Path(__file__).resolve().parents[2] / "demo" / "review-preview-plugin" / "src"
 
 
 def _demo_plugin(monkeypatch: pytest.MonkeyPatch, *, installed: bool) -> None:
@@ -252,7 +252,8 @@ def test_review_surface_demo_phased_change_wrapper_forwards_arguments(tmp_path: 
 
     subprocess.run(["bash", str(root / "scripts" / "apply-demo-change.sh"), "--phase", "initial"], check=True)
     assert "used by LemonCrow Cloud" in (root / "README.md").read_text(encoding="utf-8")
-    assert "price: 49" in (root / "frontend/src/pages/PricingPage.jsx").read_text(encoding="utf-8")
+    assert "featured: false" in (root / "frontend/src/pages/PricingPage.jsx").read_text(encoding="utf-8")
+    assert "Team,25,49," in (root / "data/plans.csv").read_text(encoding="utf-8")
 
     subprocess.run(["bash", str(root / "scripts" / "apply-demo-change.sh"), "--phase", "final"], check=True)
     assert "featured: true" in (root / "frontend/src/pages/PricingPage.jsx").read_text(encoding="utf-8")

@@ -13,6 +13,7 @@ import {
   shortModule,
   subjectFolding,
   symbolKindLabel,
+  testReach,
   type LayoutOptions,
 } from "./reviewMapModel";
 import type { ReviewMapEdge, ReviewMapNode, ReviewMapPayload } from "./types";
@@ -368,10 +369,58 @@ describe("derived views", () => {
       "substantial new production surface",
       "large change",
     ]);
+    // A 13-line new file is not a large change: its diffstat alone gives no reason.
+    expect(reasonsOf({ reasons: ["+13 -0"] })).toEqual([]);
+    expect(reasonsOf({ reasons: ["+399 -0"] })).toEqual([]);
+    expect(reasonsOf({ reasons: ["+200 -200"] })).toEqual(["large change"]);
   });
 
   it("keeps the specific end of long folder paths", () => {
     expect(shortModule("src/lemoncrow/pro/capabilities/review", 24)).toBe("…/capabilities/review");
     expect(shortModule("")).toBe("(repository root)");
+  });
+});
+
+describe("testReach", () => {
+  const shop = () => [
+    node("auth", "app/auth.py", "changed"),
+    node("orders", "app/orders.py", "changed"),
+    node("gone", "app/legacy.py", "changed", { change: "deleted" }),
+    node("views", "app/views.py", "context"),
+    node("test", "tests/test_orders.py", "context", { category: "test" }),
+  ];
+  const links = () => [
+    edge("views", "auth", "calls", 2),
+    edge("views", "orders", "calls", 3),
+    edge("test", "orders", "calls", 2),
+  ];
+
+  it("names the tests that reach a changed file and marks the one none reaches", () => {
+    const reach = testReach(payload(shop(), links()));
+    expect(reach.get("orders")).toEqual({ state: "reached", tests: [expect.objectContaining({ id: "test" })] });
+    expect(reach.get("auth")?.state).toBe("none");
+    // Neither surrounding code, tests, nor deleted files get a verdict.
+    expect(reach.has("views")).toBe(false);
+    expect(reach.has("test")).toBe(false);
+    expect(reach.has("gone")).toBe(false);
+  });
+
+  it("an impact edge into a test site counts as reach", () => {
+    const reach = testReach(payload(shop(), [edge("auth", "test", "impacts")]));
+    expect(reach.get("auth")?.state).toBe("reached");
+  });
+
+  it("never claims no test when reach was not measured or the map was cut short", () => {
+    const unavailable = payload(shop(), links());
+    unavailable.context = { ...unavailable.context, source: "unavailable" };
+    expect(testReach(unavailable).get("auth")?.state).toBe("unmeasured");
+    const truncated = payload(shop(), links());
+    truncated.graph = { ...truncated.graph, truncated: true };
+    expect(testReach(truncated).get("auth")?.state).toBe("unmeasured");
+    const indexing = payload(shop(), []);
+    indexing.context = { ...indexing.context, readiness: { graph: { state: "building" } } };
+    expect(testReach(indexing).get("auth")?.state).toBe("unmeasured");
+    // What was found is still found.
+    expect(testReach(truncated).get("orders")?.state).toBe("reached");
   });
 });

@@ -390,8 +390,19 @@ def test_revalidation_re_reads_l4_and_withdraws_an_approval_once_the_trusted_bas
     assert "trusted_base" in json.dumps(json.loads(withdrawn.detail_json)["blocked_by"])
 
 
+def _finish(landing: Workspace) -> None:
+    """Merge when ready is offered only once the human finished the review."""
+
+    finished = landing.post(
+        f"/api/reviews/{landing.review_id}/finish",
+        json={"status": "finished", "expected_revision_id": _readiness(landing)["snapshot_id"]},
+    )
+    assert finished.status_code == 200, finished.text
+
+
 def _arm_by_hand(landing: Workspace) -> None:
     _review_all_current_targets(landing)
+    _finish(landing)
     inspected = _readiness(landing)
     armed = landing.post(
         f"/api/reviews/{landing.review_id}/landing/arm",
@@ -493,6 +504,7 @@ def test_two_changes_that_break_only_once_merged_are_blocked_at_landing(workspac
     provider = _Provider()
     landing = _landed(workspace, provider, calls=calls)
     _review_all_current_targets(landing)
+    _finish(landing)
     inspected = _readiness(landing)
     armed = landing.post(
         f"/api/reviews/{landing.review_id}/landing/arm",

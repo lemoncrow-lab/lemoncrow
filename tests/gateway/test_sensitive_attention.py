@@ -50,8 +50,8 @@ def policy(config: str = ""):
 
 
 def test_sensitive_paths_are_narrow_explicit_and_do_not_promote_tests_or_docs():
-    assert sensitive_path_attention("src/auth/login.py") == "authentication"
-    assert sensitive_path_attention("services/payments/charge.ts") == "payments"
+    assert sensitive_path_attention("src/auth/login.py") == "access-control"
+    assert sensitive_path_attention("services/payments/charge.ts") == "payment"
     assert sensitive_path_attention("db/migrations/002_accounts.sql") == "database migration"
     assert sensitive_path_attention(".github/workflows/deploy.yml") == "release automation"
     assert sensitive_path_attention("infra/main.tf") == "infrastructure configuration"
@@ -80,7 +80,8 @@ def test_canonical_priority_promotes_only_outstanding_risky_paths_without_bugs()
     for path in ("src/payments/charge.ts", "src/auth/login.py"):
         assert result[path].priority.tier == TIER_REVIEW_FIRST
         assert result[path].priority.reasons[0].code == "sensitive_path_attention"
-        assert "not a verified finding" in result[path].priority.reasons[0].detail
+    assert result["src/payments/charge.ts"].priority.reasons[0].detail == "Payment code changed"
+    assert result["src/auth/login.py"].priority.reasons[0].detail == "Access-control code changed"
     assert result["src/catalog/search.py"].priority.tier == TIER_UNDERSTAND
     assert result["tests/auth/test_login.py"].priority.tier == TIER_UNDERSTAND
     assert result["src/auth/reviewed.py"].priority.tier == TIER_DONE

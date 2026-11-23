@@ -327,6 +327,38 @@ _NON_DEFINITION_NODE_KINDS = frozenset(
     }
 )
 
+# Scope rules for :func:`_in_reviewer_scope`, keyed on ``Tag.container_kind``.
+# JavaScript / TypeScript node kinds: the languages whose extractor keeps
+# function-body definitions (C, Go, Java, Rust and Ruby skip them at extraction;
+# Python has its own projection).
+_FUNCTION_SCOPE_KINDS = frozenset(
+    {
+        "arrow_function",
+        "class_static_block",
+        "function",
+        "function_declaration",
+        "function_expression",
+        "function_signature",
+        "generator_function",
+        "generator_function_declaration",
+        "method_definition",
+        "method_signature",
+    }
+)
+_LOCAL_BINDING_KINDS = frozenset({"lexical_declaration", "variable_declaration"})
+_NESTED_DECLARATION_KINDS = frozenset(
+    {
+        "class_declaration",
+        "enum_declaration",
+        "function_declaration",
+        "generator_function_declaration",
+        "interface_declaration",
+        "type_alias_declaration",
+    }
+)
+_TYPE_MEMBER_KINDS = frozenset({"method_signature", "property_signature"})
+_TYPE_MEMBER_CONTAINERS = frozenset({"class_declaration", "interface_declaration", "type_alias_declaration"})
+
 # What a symbol name may look like. Segments are identifier-shaped (a leading
 # ``-`` would be a make-target artefact, a leading digit a literal) and may be
 # joined by the qualification separators the extractors emit. Anything else --
@@ -418,6 +450,66 @@ def _kind_from_line(lines: Sequence[str], line: int) -> str | None:
     return None
 
 
+def function_valued_binding(line: str) -> bool:
+    """Whether a variable declaration line visibly defines callable behavior.
+
+    The one test for "this binding is a function": the symbol list keeps such a
+    binding inside a function body (:func:`_in_reviewer_scope`), and review
+    targets keep it as its own target.
+    """
+
+    if "=" not in line:
+        return False
+    rhs = line.split("=", 1)[1].strip()
+    if re.match(r"(?:async\s+)?function\b", rhs):
+        return True
+    if re.match(r"(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>", rhs):
+        return True
+    return re.match(r"(?:useCallback|forwardRef|memo)\s*\(", rhs) is not None
+
+
+def _in_reviewer_scope(tag: Tag, source: bytes) -> bool:
+    """True when *tag* is a declaration a reviewer reads, judged by where it sits.
+
+    The extractor emits every definition-shaped node, so a TypeScript function's
+    ``const hit = ...`` temporaries, the fields of an inline ``{ value; expires }``
+    type argument and a destructured parameter's ``{ tenantId; page }`` type all
+    arrived as "changed symbols" beside the function that owns them -- each then
+    keyed a bare-name caller lookup and a Map row. The rule mirrors the Python
+    projection (:func:`_python_definition_analysis`: bindings at module scope
+    only, functions and classes at any depth):
+
+    * Inside a function body a binding is a local and goes, unless it is
+      visibly function-valued (:func:`function_valued_binding`). Nested
+      function, class and type declarations stay.
+    * A property or method *signature* is a declaration only as a direct member
+      of an interface, a type alias or a class (overloads); in a type literal
+      inside an annotation, a parameter list or a type argument it is a field
+      of an anonymous shape, not a symbol.
+
+    Driven by ``Tag.container_kind``; a tag without one (file scope, or a
+    non-tree-sitter path) passes.
+    """
+
+    container = tag.container_kind
+    if container is None:
+        return True
+    if tag.node_kind in _TYPE_MEMBER_KINDS:
+        return container in _TYPE_MEMBER_CONTAINERS
+    if container not in _FUNCTION_SCOPE_KINDS:
+        return True
+    if tag.node_kind in _NESTED_DECLARATION_KINDS:
+        return True
+    if tag.node_kind in _LOCAL_BINDING_KINDS:
+        # Read from the bound name on, not the whole line: on a one-liner
+        # (`const h = () => { const z = 1 }`) the line's first `=` is h's.
+        start = tag.byte_range[0]
+        end = source.find(b"\n", start)
+        declarator = source[start : end if end >= 0 else len(source)]
+        return function_valued_binding(declarator.decode("utf-8", errors="replace"))
+    return False
+
+
 def _is_definition_tag(tag: Tag) -> bool:
     """True when *tag* names a definition, not a use of one.
 
@@ -459,7 +551,7 @@ class _DefinitionAnalysis:
     body_spans: tuple[tuple[int, int], ...] = ()
 
 
-def _dedupe_definition_tags(tags: Sequence[Tag]) -> tuple[tuple[Tag, ...], int]:
+def _dedupe_definition_tags(tags: Sequence[Tag], source: bytes = b"") -> tuple[tuple[Tag, ...], int]:
     seen: set[tuple[int, str]] = set()
     out: list[Tag] = []
     dropped = 0
@@ -470,6 +562,10 @@ def _dedupe_definition_tags(tags: Sequence[Tag]) -> tuple[tuple[Tag, ...], int]:
         seen.add(key)
         if not _is_definition_tag(tag):
             dropped += 1
+            continue
+        if not _in_reviewer_scope(tag, source):
+            # A local or an anonymous shape's field: outside the contract rather
+            # than a loss of coverage, so it never counts as `dropped`.
             continue
         out.append(tag)
     return tuple(out), dropped
@@ -565,7 +661,7 @@ def _uncached_definition_analysis(text: str, path: str) -> _DefinitionAnalysis:
     except Exception:
         # Unparseable source is a normal mid-refactor state, not a packet failure.
         return _DefinitionAnalysis()
-    kept, dropped = _dedupe_definition_tags(tags)
+    kept, dropped = _dedupe_definition_tags(tags, text.encode("utf-8", "surrogatepass"))
     return _DefinitionAnalysis(definitions=kept, dropped=dropped)
 
 
@@ -806,7 +902,7 @@ def _foreign_path_filter(repo_root: Path) -> Callable[[str], bool]:
     The code index is keyed to the *workspace*, and a workspace contains whatever
     is checked out under it -- including submodules and nested clones. Nothing
     downstream distinguishes them, so a change to this repository was cited as
-    reaching ``lemoncode/packages/opencode/test/...`` and
+    reaching ``vendor/packages/agent/test/...`` and
     ``landing/functions/api/license.test.ts``: two other repositories, whose
     files this diff cannot affect and whose contents are a gitlink, not a blob,
     in every revision of this one.

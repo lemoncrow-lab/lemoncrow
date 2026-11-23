@@ -184,7 +184,13 @@ def test_prepare_stdio_workspace_real_index_is_persistent_and_incremental(tmp_pa
 def test_stdio_warm_prepared_trial_skips_duplicate_index_but_warms_serving_engine(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    import subprocess
+
     from lemoncrow.gateway.adapters import mcp_server
+
+    # The warmer skips a directory that is no recognized workspace; tmp_path is
+    # one only when it happens to sit inside a repository.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
 
     class _Engine:
         def __init__(self) -> None:

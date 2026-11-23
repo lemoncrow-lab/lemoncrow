@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
-import System from "./System";
+import System, { agentSummary } from "./System";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -68,6 +68,18 @@ function mockSystemApis() {
   );
 }
 
+describe("agentSummary", () => {
+  it("turns model routing text into a one-line summary", () => {
+    expect(agentSummary("Always use for read-only implementation planner. Returns a plan.")).toBe(
+      "Read-only implementation planner."
+    );
+    expect(agentSummary("Always use for fast read-only explore agent for locating code.")).toBe(
+      "Fast read-only explore agent for locating code."
+    );
+    expect(agentSummary("Reviews diffs for bugs.")).toBe("Reviews diffs for bugs.");
+  });
+});
+
 describe("System page", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -88,8 +100,27 @@ describe("System page", () => {
       </MemoryRouter>
     );
 
-    expect((await screen.findAllByText("Health")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("Daemon")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
+    expect(await screen.findByText("Local server")).toBeInTheDocument();
+    expect(await screen.findByText("Running")).toBeInTheDocument();
+    // Plain words, not the adapter jargon the page used to open with.
+    expect(screen.queryByText(/adapter/i)).not.toBeInTheDocument();
+  });
+
+  it("sends the unbuilt Watchdogs page back to Advanced", async () => {
+    mockSystemApis();
+
+    render(
+      <MemoryRouter initialEntries={["/system/watchdogs"]}>
+        <Routes>
+          <Route path="/system/:section" element={<System />} />
+          <Route path="/settings/advanced" element={<p>Advanced settings</p>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Advanced settings")).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
   });
 
   it("renders the hosts section", async () => {
@@ -120,7 +151,8 @@ describe("System page", () => {
     );
 
     expect(await screen.findByText("code")).toBeInTheDocument();
-    expect(await screen.findByText("3 ops")).toBeInTheDocument();
+    expect(await screen.findByText("3 operations")).toBeInTheDocument();
+    expect(screen.queryByText(/stdio/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByText("code"));
     expect(await screen.findByText("enum params")).toBeInTheDocument();
     expect(await screen.findByText("context")).toBeInTheDocument();

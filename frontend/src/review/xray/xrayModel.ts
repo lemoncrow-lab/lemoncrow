@@ -214,22 +214,29 @@ const ROLE_LABEL: Record<XRayRole, string> = {
   consumer: "Reached from",
   call: "Calls / uses",
   boundary: "Storage boundary",
-  handoff: "Handoff",
+  handoff: "Passes work on",
   error: "Error branch",
 };
 
-export const SIDE_LABEL: Record<XRaySide, string> = { before: "Before (base)", after: "After (this Snapshot)" };
+export const SIDE_LABEL: Record<XRaySide, string> = { before: "Before (base)", after: "After (this revision)" };
 
 function plural(count: number, one: string, many = one + "s"): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-function hasWord(text: string, set: ReadonlySet<string>): boolean {
+export function hasWord(text: string, set: ReadonlySet<string>): boolean {
   return words(text).some((word) => set.has(word));
+}
+
+/** The part that holds a map selection: the span containing its line, else the file's first part. */
+export function partForSelection(targets: readonly ReviewTarget[], selection: ReviewMapSelection): ReviewTarget | null {
+  const inFile = targets.filter((target) => target.path === selection.path);
+  const line = selection.line ?? 0;
+  return inFile.find((target) => line > 0 && target.start_line <= line && line <= target.end_line) ?? inFile[0] ?? null;
 }
 
 /** The Snapshot a Map graph belongs to, from its own selections; "" when it names none. */
@@ -244,13 +251,13 @@ export function comparisonMeasured(graph: ReviewMapGraph): boolean {
 }
 
 /** Whether this relationship's base presence comes from the base-to-Snapshot comparison. */
-function edgeCompared(edge: ReviewMapEdge): boolean {
+export function edgeCompared(edge: ReviewMapEdge): boolean {
   const status = edge.delta_status;
   if (status !== undefined && status !== "") return COMPARED.has(String(status));
   return typeof edge.base_weight === "number" && typeof edge.snapshot_weight === "number";
 }
 
-function edgeOnSide(edge: ReviewMapEdge, side: XRaySide): boolean {
+export function edgeOnSide(edge: ReviewMapEdge, side: XRaySide): boolean {
   const status = String(edge.delta_status ?? "");
   if (status === "added") return side === "after";
   if (status === "removed") return side === "before";
@@ -262,7 +269,7 @@ function edgeOnSide(edge: ReviewMapEdge, side: XRaySide): boolean {
   return side === "after";
 }
 
-function nodeOnSide(node: ReviewMapNode, side: XRaySide): boolean {
+export function nodeOnSide(node: ReviewMapNode, side: XRaySide): boolean {
   const change = nodeChange(node);
   if (change === "added") return side === "after";
   if (change === "removed") return side === "before";
@@ -286,7 +293,7 @@ export function changeMark(change: StoryChange, side: XRaySide): XRayMark {
   }
 }
 
-function mapBoundaries(node: ReviewMapNode): XRayBoundary[] {
+export function mapBoundaries(node: ReviewMapNode): XRayBoundary[] {
   return (node.boundaries ?? []).map((value): XRayBoundary => {
     if (value === "persistence") return { kind: "storage", label: "storage boundary", basis: "map", handoff: false };
     if (value === "security") return { kind: "security", label: "security boundary", basis: "map", handoff: false };
@@ -295,18 +302,19 @@ function mapBoundaries(node: ReviewMapNode): XRayBoundary[] {
 }
 
 /** An async or remote handoff on the link into *to*, recognised from names only. */
-function handoffFor(from: ReviewMapNode | undefined, to: ReviewMapNode): XRayBoundary | null {
+export function handoffFor(from: ReviewMapNode | undefined, to: ReviewMapNode): XRayBoundary | null {
   const text = `${to.path} ${to.label}`;
   if (hasWord(text, ASYNC_WORDS)) {
-    return { kind: "async", label: "possible async/queue handoff", basis: "name", handoff: true };
+    return { kind: "async", label: "may run later, through a queue or background job", basis: "name", handoff: true };
   }
   const fromService = from?.path.match(SERVICE_ROOT)?.[2];
   const toService = to.path.match(SERVICE_ROOT)?.[2];
   if (fromService && toService && fromService !== toService) {
-    return { kind: "remote", label: `possible remote handoff · ${fromService} → ${toService} service`, basis: "name", handoff: true };
+    return { kind: "remote", label: `may call another service · ${fromService} → ${toService}`, basis: "name", handoff: true };
   }
-  if (hasWord(text, REMOTE_WORDS)) {
-    return { kind: "remote", label: "possible remote-service handoff", basis: "name", handoff: true };
+  // Only the file's own name: `client/` or `http/` as a folder is a package in this process, not a remote service.
+  if (hasWord(to.path.split("/").pop() || to.label, REMOTE_WORDS)) {
+    return { kind: "remote", label: "may call another service", basis: "name", handoff: true };
   }
   return null;
 }
@@ -315,6 +323,86 @@ interface Link {
   edge: ReviewMapEdge;
   other: string;
   score: number;
+}
+
+/** How one side of the change reads a Map edge: the X-Ray's single definition of "observed". */
+export interface XRayLinkContext {
+  byId: ReadonlyMap<string, ReviewMapNode>;
+  /** This Snapshot's recorded run on the side shown traced the edge (and, when known, where in the run). */
+  observedFor(edge: ReviewMapEdge, from: ReviewMapNode, to: ReviewMapNode): { sequence: number | null; trace: XRayTrace } | null;
+  linkOf(edge: ReviewMapEdge): XRayLink;
+}
+
+export function xrayLinkContext(graph: ReviewMapGraph, flow: XRayFlow | null | undefined, side: XRaySide): XRayLinkContext {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const traceSide = side === "before" ? "base" : "head";
+  const flowSteps = flow?.applicable ? flow.steps : [];
+  const flowByEdge = new Map(flowSteps.map((step) => [step.edge_id, step]));
+  const observedCalls: ReviewObservedCall[] = flow?.observed?.available ? flow.observed[traceSide] ?? [] : [];
+  const callAt = new Map<string, number>();
+  observedCalls.forEach((call, at) => {
+    const key = `${call.from}\u0000${call.to}`;
+    if (!callAt.has(key)) callAt.set(key, at);
+  });
+  const observedFor: XRayLinkContext["observedFor"] = (edge, from, to) => {
+    const step = flowByEdge.get(edge.id);
+    const stepTrace = step?.grounding === "observed" && step.trace && step.trace.side === traceSide ? step.trace : null;
+    const at = callAt.get(`${from.path}\u0000${to.path}`);
+    const call = at === undefined ? null : observedCalls[at];
+    if (!stepTrace && !call) return null;
+    return {
+      sequence: at === undefined ? null : at + 1,
+      trace: {
+        side: traceSide,
+        recipe: stepTrace?.recipe ?? "",
+        callerFn: stepTrace?.caller_fn ?? call?.from_fn ?? "",
+        calleeFn: stepTrace?.callee_fn ?? call?.to_fn ?? "",
+        evidenceRef: stepTrace?.evidence_ref ?? call?.evidence_ref ?? "",
+        recordId: stepTrace?.record_id ?? "",
+      },
+    };
+  };
+  const linkOf = (edge: ReviewMapEdge): XRayLink => {
+    const { from, to } = visualEnds(edge);
+    const fromNode = byId.get(from)!;
+    const toNode = byId.get(to)!;
+    const kind = edgeKind(edge.kind);
+    const change = edgeChange(edge);
+    const observed = observedFor(edge, fromNode, toNode);
+    const exactness: StoryExactness = observed ? "observed" : storyExactness(edge.exactness);
+    const site = edge.evidence?.find((item) => item.path && item.line > 0) ?? null;
+    const landsOn = [
+      ...(edge.symbols ?? []).map((symbol) => symbol.name),
+      ...(edge.evidence ?? []).map((item) => item.symbol ?? ""),
+    ].filter((name, index, all) => name && all.indexOf(name) === index).slice(0, 4);
+    return {
+      edgeId: edge.id,
+      kind: edge.kind,
+      sentence: `${nodeName(fromNode)} ${EDGE_KIND_LABEL[kind]} ${nodeName(toNode)}`,
+      change,
+      mark: changeMark(change, side),
+      weights: typeof edge.base_weight === "number" && typeof edge.snapshot_weight === "number"
+        ? { base: edge.base_weight, head: edge.snapshot_weight }
+        : null,
+      exactness,
+      exactnessLabel: EXACTNESS_LABEL[exactness],
+      order: observed ? "observed" : "reachable",
+      orderLabel: observed
+        ? observed.sequence !== null
+          ? `Observed: call #${observed.sequence} first seen in this revision's recorded ${traceSide} runs`
+          : `Observed in this revision's recorded ${traceSide} run; its position in the run is not recorded`
+        : "Possible/reachable: a recorded relationship, not an execution order",
+      sequence: observed?.sequence ?? null,
+      animate: Boolean(observed && observed.sequence !== null),
+      trace: observed?.trace ?? null,
+      handoff: handoffFor(fromNode, toNode),
+      landsOn,
+      site: site ? { path: site.path, line: site.line } : null,
+      selection: edge.selection,
+      uncertain: edge.uncertain || Boolean(edge.evidence?.some((item) => item.uncertainty)),
+    };
+  };
+  return { byId, observedFor, linkOf };
 }
 
 function emptyXRay(input: XRayInput, status: XRayStatus, statusNote: string, extra: Partial<XRay> = {}): XRay {
@@ -352,7 +440,7 @@ function emptyXRay(input: XRayInput, status: XRayStatus, statusNote: string, ext
 const BASE_NOT_MEASURED: XRayNotMeasured = {
   key: "base_side",
   label: "Before (base) relationships",
-  reason: "None of this Map's relationships comes from a base-to-Snapshot comparison (they are current-index context or Snapshot facts only), so the base path cannot be drawn.",
+  reason: "None of this Map's relationships comes from a base-to-revision comparison (they are current-index context or revision facts only), so the base path cannot be drawn.",
   needs: "delta_status, or base_weight and snapshot_weight, on the Map's edges",
 };
 
@@ -366,49 +454,22 @@ export function buildXRay(input: XRayInput): XRay {
   const snapshot = graphSnapshot(graph);
   const walkSnapshot = input.walkSnapshot ?? snapshot;
   if (walkSnapshot && snapshot && walkSnapshot !== snapshot) {
-    return emptyXRay(input, "stale", "A newer Snapshot replaced the one this X-Ray was built on, so its path is not shown. Rebuild it on the Snapshot shown now.");
+    return emptyXRay(input, "stale", "A newer revision replaced the one this X-Ray was built on, so its path is not shown. Rebuild it on the revision shown now.");
   }
-  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const { byId, observedFor, linkOf } = xrayLinkContext(graph, input.flow, side);
   const root = byId.get(input.rootId);
   if (!root) return emptyXRay(input, "missing_root", "This file is not on the Map shown now, so there is no path to draw from it.");
   const measured = comparisonMeasured(graph);
   if (side === "before" && !measured) {
-    return emptyXRay(input, "not_measured", "Before is not measured on this Map: its relationships carry no base-to-Snapshot comparison.", { notMeasured: [BASE_NOT_MEASURED] });
+    return emptyXRay(input, "not_measured", "Before is not measured on this Map: its relationships carry no base-to-revision comparison.", { notMeasured: [BASE_NOT_MEASURED] });
   }
   if (!nodeOnSide(root, side)) {
     return emptyXRay(input, "absent", side === "before"
-      ? "This file is new in this Snapshot, so it has no Before path. Switch to After."
+      ? "This file is new in this revision, so it has no Before path. Switch to After."
       : "This file is removed by this change, so it has no After path. Switch to Before.");
   }
 
   const traceSide = side === "before" ? "base" : "head";
-  const flowSteps = input.flow?.applicable ? input.flow.steps : [];
-  const flowByEdge = new Map(flowSteps.map((step) => [step.edge_id, step]));
-  const observedCalls: ReviewObservedCall[] = input.flow?.observed?.available ? input.flow.observed[traceSide] ?? [] : [];
-  const callAt = new Map<string, number>();
-  observedCalls.forEach((call, at) => {
-    const key = `${call.from}\u0000${call.to}`;
-    if (!callAt.has(key)) callAt.set(key, at);
-  });
-  const observedFor = (edge: ReviewMapEdge, from: ReviewMapNode, to: ReviewMapNode): { sequence: number | null; trace: XRayTrace } | null => {
-    const flow = flowByEdge.get(edge.id);
-    const stepTrace = flow?.grounding === "observed" && flow.trace && flow.trace.side === traceSide ? flow.trace : null;
-    const at = callAt.get(`${from.path}\u0000${to.path}`);
-    const call = at === undefined ? null : observedCalls[at];
-    if (!stepTrace && !call) return null;
-    return {
-      sequence: at === undefined ? null : at + 1,
-      trace: {
-        side: traceSide,
-        recipe: stepTrace?.recipe ?? "",
-        callerFn: stepTrace?.caller_fn ?? call?.from_fn ?? "",
-        calleeFn: stepTrace?.callee_fn ?? call?.to_fn ?? "",
-        evidenceRef: stepTrace?.evidence_ref ?? call?.evidence_ref ?? "",
-        recordId: stepTrace?.record_id ?? "",
-      },
-    };
-  };
-
   const present = (id: string) => {
     const node = byId.get(id);
     return Boolean(node && nodeOnSide(node, side));
@@ -434,48 +495,6 @@ export function buildXRay(input: XRayInput): XRay {
   for (const list of dependents.values()) list.sort(byScore);
 
   const targets = input.targets ? new Map(input.targets.map((target) => [target.target_id, target])) : null;
-
-  const linkOf = (edge: ReviewMapEdge): XRayLink => {
-    const { from, to } = visualEnds(edge);
-    const fromNode = byId.get(from)!;
-    const toNode = byId.get(to)!;
-    const kind = edgeKind(edge.kind);
-    const change = edgeChange(edge);
-    const observed = observedFor(edge, fromNode, toNode);
-    const exactness: StoryExactness = observed ? "observed" : storyExactness(edge.exactness);
-    const handoff = handoffFor(fromNode, toNode);
-    const site = edge.evidence?.find((item) => item.path && item.line > 0) ?? null;
-    const landsOn = [
-      ...(edge.symbols ?? []).map((symbol) => symbol.name),
-      ...(edge.evidence ?? []).map((item) => item.symbol ?? ""),
-    ].filter((name, index, all) => name && all.indexOf(name) === index).slice(0, 4);
-    return {
-      edgeId: edge.id,
-      kind: edge.kind,
-      sentence: `${nodeName(fromNode)} ${EDGE_KIND_LABEL[kind]} ${nodeName(toNode)}`,
-      change,
-      mark: changeMark(change, side),
-      weights: typeof edge.base_weight === "number" && typeof edge.snapshot_weight === "number"
-        ? { base: edge.base_weight, head: edge.snapshot_weight }
-        : null,
-      exactness,
-      exactnessLabel: EXACTNESS_LABEL[exactness],
-      order: observed ? "observed" : "reachable",
-      orderLabel: observed
-        ? observed.sequence !== null
-          ? `Observed: call #${observed.sequence} first seen in this Snapshot's recorded ${traceSide} runs`
-          : `Observed in this Snapshot's recorded ${traceSide} run; its position in the run is not recorded`
-        : "Possible/reachable: a recorded relationship, not an execution order",
-      sequence: observed?.sequence ?? null,
-      animate: Boolean(observed && observed.sequence !== null),
-      trace: observed?.trace ?? null,
-      handoff,
-      landsOn,
-      site: site ? { path: site.path, line: site.line } : null,
-      selection: edge.selection,
-      uncertain: edge.uncertain || Boolean(edge.evidence?.some((item) => item.uncertainty)),
-    };
-  };
 
   const errorHintsFor = (node: ReviewMapNode, link: XRayLink | null): XRayErrorHint[] => {
     const out: XRayErrorHint[] = [];
@@ -510,7 +529,7 @@ export function buildXRay(input: XRayInput): XRay {
       parentKey,
       depth,
       role,
-      roleLabel: role === "handoff" && link?.handoff ? (link.handoff.kind === "async" ? "Async handoff" : "Remote handoff") : ROLE_LABEL[role],
+      roleLabel: role === "handoff" && link?.handoff ? (link.handoff.kind === "async" ? "Runs later" : "Calls another service") : ROLE_LABEL[role],
       title: nodeName(node),
       path: node.path,
       line,
@@ -525,8 +544,8 @@ export function buildXRay(input: XRayInput): XRay {
       exit,
       exitLabel: exit === "handoff"
         ? link?.handoff?.kind === "async"
-          ? "Async handoff: delivery, timing and what runs next are not traced, so the path stops here."
-          : "Remote handoff: the other service's behaviour is not traced here, so the path stops."
+          ? "This may run later, through a queue or background job. When it runs and what runs next are not followed, so the path stops here."
+          : "This may call another service. What that service does is not followed here, so the path stops."
         : exit === "boundary" ? "Reaches a storage boundary; the path stops here." : "",
       hiddenLinks: 0,
       canOpenSource: exactness === "snapshot" && Boolean(node.path),
@@ -581,7 +600,13 @@ export function buildXRay(input: XRayInput): XRay {
   };
   expand(entry);
 
-  const callers = (dependents.get(root.id) ?? []).filter((link) => !shown.has(link.other));
+  // One file can reach this one by several relationships; the list is of callers, so each appears once, by its best link.
+  const callerIds = new Set<string>();
+  const callers = (dependents.get(root.id) ?? []).filter((link) => {
+    if (shown.has(link.other) || callerIds.has(link.other)) return false;
+    callerIds.add(link.other);
+    return true;
+  });
   const consumers = callers.slice(0, maxConsumers).map((link) => stepOf(byId.get(link.other)!, link.edge, -1, null, true));
   truncation.consumers = callers.length - consumers.length;
 
@@ -605,14 +630,14 @@ export function buildXRay(input: XRayInput): XRay {
   const sideWord = side === "before" ? "Before" : "After";
   const orderNote = observedLinks === 0
     ? `No recorded run traced this path on the ${sideWord} side. Every link is a possible/reachable relationship, not an execution order.`
-    : `${observedLinks} of ${plural(links.length, "link")} observed in this Snapshot's recorded ${traceSide} runs; the rest are possible/reachable relationships, not an execution order.`;
+    : `${observedLinks} of ${plural(links.length, "link")} observed in this revision's recorded ${traceSide} runs; the rest are possible/reachable relationships, not an execution order.`;
 
   const degraded: string[] = [];
   if (graph.truncated) {
     degraded.push(`The Map is bounded${graph.omitted_node_count ? `: ${plural(graph.omitted_node_count, "file")} left out` : ""}, so links to files outside it are not shown.`);
   }
   const inexact = [...consumers, ...steps].filter((step) => step.exactness !== "snapshot" || (step.link && step.link.exactness !== "snapshot" && step.link.exactness !== "observed")).length;
-  if (inexact) degraded.push(`${plural(inexact, "step")} rest on the current index or inference, not this Snapshot.`);
+  if (inexact) degraded.push(`${plural(inexact, "step")} ${inexact === 1 ? "rests" : "rest"} on the current index or inference, not this revision.`);
   const uncertain = links.filter((link) => link.uncertain).length;
   if (uncertain) degraded.push(`${plural(uncertain, "link")} the index itself marks uncertain.`);
   if (graph.reason) degraded.push(graph.reason);
@@ -625,7 +650,7 @@ export function buildXRay(input: XRayInput): XRay {
     notMeasured.push({
       key: "observed_order",
       label: "Observed order",
-      reason: `No recorded run of this Snapshot traced the ${sideWord} side of this path, so nothing here is a runtime order.`,
+      reason: `No recorded run of this revision traced the ${sideWord} side of this path, so nothing here is a runtime order.`,
       needs: `a runtime-observation run whose trace lands on these files (flow.observed.${traceSide})`,
     });
   }
@@ -690,4 +715,15 @@ export function decodeXRayLocation(value: string | null | undefined): XRayLocati
   const rootId = value.slice(second + 1);
   if ((side !== "before" && side !== "after") || !rootId) return null;
   return { side, snapshot: value.slice(first + 1, second), rootId };
+}
+
+/** Like `decodeXRayLocation`, but an empty node is the whole change rather than no location. */
+export function decodeXRayView(value: string | null | undefined): XRayLocation | null {
+  if (!value) return null;
+  const first = value.indexOf("~");
+  const second = first < 0 ? -1 : value.indexOf("~", first + 1);
+  if (second < 0) return null;
+  const side = value.slice(0, first);
+  if (side !== "before" && side !== "after") return null;
+  return { side, snapshot: value.slice(first + 1, second), rootId: value.slice(second + 1) };
 }

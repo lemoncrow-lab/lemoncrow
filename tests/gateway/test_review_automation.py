@@ -121,6 +121,12 @@ def _arm(ws: Workspace) -> dict[str, Any]:
     )
     assert linked.status_code == 200, linked.text
     _review_all_current_targets(ws)
+    snapshot = ws.get(f"/api/reviews/{ws.review_id}/readiness").json()["snapshot_id"]
+    # Merge when ready is offered only once the human finished the review.
+    finished = ws.post(
+        f"/api/reviews/{ws.review_id}/finish", json={"status": "finished", "expected_revision_id": snapshot}
+    )
+    assert finished.status_code == 200, finished.text
     inspected = ws.get(f"/api/reviews/{ws.review_id}/readiness").json()
     armed = ws.post(
         f"/api/reviews/{ws.review_id}/landing/arm",
@@ -841,6 +847,26 @@ def test_a_folded_comment_is_corrected_by_an_auditable_follow_up(
     assert unknown.status_code == 404
 
 
+def test_a_hidden_authors_published_review_cannot_be_dismissed_and_answers_as_an_unknown_one(
+    workspace: Workspace,
+) -> None:
+    """A second reviewer who may not read the first one's notes is told nothing by his review's id, and acts on nothing."""
+
+    gh = FakeGh()
+    ws = _sync_client(workspace, gh)
+    comment = _comment(ws)
+    _publish(ws, comment["id"], "github-review:77")
+    ws.client.app.state.review_second_reviewer_hidden_authors = lambda _session: {comment["created_by"]}
+
+    answers = [
+        ws.post(f"/api/reviews/{ws.review_id}/provider-review/dismiss", json={"remote_ref": ref, "message": "not mine"})
+        for ref in ("github-review:77", "github-review:99")
+    ]
+    assert [(a.status_code, a.json()) for a in answers[:1]] == [(a.status_code, a.json()) for a in answers[1:]]
+    assert answers[0].status_code == 404
+    assert gh.calls == []  # nothing reached the provider
+
+
 @pytest.mark.parametrize(
     ("remote_ref", "op"),
     [("github-comment:555", "edit"), ("github-comment:555", "withdraw"), ("github-review:77", "edit")],
@@ -981,7 +1007,7 @@ def test_discard_with_pending_feedback_and_an_armed_landing_needs_confirmation_n
     assert one.status_code == 409
     stale = _finish(ws, acknowledged_hazards=preview["hazard_ids"], hazard_digest="0" * 64)
     assert stale.status_code == 409 and "changed since it was confirmed" in stale.json()["detail"]["message"]
-    assert ws.store.get_session(ws.review_id).status == "open"  # type: ignore[union-attr]
+    assert ws.store.get_session(ws.review_id).status == "finished"  # type: ignore[union-attr]  # refused: unchanged
     assert len(calls) == provider_calls  # a refused discard asks the provider nothing
 
     done = _finish(ws, acknowledged_hazards=preview["hazard_ids"], hazard_digest=preview["hazard_digest"])

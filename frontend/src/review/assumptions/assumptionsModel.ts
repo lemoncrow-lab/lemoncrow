@@ -66,7 +66,7 @@ export const KIND_IF_FAILS: Record<AssumptionKind, string> = {
 };
 
 export const ORIGIN_LABEL: Record<AssumptionOrigin, string> = {
-  deterministic: "Deterministic signal",
+  deterministic: "Code analysis",
   author_claim: "Author claim",
   model_suggested: "AI suggestion",
 };
@@ -170,7 +170,10 @@ export interface AssumptionsModel {
     statedLimits: number;
     aiQuestions: number;
     behaviorChanges: number;
-    consumerSites: number;
+    /** Consumer sites the impact pass recorded; null when no impact pass ran on this Snapshot (unknown, never 0). */
+    consumerSites: number | null;
+    /** Groups past the bound were dropped, so `consumerSites` is a lower bound. */
+    consumerSitesAtLeast: boolean;
   };
   notMeasured: string[];
 }
@@ -438,7 +441,7 @@ function collectDrafts(projection: ReviewProjection, context: InvestigationConte
   // Deterministic signals: consumers that depend on a changed contract (plain callers stay in Blind spots).
   let sites = 0;
   for (const group of projection.context?.consumers ?? []) {
-    sites += group.sites.length;
+    sites += group.sites.length + group.omitted;
     const byImpact = new Map<string, AssumptionConsumerLink[]>();
     for (const link of consumerLinks([group], (impact) => Boolean(CONSUMER_RULES[impact]))) {
       byImpact.set(link.impact_kind, [...(byImpact.get(link.impact_kind) ?? []), link]);
@@ -449,9 +452,9 @@ function collectDrafts(projection: ReviewProjection, context: InvestigationConte
       drafts.push({
         kind: rule.kind,
         hypothesis: rule.text(subject),
-        detail: `${links.length} ${links.length === 1 ? "site" : "sites"} outside this change depend on it`,
+        detail: links.length === 1 ? "1 site outside this change depends on it" : `${links.length} sites outside this change depend on it`,
         origin: "deterministic",
-        signal: "Impact pass on this Snapshot",
+        signal: "Impact pass on this revision",
         targetIds: group.target_ids,
         consumers: links,
       });
@@ -466,7 +469,8 @@ function collectDrafts(projection: ReviewProjection, context: InvestigationConte
       statedLimits: limits,
       aiQuestions: aiQuestions.length,
       behaviorChanges: behaviors.length,
-      consumerSites: sites,
+      consumerSites: projection.context?.readiness.impact_pass === "ran" ? sites : null,
+      consumerSitesAtLeast: (projection.context?.consumers_omitted ?? 0) > 0,
     },
   };
 }
@@ -608,16 +612,18 @@ export function assumptionsModel(input: AssumptionsInput): AssumptionsModel {
     "Implicit assumptions in the code itself: no pass in this view reads code for assumptions nobody stated.",
     "Supporting or contradicting code lines: rows link the changed code and its consumers, not the lines that uphold or break each hypothesis.",
   ];
-  if (projection.context === undefined) notMeasured.push("Consumers: this projection carries no caller or consumer inventory.");
-  if (!projection.behavior) notMeasured.push("Behavior and side effects: no behavior evidence is recorded for this Snapshot.");
+  if (projection.context === undefined) notMeasured.push("Consumers: this review has no record of who calls or uses the changed code.");
+  else if (projection.context.readiness.impact_pass === "no_index") notMeasured.push("Consumers: no code index answered for this revision, so callers and consumer sites are unknown.");
+  else if (projection.context.readiness.impact_pass !== "ran") notMeasured.push("Consumers: the impact pass did not run on this revision, so consumer sites are unknown.");
+  if (!projection.behavior) notMeasured.push("Behavior and side effects: no behavior evidence is recorded for this revision.");
   const synthesis = projection.synthesis?.status;
   if (synthesis !== "ready") {
     notMeasured.push(synthesis === "failed"
-      ? "AI questions: the Review synthesis failed on this Snapshot, so no AI suggestion is listed."
-      : "AI questions: the Review synthesis has not run on this Snapshot.");
+      ? "AI questions: the Review synthesis failed on this revision, so no AI suggestion is listed."
+      : "AI questions: the Review synthesis has not run on this revision.");
   }
   if (scope.kind === "finding" && scope.targetIds?.length === 0) {
-    notMeasured.push("The finding is not on a loaded changed target, so no assumption could be tied to it.");
+    notMeasured.push("The finding is not on a loaded part, so no assumption could be tied to it.");
   }
 
   return {

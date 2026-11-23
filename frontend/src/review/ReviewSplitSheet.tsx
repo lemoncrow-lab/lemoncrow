@@ -115,8 +115,8 @@ function SplitRecordRow({
       )}
       {record.migration && (
         <div className="mt-0.5 text-caption text-muted-foreground">
-          {`${record.migration.carried} judgment${record.migration.carried === 1 ? "" : "s"} carried on identical targets`}
-          {record.migration.not_carried_total > 0 ? ` · ${record.migration.not_carried_total} not carried (target changed or not in a layer)` : ""}
+          {`${record.migration.carried} judgment${record.migration.carried === 1 ? "" : "s"} carried on identical parts`}
+          {record.migration.not_carried_total > 0 ? ` · ${record.migration.not_carried_total} not carried (part changed or not in a layer)` : ""}
         </div>
       )}
     </li>

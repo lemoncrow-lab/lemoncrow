@@ -170,6 +170,13 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .workspaces_server import workspaces_group
+
+        cli.add_command(workspaces_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .product_status import product_status_cmd
 
         cli.add_command(product_status_cmd)
@@ -350,8 +357,9 @@ def register(cli: click.Group) -> None:
         @_click.pass_context
         def dashboard_open_cmd(ctx: _click.Context, port: int | None) -> None:
             """Open the web dashboard served by LemonCrow Review's local server."""
-            import webbrowser
             from pathlib import Path
+
+            from lemoncrow_client.browser import launch_browser_url
 
             from lemoncrow.gateway.cli import style
             from lemoncrow.gateway.cli.commands.product_status import _review_installed
@@ -364,7 +372,7 @@ def register(cli: click.Group) -> None:
                 elif _review_installed(Path(ctx.obj["root"])):
                     message, text, command = "LemonCrow's local server isn't running.", "See why with", "lc doctor"
                 else:
-                    message = "The web dashboard comes with LemonCrow Review; Runtime Lite has none."
+                    message = "The web dashboard comes with LemonCrow Review; Workspaces Lite has none."
                     text, command = "The same numbers are in the terminal:", "lc rt dashboard"
                 _click.echo(f"{style.mark('fail')} {message}", err=True)
                 _click.echo(style.next_step(text, command), err=True)
@@ -377,7 +385,8 @@ def register(cli: click.Group) -> None:
             url = f"{frontend_url.rstrip('/')}/"
             _click.echo(f"{style.accent('◆')} Opening the LemonCrow dashboard: {url}")
             arm_local_browser_url(url)
-            webbrowser.open(url)
+            if not launch_browser_url(url):
+                _click.echo(f"(could not open a browser; open {url} manually.)", err=True)
 
         cli.add_command(dashboard_group)
         # The old dashboard-style `status` alias was retired when `lc status`

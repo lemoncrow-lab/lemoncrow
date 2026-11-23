@@ -128,7 +128,7 @@ def build_local_server(config: LocalServerConfig, *, token: str | None = None) -
     workspace = build_workspace(engine_config, backend)
     # Runtime tools run in the agent's own MCP process (Runtime Lite); the
     # local server serves Review and the Dashboard and never executes a tool.
-    dispatcher = UnavailableDispatcher("Runtime tools run in Runtime Lite, not in the local server")
+    dispatcher = UnavailableDispatcher("Workspaces tools run in Workspaces Lite, not in the local server")
     state, app = build_local_app(
         config=engine_config,
         backend=backend,

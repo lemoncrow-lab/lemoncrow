@@ -121,7 +121,6 @@ _HOST_SESSION_ENVS: Final[tuple[tuple[str, str], ...]] = (
     ("CLAUDE_CODE_SESSION_ID", "claude"),
     ("CODEX_SESSION_ID", "codex"),
     ("OPENCODE_SESSION_ID", "opencode"),
-    ("LEMONCODE_SESSION_ID", "lemoncode"),
     ("GITHUB_COPILOT_SESSION_ID", "copilot"),
     ("CURSOR_SESSION_ID", "cursor"),
     ("CURSOR_TRACE_ID", "cursor"),
@@ -998,6 +997,25 @@ class RemoteSession:
         self._publish_live_view_binding(observed)
         return bool(entries or removed)
 
+    def _send_large_review_source(self, root: Path, *, timeout_s: float | None = None) -> tuple[int, int]:
+        """Best effort: a file that cannot be sent is reported missing by Ask, and never fails the capture."""
+
+        try:
+            return self._blobs.large_source_from(root, timeout_s=timeout_s)
+        except ClientError:
+            return 0, 0
+
+    @_serialized
+    def upload_large_review_source(self, *, timeout_s: float | None = None) -> tuple[int, int]:
+        """Send this checkout's files above the index cap that the bound View's Review lacks.
+
+        A Review's source tree names every file of its View, while syncing a View
+        uploads only what the index reads. Bytes are checked against the View's
+        digests, so a file edited since the View was pinned is not sent.
+        """
+
+        return self._send_large_review_source(self._config.repo_root, timeout_s=timeout_s)
+
     def open_review_snapshot(
         self,
         snapshot_root: Path,
@@ -1008,8 +1026,9 @@ class RemoteSession:
     ) -> Mapping[str, Any]:
         """Open a complete immutable View for the exact Review new side.
 
-        ``allow_oversize`` keeps metadata for large files without uploading their
-        bytes, for Reader-only capture. Runtime materialization still refuses
+        ``allow_oversize`` admits files the blob transport cannot carry: they keep
+        their metadata without bytes, and files between the index cap and that
+        ceiling are sent once per repository. Runtime materialization still refuses
         missing content. The default continues to require a complete snapshot.
 
         ``snapshot_root`` is already frozen by the Review capture layer, so this
@@ -1109,6 +1128,10 @@ class RemoteSession:
             missing.update(entry.content_digest for entry in entries if entry.size > self._state.content_size_cap)
         sources = {file.content_digest: root / file.path for file in walk.uploadable()}
         stored, plaintext = self._blobs.upload_digests(tuple(sorted(missing)), sources, timeout_s=timeout_s)
+        if allow_oversize:
+            large_stored, large_bytes = self._send_large_review_source(root, timeout_s=timeout_s)
+            stored += large_stored
+            plaintext += large_bytes
         for entry in entries:
             self._state.known[entry.path] = entry
         opened["manifest_chunks_sent"] = sent

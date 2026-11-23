@@ -59,12 +59,12 @@ const ROOT_STYLES: Record<ToggleVariant, string> = {
 function itemStyles(variant: ToggleVariant, tone: ToggleTone, size: ToggleSize, active: boolean): string {
   if (variant === "segment") {
     return cn(
-      "h-6 rounded-sm border px-2 text-meta font-medium transition-colors duration-fast focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11",
+      "h-6 rounded-sm border px-2 text-meta font-medium transition-colors duration-fast focus-visible:z-10 disabled:cursor-not-allowed disabled:opacity-50",
       active ? "border-border bg-card text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
     );
   }
   return cn(
-    "font-medium transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11",
+    "font-medium transition-colors duration-fast disabled:cursor-not-allowed disabled:opacity-50",
     SIZE_STYLES[size],
     variant === "underline" ? "relative -mb-px rounded-none border-0" : "rounded-md border",
     active

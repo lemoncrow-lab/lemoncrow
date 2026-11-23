@@ -114,7 +114,7 @@ as unpriced — `local` or `—`, never `$0.00`.
 
 ### Host integrations
 
-- Claude Code, Codex, Copilot, OpenCode, LemonCode, Cursor, Antigravity, Hermes
+- Claude Code, Codex, Copilot, OpenCode, Cursor, Antigravity, Hermes
 - SDK adapters (Anthropic tools, OpenAI SDK hooks, LangChain middleware)
 
 ### Storage & telemetry

@@ -87,7 +87,7 @@ describe("MarkdownReviewPreview", () => {
     const first = render(view("rrv-1"));
     await waitFor(() => expect(screen.getByRole("img", { name: "Logo" }).getAttribute("src")).toBe("blob:review-image-0"));
     expect(api.fetchMarkdownImage).toHaveBeenCalledWith("review-1", "README.md", "new", "docs/logo.png", "rrv-1");
-    expect(screen.queryByText("Snapshot rrv-1 · rendered Markdown")).toBeNull();
+    expect(screen.queryByText("Revision rrv-1 · rendered Markdown")).toBeNull();
     expect(api.fetchMarkdownImage).toHaveBeenCalledTimes(1);
     expect(createObjectURL).toHaveBeenCalledTimes(1);
 
@@ -272,7 +272,7 @@ describe("MarkdownReviewPreview sanitizer", () => {
     expectInert(container);
   });
 
-  it("drops <picture> sources so the browser cannot bypass the Snapshot image route", async () => {
+  it("drops <picture> sources so the browser cannot bypass the revision image route", async () => {
     api.fetchMarkdownImage.mockResolvedValue(new Blob(["image"], { type: "image/png" }));
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:picture-fallback") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });

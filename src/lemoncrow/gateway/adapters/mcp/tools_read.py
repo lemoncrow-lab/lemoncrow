@@ -119,7 +119,7 @@ def recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str])
         "size (mutually exclusive). Whole file → ONE :full or wide range, never "
         "successive narrow ones. One function/test → symbol='name' or ['a','b'], not a "
         "whole-file read. Default line numbers are disk-accurate for editing; :full is "
-        "for exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back "
+        "for exact formatting only. Images (png/jpg/gif/webp/bmp) come back "
         "viewable — read to SEE them, don't write OCR/pixel code."
     ),
     param_aliases={

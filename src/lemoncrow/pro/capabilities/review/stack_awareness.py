@@ -182,15 +182,17 @@ def related_readiness(
     if provider_state == "closed" or session.status == "archived":
         return RelatedReadiness("closed", "Closed", "Closed or discarded without landing.")
     current = store.latest_revision(session.id)
+    from lemoncrow.pro.capabilities.review.record_retraction import standing_outcomes
+
     outcomes = [
-        item for item in store.latest_outcomes(session.id) if current is not None and item.revision_id == current.id
+        item for item in standing_outcomes(store, session.id) if current is not None and item.revision_id == current.id
     ]
     if any(item.outcome == "changes_requested" for item in outcomes):
         return RelatedReadiness(
-            "changes_requested", "Changes requested", "A reviewer requested changes on its current Snapshot."
+            "changes_requested", "Changes requested", "A reviewer requested changes on its current revision."
         )
     if any(item.outcome == "lgtm" for item in outcomes):
-        detail = "Approved on its current Snapshot"
+        detail = "Approved on its current revision"
         if landing_status in {"armed", "delegated", "queued"}:
             detail += f"; landing is {landing_status}"
         return RelatedReadiness("approved", "Approved", detail + ".")

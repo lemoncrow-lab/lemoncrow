@@ -14,7 +14,6 @@ def test_supported_session_import_hosts_match_codeburn_inventory() -> None:
         "copilot",
         "cursor",
         "hermes",
-        "lemoncode",
         "opencode",
         "pi",
     )

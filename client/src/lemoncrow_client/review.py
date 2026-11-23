@@ -12,16 +12,18 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
-import webbrowser
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TextIO
+from typing import TYPE_CHECKING, Any, Final, TextIO
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .review_delta import DeltaCursor
 
+from .browser import launch_browser_url, open_by_hand
 from .config import ClientConfig, load_config
 from .errors import AgentAction, ClientError, ErrorCode
 from .review_base import EMPTY_TREE_SHA, branch_review_failed, capture_review_base, parse_branch_review
@@ -35,24 +37,41 @@ _INTERNAL_PATHS: Final[tuple[str, ...]] = (".claude/worktrees", ".lc-worktrees",
 #: Reviews of these ranges route by branch and keep the base recorded at their first capture.
 _MUTABLE_MODES: Final[frozenset[str]] = frozenset({"working_tree", "staged"})
 # Flags of the full Review CLI (`uv run lc review` in a source checkout) that this
-# client does not carry; the Review Reader covers the same human workflow.
+# client does not carry: they need the local Review engine's packet build, provenance
+# or agent delivery. The scriptable mark/comment/feedback loop is here (review_terminal).
 _FULL_CLI_REVIEW_OPTIONS: Final[frozenset[str]] = frozenset(
     {
-        "--mark",
-        "--marks",
-        "--comment",
-        "--comments",
-        "--on",
-        "--comment-kind",
-        "--since-my-review",
-        "--feedback",
-        "--finish",
         "--current",
         "--resume-author",
         "--pr",
         "--publish",
-        "--repo-root",
+        "--discard-review",
+        "--new",
+        "--continue",
+        "--check",
+        "--reproduce",
+        "--fix",
+        "--apply-fix",
+        "--html",
     }
+)
+# Options that take a value, and the flags that read or act on the tracked Review after capture.
+_VALUE_OPTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "--base",
+        "--head",
+        "--title",
+        "--repo-root",
+        "--mark",
+        "--mark-state",
+        "--comment",
+        "--on",
+        "--comment-kind",
+        "--reply-to",
+    }
+)
+_STATE_FLAGS: Final[frozenset[str]] = frozenset(
+    {"--units", "--marks", "--comments", "--since-my-review", "--feedback", "--finish"}
 )
 
 
@@ -83,7 +102,8 @@ class ReviewRange:
         if self.mode != "commit_range":
             return f"client:{self.mode}"
         base = _canonical_named_ref(repo, self.base_rev)
-        head = _canonical_named_ref(repo, self.head_rev)
+        # main...HEAD on a checked-out branch is that branch's Review.
+        head = _checked_out_branch(repo) if self.head_rev == "HEAD" else _canonical_named_ref(repo, self.head_rev)
         if base and head:
             relation = "..." if self.merge_base_sha else ".."
             return f"named:{base}{relation}{head}"
@@ -135,6 +155,13 @@ def _canonical_named_ref(repo: Path, spec: str) -> str:
     # shorthand to the canonical refs/... spelling used by durable Review ids.
     value = _git_text(repo, "rev-parse", "--symbolic-full-name", spec, required=False)
     return value if value.startswith("refs/") else ""
+
+
+def _checked_out_branch(repo: Path) -> str:
+    """The branch HEAD is attached to, or "" when detached."""
+
+    value = _git_text(repo, "symbolic-ref", "-q", "HEAD", required=False)
+    return value if value.startswith("refs/heads/") else ""
 
 
 def _head(repo: Path) -> str:
@@ -330,7 +357,10 @@ def _materialize_commit(repo: Path, sha: str, target: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="lemoncrow-review-index-") as scratch:
         index_file = str(Path(scratch) / "index")
         _git_bytes(repo, "read-tree", sha, index_file=index_file)
-        _git_bytes(repo, "checkout-index", "--all", f"--prefix={prefix}", index_file=index_file)
+        # --force: on a case-insensitive disk two paths differing only in case (PRODUCT.md, product.md) share one
+        # file, and without it Git refuses the second one ("already exists, no checkout"), failing the whole capture.
+        # lc-debt: the later of a case-colliding pair wins on such a disk; upgrade path: freeze from blobs, not files.
+        _git_bytes(repo, "checkout-index", "--all", "--force", f"--prefix={prefix}", index_file=index_file)
 
 
 def _materialize_index(repo: Path, target: Path) -> None:
@@ -341,7 +371,7 @@ def _materialize_index(repo: Path, target: Path) -> None:
     if not index_path.is_absolute():
         index_path = (repo / index_path).resolve()
     before = index_path.stat() if index_path.exists() else None
-    _git_bytes(repo, "checkout-index", "--all", f"--prefix={prefix}")
+    _git_bytes(repo, "checkout-index", "--all", "--force", f"--prefix={prefix}")
     after = index_path.stat() if index_path.exists() else None
     if (
         before is not None
@@ -350,7 +380,7 @@ def _materialize_index(repo: Path, target: Path) -> None:
     ):
         raise ClientError(
             ErrorCode.VIEW_REVISION_STALE,
-            "Git index changed while the staged Review snapshot was being frozen; retry",
+            "Git index changed while the staged Review revision was being frozen; retry",
             retryable=True,
             action=AgentAction.RETRY_LATER,
         )
@@ -496,7 +526,7 @@ def _materialize_worktree(repo: Path, target: Path) -> None:
             return
     raise ClientError(
         ErrorCode.VIEW_REVISION_STALE,
-        "working tree changed while the Review snapshot was being frozen; retry",
+        "working tree changed while the Review revision was being frozen; retry",
         retryable=True,
         action=AgentAction.RETRY_LATER,
     )
@@ -598,7 +628,10 @@ def _capture(
     restore_archived: bool,
     title: str = "",
     delta_cursor: DeltaCursor | None = None,
+    with_workspace: bool = False,
 ) -> tuple[dict[str, object], str]:
+    """``with_workspace``: a person asked for this Review, so the server may scan the repositories around it."""
+
     config.review_state_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="capture-", dir=config.review_state_dir) as temporary:
         root = Path(temporary)
@@ -634,6 +667,15 @@ def _capture(
                 and manifest is not None
                 and "workspace_branch" in manifest.capture_options
                 else ""
+            )
+            # Which other repositories of this folder the change reaches: asked only of a local server that scans
+            # for it (a hosted one never honors the option), so the folder's names and paths stay on this machine.
+            workspace = (
+                with_workspace
+                and with_impact
+                and not config.hosted
+                and manifest is not None
+                and "with_workspace" in manifest.capture_options
             )
             capture_intent = ""
 
@@ -726,9 +768,13 @@ def _capture(
                     range_spec=rng.to_wire(),
                     gitlinks={"base": base_gitlinks, "head": head_gitlinks},
                     with_impact=with_impact,
+                    with_workspace=workspace,
                     restore_archived=restore_archived,
                     workspace_branch=branch,
                     capture_intent=capture_intent,
+                    # The server may inspect only the granted checkout; this optional
+                    # hint never goes to Hosted or to an agent-initiated capture.
+                    workspace_root=os.environ.get("LEMONCROW_WORKSPACE_ROOT", "").strip() if workspace else "",
                     timeout_s=config.tool_timeout_s,
                 )
             )
@@ -784,10 +830,22 @@ def _help_text() -> str:
         "",
         "What to type:",
         "  lc review                  Capture your change and open it in the Reader. No AI, no model call.",
-        "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
-        "                             (or OPENAI_API_KEY), or add --agent claude|codex|opencode.",
         "  lc review --staged         Review exactly what is staged (works with --ai too)",
         "  lc review main...HEAD      Review a branch against main (works with --ai too)",
+        "  lc review status [--json]  Is this repository's Review ready? Exit 0 ready, 1 not yet, 2 none, 3 error",
+        "  lc review --feedback       The reviewer's open comments as Markdown, for the author or agent",
+        "  lc review next             Open the review that waits on you next (the same one as Next up)",
+        "  lc review open [LINK]      Open a Review address: /r/<review>, a full link, or r/<review>",
+        "  lc review answer PART good|change|later   Looks good, Needs a change or Decide later on one part",
+        '  lc review note PART "text" Add a note to a part. Nothing is sent until you send.',
+        "  lc review send --verdict approve|approve-with-suggestions|request-changes|comment   Show Wrap up, then send after --yes",
+        "  lc review approve          Same as send --verdict approve",
+        "  lc review undo             Take back the send that is still inside its undo window",
+        "  lc review verify RECORD    Check a signed record, a file or a link. Exit 0 valid, 1 not valid, 2 unsigned, 3 key not allowed, 4 code changed, 5 retracted",
+        "  lc review --mark PATH      Record PATH's parts as reviewed (a person; refused in an agent)",
+        "  lc review --comment TEXT --on PATH:L10   Comment on a line (a person; refused in an agent)",
+        "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
+        "                             (or OPENAI_API_KEY), or add --agent claude|codex|opencode.",
         "  lc review hook install     Git hook: AI review before each push. It stops only on a real finding,",
         "                             never because LemonCrow failed.",
         "  lc review init-action      Write the GitHub Action workflow that reviews pull requests",
@@ -815,12 +873,20 @@ def _help_text() -> str:
         "  --head REV          Explicit head revision (default HEAD)",
         "",
         "Options:",
+        "  --repo-root DIR     The repository (default: the current one)",
         "  --title TITLE       Set the Review title",
         "  --no-impact         Skip impact analysis",
-        "  --open              Open the Review Reader (default)",
-        "  --no-open           Capture without opening a browser",
-        "  --reopen-review     Restore an archived matching Review",
-        "  --json              Emit machine-readable output",
+        "  --open              Open the Review Reader (the default for a plain capture)",
+        "  --no-open           Capture without opening a browser (--track, which the full CLI needs, is accepted)",
+        "  --json              Emit machine-readable output (does not open the browser unless --open)",
+        "",
+        "After capturing, act on the same Review (each one captures first):",
+        "  --mark PART         A label, a part key or a path (repeatable); --mark-state STATE sets the verdict",
+        "  --comment TEXT      With --on PATH:L10[-L20] or --reply-to ID; --comment-kind KIND",
+        "  --feedback          Print the feedback bundle as Markdown (sends nothing)",
+        "  --since-my-review   What changed since your last review",
+        "  --units, --marks, --comments   List unit keys (what --mark takes), verdicts or comments",
+        "  --finish, --reopen-review      Finish the Review, or put it back in the open state",
         "",
         "AI options (with --ai):",
         "  --pr N              A GitHub pull request (needs `gh`): prints what the bot would post, posts nothing",
@@ -834,6 +900,27 @@ def _help_text() -> str:
         "Hosted Review requires `lc auth login` once before first use.",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _warn_if_git_ref(arguments: list[str]) -> None:
+    """``next``, ``open``... were once read as a branch name: say how to reach the branch when one exists."""
+
+    verb = arguments[0]
+    repo = Path.cwd()
+    for index, argument in enumerate(arguments):
+        if argument == "--repo-root" and index + 1 < len(arguments):
+            repo = Path(arguments[index + 1]).expanduser()
+        elif argument.startswith("--repo-root="):
+            repo = Path(argument.partition("=")[2]).expanduser()
+    try:
+        exists = bool(_git_text(repo, "rev-parse", "--verify", "--quiet", f"{verb}^{{commit}}", required=False))
+    except (OSError, ClientError, ValueError, subprocess.SubprocessError):
+        return
+    if exists:
+        sys.stderr.write(
+            f"`{verb}` is also a git revision here, and `lc review {verb}` now runs the {verb} command. "
+            f"To review the revision, run: lc review -- {verb}\n"
+        )
 
 
 def review_main(arguments: list[str], *, sink: TextIO) -> int:
@@ -899,53 +986,56 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             return _without_hosted("watch", sink)
         return watch_main(arguments[1:], sink=sink)
 
-    if arguments and arguments[0] in {"-h", "--help", "help"}:
+    if arguments and arguments[0] in {"-h", "--help", "help", "--help-all"}:
         sink.write(_help_text())
         return 0
+    if arguments and arguments[0] == "status":
+        return _status_main(arguments[1:], sink)
+    from .review_verbs import VERBS, verbs_main
+
+    if arguments and arguments[0] in VERBS:
+        _warn_if_git_ref(arguments)
+        return verbs_main(arguments[0], arguments[1:], sink=sink)
     rev: str | None = None
-    base: str | None = None
-    head: str | None = None
-    staged = False
-    working_tree = False
-    with_impact = True
-    open_browser = True
-    restore_archived = False
-    title = ""
-    as_json = False
+    values: dict[str, str] = {}
+    marks: list[str] = []
+    flags: set[str] = set()
+    open_browser: bool | None = None
     index = 0
     while index < len(arguments):
         argument = arguments[index]
-        if argument == "--working-tree":
-            working_tree = True
-        elif argument == "--staged":
-            staged = True
-        elif argument == "--no-impact":
-            with_impact = False
-        elif argument == "--no-open":
-            open_browser = False
-        elif argument == "--open":
-            open_browser = True
-        elif argument == "--reopen-review":
-            restore_archived = True
-        elif argument == "--json":
-            as_json = True
-        elif argument in {"--base", "--head", "--title"}:
-            index += 1
-            if index >= len(arguments):
-                sink.write(f"{argument} requires a value\n")
-                return 2
-            if argument == "--base":
-                base = arguments[index]
-            elif argument == "--head":
-                head = arguments[index]
-            else:
-                title = arguments[index].strip()
-                if not title or len(title) > 120 or any(ord(char) < 32 for char in title):
-                    sink.write("--title must be a non-empty single-line title of at most 120 characters\n")
+        name, has_inline, inline = argument.partition("=")
+        if name in _VALUE_OPTIONS:
+            if not has_inline:
+                index += 1
+                if index >= len(arguments):
+                    sink.write(f"{name} requires a value\n")
                     return 2
+            value = inline if has_inline else arguments[index]
+            if name == "--mark":
+                marks.append(value)
+            else:
+                values[name] = value
+        elif argument == "--":
+            # Everything after `--` is the revision, even a word that is also a verb: `lc review -- next`.
+            index += 1
+            if index >= len(arguments) or rev is not None or index + 1 < len(arguments):
+                sink.write("-- takes exactly one revision expression\n")
+                return 2
+            rev = arguments[index]
+        elif argument in {"--open", "--no-open"}:
+            open_browser = argument == "--open"
+        elif argument in _STATE_FLAGS or argument in {
+            "--working-tree",
+            "--staged",
+            "--no-impact",
+            "--reopen-review",
+            "--json",
+            "--track",
+        }:
+            flags.add(argument)
         elif argument.startswith("-"):
             sink.write(f"unknown review option: {argument}\n")
-            name = argument.partition("=")[0]
             if name in _AI_ONLY_OPTIONS or name == "--pr":
                 # Never run a model because of a flag that merely sounds like it: say what to add.
                 sink.write(
@@ -953,9 +1043,8 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
                 )
             elif name in _FULL_CLI_REVIEW_OPTIONS:
                 sink.write(
-                    "That option belongs to the full Review CLI in a LemonCrow source checkout (`uv run lc review`).\n"
-                    "With this client, mark, comment, see changes since your review and copy feedback"
-                    " in the Review Reader: `lc review --open`.\n"
+                    "That option belongs to the full Review CLI in a LemonCrow source checkout (`uv run lc review`);"
+                    " this install does not carry it.\n"
                 )
             sink.write("Run `lc review --help` for the options this client supports.\n")
             return 2
@@ -966,8 +1055,60 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             return 2
         index += 1
 
+    title = values.get("--title", "").strip()
+    if "--title" in values and (not title or len(title) > 120 or any(ord(char) < 32 for char in title)):
+        sink.write("--title must be a non-empty single-line title of at most 120 characters\n")
+        return 2
+    as_json = "--json" in flags
+    from .review_terminal import ANNOTATION_KINDS, MARK_STATES, agent_session_host
+
+    mark_state = values.get("--mark-state", "reviewed")
+    comment_kind = values.get("--comment-kind", "comment")
+    comment_body = values.get("--comment")
+    comment_target = values.get("--on")
+    reply_to = values.get("--reply-to")
+    if mark_state not in MARK_STATES:
+        sink.write(f"--mark-state must be one of {', '.join(MARK_STATES)}\n")
+        return 2
+    if comment_kind not in ANNOTATION_KINDS:
+        sink.write(f"--comment-kind must be one of {', '.join(ANNOTATION_KINDS)}\n")
+        return 2
+    if comment_body is not None and not comment_target and not reply_to:
+        sink.write("--comment needs --on PATH:L10 (or --reply-to an existing comment)\n")
+        return 2
+    if (comment_target or reply_to) and comment_body is None:
+        sink.write(f"{'--on' if comment_target else '--reply-to'} needs --comment TEXT\n")
+        return 2
+    if {"--finish", "--reopen-review"} <= flags:
+        sink.write("--finish and --reopen-review ask for opposite things; pick one\n")
+        return 2
+    judgment = [
+        flag
+        for flag, used in (
+            ("--mark", bool(marks)),
+            ("--comment", comment_body is not None),
+            ("--finish", "--finish" in flags),
+            ("--reopen-review", "--reopen-review" in flags),
+        )
+        if used
+    ]
+    agent_host = agent_session_host() if judgment else ""
+    if agent_host:
+        # These record *human* review judgment; from the coding agent's own shell they would let the agent
+        # approve or comment as the reviewer. Capture, status and --feedback stay available to agents.
+        sink.write(
+            f"{', '.join(judgment)} {'records' if len(judgment) == 1 else 'record'} human review judgments and "
+            f"cannot run inside an agent session ({agent_host}). Use the Review Reader or your own terminal.\n"
+        )
+        return 2
+    wants_state = bool(marks or comment_body is not None or flags & _STATE_FLAGS or "--reopen-review" in flags)
+    if open_browser is None:
+        # A script or a terminal action reads the terminal; only a plain capture opens the Reader by default.
+        open_browser = not (as_json or wants_state)
+
     try:
-        config = load_config(product="review")
+        repo_root = values.get("--repo-root")
+        config = load_config(product="review", cwd=Path(repo_root).expanduser() if repo_root else None)
         if config.hosted and not config.authenticated:
             raise ClientError(
                 ErrorCode.UNAUTHENTICATED,
@@ -977,14 +1118,58 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         rng = resolve_review_range(
             config.repo_root,
             rev,
-            base=base,
-            head=head,
-            staged=staged,
-            working_tree=working_tree,
+            base=values.get("--base"),
+            head=values.get("--head"),
+            staged="--staged" in flags,
+            working_tree="--working-tree" in flags,
         )
         if not as_json:
             sink.write(f"Review scope  {_review_scope_label(rng)}\n")
-        response, url = _capture(config, rng, with_impact=with_impact, restore_archived=restore_archived, title=title)
+        response, url = _capture(
+            config,
+            rng,
+            with_impact="--no-impact" not in flags,
+            restore_archived="--reopen-review" in flags,
+            title=title,
+            # A person's `lc review` (never a hook, watch or agent capture) asks for the workspace reach.
+            with_workspace=True,
+        )
+        from .review_terminal import TerminalError, session_request, terminal_state
+
+        review_value = response.get("review")
+        review_id = str((review_value if isinstance(review_value, dict) else {}).get("id") or "")
+        revision_value = response.get("revision")
+        number = (revision_value if isinstance(revision_value, dict) else {}).get("revision_number")
+        if not review_id or not isinstance(number, int):
+            raise ClientError(ErrorCode.REVIEW_UNKNOWN, "server captured Review without an id or Revision")
+        request = session_request(config)
+        # A capture is a running draft until published. `lc review` names the Revision the person reads
+        # and judges, so publish it, exactly as the full CLI publishes every tracked capture.
+        request("POST", f"/api/reviews/{quote(review_id, safe='')}/revisions/{number}/publish", {})
+        state: dict[str, object] | None = None
+        if wants_state:
+            try:
+                state = terminal_state(
+                    request,
+                    review_id,
+                    mark_targets=tuple(marks),
+                    mark_state=mark_state,
+                    show_units="--units" in flags,
+                    show_marks="--marks" in flags,
+                    comment_body=comment_body,
+                    comment_target=comment_target,
+                    comment_kind=comment_kind,
+                    reply_to=reply_to,
+                    show_comments="--comments" in flags,
+                    since_my_review="--since-my-review" in flags,
+                    send_feedback="--feedback" in flags,
+                    finish_review="--finish" in flags,
+                    reopen_review="--reopen-review" in flags,
+                    warn=lambda message: sink.write(message + "\n"),
+                )
+            except TerminalError as exc:
+                sink.write(f"{exc}\n")
+                return 1
     except ClientError as exc:
         sink.write(f"{exc.server_code}: {exc.message}\n")
         return 1
@@ -992,8 +1177,20 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
     if as_json:
         import json
 
-        sink.write(json.dumps({"review_url": url, **response}, sort_keys=True) + "\n")
+        document: dict[str, object] = {"review_url": url, **response}
+        if state is not None:
+            document["state"] = state
+        sink.write(json.dumps(document, sort_keys=True) + "\n")
     else:
+        if state is not None:
+            from .review_terminal import render_state
+
+            sink.write(render_state(state).lstrip("\n") + "\n")
+        else:
+            revision_value = response.get("revision")
+            number = (revision_value if isinstance(revision_value, dict) else {}).get("revision_number")
+            if isinstance(number, int):
+                sink.write(f"Revision {number + 1} ready for reading\n")
         sink.write(f"Review  {url}\n")
         review_value = response.get("review")
         review_row = review_value if isinstance(review_value, dict) else {}
@@ -1001,7 +1198,7 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         # A hosted server titles only a Review its capture creates; a local one
         # keeps the title as this Snapshot's author title (``auto_title``).
         if title and title not in {kept, str(review_row.get("auto_title") or "")}:
-            sink.write(f'--title was not applied; the Review this Snapshot joined keeps the title "{kept}"\n')
+            sink.write(f'--title was not applied; the Review this revision joined keeps the title "{kept}"\n')
         if getattr(sink, "isatty", lambda: False)():
             from .review_engine import model_route_hint
 
@@ -1009,29 +1206,81 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             if hint:
                 sink.write(hint + "\n")
     if open_browser:
-        _arm_local_browser(config, url)
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+        armed = _arm_local_browser(config, url)
+        if not launch_browser_url(url):
+            sink.flush()  # the hint follows the Review link, also when stdout is a pipe
+            sys.stderr.write(open_by_hand(url, armed) + "\n")
     return 0
 
 
-def _arm_local_browser(config: ClientConfig, url: str) -> None:
-    """Arm the local server's browser pairing for *url* (best effort).
+def _status_main(arguments: list[str], sink: TextIO) -> int:
+    """``lc review status [--json] [--repo-root DIR] [--review REF]``; exit codes in ``review_terminal``."""
+
+    from .review_terminal import EXIT_ERROR, STATUS_EXIT_CODES_HELP, status_main
+
+    as_json = False
+    repo_root = ""
+    review_ref = ""
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        name, has_inline, inline = argument.partition("=")
+        if argument in {"-h", "--help"}:
+            sink.write(_STATUS_HELP + STATUS_EXIT_CODES_HELP + "\n")
+            return 0
+        if argument == "--json":
+            as_json = True
+        elif name in {"--repo-root", "--review"}:
+            if not has_inline:
+                index += 1
+                if index >= len(arguments):
+                    sink.write(f"{name} requires a value\n")
+                    return EXIT_ERROR
+            value = inline if has_inline else arguments[index]
+            if name == "--repo-root":
+                repo_root = value
+            else:
+                review_ref = value
+        else:
+            sink.write(f"unknown status option: {argument}\nRun `lc review status --help`.\n")
+            return EXIT_ERROR
+        index += 1
+    try:
+        config = load_config(product="review", cwd=Path(repo_root).expanduser() if repo_root else None)
+    except (ClientError, ValueError) as exc:
+        sink.write(f"{getattr(exc, 'message', exc)}\n")
+        return EXIT_ERROR
+    return status_main(config, review_ref=review_ref, as_json=as_json, write=lambda text: sink.write(text + "\n"))
+
+
+_STATUS_HELP: Final[str] = (
+    "Usage: lc review status [--json] [--repo-root DIR] [--review REF]\n"
+    "\n"
+    "Report this repository's current Review: Revision, parts reviewed, comments still\n"
+    "unresolved, feedback not yet sent, whether it is ready, and the Reader URL. Captures nothing.\n"
+    "\n"
+    "  --json            one JSON document on standard output (the same exit codes)\n"
+    "  --repo-root DIR   the repository (default: the current one)\n"
+    "  --review REF      a Review by reference (r/...) instead of this checkout's current one\n"
+    "\n"
+)
+
+
+def _arm_local_browser(config: ClientConfig, url: str) -> Mapping[str, Any] | None:
+    """Arm the local server's browser pairing for *url* (best effort); the server's reply.
 
     The local Reader mints its browser capability only inside this short
     CLI-armed window; without it the page asks the user to reconnect.
     """
     if config.hosted or not config.token:
-        return
+        return None
     from urllib.parse import urlsplit
 
     try:
         remote = ReviewSession(config)
         try:
-            remote.pair_local_review_browser(urlsplit(url).path or "/", timeout_s=2.0)
+            return remote.pair_local_review_browser(urlsplit(url).path or "/", timeout_s=2.0)
         finally:
             remote.close()
     except (ClientError, OSError, ValueError):
-        return
+        return None

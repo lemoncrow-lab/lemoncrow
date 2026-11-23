@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Hexagon } from "lucide-react";
 import {
   ApiError,
@@ -45,15 +46,15 @@ function hostTag(agentId: string): string {
   if (raw.includes("copilot")) return "copilot";
   if (raw.includes("codex")) return "codex";
   if (raw.includes("gemini")) return "gemini";
-  if (raw.includes("lemoncode")) return "lemoncode";
   if (raw.includes("opencode")) return "opencode";
   if (raw.startsWith("lc") || raw.includes("claude")) return "claude";
   return raw;
 }
 
+/** Only an absolute http(s) URL is a link; a relative ref would resolve to a page that does not exist. */
 function safeHref(ref: string): string | null {
   try {
-    const url = new URL(ref, window.location.origin);
+    const url = new URL(ref);
     if (url.protocol === "http:" || url.protocol === "https:") {
       return url.href;
     }
@@ -61,6 +62,45 @@ function safeHref(ref: string): string | null {
     return null;
   }
   return null;
+}
+
+// Where each cross-vendor fact was read from (cross_vendor_memory/*_adapter.py source kinds).
+const FACT_SOURCE: Record<string, string> = {
+  "claude-md-global": "Global CLAUDE.md",
+  "claude-md": "Project CLAUDE.md",
+  "auto-memory": "Claude auto memory (MEMORY.md)",
+  "codex-mem": "Codex memories",
+  "gemini-md-global": "Global GEMINI.md",
+  "gemini-md-project": "Project GEMINI.md",
+  "gemini-md-subdir": "Folder GEMINI.md",
+};
+
+export function factSourceLabel(kind: string): string {
+  return FACT_SOURCE[kind] ?? kind;
+}
+
+/** A recalled passage's origin: a trace opens its session; a web URL opens in a new tab. */
+function PassageSource({ source, sourceRef }: { source?: string; sourceRef: string }) {
+  const href = sourceRef ? safeHref(sourceRef) : null;
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className="text-body text-foreground underline">
+        Source
+      </a>
+    );
+  }
+  if (source === "trace" && sourceRef) {
+    return (
+      <Link to={`/activity/${encodeURIComponent(sourceRef)}`} className="text-body text-foreground underline">
+        Open the session
+      </Link>
+    );
+  }
+  return sourceRef ? (
+    <span className="break-all font-mono text-caption text-muted-foreground">{sourceRef}</span>
+  ) : (
+    <span className="text-body text-muted-foreground">No source</span>
+  );
 }
 
 function dedupeById<T extends { id: string }>(items: T[]): T[] {
@@ -116,7 +156,6 @@ export default function Memory() {
     gemini: "text-cyan-300",
     copilot: "text-muted-foreground",
     opencode: "text-cyan-300",
-    lemoncode: "text-amber-300",
   };
 
   useEffect(() => {
@@ -304,7 +343,7 @@ export default function Memory() {
         variant="underline"
         size="sm"
         options={[
-          { value: "cross-vendor", label: "Cross-vendor" },
+          { value: "cross-vendor", label: "From your agents" },
           { value: "knowledge", label: "Lessons" },
         ]}
         value={tab}
@@ -318,13 +357,13 @@ export default function Memory() {
         <div className="space-y-4">
           {factsErr && <Alert tone="destructive" description={factsErr} />}
           {facts === null && !factsErr && (
-            <EmptyState title="Loading cross-vendor memory…" className="p-6" />
+            <EmptyState title="Reading your agents' memory…" className="p-6" />
           )}
           {facts !== null && facts.length === 0 && (
             <EmptyState
               icon={<Hexagon size={20} />}
-              title="No cross-vendor facts yet"
-              description="Facts are shared across vendors after they are written to the memory registry."
+              title="Nothing read from your agents yet"
+              description="LemonCrow reads the memory files your coding agents keep (CLAUDE.md and Claude's auto memory, Codex memories, GEMINI.md) and lists what they say here."
             />
           )}
           {Object.entries(factsByVendor).map(([vendor, vfacts]) => (
@@ -339,17 +378,14 @@ export default function Memory() {
               </div>
               <ul className="divide-y divide-border">
                 {vfacts.map((f) => (
-                  <li key={f.fact_id} className="px-4 py-3 text-body">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-foreground">{f.source_kind}</p>
-                        <p className="mt-0.5 text-muted-foreground">{f.content}</p>
-                        {f.source_path && (
-                          <p className="mt-0.5 font-mono text-muted-foreground">{f.source_path}{f.line_number != null ? `:${f.line_number}` : ""}</p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-muted-foreground">{f.fact_id.slice(0, 8)}</span>
-                    </div>
+                  <li key={f.fact_id} className="px-4 py-3 text-body" title={`Fact ${f.fact_id}`}>
+                    <p className="font-semibold text-foreground" title={f.source_kind}>
+                      {factSourceLabel(f.source_kind)}
+                    </p>
+                    <p className="mt-0.5 text-muted-foreground">{f.content}</p>
+                    {f.source_path && (
+                      <p className="mt-0.5 break-all font-mono text-muted-foreground">{f.source_path}{f.line_number != null ? `:${f.line_number}` : ""}</p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -560,21 +596,7 @@ export default function Memory() {
                         {passage.text}
                       </p>
                       <div className="mt-1">
-                        {passage.source_ref &&
-                        safeHref(passage.source_ref) ? (
-                          <a
-                            href={safeHref(passage.source_ref) ?? undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-body text-amber-300 underline"
-                          >
-                            Source
-                          </a>
-                        ) : (
-                          <span className="text-body text-muted-foreground">
-                            No source
-                          </span>
-                        )}
+                        <PassageSource source={passage.source} sourceRef={passage.source_ref} />
                       </div>
                     </li>
                   ))}

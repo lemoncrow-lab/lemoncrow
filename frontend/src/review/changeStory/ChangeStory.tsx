@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ExternalLink, Footprints, Loader2, ScanSearch, X } from "lucide-react";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ToggleGroup } from "../../components/ui/toggle-group";
-import ReviewMapCanvas from "../ReviewMapCanvas";
+import MapCanvas from "../../map/MapCanvas";
 import { buildMapModel } from "../reviewMapModel";
 import type { Annotation, ReviewArchitectureDelta, ReviewMapGraph, ReviewMapSelection, ReviewTarget } from "../types";
-import XRay from "../xray/XRay";
-import { decodeXRayLocation, encodeXRayLocation, graphSnapshot, type XRay as XRayModel, type XRayLocation, type XRayStep } from "../xray/xrayModel";
 import {
   DEFAULT_MAX_CHANGED,
   buildChangeStory,
@@ -17,6 +15,7 @@ import {
   type ChangeStoryStep,
   type StoryReveal,
 } from "./changeStoryModel";
+import { judgedParts } from "../vocabulary";
 import "./changeStory.css";
 
 export interface ChangeStoryEvidence {
@@ -29,25 +28,22 @@ export interface ChangeStoryProps {
   flow?: ReviewArchitectureDelta["flow"] | null;
   /** Recorded checks on the whole Snapshot; shown apart from the steps, never attached to one. */
   snapshotChecks?: readonly { name: string; status: string; detail?: string }[] | null;
-  /** Review targets already in hand (the Brief); otherwise `loadEvidence` supplies them. */
+  /** Review targets already in hand; otherwise `loadEvidence` supplies them. */
   targets?: readonly ReviewTarget[] | null;
   /** Local Review reads only (findings, targets); never a model or external call. */
   loadEvidence?: () => Promise<ChangeStoryEvidence>;
   /** The step to open on (a node id); follows Back/Forward when the host keeps it in the URL. */
   stepNodeId?: string;
   onStepChange?(nodeId: string): void;
-  /** The open Behavioral X-Ray (`side~snapshot~node`), when the host keeps it in the URL; "" while closed. */
-  xray?: string;
-  onXRayChange?(value: string): void;
   /** Jumps to Snapshot source through the host's own source navigation. */
   onOpenSource(selection: ReviewMapSelection): void;
+  /** Opens the X-Ray rooted on a step's file; absent means no X-Ray control. */
+  onOpenXRay?(nodeId: string): void;
   /** Set when a newer Snapshot exists: this walkthrough is then the older path, and says so. */
   stale?: string;
+  /** The Walkthrough's Steps / On the map switch; when given it replaces the close button (Escape still closes). */
+  viewSwitch?: ReactNode;
   onClose(): void;
-  /** N04: challenge an X-Ray step; passed through to the X-Ray, absent means no Challenge control. */
-  onChallengeStep?(step: XRayStep, xray: XRayModel): void;
-  /** Opens the recorded run behind an X-Ray trace; absent means the trace stays text. */
-  onOpenEvidence?(selection: ReviewMapSelection): void;
 }
 
 type LoadState = "idle" | "loading" | "loaded" | "failed";
@@ -71,7 +67,7 @@ function plural(count: number, one: string, many = one + "s"): string {
 }
 
 /**
- * Change Story: the changed path played one step at a time on the Review Map's
+ * The Walkthrough on the map (formerly the Change Story): the changed path played one step at a time on the Review Map's
  * own canvas. Each step names its source location, change kind and exactness,
  * and shows findings, checks and receipts only where the Review data links
  * them to that file or relationship. Snapshot-exact and observed links move;
@@ -85,13 +81,11 @@ export default function ChangeStory({
   loadEvidence,
   stepNodeId,
   onStepChange,
-  xray: xrayValue,
-  onXRayChange,
   onOpenSource,
+  onOpenXRay,
   stale,
+  viewSwitch,
   onClose,
-  onChallengeStep,
-  onOpenEvidence,
 }: ChangeStoryProps) {
   const rootRef = useRef<HTMLElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -144,42 +138,22 @@ export default function ChangeStory({
     if (stepNode) onStepChangeRef.current?.(stepNode);
   }, [stepNode]);
 
-  // The Behavioral X-Ray replaces the stage while open; the host may keep it in its URL.
-  const [localXRay, setLocalXRay] = useState("");
-  const xray = decodeXRayLocation(xrayValue ?? localXRay);
-  const onXRayChangeRef = useRef(onXRayChange);
-  onXRayChangeRef.current = onXRayChange;
-  const controlled = xrayValue !== undefined;
-  const setXRay = useCallback((next: XRayLocation | null) => {
-    const value = next ? encodeXRayLocation(next) : "";
-    onXRayChangeRef.current?.(value);
-    if (!controlled) setLocalXRay(value);
-  }, [controlled]);
-  const snapshot = useMemo(() => graphSnapshot(graph), [graph]);
-  const openXRay = useCallback((nodeId: string) => {
-    const node = graph.nodes.find((item) => item.id === nodeId);
-    const removed = node?.delta_status === "removed";
-    setXRay({ side: removed ? "before" : "after", snapshot, rootId: nodeId });
-  }, [graph.nodes, setXRay, snapshot]);
-
   const go = useCallback((next: number) => {
-    const at = Math.max(0, Math.min(steps.length - 1, next));
-    setIndex(at);
-    // An open X-Ray follows the walkthrough to the new step.
-    const nodeId = steps[at]?.nodeId;
-    if (xray && nodeId && nodeId !== xray.rootId) setXRay({ ...xray, rootId: nodeId });
-  }, [setXRay, steps, xray]);
+    setIndex(Math.max(0, Math.min(steps.length - 1, next)));
+  }, [steps.length]);
 
   const stage = useMemo(() => storyStage(story, graph, current, reveal), [current, graph, reveal, story]);
+  // The cards walk the change: a file's "0/4 marked" progress is the Map's business, not a step's.
+  const stageGraph = useMemo(() => ({ ...stage.graph, nodes: stage.graph.nodes.map((node) => (node.review ? { ...node, review: null } : node)) }), [stage.graph]);
   const model = useMemo(
-    () => buildMapModel({ level: graph.level, graph: stage.graph, context: { source: "snapshot" } }, {
+    () => buildMapModel({ level: graph.level, graph: stageGraph, context: { source: "snapshot" } }, {
       width,
       linkMode: "all",
       hideTests: false,
       expanded,
       chapters: stage.chapters,
     }),
-    [expanded, graph.level, stage, width],
+    [expanded, graph.level, stage.chapters, stageGraph, width],
   );
   const via = step?.via ?? null;
   const viaDrawn = Boolean(via && model.edges.some((edge) => edge.id === via.edgeId));
@@ -222,9 +196,7 @@ export default function ChangeStory({
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      // Escape steps out of the X-Ray first, then out of the story.
-      if (xray) setXRay(null);
-      else onClose();
+      onClose();
     }
   };
 
@@ -235,7 +207,7 @@ export default function ChangeStory({
     <section
       ref={rootRef}
       tabIndex={-1}
-      aria-label="Change Story"
+      aria-label="Walkthrough on the map"
       data-testid="change-story"
       onKeyDownCapture={onKeyDownCapture}
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background outline-none"
@@ -243,13 +215,11 @@ export default function ChangeStory({
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/80 px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <Footprints size={16} aria-hidden="true" className="shrink-0 text-subtle" />
-          <div className="min-w-0">
-            <h2 className="text-heading font-semibold text-foreground">Walk through the change</h2>
-            <p className="truncate text-label text-muted-foreground" data-testid="change-story-order">{story.orderNote}</p>
-          </div>
+          <h2 className="text-heading font-semibold text-foreground">Walkthrough</h2>
+          {viewSwitch}
         </div>
         <ToggleGroup
-          aria-label="What the story shows"
+          aria-label="What the map shows"
           options={REVEAL_OPTIONS}
           value={reveal}
           onChange={(value) => setReveal(value === "path" || value === "all" ? value : "neighbors")}
@@ -265,9 +235,11 @@ export default function ChangeStory({
           <Button variant="outline" size="xs" onClick={() => go(current + 1)} disabled={current >= steps.length - 1} aria-keyshortcuts="ArrowRight">
             Next<ArrowRight size={14} aria-hidden="true" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close the Change Story" aria-keyshortcuts="Escape">
-            <X size={14} />
-          </Button>
+          {viewSwitch ? null : (
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close the map" aria-keyshortcuts="Escape">
+              <X size={14} />
+            </Button>
+          )}
         </div>
       </header>
 
@@ -279,29 +251,10 @@ export default function ChangeStory({
 
       {!step ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-label text-muted-foreground">
-          This Snapshot records no changed file to walk through.
+          This revision records no changed file to walk through.
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          {xray ? (
-            <div className="relative min-h-64 min-w-0 flex-1" data-testid="change-story-xray">
-              <XRay
-                graph={graph}
-                flow={flow}
-                targets={targets}
-                rootId={xray.rootId}
-                side={xray.side}
-                walkSnapshot={xray.snapshot}
-                onSideChange={(side) => setXRay({ ...xray, side })}
-                onRootChange={(rootId) => setXRay({ ...xray, rootId })}
-                onRebuild={() => setXRay({ ...xray, snapshot })}
-                onOpenSource={onOpenSource}
-                onClose={() => setXRay(null)}
-                onChallenge={onChallengeStep}
-                onOpenEvidence={onOpenEvidence}
-              />
-            </div>
-          ) : (
           <div
             ref={stageRef}
             className="cs-stage relative min-h-64 min-w-0 flex-1"
@@ -309,7 +262,7 @@ export default function ChangeStory({
             data-testid="change-story-stage"
           >
             <style>{`.cs-stage .rm-card[data-node-id="${attributeValue(step.nodeId)}"]{border-color:rgb(var(--foreground) / .7);background:rgb(var(--accent));}`}</style>
-            <ReviewMapCanvas
+            <MapCanvas
               model={model}
               selectedId={viaDrawn ? null : step.nodeId}
               selectedEdgeId={viaDrawn && via ? via.edgeId : null}
@@ -319,7 +272,7 @@ export default function ChangeStory({
               onOpenSymbol={() => undefined}
               onToggleGroup={toggleGroup}
               onWidth={setWidth}
-              ariaLabel="Change Story map"
+              ariaLabel="Walkthrough map"
             />
             {via && (
               <p className="cs-legend" data-testid="change-story-link-legend">
@@ -337,7 +290,6 @@ export default function ChangeStory({
               </p>
             )}
           </div>
-          )}
 
           <aside className="flex max-h-[45%] w-full shrink-0 flex-col overflow-y-auto border-t border-border/80 lg:max-h-none lg:w-96 lg:border-l lg:border-t-0" aria-label="Current step">
             <StepCard
@@ -348,8 +300,7 @@ export default function ChangeStory({
               findingsKnown={story.findingsKnown}
               targetsKnown={story.targetsKnown || Boolean(givenTargets)}
               onOpenSource={onOpenSource}
-              xrayOpen={xray?.rootId === step.nodeId}
-              onXRay={() => openXRay(step.nodeId)}
+              onXRay={onOpenXRay ? () => onOpenXRay(step.nodeId) : undefined}
             />
 
             <section className="border-t border-border/70 px-4 py-3" aria-label="All steps">
@@ -380,10 +331,15 @@ export default function ChangeStory({
               )}
             </section>
 
-            <section className="border-t border-border/70 px-4 py-3 text-caption" aria-label="Checks on this Snapshot" data-testid="change-story-snapshot-checks">
-              <h3 className="text-micro uppercase tracking-wide text-muted-foreground">Checks on this Snapshot · not tied to a step</h3>
+            <section className="border-t border-border/70 px-4 py-3 text-caption" aria-label="Checks on this revision" data-testid="change-story-snapshot-checks">
+              <h3 className="text-micro uppercase tracking-wide text-muted-foreground">Checks on this revision · not tied to a step</h3>
               {checks === null ? (
-                <p className="mt-1.5 text-muted-foreground">Snapshot checks are not available here, so none are shown. That is not a pass.</p>
+                <p className="mt-1.5 text-muted-foreground">Revision checks are not available here, so none are shown. That is not a pass.</p>
+              ) : checks.length && checks.every((check) => check.status !== "PASS" && check.status !== "FAIL") ? (
+                // Nothing ran: one line naming them, not a "did not run" row per check.
+                <p className="mt-1.5 text-amber-300/90" data-testid="change-story-none-ran">
+                  {`No check ran on this revision (${checks.map((check) => check.name).join(", ")}). That is not a pass.`}
+                </p>
               ) : checks.length ? (
                 <ul className="mt-1.5 flex flex-col gap-0.5">
                   {checks.map((check) => (
@@ -394,7 +350,7 @@ export default function ChangeStory({
                   ))}
                 </ul>
               ) : (
-                <p className="mt-1.5 text-amber-300/90">No checks recorded for this Snapshot. Nothing here is verified by a recorded run.</p>
+                <p className="mt-1.5 text-amber-300/90">No checks recorded for this revision. Nothing here is verified by a recorded run.</p>
               )}
             </section>
           </aside>
@@ -411,7 +367,6 @@ function StepCard({
   findingsKnown,
   targetsKnown,
   onOpenSource,
-  xrayOpen,
   onXRay,
 }: {
   step: ChangeStoryStep;
@@ -420,8 +375,7 @@ function StepCard({
   findingsKnown: boolean;
   targetsKnown: boolean;
   onOpenSource(selection: ReviewMapSelection): void;
-  xrayOpen: boolean;
-  onXRay(): void;
+  onXRay?(): void;
 }) {
   const { evidence, via } = step;
   const checks = evidence.checks;
@@ -446,23 +400,24 @@ function StepCard({
             variant="outline"
             size="xs"
             disabled={!step.canOpenSource}
-            tooltip={step.canOpenSource ? "" : "Only Snapshot source opens from here; this file is context from the current index."}
+            tooltip={step.canOpenSource ? "" : "Only revision source opens from here; this file is context from the current index."}
             onClick={() => onOpenSource(step.selection)}
             icon={<ExternalLink size={14} />}
           >
             Open source
           </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="ml-1.5"
-            disabled={xrayOpen}
-            tooltip="What this file calls, what reaches it, and where it meets storage or another service, before and after"
-            onClick={onXRay}
-            icon={<ScanSearch size={14} />}
-          >
-            X-Ray this step
-          </Button>
+          {onXRay && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="ml-1.5"
+              tooltip="What this file calls, what reaches it, and where it meets storage or another service, before and after"
+              onClick={onXRay}
+              icon={<ScanSearch size={14} />}
+            >
+              X-Ray this step
+            </Button>
+          )}
         </div>
       </div>
 
@@ -480,7 +435,7 @@ function StepCard({
       )}
 
       <div className="flex flex-col gap-1 text-caption" data-testid="change-story-findings">
-        <h4 className="text-micro uppercase tracking-wide text-muted-foreground">P0 / P1 findings</h4>
+        <h4 className="text-micro uppercase tracking-wide text-muted-foreground">Serious findings</h4>
         {loadState === "loading" ? (
           <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 size={14} className="animate-spin" aria-hidden="true" />Loading findings…</span>
         ) : loadState === "failed" ? (
@@ -498,14 +453,14 @@ function StepCard({
             ))}
           </ul>
         ) : (
-          <span className="text-muted-foreground">No open P0 or P1 finding is anchored to this file.</span>
+          <span className="text-muted-foreground">No open serious finding is anchored to this file.</span>
         )}
       </div>
 
       <div className="flex flex-col gap-1 text-caption" data-testid="change-story-checks">
         <h4 className="text-micro uppercase tracking-wide text-muted-foreground">Checks linked to this step</h4>
         {checks ? (
-          <span className={checks.tone}>{`${checks.words.join(" · ")} · across ${plural(checks.targets, "review target")}`}</span>
+          <span className={checks.tone}>{`${checks.words.join(" · ")} · across ${plural(checks.targets, "part")}`}</span>
         ) : loadState === "loading" && !targetsKnown ? (
           <span className="text-muted-foreground">Loading…</span>
         ) : targetsKnown ? (
@@ -532,7 +487,7 @@ function StepCard({
         <div className="text-caption" data-testid="change-story-human">
           <span className={human.needed ? "text-amber-300/90" : "text-muted-foreground"}>
             {[
-              `Human review: ${human.reviewed} of ${plural(human.targets, "target")} reviewed`,
+              `Human review: ${judgedParts({ reviewed: human.reviewed, needs_changes: human.needsChanges })} of ${plural(human.targets, "part")} reviewed`,
               human.needsChanges ? `${human.needsChanges} need changes` : "",
               human.openThreads ? plural(human.openThreads, "open thread") : "",
               human.needed ? "still needed" : "",

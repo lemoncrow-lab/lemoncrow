@@ -291,7 +291,7 @@ def compare(
             semantic.append(f"Contract scope changed: '{key}' {'added' if key in after else 'removed'}")
         elif after[key] == UNAVAILABLE:
             # Never "current": nothing shows the contract is what was accepted.
-            unavailable.append(f"Contract '{key}' could not be analyzed on this Snapshot")
+            unavailable.append(f"Contract '{key}' could not be analyzed on this revision")
         elif before[key] == UNAVAILABLE:
             unavailable.append(f"{UNANALYZED_AT_ACCEPTANCE}: contract '{key}'; reconfirm to record it")
         elif before[key] != after[key]:
@@ -328,7 +328,7 @@ def compare(
     else:
         for key in sorted(after):
             if after[key] == UNAVAILABLE:
-                unavailable.append(f"Content identity of {key} is unavailable on this Snapshot")
+                unavailable.append(f"Content identity of {key} is unavailable on this revision")
             elif before[key] == UNAVAILABLE:
                 unavailable.append(f"{UNANALYZED_AT_ACCEPTANCE}: {key}; reconfirm to record it")
             elif before[key] != after[key]:

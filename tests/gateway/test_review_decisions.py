@@ -126,7 +126,7 @@ def test_decision_event_rejects_stale_prior_and_stale_snapshot(tmp_path: Path) -
     (repo / "src/store.py").write_text("def prune():\n    return [2]\n", encoding="utf-8")
     _, _, newer = _capture(store_root, repo)
     assert newer.id != revision.id
-    with pytest.raises(ValueError, match="Snapshot"):
+    with pytest.raises(ValueError, match="Revision"):
         store.append_decision_event(_event(session, revision, "reopen", "open"), expected_prior_event_id=first.id)
     assert [event.id for event in store.list_decision_events(session.id)] == [first.id]
 
@@ -328,7 +328,7 @@ def test_decision_check_lifecycle_contract() -> None:
     "case: test_unanalyzed_inputs_are_never_current"
     unanalyzed = _scope(contracts=(("src/store.py::prune", UNAVAILABLE),))
     validity, inputs = _judge(unanalyzed, _impl(), then=unanalyzed, then_impl=_impl())
-    assert validity == "unverified" and "could not be analyzed on this Snapshot" in inputs[0]
+    assert validity == "unverified" and "could not be analyzed on this revision" in inputs[0]
     validity, inputs = _judge(_scope(), _impl(), then=unanalyzed, then_impl=_impl())
     assert validity == "unverified" and "when it was accepted" in inputs[0]
     body = _impl(**{"sym:src/store.py:prune": UNAVAILABLE})

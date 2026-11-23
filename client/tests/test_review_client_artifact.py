@@ -43,8 +43,12 @@ _ABSENT_ON_PURPOSE: dict[str, str] = {
     "review_hooks": "hosted agent-checkpoint `lc review hook after-edit`",
     "review_device_connect": "hosted `lc review connect`",
     "review_companion_cli": "hosted `lc review pending|device|task`",
-    "workspace_cli": "Runtime: `lc workspace` says it is part of LemonCrow Runtime first",
+    "workspace_cli": "Runtime: `lc workspace` hands off to the installed Runtime client, or names the add command",
     "workspace_members": "Runtime Lite: `lc runtime index`, beside lite/index",
+    "trace": "Runtime: the Review client hands `lc runtime search-stats` to the Runtime client",
+    "verify": "Workspaces: `lc verify` says it is part of Workspaces and names the add command",
+    "task": "Workspaces: `lc task` says it is part of Workspaces and names the add command",
+    "task_server": "Workspaces: auth_cli names a sign-in's Workspaces servers only when it is present",
 }
 
 
@@ -172,6 +176,10 @@ def test_the_shipped_files_import_on_their_own(shipped_tree: Path, tmp_path: Pat
         (["review", "--help"], 0),
         (["status"], 0),
         (["review", "--bogus"], 2),
+        # The scriptable loop ships: status parses here, and a usage error is exit 3 (2 means "no Review").
+        (["review", "status", "--help"], 0),
+        (["review", "status", "--bogus"], 3),
+        (["review", "--comment", "why?"], 2),
         # Hosted machine-companion commands are not in this wheel: a sentence and 2, never a traceback.
         (["review", "watch"], 2),
         (["review", "connect"], 2),
@@ -234,3 +242,30 @@ def test_a_review_capture_with_no_server_is_a_message_not_a_traceback(shipped_tr
         check=False,
     )
     assert "Traceback" not in done.stderr + done.stdout, done.stderr
+
+
+def test_review_status_with_no_server_is_exit_3_not_a_traceback(shipped_tree: Path, tmp_path: Path) -> None:
+    """``lc review status`` reaches the Reader transport from the shipped files alone."""
+
+    program = (
+        f"import sys\nsys.path.insert(0, {str(shipped_tree)!r})\n"
+        "from lemoncrow_client.cli import main\nraise SystemExit(main(['review', 'status', '--json']))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", program],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={
+            "HOME": str(tmp_path),
+            "LEMONCROW_HOME": str(tmp_path / ".lemoncrow"),
+            "LEMONCROW_URL": "http://127.0.0.1:9",
+            "LEMONCROW_INSTALL_MODE": "local",
+            "LEMONCROW_NO_LAZY_INSTALL": "1",
+        },
+        timeout=120,
+        check=False,
+    )
+    assert "Traceback" not in done.stderr + done.stdout, done.stderr
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert '"state": "error"' in done.stdout

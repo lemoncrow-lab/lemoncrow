@@ -94,7 +94,7 @@ export default function ServiceReviewPreview({
       </div>
       {!executable && (
         <div className="mb-3 text-caption leading-4 text-amber-300/70">
-          Execution needs a Snapshot-pinned runtime. Service metadata remains reviewable.
+          Execution needs a revision-pinned runtime. Service metadata remains reviewable.
         </div>
       )}
       {run?.error && (

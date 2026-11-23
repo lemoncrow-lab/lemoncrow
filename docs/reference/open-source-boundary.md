@@ -1,23 +1,27 @@
 # Open-source boundary
 
 This repository is the open-source (Apache-2.0) part of LemonCrow. It is a
-complete local product on its own. A separate, private LemonCrow distribution
-adds advanced commercial code intelligence and hosted organization services;
-nothing in this repository requires it.
+complete local product on its own. Workspaces Lite, the local mode, is open
+source and needs no account and no server. A separate, private LemonCrow
+distribution adds advanced commercial code intelligence and hosted
+organization services; nothing in this repository requires it.
 
 ## What this repository owns
 
-- **Runtime Lite**: the local code index and search used by `lc with <host>`,
+- **Workspaces Lite**: the local code index and search used by `lc with <host>`,
   `lc rt enable <host>` and `lc runtime index`: SQLite/FTS lexical search,
   exact and basic symbol, import and relation lookup. It runs inside the
   agent's own stdio MCP process; no LemonCrow server, daemon or listener is
   involved. The opt-in remote MCP gateway (`lc runtime mcp serve`) is part of
-  the public client and runs Runtime Lite in its own process.
+  the public client and runs Workspaces Lite in its own process.
+- **Workspaces Lite agent tasks**: `lc verify` and the local `lc task` flow,
+  which gives each task its own worktree and lands it on `main` when the
+  checks pass. The client side of `lc task --server URL` is public too.
 - **Local Review and the basic Dashboard**: `lc review`, the optional local
   server and frontend. The local server carries Review and a read-only
   Dashboard (sessions, usage, savings, settings, system, and the deterministic
-  Code map over the Runtime Lite index, whose relationships are import-level);
-  it executes no Runtime tools.
+  Code map over the Workspaces Lite index, whose relationships are import-level);
+  it executes no Workspaces tools.
 - **Local execution primitives**: read, edit, shell, web fetch, source
   projection, ast-grep and zoekt adapters, git primitives, memory and
   verification.
@@ -40,7 +44,9 @@ nothing in this repository requires it.
   (knowledge, swarms, Code Ask, the editor launcher, precise references and
   module purposes).
 - Hosted organization, policy and service behaviour.
-- Hosted organization, policy and service behaviour.
+- The Workspaces server, which runs agent tasks in sandboxes and lands them
+  through Review. It is not a public download: LemonCrow offers it
+  within Enterprise.
 
 ## Behaviour without the private distribution
 
@@ -50,7 +56,7 @@ so explicitly instead of degrading silently:
 - public `lc code` is a Hosted client entry point; the OSS build contains no local paid/Pro execution mode;
 - the old `lc code --pro` compatibility mode is removed entirely;
 - guarded private-development commands fail with `Private code intelligence is not installed/available.` when the proprietary package is absent;
-- advanced model/embedding configuration is not a public Runtime Lite control.
+- advanced model/embedding configuration is not a public Workspaces Lite control.
 - The local server's semantic layer reports the state `unavailable`
   (`semantic_engine_unavailable`). Semantic queries return a degraded, empty
   answer and no semantic background work is queued.

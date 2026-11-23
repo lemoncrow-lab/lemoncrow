@@ -155,34 +155,6 @@ def test_opencode_delivery_queues_when_exact_session_is_active(monkeypatch: pyte
     assert "review feedback" in queued.message
 
 
-def test_lemoncode_delivery_queues_when_exact_session_is_active(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
-    from lemoncrow.pro.capabilities.review.session_inbox import claim_session_messages
-
-    store_root = tmp_path / "store"
-    monkeypatch.setenv("LEMONCROW_ROOT", str(store_root))
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/lemoncode" if name == "lemoncode" else None)
-    state_path = resolve_workspace_store_dir(workspace_root=tmp_path) / "session_state.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(
-        json.dumps({"host": "lemoncode", "session_id": SESSION, "activity": "active"}),
-        encoding="utf-8",
-    )
-
-    def forbidden_popen(*_args: object, **_kwargs: object):
-        raise AssertionError("active LemonCode delivery must not spawn a second process")
-
-    monkeypatch.setattr(subprocess, "Popen", forbidden_popen)
-    result = deliver_to_agent_session("lemoncode", SESSION, tmp_path, "review feedback")
-
-    assert result.state == "queued"
-    assert result.accepted is True
-    (queued,) = claim_session_messages(store_root, host="lemoncode", session_id=SESSION)
-    assert "review feedback" in queued.message
-
-
 def test_copilot_delivery_queues_into_exact_working_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
@@ -215,7 +187,6 @@ def test_copilot_delivery_queues_into_exact_working_session(monkeypatch: pytest.
     ("host", "expected"),
     (
         ("opencode", ["/usr/bin/opencode", "run", "--session"]),
-        ("lemoncode", ["/usr/bin/lemoncode", "run", "--session"]),
         ("copilot", ["/usr/bin/copilot", f"--resume={SESSION}"]),
     ),
 )
@@ -246,7 +217,7 @@ def test_generic_delivery_uses_exact_session_resume_flags(
     assert not {"--dangerously-skip-permissions", "--allow-all", "--auto"} & set(seen)
 
 
-@pytest.mark.parametrize("host", ("codex", "opencode", "lemoncode"))
+@pytest.mark.parametrize("host", ("codex", "opencode"))
 def test_delivery_never_disables_host_approvals_or_sandbox(
     host: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

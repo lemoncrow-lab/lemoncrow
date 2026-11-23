@@ -8,11 +8,14 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover";
 import type { CodeChanges } from "../api";
+import { hostLabel } from "../review/developmentLabels";
 import { sessionLabel } from "./codeModel";
 import type { ReviewScope } from "./CodeInspector";
 
 export interface CodeChangesMenuProps {
   changes: CodeChanges | null;
+  /** The last read of the worktree failed and nothing has been read since. */
+  failed?: boolean;
   marks: ReadonlyMap<string, string>;
   reviewBusy: boolean;
   reviewError: string | null;
@@ -28,6 +31,7 @@ export interface CodeChangesMenuProps {
  */
 export default function CodeChangesMenu({
   changes,
+  failed = false,
   marks,
   reviewBusy,
   reviewError,
@@ -50,7 +54,7 @@ export default function CodeChangesMenu({
           )}
           Changes{" "}
           <span className="tabular-nums text-muted-foreground">
-            {changes ? total : "…"}
+            {changes ? total : failed ? "" : "…"}
           </span>
           <ChevronDown size={14} />
         </UiButton>
@@ -60,7 +64,11 @@ export default function CodeChangesMenu({
         aria-label="Uncommitted changes"
         className="w-80 p-2 text-label"
       >
-        {!changes ? (
+        {!changes && failed ? (
+          <p className="p-2 text-muted-foreground">
+            Couldn't read this worktree's uncommitted changes. Trying again shortly.
+          </p>
+        ) : !changes ? (
           <p className="p-2 text-muted-foreground">Reading the worktree…</p>
         ) : total === 0 ? (
           <p className="p-2 text-muted-foreground">
@@ -86,7 +94,7 @@ export default function CodeChangesMenu({
                         onFilter(session.id);
                         setOpen(false);
                       }}
-                      title={`${session.host} · ${session.session_id}`}
+                      title={sessionLabel(session)}
                     >
                       {sessionLabel(session)}
                     </UiButton>
@@ -96,9 +104,9 @@ export default function CodeChangesMenu({
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">
-                      {session.host}
+                      {hostLabel(session.host)}
                       {session.shared_files.length
-                        ? ` · ${session.shared_files.length} shared`
+                        ? ` · ${session.shared_files.length} also edited by another session`
                         : ""}
                     </span>
                     {onReview && (
@@ -150,7 +158,7 @@ export default function CodeChangesMenu({
             </ul>
             <div className="mt-2 flex items-center gap-2 border-t border-border px-1 pt-2">
               <span className="min-w-0 flex-1 text-caption leading-4 text-muted-foreground">
-                A session is an author only where it recorded the edit.
+                Files are listed under each session that recorded editing them.
               </span>
               {onReview && (
                 <UiButton

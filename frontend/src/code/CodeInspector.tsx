@@ -205,8 +205,6 @@ export interface CodeInspectorProps {
   onFocusModule: (id: string) => void;
   /** Absent where Review capture from Code is not served (a local Dashboard). */
   onReview?: (scope: ReviewScope) => void;
-  /** Absent where Code Ask is not served. */
-  onAsk?: () => void;
   /** Precise references come from the private engine; a local Dashboard has none. */
   referencesAvailable?: boolean;
   /** Recorded re-edits of the selected file in the hotspot window. */
@@ -240,7 +238,6 @@ export default function CodeInspector({
   onSelectModule,
   onFocusModule,
   onReview,
-  onAsk,
   referencesAvailable = true,
   hotspot,
   hotspotDays = 7,
@@ -261,7 +258,7 @@ export default function CodeInspector({
   if (subject.kind === "module") {
     const module = subject.module;
     return (
-      <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:border-l xl:border-t-0" aria-label="Inspector">
+      <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:sticky xl:top-[82px] xl:h-[calc(100dvh-82px)] xl:self-start xl:border-l xl:border-t-0" aria-label="Inspector">
         <InspectorFacts glyph={<Folder size={14} className="text-cyan-200" />} kicker={module.package ? "package" : "module"} title={module.path || "(repository root)"} titleHint={module.path}>
           <div className="mt-1 text-caption text-muted-foreground">
             {module.files.toLocaleString()} files · {module.symbols.toLocaleString()} symbols
@@ -331,14 +328,13 @@ export default function CodeInspector({
       : "The index records nothing this uses.";
 
   return (
-    <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:border-l xl:border-t-0" aria-label="Inspector">
+    <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:sticky xl:top-[82px] xl:h-[calc(100dvh-82px)] xl:self-start xl:border-l xl:border-t-0" aria-label="Inspector">
       <InspectorFacts
         glyph={subject.kind === "file" ? <FileTypeIcon path={node.path} /> : <CircleDot size={14} className="text-cyan-200" />}
         kicker={`${subject.kind === "file" ? node.file_type || "file" : node.kind}${node.language ? ` · ${node.language}` : ""}`}
         title={subject.kind === "file" ? node.label : node.qualified_name || node.label}
         titleHint={subject.kind === "file" ? node.path : node.qualified_name || node.label}
         location={`${node.path}${subject.range ? `:${displayRange(subject.range)}` : ""}`}
-        headerAction={onAsk ? <UiButton type="button" size="xs" variant="ghost" onClick={onAsk} aria-label={`Ask about ${node.label}`}><Sparkles size={14} /> Ask</UiButton> : undefined}
       >
         {change && (
           <div className="mt-2 text-caption text-amber-200/90">

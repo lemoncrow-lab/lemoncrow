@@ -17,11 +17,12 @@ from types import SimpleNamespace
 import pygit2
 import pytest
 
-from lemoncrow.pro.capabilities.review import sandbox_limits, web_preview
+from lemoncrow.pro.capabilities.review import web_preview
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, record_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
+from lemoncrow.pro.environment import sandbox_limits
 
 
 def _revision(*, mode: str = "commit_range") -> SimpleNamespace:

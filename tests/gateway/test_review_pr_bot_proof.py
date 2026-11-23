@@ -108,7 +108,10 @@ def test_proof_of_work_lists_failed_running_did_not_pass_and_passed_for_the_head
 
 def test_a_refused_read_says_the_permission_and_an_unbacked_claim_is_flagged() -> None:
     refused = proof_of_work.unreadable(SHA, "Resource not accessible by integration (HTTP 403)")
-    assert proof_lines(refused)[2:] == ["- CI results not readable: the workflow needs `checks: read`"]
+    assert proof_lines(refused) == [], "the refusal is What was not checked's to say, not repeated here"
+    assert proof_lines(refused, claimed=True)[2:] == [
+        "- The description says tests pass; LemonCrow could not read CI on `abc1234` to back it."
+    ]
     pending = proof_of_work.from_api(
         SHA, {"check_runs": [run("test", status="queued", conclusion=None)]}, {"statuses": []}
     )
@@ -204,7 +207,7 @@ def test_the_bot_shows_ci_for_the_head_the_unbacked_claim_and_the_declared_autho
     assert "- Did not pass (skipped, cancelled or neutral): 1 · `lint` (cancelled)" in body
     assert f"- The description says tests pass; no completed passing run is reported on `{head}` yet." in body
     assert "author Codex (OpenAI, Co-authored-by trailer in 1 of 1 commits)" in body
-    assert body.index("Proof of work") < body.index("Independence:") < body.index("\n---\n")
+    assert body.index("Proof of work") < body.index("\n---\n") < body.index("<sub>Independence:")
     wire = report.to_wire()
     assert wire["proof_of_work"]["running"] == ["unit"] and wire["independence"]["authors"][0]["agent"] == "Codex"
     assert report.verdict is not None and wire["verdict"]["confidence"] == report.verdict.confidence
@@ -222,7 +225,7 @@ def test_a_budget_reached_summary_still_shows_ci_and_independence_for_the_new_he
     assert f"**Proof of work** · Reported by CI on `{head[:7]}`, not run by LemonCrow" in body
     assert "- Passed: 1 · `unit`" in body
     assert "author Codex (OpenAI, Co-authored-by trailer in 1 of 1 commits)" in body
-    assert body.index("Proof of work") < body.index("Independence:") < body.index("\n---\n")
+    assert body.index("Proof of work") < body.index("\n---\n") < body.index("<sub>Independence:")
 
 
 def test_every_page_of_check_runs_is_read_up_to_the_cap_and_the_rest_is_counted(world: World) -> None:
@@ -243,5 +246,6 @@ def test_a_token_without_checks_read_says_so_and_the_review_still_passes(world: 
     world.origin.push({"src/plain.py": "VALUE = 2\n"})
     report = world.review()
     body = world.github.summary_comments()[0]["body"]
-    assert "- CI results not readable: the workflow needs `checks: read`" in body
+    assert body.count("CI results not readable") == 1
+    assert "- Tests: CI results not readable: the workflow needs `checks: read`" in body
     assert report.exit_code == 0 and world.github.last_status()["state"] == "success"

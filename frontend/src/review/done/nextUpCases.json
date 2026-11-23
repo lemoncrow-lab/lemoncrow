@@ -1,0 +1,194 @@
+{
+ "comment": "Shared by frontend/src/review/done/nextUp.test.ts and tests/gateway/test_cli_review_verbs.py: Done's Next up and `lc review next` must agree on every case.",
+ "cases": [
+  {
+   "name": "fewest decisions, quickest to finish",
+   "candidates": [
+    {
+     "id": "big",
+     "states": [
+      "unreviewed",
+      "unreviewed",
+      "unreviewed"
+     ]
+    },
+    {
+     "id": "small",
+     "states": [
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "small",
+    "reason": "your turn · quickest to finish (1 decision)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "one of the quickest when not every review was compared",
+   "listed": 7,
+   "candidates": [
+    {
+     "id": "big",
+     "states": [
+      "unreviewed",
+      "unreviewed"
+     ]
+    },
+    {
+     "id": "small",
+     "states": [
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "small",
+    "reason": "your turn · one of the quickest to finish (1 decision)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "a lone candidate",
+   "candidates": [
+    {
+     "id": "only",
+     "states": [
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "only",
+    "reason": "your turn (1 decision)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "a tie keeps directory order",
+   "candidates": [
+    {
+     "id": "a",
+     "states": [
+      "unreviewed"
+     ]
+    },
+    {
+     "id": "b",
+     "states": [
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "a",
+    "reason": "your turn (1 decision)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "notes with the agent",
+   "candidates": [
+    {
+     "id": "waiting",
+     "states": [
+      "unreviewed"
+     ],
+     "feedback": {
+      "published": 1
+     }
+    }
+   ],
+   "expect": {
+    "id": "waiting",
+    "reason": "waiting on the coding agent",
+    "your_turn": false
+   }
+  },
+  {
+   "name": "nothing left to judge",
+   "candidates": [
+    {
+     "id": "done",
+     "states": [
+      "reviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "done",
+    "reason": "nothing left to judge",
+    "your_turn": false
+   }
+  },
+  {
+   "name": "prefers the review waiting on the reviewer",
+   "candidates": [
+    {
+     "id": "agent",
+     "states": [
+      "unreviewed"
+     ],
+     "feedback": {
+      "in_flight": 1
+     }
+    },
+    {
+     "id": "mine",
+     "states": [
+      "unreviewed",
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "mine",
+    "reason": "your turn (2 decisions)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "a snoozed review is not offered",
+   "candidates": [
+    {
+     "id": "snoozed",
+     "snoozed": true,
+     "states": [
+      "unreviewed"
+     ]
+    },
+    {
+     "id": "open",
+     "states": [
+      "unreviewed",
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": {
+    "id": "open",
+    "reason": "your turn (2 decisions)",
+    "your_turn": true
+   }
+  },
+  {
+   "name": "only snoozed reviews leave nothing to offer",
+   "candidates": [
+    {
+     "id": "snoozed",
+     "snoozed": true,
+     "states": [
+      "unreviewed"
+     ]
+    }
+   ],
+   "expect": null
+  },
+  {
+   "name": "no candidates",
+   "candidates": [],
+   "expect": null
+  }
+ ]
+}

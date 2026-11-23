@@ -1245,18 +1245,21 @@ def test_a_symlink_to_a_fifo_is_never_opened(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_an_unread_new_side_blob_is_absent_and_its_unit_cannot_read_as_reviewed(tmp_path: Path) -> None:
-    """A generic oversized source blob stays absent rather than looking empty.
+def test_an_unread_new_side_blob_is_absent_and_its_unit_cannot_read_as_reviewed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blob over the capture cap stays absent rather than looking empty.
 
-    The general source-analysis cap remains strict: content Review did not read
-    must never acquire an empty-text fingerprint that can preserve a judgment
-    across rewrites. Supported dependency metadata has a separate bounded path
-    tested below because it is normalized semantically instead of reviewed as
-    raw generated source.
+    Content Review did not read must never acquire an empty-text fingerprint
+    that can preserve a judgment across rewrites. The cap is lowered here so a
+    test file can cross it.
     """
 
+    from lemoncrow.pro.capabilities.review import gitdiff
     from lemoncrow.pro.capabilities.review.gitdiff import MAX_BLOB_BYTES
     from lemoncrow.pro.capabilities.review.sources.local import effective_mark_state
+
+    monkeypatch.setattr(gitdiff, "MAX_CAPTURE_BLOB_BYTES", MAX_BLOB_BYTES)
     from lemoncrow.pro.capabilities.review.units import derive_units, file_fingerprint
 
     root = tmp_path / "oversize"
@@ -1304,8 +1307,7 @@ def test_packet_captures_oversized_supported_lockfile_for_semantic_dependency_re
 
     rng = resolve_rev_range(root)
     raw = load_blobs(root, rng, collect_diff(root, rng).files)
-    assert "large_file_skipped" in raw.degraded
-    assert "uv.lock" not in raw.new
+    assert raw.new["uv.lock"] == new_lock, "a file over the analysis cap is still captured whole"
 
     build = build_review_packet_with_blobs(root, rng, store_root=tmp_path / "store", with_impact=False)
     assert build.blobs.old["uv.lock"] == old_lock

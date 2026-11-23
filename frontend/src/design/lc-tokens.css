@@ -1,6 +1,22 @@
 /*
- * LemonCrow design tokens ("Ink and Lemon"). CANONICAL SOURCE: change values
- * here, then sync to each consumer (see design/README.md).
+ * Lemon rule: the base is Olaryn black, white and cool grey. Lemon (--brand) is
+ * ONLY the brand mark, the one primary CTA per screen (lemon fill, black text;
+ * never lemon text on a light surface), the active nav/tab indicator, the focus
+ * ring, the current line/part highlight in the diff gutter and selection or
+ * progress fills. Everything else is monochrome; severity uses the status
+ * tokens, never lemon. On light, --ring and --indicator stay ink because lemon
+ * on white is 1.4:1 (non-text needs 3:1); on dark they are lemon (13.8:1).
+ */
+/*
+ * LemonCrow design tokens, tuned to the Olaryn design layer (monochrome surfaces,
+ * Olaryn status colours, lemon accent). CANONICAL SOURCE: change values here,
+ * then sync to each consumer (see design/README.md).
+ *
+ * Olaryn mapping: --background = page (pure white / near-black: no grey page), --muted = panel (code hunk headers only),
+ * --card/--popover = card, --foreground = text, --muted-foreground = muted,
+ * --border = line, --input = edge (3:1 control edge), --primary = btn (black pill
+ * on light, white on dark), --accent = hover. P0/P1/P2/ok are Olaryn's
+ * error/warning/info/success pairs; --*-line and --*-solid extend them.
  *
  * Values are RGB triplets, so alpha utilities work (`bg-brand/10`,
  * `bg-accent/40`, `ring-ring/50`). `:root` is the light theme. `.dark` and
@@ -16,45 +32,45 @@
 :root,
 .light {
   color-scheme: light;
-  --background: 248 246 241;   --foreground: 10 10 10;
-  --card: 255 255 255;         --card-foreground: 10 10 10;
-  --popover: 255 255 255;      --popover-foreground: 10 10 10;
-  --muted: 241 238 230;        --muted-foreground: 107 107 107;
-  --subtle-foreground: 82 82 82;
-  --accent: 235 231 220;       --accent-foreground: 10 10 10;
-  --border: 227 223 213;       --input: 138 134 123;
-  --ring: 10 10 10;            --indicator: 10 10 10;
-  --primary: 10 10 10;         --primary-foreground: 248 246 241;
+  --background: 255 255 255;   --foreground: 16 24 40;
+  --card: 255 255 255;         --card-foreground: 16 24 40;
+  --popover: 255 255 255;      --popover-foreground: 16 24 40;
+  --muted: 249 250 251;        --muted-foreground: 95 104 119;
+  --subtle-foreground: 54 65 83;
+  --accent: 243 244 246;       --accent-foreground: 16 24 40;
+  --border: 234 236 240;       --input: 124 133 149;
+  --ring: 0 0 0;               --indicator: 0 0 0;
+  --primary: 0 0 0;            --primary-foreground: 255 255 255;
   /* accent group (lemon) */
   --brand: 255 220 0;          --brand-foreground: 10 10 10;
-  --brand-hover: 242 206 0;    --brand-border: 10 10 10;
-  /* severity and status: one job each */
-  --p0: 185 28 28;   --p0-bg: 254 242 242;  --p0-line: 254 202 202;  --p0-solid: 220 38 38;
-  --p1: 180 83 9;    --p1-bg: 255 251 235;  --p1-line: 253 230 138;  --p1-solid: 217 119 6;
-  --p2: 14 116 144;  --p2-bg: 236 254 255;  --p2-line: 165 243 252;  --p2-solid: 8 145 178;
-  --ok: 4 120 87;    --ok-bg: 236 253 245;  --ok-line: 167 243 208;  --ok-solid: 5 150 105;
+  --brand-hover: 242 206 0;    --brand-border: 0 0 0;
+  /* severity and status: one job each (Olaryn error / warning / info / success) */
+  --p0: 180 35 24;   --p0-bg: 254 243 242;  --p0-line: 254 205 202;  --p0-solid: 217 45 32;
+  --p1: 146 64 14;   --p1-bg: 255 250 235;  --p1-line: 254 223 137;  --p1-solid: 220 104 3;
+  --p2: 23 92 211;   --p2-bg: 239 248 255;  --p2-line: 178 221 255;  --p2-solid: 21 112 239;
+  --ok: 6 118 71;    --ok-bg: 236 253 243;  --ok-line: 171 239 198;  --ok-solid: 7 148 85;
   --ai: 109 40 217;  --ai-bg: 245 243 255;  --ai-line: 221 214 254;  --ai-solid: 124 58 237;
 }
 
 .dark {
   color-scheme: dark;
-  --background: 10 10 10;      --foreground: 244 242 236;
-  --card: 17 18 22;            --card-foreground: 244 242 236;
-  --popover: 30 31 35;         --popover-foreground: 244 242 236;
-  --muted: 23 24 28;           --muted-foreground: 168 165 155;
-  --subtle-foreground: 207 204 195;
-  --accent: 30 31 35;          --accent-foreground: 244 242 236;
-  --border: 42 43 47;          --input: 111 110 105;
+  --background: 9 9 9;         --foreground: 229 229 229;
+  --card: 9 9 9;               --card-foreground: 229 229 229;
+  --popover: 24 24 24;         --popover-foreground: 229 229 229;
+  --muted: 17 17 17;           --muted-foreground: 160 160 160;
+  --subtle-foreground: 196 196 196;
+  --accent: 32 32 32;          --accent-foreground: 255 255 255;
+  --border: 38 38 38;          --input: 117 117 117;
   --ring: 255 220 0;           --indicator: 255 220 0;
-  --primary: 244 242 236;      --primary-foreground: 10 10 10;
+  --primary: 255 255 255;      --primary-foreground: 0 0 0;
   /* accent group (lemon) */
   --brand: 255 220 0;          --brand-foreground: 10 10 10;
   --brand-hover: 255 232 77;   --brand-border: 255 220 0;
-  /* severity and status: tints are the colour blended over --card, so they stay opaque */
-  --p0: 252 165 165; --p0-bg: 48 25 28;   --p0-line: 127 29 29;  --p0-solid: 239 68 68;
-  --p1: 252 211 77;  --p1-bg: 49 38 20;   --p1-line: 120 53 15;  --p1-solid: 245 158 11;
-  --p2: 103 232 249; --p2-bg: 15 41 49;   --p2-line: 21 94 117;  --p2-solid: 6 182 212;
-  --ok: 110 231 183; --ok-bg: 17 41 37;   --ok-line: 6 95 70;    --ok-solid: 16 185 129;
+  /* severity and status: opaque tints (Olaryn status bgs), so text contrast does not depend on what is underneath */
+  --p0: 253 162 155; --p0-bg: 65 22 19;   --p0-line: 122 39 26;  --p0-solid: 240 68 56;
+  --p1: 254 200 75;  --p1-bg: 59 40 11;   --p1-line: 122 46 14;  --p1-solid: 247 144 9;
+  --p2: 132 202 255; --p2-bg: 16 42 67;   --p2-line: 25 65 133;  --p2-solid: 46 144 250;
+  --ok: 117 224 167; --ok-bg: 8 53 35;    --ok-line: 8 93 58;    --ok-solid: 23 178 106;
   --ai: 196 181 253; --ai-bg: 34 28 53;   --ai-line: 76 29 149;  --ai-solid: 139 92 246;
 }
 

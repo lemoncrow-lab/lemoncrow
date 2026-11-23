@@ -122,7 +122,7 @@ def test_inbox_workflow_state_contract() -> None:
     fresh = readiness_fact(_payload(), revision_id="rrv-1", watermark="", now=NOW)
     assert fresh.state == "ready" and fresh.reviewed and (fresh.scm_conditions == 1)
     earlier = readiness_fact(_payload(), revision_id="rrv-2", watermark="", now=NOW)
-    assert earlier.state == "unknown" and "earlier Snapshot" in earlier.reason
+    assert earlier.state == "unknown" and "earlier revision" in earlier.reason
     later_fact = readiness_fact(_payload(), revision_id="rrv-1", watermark=_iso(NOW), now=NOW)
     assert later_fact.state == "stale" and (not later_fact.reviewed)
     expired = readiness_fact(
@@ -153,7 +153,11 @@ def test_inbox_workflow_state_contract() -> None:
     "case: test_scm_axis_needs_positive_evidence"
     for readiness, kwargs, state in [
         (ReadinessFact(), {"connected": True}, "unknown"),
-        (STALE, {"connected": False}, "unknown"),
+        (STALE, {"connected": True}, "unknown"),
+        (STALE, {"connected": False}, "not_connected"),
+        # No linked provider never claims anything about merging, even with passing local checks.
+        (READY, {"connected": False}, "not_connected"),
+        (NOT_READY, {"connected": False, "failed_check_reasons": 1}, "not_connected"),
         (ReadinessFact(), {"connected": True, "failed_check_reasons": 1}, "not_ready"),
         (replace(READY, scm_conditions=0), {"connected": False}, "not_connected"),
         (replace(READY, scm_conditions=0), {"connected": True}, "unknown"),

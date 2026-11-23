@@ -386,10 +386,21 @@ def test_invalid_disabled_or_unavailable_routes_degrade_explicitly(
     with pytest.raises(IntelligenceDisabled):  # an unreadable policy refuses explicit routes too
         resolve_driver_model("openai", None)
 
+    # An operator layer that turned AI off reads as a $0 budget that names who set it (OWNER-2).
+    off = _policy(enabled=False)
+    assert resolve_intelligence_route(off).status == "disabled"
+    assert "AI budget is $0 (set by the organization policy)" in resolve_intelligence_route(off).reason
+    with pytest.raises(IntelligenceDisabled, match="AI budget is \\$0"):
+        resolve_driver_model("ollama", None, policy=off)
+    # A person has no such switch: a stored intelligence.enabled is a retired key, read as the budget it means.
     _settings(settings_root, **{"intelligence.enabled": False})
-    assert resolve_intelligence_route().status == "disabled"
-    with pytest.raises(IntelligenceDisabled):
-        resolve_driver_model("ollama", None)
+    assert process_intelligence_policy().enabled.value is True
+    assert json.loads((settings_root / "plugin_settings.json").read_text()) == {"intelligence.monthly_budget_usd": 0.0}
+    assert resolve_intelligence_route().status == "ready"  # a label: it never refuses for a budget
+    with pytest.raises(IntelligenceDisabled, match="AI budget is \\$0"):
+        execute_structured(
+            system="s", prompt="p", output_schema={"type": "object"}, origin="machine", cli_executor=lambda **_: {}
+        )
 
     # run_on has no consumer until background scheduling: it never degrades a route.
     _settings(settings_root, **{"intelligence.run_on": "worker"})
@@ -535,10 +546,15 @@ def test_origin_and_data_locus_projection(settings_root: Path, monkeypatch: pyte
     assert "driver litellm" in row.detail and "background intelligence off" in row.detail
     assert FlowOrigin("intelligence.background.enabled", "user_settings") in row.origins
 
-    _settings(settings_root, **{"intelligence.enabled": False})
-    disabled = environment_route_facts(layer="environment", agent_cli_allowed=True, locus="local")
+    disabled = environment_route_facts(
+        layer="environment", agent_cli_allowed=True, locus="local", policy=_policy(enabled=False)
+    )
     off = build_data_flow(_flow_inputs(routes=disabled)).row("intelligence.route.primary")
-    assert off is not None and off.status == "off" and "intelligence.enabled" in off.reason
+    assert off is not None and off.status == "off" and "AI budget is $0" in off.reason
+    # A $0 personal budget is not a label: the data-flow row still names the configured route.
+    _settings(settings_root, **{"intelligence.monthly_budget_usd": 0})
+    zero = environment_route_facts(layer="environment", agent_cli_allowed=True, locus="local")
+    assert build_data_flow(_flow_inputs(routes=zero)).row("intelligence.route.primary").status != "off"
 
 
 def test_no_credential_or_endpoint_reaches_the_wire(settings_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -589,6 +605,41 @@ _DIRECT_PROVIDER_CALLERS: dict[str, str] = {
 }
 
 
+_CLIENT_MODULE_NAMES = frozenset({"openai_client", "litellm_client", "ollama_client", "direct_http"})
+_CLIENT_ATTRIBUTE_CALLS = _PROVIDER_CALLS | {"openai_chat_with_result", "anthropic_chat_with_result"}
+
+
+def _reaches_a_provider(tree: ast.AST) -> bool:
+    """Whether a module imports a provider client function or SDK, or calls a client through an imported module."""
+
+    reached = False
+    client_aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if node.module in _PROVIDER_MODULES and any(alias.name in _PROVIDER_CALLS for alias in node.names):
+                reached = True
+            if node.module == "lemoncrow.infra.internal_llm":  # `from ...internal_llm import openai_client`
+                client_aliases.update(
+                    alias.asname or alias.name for alias in node.names if alias.name in _CLIENT_MODULE_NAMES
+                )
+            if node.module.split(".")[0] in _PROVIDER_SDKS:
+                reached = True
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _PROVIDER_SDKS:
+                    reached = True
+                if alias.name.startswith("lemoncrow.infra.internal_llm.") and alias.asname:
+                    if alias.name.rsplit(".", 1)[-1] in _CLIENT_MODULE_NAMES:
+                        client_aliases.add(alias.asname)
+    return reached or any(
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in client_aliases
+        and node.attr in _CLIENT_ATTRIBUTE_CALLS
+        for node in ast.walk(tree)
+    )
+
+
 def _direct_provider_callers() -> set[str]:
     import lemoncrow
 
@@ -598,24 +649,32 @@ def _direct_provider_callers() -> set[str]:
         relative = path.relative_to(root).as_posix()
         if relative.startswith("infra/internal_llm/"):
             continue  # the facade and the provider clients themselves
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                if node.module in _PROVIDER_MODULES and any(alias.name in _PROVIDER_CALLS for alias in node.names):
-                    found.add(relative)
-                if node.module.split(".")[0] in _PROVIDER_SDKS:
-                    found.add(relative)
-            elif isinstance(node, ast.Import) and any(
-                alias.name.split(".")[0] in _PROVIDER_SDKS for alias in node.names
-            ):
-                found.add(relative)
+        if _reaches_a_provider(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+            found.add(relative)
     return found
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("from lemoncrow.infra.internal_llm import openai_client\nopenai_client.chat_with_result([])", True),
+        ("from lemoncrow.infra.internal_llm import litellm_client as llm\nllm.chat([])", True),
+        ("import lemoncrow.infra.internal_llm.ollama_client as oc\noc.chat_stream([])", True),
+        ("from lemoncrow.infra.internal_llm import direct_http\ndirect_http.openai_chat_with_result()", True),
+        ("from lemoncrow.infra.internal_llm.openai_client import chat_with_result", True),
+        ("from lemoncrow.infra.internal_llm import openai_client\nopenai_client.OpenAIClientUnavailable", False),
+        ("from lemoncrow.infra.internal_llm import chat, chat_stream", False),
+    ],
+)
+def test_the_direct_caller_guard_sees_module_imports_and_attribute_calls(source: str, expected: bool) -> None:
+    assert _reaches_a_provider(ast.parse(source)) is expected
 
 
 def test_every_model_call_entry_point_consults_the_intelligence_policy() -> None:
     """Guard: a model call goes through the gated facade, or is a named, reasoned exception.
 
-    The facade's ``chat``/``chat_stream``/``summarize`` refuse first thing under
-    a disabled or invalid policy, and ``logprobs`` sends nothing. Any new
+    The facade's ``chat``/``chat_stream`` enter ``_model_call`` (the policy and the AI budget) first thing, ``summarize``
+    refuses a disabled policy first and gates the computed call, and ``logprobs`` sends nothing. Any new
     direct provider-client or SDK caller fails here until it is gated or
     listed with its reason.
     """
@@ -632,11 +691,19 @@ def test_every_model_call_entry_point_consults_the_intelligence_policy() -> None
     for name in ("chat", "chat_stream", "summarize"):
         body = functions[name].body
         first = body[1] if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) else body[0]
-        assert (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Call)
-            and isinstance(first.value.func, ast.Name)
-            and first.value.func.id == "_require_intelligence_enabled"
+        if name == "summarize":
+            assert (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Call)
+                and isinstance(first.value.func, ast.Name)
+                and first.value.func.id == "_require_intelligence_enabled"
+            ), name
+            continue
+        assert isinstance(first, ast.With) and any(
+            isinstance(item.context_expr, ast.Call)
+            and isinstance(item.context_expr.func, ast.Name)
+            and item.context_expr.func.id == "_model_call"
+            for item in first.items
         ), name
     gate = functions["_require_intelligence_enabled"]
     assert any(
@@ -646,10 +713,10 @@ def test_every_model_call_entry_point_consults_the_intelligence_policy() -> None
         for node in ast.walk(gate)
     )
     source = Path(logprobs_module.__file__).read_text(encoding="utf-8")
-    assert "require_intelligence_enabled()" in source
+    assert "model_call()" in source
 
 
-@pytest.mark.parametrize("stored", [{"intelligence.enabled": False}, {"intelligence.driver": "not-a-driver"}])
+@pytest.mark.parametrize("stored", [{"intelligence.driver": "not-a-driver"}])
 def test_kill_switch_refuses_the_facade_code_ask_and_ask_options(
     stored: dict[str, Any], settings_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -789,8 +856,8 @@ def test_honest_projection_pinned_model_needs_a_driver_and_ready_is_not_credenti
         '{"intelligence.enabled": false,}',
         '{"intelligence": {"enabled": false}}',
         '[{"intelligence.enabled": false}]',
-        '{"intelligence.enabled": null}',
-        '{"intelligence.enabled": ""}',
+        '{"intelligence.driver": null}',
+        '{"intelligence.driver": ""}',
         '"off"',
         "",
     ],

@@ -93,6 +93,43 @@ def test_review_only_client_delegates_pi_and_index(monkeypatch):
     assert calls == [["runtime", "host", "status", "--engine", "pi"], ["runtime", "index"]]
 
 
+def _without_workspace_cli(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_workspace(name, globals=None, locals=None, fromlist=(), level=0):
+        if (level == 1 and name == "workspace_cli") or name == "lemoncrow_client.workspace_cli":
+            raise ModuleNotFoundError(name)
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", no_workspace)
+
+
+def test_review_client_hands_workspace_to_the_installed_runtime(tmp_path, monkeypatch):
+    # Both products installed: `lc` is the Review client, and `lc workspace` must run, not ask to install Runtime.
+    _without_workspace_cli(monkeypatch)
+    monkeypatch.setattr(cli, "_external_runtime_executable", lambda: tmp_path / "lemoncrow-client")
+    calls = []
+    monkeypatch.setattr(cli, "_delegate_external_runtime", lambda args, sink: calls.append(list(args)) or 0)
+    sink = io.StringIO()
+    assert cli.main(["workspace", "status"], sink) == 0
+    assert calls == [["workspace", "status"]]
+    assert sink.getvalue() == ""
+
+
+def test_review_only_workspace_names_the_add_command_and_fetches_nothing(monkeypatch):
+    _without_workspace_cli(monkeypatch)
+    monkeypatch.setattr(cli, "_external_runtime_executable", lambda: None)
+    monkeypatch.setattr(
+        cli, "_lazy_install_product", lambda product, sink: (_ for _ in ()).throw(AssertionError("fetched"))
+    )
+    sink = io.StringIO()
+    assert cli.main(["workspace", "status"], sink) == 2
+    assert sink.getvalue().startswith("lc workspace is part of LemonCrow Workspaces. Add it: ")
+    assert "--product runtime" in sink.getvalue()
+
+
 def test_mcp_lazy_install_progress_uses_stderr(tmp_path, monkeypatch):
     monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path))
     monkeypatch.delenv("LEMONCROW_RUNTIME_CLIENT", raising=False)

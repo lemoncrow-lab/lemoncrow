@@ -9,7 +9,9 @@ import {
   Chip,
   EmptyState,
 } from "../components/WorkbenchUI";
+import { CopyId } from "../components/CopyId";
 import { fmtDate } from "../lib/format";
+import { cn as cx } from "../lib/utils";
 
 export default function Reports() {
   const [list, setList] = useState<ReportMeta[] | null>(null);
@@ -80,8 +82,14 @@ export default function Reports() {
               <Button
                 key={report.id}
                 onClick={() => setSelectedId(report.id)}
-                variant={selectedId === report.id ? "solid" : "ghost"}
-                className="h-auto w-full justify-start px-3 py-2 text-left normal-case tracking-normal"
+                variant="ghost"
+                aria-current={selectedId === report.id ? "true" : undefined}
+                title={`Run ${report.run_id}`}
+                // The selected row keeps its own text colours on a tinted row; the solid variant hid the suite name.
+                className={cx(
+                  "h-auto w-full justify-start border-l-2 px-3 py-2 text-left normal-case tracking-normal",
+                  selectedId === report.id ? "border-l-foreground bg-accent" : "border-l-transparent",
+                )}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -91,9 +99,6 @@ export default function Reports() {
                     <span className="text-caption text-muted-foreground">
                       {report.project_label}
                     </span>
-                  </div>
-                  <div className="mt-0.5 truncate font-mono text-caption text-muted-foreground">
-                    {report.run_id}
                   </div>
                   <div className="mt-0.5 text-caption text-muted-foreground">
                     {fmtDate(report.generated_at)}
@@ -114,19 +119,24 @@ export default function Reports() {
               <>
                 <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-3">
                   <Chip tone="neutral">{content.suite}</Chip>
-                  <span className="font-mono text-caption text-muted-foreground">
-                    {content.run_id}
-                  </span>
                   <span className="text-caption text-muted-foreground">
-                    {content.project_label}
+                    {content.project_label} · {fmtDate(content.generated_at)}
                   </span>
+                  <CopyId value={content.run_id} label="Run ID" />
                   <span className="ml-auto text-caption text-muted-foreground">
                     {content.files.length} artifacts
                   </span>
                 </div>
-                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-subtle prose-a:text-muted-foreground prose-table:text-subtle prose-th:text-subtle prose-td:text-muted-foreground">
-                  <ReactMarkdown>{content.markdown}</ReactMarkdown>
-                </article>
+                {content.format === "text" ? (
+                  // report.txt is aligned plain text: Markdown would fold its table into one paragraph.
+                  <pre className="overflow-x-auto whitespace-pre font-mono text-code leading-5 text-subtle">
+                    {content.markdown}
+                  </pre>
+                ) : (
+                  <article className="prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-subtle prose-a:text-muted-foreground prose-table:text-subtle prose-th:text-subtle prose-td:text-muted-foreground">
+                    <ReactMarkdown>{content.markdown}</ReactMarkdown>
+                  </article>
+                )}
               </>
             )}
           </Card>

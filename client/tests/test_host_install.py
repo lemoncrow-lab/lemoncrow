@@ -32,7 +32,7 @@ def _fake_hosts(monkeypatch: pytest.MonkeyPatch, available: set[str]) -> list[tu
     return calls
 
 
-@pytest.mark.parametrize("host", ["claude", "codex", "opencode", "cursor", "pi", "lemoncode"])
+@pytest.mark.parametrize("host", ["claude", "codex", "opencode", "cursor", "pi"])
 def test_registration_pins_installed_runtime_over_review_launcher(tmp_path, monkeypatch, host):
     from lemoncrow_client import host_trial
 
@@ -192,7 +192,7 @@ def test_removed_top_level_runtime_aliases_are_not_invokable(monkeypatch: pytest
     for argv in (["install", "--agent", "claude"], ["mcp"], ["routes"]):
         sink = io.StringIO()
         assert main(argv, sink) == 2
-        assert "It is a Runtime command: lc rt " in sink.getvalue()
+        assert "It is a Workspaces command: lc rt " in sink.getvalue()
     assert calls == []
 
 
@@ -300,7 +300,7 @@ def test_runtime_disable_uses_native_remove_for_claude(monkeypatch: pytest.Monke
     assert calls == [
         (("/usr/bin/claude", "mcp", "remove", "--scope", "user", "lc"), False),
     ]
-    assert "Runtime disabled" in sink.getvalue()
+    assert "Workspaces disabled" in sink.getvalue()
 
 
 def test_runtime_disable_dry_run_does_not_invoke_host(monkeypatch: pytest.MonkeyPatch) -> None:

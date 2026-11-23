@@ -23,6 +23,7 @@ const systemRules = [
   { pattern: /\btext-\[\d+(?:\.\d+)?(?:px|rem|em)\]/g, message: "Use the type scale: text-micro/caption/label/body/heading/title (or tag/meta/ui/small/copy/lead/h3/h2/display/code)." },
   { pattern: /\btext-(?:xs|sm|base|lg|xl|[2-9]xl)\b/g, message: "Tailwind's default sizes are retired: use text-meta/ui/small/copy/lead or the app aliases text-label/body/heading/title." },
   { pattern: /\bz-\[\d+\]/g, message: "Overlays portal at z-50; use z-10/z-20 for in-flow stacking." },
+  { pattern: /\bvariant=\{[^}\n]*"default"/g, message: "Button has no default variant any more (this one is inside an expression): use brand, solid, outline or ghost." },
   { pattern: /\bvariant="default"/g, message: "Button has no default variant any more: use brand (the one primary action of a view), solid, outline or ghost." },
   { pattern: /(?<!disabled:)\btext-neutral-(?:600|700)\b/g, message: "Below WCAG AA contrast for text; use text-muted-foreground." },
 ];
@@ -137,7 +138,29 @@ await walkTokens(root, [...tokenRules, ...iconRules]);
 // The hosted app (enterprise/frontend, private checkout only) renders these primitives and shares the theme, so
 // its sources follow the same token, type and variant rules. Absent in the public tree: skipped.
 const hostedRoot = path.resolve(root, "..", "..", "enterprise", "frontend", "src");
-if (await stat(hostedRoot).then((info) => info.isDirectory(), () => false)) await walkTokens(hostedRoot, [...tokenRules, ...systemRules]);
+// The 200-400 steps of the status ramps are below AA as text on the light theme; use text-p0/text-p1/text-ok.
+const hostedStatusText = { pattern: /\btext-(?:red|amber|emerald)-(?:200|300|400)\b/g, message: "Below WCAG AA as text in the light theme: use text-p0 (problem), text-p1 (warning) or text-ok (good)." };
+if (await stat(hostedRoot).then((info) => info.isDirectory(), () => false)) {
+  await walkTokens(hostedRoot, [...tokenRules, ...systemRules, hostedStatusText]);
+  await walkNativeControls(hostedRoot);
+}
+
+/** Native controls in the hosted app: the same rule as this tree, everything outside components/ui. */
+async function walkNativeControls(dir) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkNativeControls(full);
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(".tsx") || entry.name.endsWith(".test.tsx")) continue;
+    (await readFile(full, "utf8")).split("\n").forEach((line, index) => {
+      pattern.lastIndex = 0;
+      if (pattern.test(line)) violations.push(`${path.relative(process.cwd(), full)}:${index + 1}: ${line.trim()}`);
+      pattern.lastIndex = 0;
+    });
+  }
+}
 
 // src/design/ is a vendored copy of the repository's design/ directory (design/README.md).
 const drift = await designDrift();

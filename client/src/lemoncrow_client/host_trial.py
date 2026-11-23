@@ -146,7 +146,7 @@ def _runtime_store_root() -> Path:
 def _pi_lite_extension_path() -> Path:
     path = Path(__file__).resolve().parent / "assets" / "pi_lite.mjs"
     if not path.is_file():
-        raise HostTrialError("Runtime Lite Pi extension is missing from this installation")
+        raise HostTrialError("Workspaces Lite Pi extension is missing from this installation")
     return path
 
 
@@ -276,7 +276,7 @@ def run_trial_host(
         for member_root in [member.root for member in discover_members(workspace).members] or [workspace]:
             prepare_lite_workspace(member_root)
     except (OSError, RuntimeError) as exc:
-        raise HostTrialError(f"could not prepare local Runtime Lite index: {exc}") from exc
+        raise HostTrialError(f"could not prepare local Workspaces Lite index: {exc}") from exc
     extra = {
         "LEMONCROW_LITE_PREPARED": "1",
         "LEMONCROW_WORKSPACE_ROOT": str(workspace),

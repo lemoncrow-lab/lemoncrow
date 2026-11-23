@@ -573,3 +573,29 @@ def test_the_bootstrap_url_carries_the_token_in_the_fragment_only(tmp_path: Path
     assert "s3cret" not in before_fragment
     assert "t=s3cret" in fragment
     assert before_fragment.endswith("/reviews/rev-1")
+
+
+def test_concurrent_preparation_writes_never_collide(tmp_path: Path) -> None:
+    threads_n, writes = 16, 50
+    barrier = threading.Barrier(threads_n)
+    errors: list[BaseException] = []
+
+    def worker(index: int) -> None:
+        barrier.wait()
+        for step in range(writes):
+            try:
+                ws.write_review_preparation(tmp_path, "review-1", f"prep-{index}", f"stage-{step}")
+            except BaseException as exc:
+                errors.append(exc)
+
+    pool = [threading.Thread(target=worker, args=(i,)) for i in range(threads_n)]
+    for thread in pool:
+        thread.start()
+    for thread in pool:
+        thread.join()
+
+    assert errors == []
+    path = ws.preparation_path(tmp_path, "review-1")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["preparation_id"] in {f"prep-{i}" for i in range(threads_n)}
+    assert list(path.parent.glob("*.tmp")) == []

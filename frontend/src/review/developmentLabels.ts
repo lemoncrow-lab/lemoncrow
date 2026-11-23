@@ -1,10 +1,11 @@
 /** Shared presentation helpers for Development surfaces (sheet and file drawer). */
 
-const HOST_LABELS: Record<string, string> = {
-  claude: "Claude",
+import { fmtWhen } from "../lib/format";
+
+export const HOST_LABELS: Record<string, string> = {
+  claude: "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
-  lemoncode: "LemonCode",
   cursor: "Cursor",
   copilot: "Copilot",
   gemini: "Gemini",
@@ -13,6 +14,7 @@ const HOST_LABELS: Record<string, string> = {
   pi: "Pi",
   human: "Human",
   ci: "CI",
+  github: "GitHub",
 };
 
 export function hostLabel(host: string): string {
@@ -33,10 +35,7 @@ export function shortTime(value: string): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return sameDay
-    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return fmtWhen(date);
 }
 
 export function statusTone(status: string): string {

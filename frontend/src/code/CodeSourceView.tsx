@@ -175,7 +175,7 @@ export default function CodeSourceView({
           frame={false}
           icon={<FileCode2 aria-hidden="true" />}
           title="Open a file or symbol"
-          description="Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range."
+          description="Pick a file from Project files or use the search above. Choosing a symbol opens the full file and highlights its lines."
         />
       </main>
     );
@@ -257,9 +257,10 @@ export default function CodeSourceView({
             step={1}
             value={lineInput}
             onChange={(event) => setLineInput(event.target.value)}
-            placeholder="Line"
+            placeholder="Go to line"
             aria-label="Go to line"
-            className="w-14 bg-transparent px-2 text-meta tabular-nums text-subtle outline-none placeholder:text-muted-foreground"
+            title="Type a line number and press Enter to jump to it"
+            className="w-24 bg-transparent px-2 text-meta tabular-nums text-subtle outline-none placeholder:text-muted-foreground"
           />
           <UiButton unstyled type="submit" aria-label="Open source line" className="border-l border-border px-2 text-meta text-muted-foreground hover:text-foreground">
             Go

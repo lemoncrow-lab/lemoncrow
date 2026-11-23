@@ -415,7 +415,7 @@ def test_map_open_shows_the_current_workspace_in_the_web_dashboard(
         lambda root: "http://127.0.0.1:3225",
     )
     opened: list[str] = []
-    monkeypatch.setattr("lemoncrow.gateway.cli.commands.map.webbrowser.open", opened.append)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.map.launch_browser_url", lambda url: opened.append(url) or True)
 
     res = _invoke(tmp_path / "runtime", "runtime", "map", "--open")
 
@@ -431,7 +431,7 @@ def test_dashboard_open_discovers_the_existing_frontend(tmp_path: Path, monkeypa
         lambda root, requested_port=None: "http://127.0.0.1:3225",
     )
     opened: list[str] = []
-    monkeypatch.setattr("webbrowser.open", opened.append)
+    monkeypatch.setattr("lemoncrow_client.browser.launch_browser_url", lambda url: opened.append(url) or True)
 
     res = _invoke(tmp_path / "runtime", "runtime", "dashboard", "open")
 
@@ -441,3 +441,9 @@ def test_dashboard_open_discovers_the_existing_frontend(tmp_path: Path, monkeypa
 
 
 # `lc task` command removed — cut in CLI consolidation.
+
+
+def test_settings_set_accepts_the_documented_no_limit_value(tmp_path: Path) -> None:
+    result = _invoke(tmp_path, "settings", "set", "intelligence.monthly_budget_usd", "-1", "--json")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["intelligence.monthly_budget_usd"] == -1.0

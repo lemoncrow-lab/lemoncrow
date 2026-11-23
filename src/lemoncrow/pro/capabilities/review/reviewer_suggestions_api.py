@@ -18,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.reviewer_history import change_authors, history_paths, mine_path_history
 from lemoncrow.pro.capabilities.review.reviewer_suggestion_sources import (
     LocalIdentityResolver,
@@ -128,9 +129,10 @@ def register_reviewer_suggestion_routes(router: APIRouter, deps: ReviewerSuggest
         revision = deps.requested_revision(session, revision_id)
 
         def build() -> dict[str, Any]:
-            if deps.hosted is not None:
-                return dict(deps.hosted(session, revision))
-            return local_reviewer_suggestions(deps, session, revision).to_wire()
+            with request_reads.reads_once():
+                if deps.hosted is not None:
+                    return dict(deps.hosted(session, revision))
+                return local_reviewer_suggestions(deps, session, revision).to_wire()
 
         return await run_in_threadpool(build)
 

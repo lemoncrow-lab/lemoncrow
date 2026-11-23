@@ -320,7 +320,7 @@ class BehaviorContext:
     prepared: Mapping[str, object] = field(default_factory=dict)
     """What the host already computed for a producer id under the effective run plan.
 
-    A producer whose id is absent did not run on this Snapshot; it must not
+    A producer whose id is absent did not run on this revision; it must not
     compute on its own, so what runs is what the plan displays.
     """
 
@@ -520,7 +520,7 @@ def collect_behavior(
         degraded.extend(f"{producer_id}: {_trim(note, 300)}" for note in production.degraded)
         for scope in production.executed:
             if scope.producer != producer_id or scope.run_ref not in allowed:
-                degraded.append(f"{producer_id}: a run reference did not resolve on this Snapshot; not counted")
+                degraded.append(f"{producer_id}: a run reference did not resolve on this revision; not counted")
                 continue
             executed.append(scope)
         for delta in production.deltas:
@@ -535,7 +535,7 @@ def collect_behavior(
             if len(refs) != len(delta.evidence):
                 degraded.append(
                     f"{producer_id}: {len(delta.evidence) - len(refs)} evidence reference(s) for "
-                    f"{_trim(delta.title, 80)} did not resolve on this Snapshot and were dropped"
+                    f"{_trim(delta.title, 80)} did not resolve on this revision and were dropped"
                 )
             bounded = _bounded(delta, refs, allowed)
             key = behavior_key(bounded)
@@ -570,7 +570,8 @@ class BehaviorTarget:
 
 
 def _judged_state(fingerprint: str, mark: ReviewMark | None) -> tuple[MarkState, bool, str]:
-    if mark is None or mark.state == "unreviewed":
+    if mark is None or mark.state in ("unreviewed", "later"):
+        # Behavior judgments are reviewed / needs_changes only; a stray "later" is simply not judged.
         return "unreviewed", False, ""
     changed = mark.content_fingerprint != fingerprint
     if mark.state in ("reviewed", "needs_changes") and not changed:
@@ -678,7 +679,7 @@ def check_behavior_judgment(
     """
 
     if target is None:
-        raise BehaviorJudgmentRefused("unknown_target", "not a current behavior target on this Snapshot")
+        raise BehaviorJudgmentRefused("unknown_target", "not a current behavior target on this revision")
     if state not in BEHAVIOR_JUDGMENT_STATES:
         raise BehaviorJudgmentRefused("invalid_state", f"behavior judgment must be one of {BEHAVIOR_JUDGMENT_STATES}")
     if bulk and target.delta.critical:
@@ -694,7 +695,7 @@ def check_behavior_judgment(
     if supplied != target.evidence_digest:
         raise BehaviorJudgmentRefused(
             "evidence_mismatch",
-            "the evidence you saw is not this Snapshot's evidence for this behavior change; reload and look again",
+            "the evidence you saw is not this revision's evidence for this behavior change; reload and look again",
         )
     return "reviewed" if state == "reviewed" else "needs_changes"
 
@@ -1029,7 +1030,7 @@ def build_manual_checklist(
             title=integration.title,
             integration=integration.id,
             steps=integration.steps
-            or (f"Exercise {integration.title} against this Snapshot outside the sandbox and record what you saw.",),
+            or (f"Exercise {integration.title} against this revision outside the sandbox and record what you saw.",),
             behavior_keys=related,
             paths=matched[:12],
             origin="policy",

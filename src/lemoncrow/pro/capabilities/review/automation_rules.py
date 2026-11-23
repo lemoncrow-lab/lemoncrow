@@ -133,13 +133,13 @@ LOCAL_ACTING_ROLES: Final[frozenset[str]] = frozenset({"owner"})
 FactKind = Literal["bool", "text", "paths"]
 FACTS: Final[Mapping[str, tuple[FactKind, str]]] = {
     "merge.observed": ("bool", "The connected provider reported this Change merged"),
-    "merge.reviewed_head": ("bool", "The merged head is the reviewed Snapshot's head"),
-    "readiness.ready": ("bool", "LemonCrow readiness is ready for the current Snapshot"),
+    "merge.reviewed_head": ("bool", "The merged head is the reviewed revision's head"),
+    "readiness.ready": ("bool", "LemonCrow readiness is ready for the current revision"),
     "review.status": ("text", "The Review's status (open, finished, archived)"),
     "change.provider": ("text", "The connected SCM provider (github, or empty)"),
     "change.repository": ("text", "The repository identity this Review belongs to"),
     "change.title": ("text", "The Change title"),
-    "change.paths": ("paths", "Paths the current Snapshot changes"),
+    "change.paths": ("paths", "Paths the current revision changes"),
     "outcome.production_problem": (
         "bool",
         "Production showed a problem with this merged Change (failed or rolled-back deployment, contradicted "
@@ -761,7 +761,7 @@ def _trigger_guard(rule: AutomationRule, facts: AutomationFacts) -> tuple[Condit
                 "guard",
                 reviewed,
                 (
-                    "The provider merged exactly the reviewed Snapshot's head."
+                    "The provider merged exactly the reviewed revision's head."
                     if reviewed
                     else "The merged head is not the reviewed head (or is unknown); automation never follows it."
                 ),

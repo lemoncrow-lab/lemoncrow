@@ -72,7 +72,7 @@ LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-$(pwd)}"
 # Sibling scripts/ of this library — the tree the running installer actually
 # came from. $LEMONCROW_INSTALL_DIR may point at an older extracted
 # distribution (e.g. a previous `make prod`), and delegating to *its*
-# install_hosts.sh dies with "Unknown option: --lemoncode" the moment this
+# install_hosts.sh dies with "Unknown option:" the moment this
 # wizard offers a host that tree predates. Prefer our own siblings — every
 # delegated script resolves its payloads from its own SCRIPT_DIR, so the
 # sibling tree is self-consistent — and fall back to the install dir.
@@ -86,7 +86,7 @@ source "${BASH_SOURCE[0]%/*}/python_bootstrap.sh"
 # $LEMONCROW_INSTALL_DIR/bin and the host payloads from
 # $LEMONCROW_INSTALL_DIR/integrations, so running this library out of a
 # different checkout mixes a new wizard with an old payload set: hosts the
-# install dir predates fail ("Unknown option: --lemoncode") and the wheel
+# install dir predates fail ("Unknown option:") and the wheel
 # installed is not the one just built. Every supported entrypoint keeps the
 # two in sync (local.sh sets the install dir to the checkout; install.sh
 # copies bundle/ into it before running its bundle.sh), so a mismatch always
@@ -914,7 +914,7 @@ render_multi_select() {
                 # Dim undetected options slightly
                 name="${C_DIM}${name}${C_RESET}"
             else
-                # Anything else is an explanatory status (e.g. LemonCode's
+                # Anything else is an explanatory status (e.g. Pi's
                 # "will be installed"): absent but shipped with LemonCrow, so
                 # selecting it downloads the host. Show the words — a bare "—"
                 # reads as "unavailable".
@@ -1292,7 +1292,7 @@ lemoncrow_json_value() {
 }
 lemoncrow_own_model() {
   for LEMONCROW_PASS in agent any; do
-    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex LEMONCODE_SESSION_ID:lemoncode OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
+    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
       LEMONCROW_HOST="${LEMONCROW_PAIR#*:}"
       if [ "$LEMONCROW_PASS" = agent ] && [ "$LEMONCROW_HOST" != "${LEMONCROW_AGENT:-}" ]; then continue; fi
       eval "LEMONCROW_SID=\"\${${LEMONCROW_PAIR%%:*}:-}\""
@@ -1341,7 +1341,6 @@ contains_any_host_flag() {
     has_flag "--codex" && return 0
     has_flag "--opencode" && return 0
     has_flag "--pi" && return 0
-    has_flag "--lemoncode" && return 0
     has_flag "--cursor" && return 0
     return 1
 }
@@ -1407,8 +1406,7 @@ detect_hosts() {
     # Cursor: offered, default-selected only when detected. CLI saves ~40%
     # vs baseline (SWE-bench Lite, same model); IDE path did not match that
     # saving. Recommend CLI for better savings. Built-ins can't be replaced,
-    # so LemonCrow is additive there - prompt addition only. Unlike LemonCode
-    # below, selecting Cursor when absent doesn't install anything useful (no
+    # so selecting Cursor when absent doesn't install anything useful (no
     # binary to fetch), so absence should deselect it like Claude/Codex/OpenCode.
     if [[ -d "${HOME}/.cursor" ]] || command -v cursor >/dev/null 2>&1 \
        || command -v cursor-agent >/dev/null 2>&1; then
@@ -1432,17 +1430,6 @@ detect_hosts() {
     fi
     HOST_DEFAULT_SELECTION+=(1)
 
-    # LemonCode remains the managed rollback frontend and stays selectable.
-    # It is also default-selected during the transition so existing users retain
-    # an immediately available rollback path after upgrading.
-    if lemoncrow_lemoncode_host_installed; then
-        HOST_SUMMARY+=("LemonCode (detected)")
-        HOST_CHOICES+=("LemonCode|detected")
-    else
-        HOST_SUMMARY+=("LemonCode (not found, will be installed)")
-        HOST_CHOICES+=("LemonCode|will be installed")
-    fi
-    HOST_DEFAULT_SELECTION+=(1)
 }
 join_with_comma_space() {
     local joined=""
@@ -1523,7 +1510,6 @@ host_wizard() {
                     2) HOST_FLAGS+=(--opencode) ;;
                     3) HOST_FLAGS+=(--cursor) ;;
                     4) HOST_FLAGS+=(--pi) ;;
-                    5) HOST_FLAGS+=(--lemoncode) ;;
                 esac
             done
             [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1535,7 +1521,6 @@ host_wizard() {
         printf "│  3) %s\n" "${HOST_SUMMARY[2]}"
         printf "│  4) %s\n" "${HOST_SUMMARY[3]}"
         printf "│  5) %s\n" "${HOST_SUMMARY[4]}"
-        printf "│  6) %s\n" "${HOST_SUMMARY[5]}"
         printf "│  a) All (default)\n"
         printf "│\n"
         printf "Choice [a]: "
@@ -1560,7 +1545,6 @@ host_wizard() {
                         3) HOST_FLAGS+=(--opencode) ;;
                         4) HOST_FLAGS+=(--cursor) ;;
                         5) HOST_FLAGS+=(--pi) ;;
-                        6) HOST_FLAGS+=(--lemoncode) ;;
                     esac
                 done
                 [[ ${#HOST_FLAGS[@]} -gt 0 ]] || LEMONCROW_NO_HOSTS=1
@@ -1859,7 +1843,6 @@ host_target_for_name() {
         claude)      printf "%s" "~/.claude" ;;
         codex)       printf "%s" "~/.codex" ;;
         opencode)    printf "%s" "~/.config/opencode" ;;
-        lemoncode)   printf "%s" "~/.config/lemoncode" ;;
         cursor)      printf "%s" "~/.cursor" ;;
         *)           printf "%s" "~/.config" ;;
     esac
@@ -2824,7 +2807,7 @@ run_setup() {
         else
             # No explicit selection (e.g. non-interactive run): cap to the
             # supported set so copilot/antigravity are never auto-installed.
-            host_install_args+=(--claude --codex --opencode --pi --lemoncode)
+            host_install_args+=(--claude --codex --opencode --pi)
         fi
         if [[ ${#HOST_SCOPE_ARGS[@]} -gt 0 ]]; then
             host_install_args+=("${HOST_SCOPE_ARGS[@]}")
@@ -2865,7 +2848,7 @@ run_setup() {
             fi
         fi
         # A host tree older than this wizard exits on the first flag it has
-        # never heard of ("Unknown option: --lemoncode") and installs NOTHING.
+        # never heard of ("Unknown option:") and installs NOTHING.
         # Drop flags its parser cannot match, so an unknown host costs that one
         # host instead of every host.
         local hosts_script="$LEMONCROW_SCRIPTS_DIR/install_hosts.sh"

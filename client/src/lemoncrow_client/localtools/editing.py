@@ -179,4 +179,25 @@ def run_edit(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
         content=({"type": "text", "text": "\n".join(lines)},),
         changed_paths=tuple(pushable),
         structured={"changed_paths": pushable, "edits": len(entries)},
+        calls_saved=_calls_saved(relatives, result.get("applied") or []),
     )
+
+
+_RECOVERED_MODES = frozenset({"normalized", "placeholder", "fuzzy", "minified"})
+
+
+def _calls_saved(relatives: Sequence[str], applied: Sequence[Any]) -> int:
+    """Calls this batch avoided against the host's Edit (the full server's credit).
+
+    Edit batches hunks within one file already, so only files past the first
+    count. A hunk that landed only by non-exact recovery would have failed a
+    byte-exact Edit: a failed call, a re-read and a retry, two calls per file.
+    """
+    landed = list(zip(relatives, applied, strict=False))
+    files = {relative for relative, _entry in landed}
+    recovered = {
+        relative
+        for relative, entry in landed
+        if isinstance(entry, Mapping) and str(entry.get("match_mode") or "") in _RECOVERED_MODES
+    }
+    return max(0, len(files) - 1) + 2 * len(recovered)

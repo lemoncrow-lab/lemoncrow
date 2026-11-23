@@ -146,7 +146,7 @@ describe("challengeModel", () => {
     expect(claimDigest(claim)).not.toBe(claimDigest(question("q-dup")));
   });
 
-  it("reads as stale on a new Snapshot and never reuses the old run", () => {
+  it("reads as stale on a new revision and never reuses the old run", () => {
     const claim = { ...question("q-dup"), namedChecks: ["orders-dup"] };
     const command = runnable(claim);
     const next = investigationContext({ projection: projection({ revision_id: "rev-2", snapshot_number: 1 }), targets: TARGETS, checks: [] });
@@ -156,7 +156,7 @@ describe("challengeModel", () => {
     expect(chain.observed).toMatchObject({ outcome: "supported", stale: true, snapshotIdentity: IDENTITY });
   });
 
-  it("reports timeouts, flakes, refusals and a wrong Snapshot honestly, never as support", () => {
+  it("reports timeouts, flakes, refusals and a wrong revision honestly, never as support", () => {
     const claim = { ...question("q-dup"), namedChecks: ["orders-dup"] };
     const command = runnable(claim);
     const outcome = (overrides: Partial<ChallengeRun>) => challengeChain(input(claim, { run: run(claim, command, overrides) })).observed;

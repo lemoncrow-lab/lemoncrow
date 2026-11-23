@@ -9,6 +9,7 @@ live-workspace state.
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -33,6 +34,15 @@ __all__ = ["ReviewSession"]
 _MAX_CHUNK_ROWS: Final[int] = 2_000
 _REVIEW_SNAPSHOT_LEASE_S: Final[float] = 86_400.0
 _REVIEW_CAPABILITIES: Final[frozenset[str]] = REQUIRED_CLIENT_CAPABILITIES | frozenset({"views.v1", "blobs.v1"})
+#: A Reader API refusal (FastAPI ``detail``) as the typed error the terminal reports.
+_READER_STATUS: Final[dict[int, tuple[ErrorCode, AgentAction]]] = {
+    400: (ErrorCode.PAYLOAD_INVALID, AgentAction.FIX_REQUEST),
+    401: (ErrorCode.UNAUTHENTICATED, AgentAction.REAUTHENTICATE),
+    403: (ErrorCode.FORBIDDEN, AgentAction.REQUEST_ACCESS),
+    404: (ErrorCode.REVIEW_UNKNOWN, AgentAction.ABANDON),
+    409: (ErrorCode.REVIEW_STATE_CONFLICT, AgentAction.FIX_REQUEST),
+    422: (ErrorCode.PAYLOAD_INVALID, AgentAction.FIX_REQUEST),
+}
 
 
 def _string_list(value: object) -> tuple[str, ...]:
@@ -265,9 +275,7 @@ class ReviewSession:
     ) -> Mapping[str, Any]:
         """Content-addressed View, fetching only blobs the server reports missing."""
         ordered = tuple(entries[path] for path in sorted(entries))
-        if len(ordered) > 200_000 or any(
-            entry.size > min(self._state.max_blob_bytes, self._state.content_size_cap) for entry in ordered
-        ):
+        if len(ordered) > 200_000 or any(entry.size > self._state.max_blob_bytes for entry in ordered):
             raise ClientError(ErrorCode.REQUEST_TOO_LARGE, "Review delta exceeds server limits")
         chunks = chunk_manifest(ordered, max_rows=min(_MAX_CHUNK_ROWS, self._state.max_manifest_entries_per_chunk))
         opened = dict(
@@ -317,6 +325,14 @@ class ReviewSession:
             )
             uploaded += count
             plaintext += size
+        # Files above the index cap are never listed as missing, yet the Review's
+        # source tree names them. Best effort: Ask reports any that did not arrive.
+        with contextlib.suppress(ClientError):
+            count, size = self._blobs.upload_large_source(
+                lambda _path, digest, _size: payload(digest), timeout_s=timeout_s
+            )
+            uploaded += count
+            plaintext += size
         opened.update(manifest_chunks_sent=sent, uploaded_blobs=uploaded, uploaded_bytes=plaintext)
         return opened
 
@@ -355,9 +371,11 @@ class ReviewSession:
         base_view_revision: int = 0,
         repo_id: str | None = None,
         with_impact: bool = True,
+        with_workspace: bool = False,
         restore_archived: bool = False,
         workspace_branch: str = "",
         capture_intent: str = "",
+        workspace_root: str = "",
         timeout_s: float | None = None,
     ) -> Mapping[str, Any]:
         bound_repo = self._state.repo_id
@@ -388,6 +406,8 @@ class ReviewSession:
             "base_view_revision": base_view_revision,
             **({"workspace_branch": workspace_branch} if workspace_branch else {}),
             **({"capture_intent": capture_intent} if capture_intent else {}),
+            **({"with_workspace": True} if with_workspace else {}),
+            **({"workspace_root": workspace_root} if with_workspace and workspace_root else {}),
         }
         manifest = self._state.review_manifest
         if manifest is None:
@@ -424,6 +444,42 @@ class ReviewSession:
     def review_url(self, review_id: str) -> str:
         internal_id = review_id[2:] if review_id.startswith("r/") else review_id
         return self._config.endpoint(f"/r/{quote(internal_id, safe='')}")
+
+    def reader_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+    ) -> Mapping[str, Any]:
+        """One Reader API call (``/api/...`` only) on the configured server: terminal marks, comments, status."""
+
+        if not path.startswith("/api/"):
+            raise ClientError(
+                ErrorCode.NOT_CONFIGURED,
+                "Review Reader requests must stay under /api/ on LEMONCROW_URL",
+                action=AgentAction.ABANDON,
+            )
+        response = self._transport.request(
+            method.upper(),
+            path,
+            body=dict(body) if body is not None else None,
+            headers=self._bearer(),
+            timeout_s=timeout_s,
+        )
+        if response.status >= 400 and isinstance(response.payload.get("detail"), str):
+            code, action = _READER_STATUS.get(response.status, (ErrorCode.UNKNOWN, AgentAction.NONE))
+            raise ClientError(code, str(response.payload["detail"]), action=action)
+        return response.require()
+
+    def list_reviews(self, *, limit: int = 100, timeout_s: float | None = None) -> list[dict[str, Any]]:
+        """The server's Review list, every status, most recent first (one page of at most *limit*)."""
+
+        query = urlencode({"status": "all", "limit": str(limit)})
+        payload = self._transport.get(f"/v1/reviews?{query}", headers=self._bearer(), timeout_s=timeout_s).require()
+        rows = payload.get("reviews")
+        return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
 
     def pair_local_review_browser(self, path: str, *, timeout_s: float | None = None) -> Mapping[str, Any]:
         """Arm one local Review browser path using the machine bearer.

@@ -51,6 +51,15 @@ src/lemoncrow/pro/capabilities/review/analytics/load.py
 src/lemoncrow/pro/capabilities/review/analytics/report.py
 src/lemoncrow/pro/capabilities/review/analytics/scope.py
 src/lemoncrow/pro/capabilities/review/analytics/service.py
+src/lemoncrow/pro/capabilities/review/answer_category.py
+src/lemoncrow/pro/capabilities/review/architecture_imports.py
+src/lemoncrow/pro/capabilities/review/policy_edit.py
+src/lemoncrow/pro/capabilities/review/second_reviewer.py
+src/lemoncrow/pro/capabilities/review/second_reviewer_api.py
+src/lemoncrow/pro/capabilities/review/team_presence_api.py
+src/lemoncrow/pro/capabilities/review/batch_guard.py
+src/lemoncrow/pro/capabilities/review/part_proof_api.py
+src/lemoncrow/pro/capabilities/review/since_review.py
 src/lemoncrow/pro/capabilities/review/anchors.py
 src/lemoncrow/pro/capabilities/review/api.py
 src/lemoncrow/pro/capabilities/review/base_movement.py
@@ -59,7 +68,6 @@ src/lemoncrow/pro/capabilities/review/archive_safety.py
 src/lemoncrow/pro/capabilities/review/code_intelligence.py
 src/lemoncrow/pro/capabilities/review/development.py
 src/lemoncrow/pro/capabilities/review/errors.py
-src/lemoncrow/pro/capabilities/review/execution.py
 src/lemoncrow/pro/capabilities/review/fix_lines.py
 src/lemoncrow/pro/capabilities/review/freshness.py
 src/lemoncrow/pro/capabilities/review/gate_h_contract.yaml
@@ -70,6 +78,7 @@ src/lemoncrow/pro/capabilities/review/impact.py
 src/lemoncrow/pro/capabilities/review/landing.py
 src/lemoncrow/pro/capabilities/review/models.py
 src/lemoncrow/pro/capabilities/review/packet.py
+src/lemoncrow/pro/capabilities/review/packet_index.py
 src/lemoncrow/pro/capabilities/review/readiness.py
 src/lemoncrow/pro/capabilities/review/relationships.py
 src/lemoncrow/pro/capabilities/review/review_plan.py
@@ -84,6 +93,9 @@ src/lemoncrow/pro/capabilities/review/sources/__init__.py
 src/lemoncrow/pro/capabilities/review/sources/github.py
 src/lemoncrow/pro/capabilities/review/sources/local.py
 src/lemoncrow/pro/capabilities/review/store.py
+src/lemoncrow/pro/capabilities/review/part_checks.py
+src/lemoncrow/pro/capabilities/review/seen_coverage.py
+src/lemoncrow/pro/capabilities/review/user_settings.py
 src/lemoncrow/pro/capabilities/review/targets.py
 src/lemoncrow/pro/capabilities/review/units.py
 src/lemoncrow/pro/capabilities/review/workspace.py
@@ -93,8 +105,11 @@ src/lemoncrow/pro/code_intel/__init__.py
 src/lemoncrow/pro/code_intel/git_history/__init__.py
 src/lemoncrow/pro/code_intel/git_history/renames.py
 client/src/lemoncrow_client/__init__.py
+client/src/lemoncrow_client/environment.py
 client/src/lemoncrow_client/kit/__init__.py
 client/src/lemoncrow_client/kit/redaction.py
+client/src/lemoncrow_client/review_words.py
+client/src/lemoncrow_client/usage.py
 client/src/lemoncrow_client/workspace_graph.py
 client/src/lemoncrow_client/workspace_members.py
 server/src/lemoncrow_server_core/__init__.py
@@ -168,7 +183,6 @@ src/lemoncrow/core/capabilities/providers/discovery.py
 src/lemoncrow/core/capabilities/providers/ratelimit.py
 src/lemoncrow/core/capabilities/providers/zen.py
 src/lemoncrow/core/environment.py
-src/lemoncrow/core/foundation/managed_host.py
 src/lemoncrow/infra/internal_llm/__init__.py
 src/lemoncrow/infra/internal_llm/cache.py
 src/lemoncrow/infra/internal_llm/direct_http.py
@@ -178,6 +192,7 @@ src/lemoncrow/infra/internal_llm/logprobs.py
 src/lemoncrow/infra/internal_llm/ollama_client.py
 src/lemoncrow/infra/internal_llm/openai_client.py
 src/lemoncrow/infra/internal_llm/result.py
+src/lemoncrow/infra/internal_llm/usage.py
 src/lemoncrow/infra/storage/migrations/__init__.py
 src/lemoncrow/pro/capabilities/model_setup/__init__.py
 src/lemoncrow/pro/capabilities/model_setup/models.py
@@ -192,7 +207,11 @@ src/lemoncrow/pro/capabilities/review/contracts.py
 src/lemoncrow/pro/capabilities/review/criticality.py
 src/lemoncrow/pro/capabilities/review/dependencies.py
 src/lemoncrow/pro/capabilities/review/handoff.py
+src/lemoncrow/pro/capabilities/review/viewer_queue.py
+src/lemoncrow/pro/capabilities/review/viewer_lens.py
+src/lemoncrow/pro/capabilities/review/request_reads.py
 src/lemoncrow/pro/capabilities/review/inbox_inputs.py
+src/lemoncrow/pro/capabilities/review/inbox_progress.py
 src/lemoncrow/pro/capabilities/review/inbox_views.py
 src/lemoncrow/pro/capabilities/review/intelligence_drivers.py
 src/lemoncrow/pro/capabilities/review/intelligence_policy.py
@@ -216,6 +235,7 @@ src/lemoncrow/core/capabilities/session_comment_capture.py
 src/lemoncrow/infra/code_intel/__init__.py
 src/lemoncrow/pro/capabilities/review/action_approval.py
 src/lemoncrow/pro/capabilities/review/action_approval_api.py
+src/lemoncrow/pro/capabilities/review/ai_budget.py
 src/lemoncrow/pro/capabilities/review/ai_coverage.py
 src/lemoncrow/pro/capabilities/review/ai_review.py
 src/lemoncrow/pro/capabilities/review/artifact_analyses.py
@@ -228,6 +248,7 @@ src/lemoncrow/pro/capabilities/review/behavior_runtime.py
 src/lemoncrow/pro/capabilities/review/blocking_reasons.py
 src/lemoncrow/pro/capabilities/review/break_glass.py
 src/lemoncrow/pro/capabilities/review/brief_summary.py
+src/lemoncrow/pro/capabilities/review/change_risk.py
 src/lemoncrow/pro/capabilities/review/browser_checks.py
 src/lemoncrow/pro/capabilities/review/change_proposals.py
 src/lemoncrow/pro/capabilities/review/check_api.py
@@ -236,7 +257,21 @@ src/lemoncrow/pro/capabilities/review/check_ingest_api.py
 src/lemoncrow/pro/capabilities/review/check_runs.py
 src/lemoncrow/pro/capabilities/review/compute_ledger.py
 src/lemoncrow/pro/capabilities/review/config_import.py
+src/lemoncrow/pro/capabilities/review/config_names.py
 src/lemoncrow/pro/capabilities/review/data_governance.py
+# The experimental data path (P10-7): its route, its LemonCrow-written taint rules, and the Opengrep pin it
+# verifies a local binary against (opengrep_install.py is standard library only; the data path never downloads).
+src/lemoncrow/pro/capabilities/review/data_path.py
+src/lemoncrow/pro/capabilities/review/data_path_api.py
+src/lemoncrow/pro/capabilities/review/data_path_rules/README.md
+src/lemoncrow/pro/capabilities/review/data_path_rules/django.yaml
+src/lemoncrow/pro/capabilities/review/data_path_rules/express.yaml
+src/lemoncrow/pro/capabilities/review/data_path_rules/spring.yaml
+src/lemoncrow/pro/capabilities/review/xray_graph.py
+src/lemoncrow/pro/capabilities/review/xray_graph_ai.py
+src/lemoncrow/pro/capabilities/review/xray_graph_api.py
+src/lemoncrow/pro/capabilities/review/xray_graph_sources.py
+src/lemoncrow/pro/capabilities/review/pr_bot/opengrep_install.py
 src/lemoncrow/pro/capabilities/review/decisions.py
 src/lemoncrow/pro/capabilities/review/delivery.py
 src/lemoncrow/pro/capabilities/review/depth_policy.py
@@ -255,7 +290,6 @@ src/lemoncrow/pro/capabilities/review/flag_matrix.py
 src/lemoncrow/pro/capabilities/review/fresh_rerun.py
 src/lemoncrow/pro/capabilities/review/git_env.py
 src/lemoncrow/pro/capabilities/review/hermetic.py
-src/lemoncrow/pro/capabilities/review/host_tools.py
 src/lemoncrow/pro/capabilities/review/incremental.py
 src/lemoncrow/pro/capabilities/review/independence.py
 src/lemoncrow/pro/capabilities/review/infra_render.py
@@ -279,15 +313,17 @@ src/lemoncrow/pro/capabilities/review/outcomes/outcome_actions.py
 src/lemoncrow/pro/capabilities/review/outcomes/outcomes_api.py
 src/lemoncrow/pro/capabilities/review/premerge_api.py
 src/lemoncrow/pro/capabilities/review/premerge_checks.py
-src/lemoncrow/pro/capabilities/review/preview_proxy.py
 src/lemoncrow/pro/capabilities/review/preview_runtime.py
 src/lemoncrow/pro/capabilities/review/preview_sessions.py
-src/lemoncrow/pro/capabilities/review/preview_state.py
 src/lemoncrow/pro/capabilities/review/project_knowledge_surface.py
 src/lemoncrow/pro/capabilities/review/rebase_classification.py
 src/lemoncrow/pro/capabilities/review/recipes.py
 src/lemoncrow/pro/capabilities/review/record_signing.py
 src/lemoncrow/pro/capabilities/review/record_verify.py
+src/lemoncrow/pro/capabilities/review/record_details.py
+src/lemoncrow/pro/capabilities/review/record_outcome.py
+src/lemoncrow/pro/capabilities/review/record_pdf.py
+src/lemoncrow/pro/capabilities/review/record_retraction.py
 src/lemoncrow/pro/capabilities/review/regenerate_compare.py
 src/lemoncrow/pro/capabilities/review/render_diff.py
 src/lemoncrow/pro/capabilities/review/render_driver.py
@@ -305,6 +341,7 @@ src/lemoncrow/pro/capabilities/review/reviewer_suggestions_api.py
 src/lemoncrow/pro/capabilities/review/rule_checks.py
 src/lemoncrow/pro/capabilities/review/rule_suggestions.py
 src/lemoncrow/pro/capabilities/review/rules.py
+src/lemoncrow/pro/capabilities/review/runner_host.py
 src/lemoncrow/pro/capabilities/review/run_evidence.py
 src/lemoncrow/pro/capabilities/review/run_plan.py
 src/lemoncrow/pro/capabilities/review/run_plan_reverification.py
@@ -313,8 +350,6 @@ src/lemoncrow/pro/capabilities/review/runtime_observation.py
 src/lemoncrow/pro/capabilities/review/runtime_observation_api.py
 src/lemoncrow/pro/capabilities/review/runtime_observation_runs.py
 src/lemoncrow/pro/capabilities/review/runtime_validation.py
-src/lemoncrow/pro/capabilities/review/runtimes.py
-src/lemoncrow/pro/capabilities/review/sandbox_limits.py
 src/lemoncrow/pro/capabilities/review/session_comments.py
 src/lemoncrow/pro/capabilities/review/settings_import.py
 src/lemoncrow/pro/capabilities/review/shipped_artifacts.py
@@ -327,6 +362,7 @@ src/lemoncrow/pro/capabilities/review/static_findings.py
 src/lemoncrow/pro/capabilities/review/surfaces.py
 src/lemoncrow/pro/capabilities/review/synthesis.py
 src/lemoncrow/pro/capabilities/review/test_impact.py
+src/lemoncrow/pro/capabilities/review/titles.py
 src/lemoncrow/pro/capabilities/review/tour.py
 src/lemoncrow/pro/capabilities/review/track_record.py
 src/lemoncrow/pro/capabilities/review/trusted_base.py
@@ -335,6 +371,19 @@ src/lemoncrow/pro/capabilities/review/workspace_impact.py
 src/lemoncrow/pro/capabilities/review/validity.py
 src/lemoncrow/pro/capabilities/review/verification.py
 src/lemoncrow/pro/capabilities/review/verification_delta.py
+src/lemoncrow/pro/environment/__init__.py
+src/lemoncrow/pro/environment/dependency_cache.py
+src/lemoncrow/pro/environment/execution.py
+src/lemoncrow/pro/environment/host_tools.py
+src/lemoncrow/pro/environment/image_build.py
+src/lemoncrow/pro/environment/macos_sandbox.py
+src/lemoncrow/pro/environment/oci.py
+src/lemoncrow/pro/environment/preview_proxy.py
+src/lemoncrow/pro/environment/preview_state.py
+src/lemoncrow/pro/environment/runner_host.py
+src/lemoncrow/pro/environment/runners.py
+src/lemoncrow/pro/environment/sandbox_limits.py
+src/lemoncrow/pro/environment/services.py
 
 # Reached lazily from shipped code: Reader features (review map, surfaces and previews,
 # measures, special changes, live events, comment re-anchoring, Project Context, trust
@@ -362,7 +411,6 @@ src/lemoncrow/pro/capabilities/review/flow_traces.py
 src/lemoncrow/pro/capabilities/review/github_placement.py
 src/lemoncrow/pro/capabilities/review/github_publish.py
 src/lemoncrow/pro/capabilities/review/hermetic_python.py
-src/lemoncrow/pro/capabilities/review/macos_sandbox.py
 src/lemoncrow/pro/capabilities/review/measures.py
 src/lemoncrow/pro/capabilities/review/ordering.py
 src/lemoncrow/pro/capabilities/review/outcomes/local_observability.py
@@ -424,6 +472,12 @@ src/lemoncrow/infra/storage/migrations/v3_037_review_deletion_tombstones.sql
 src/lemoncrow/infra/storage/migrations/v3_038_review_ask_conversations.sql
 src/lemoncrow/infra/storage/migrations/v3_039_review_hosted_attachment.sql
 src/lemoncrow/infra/storage/migrations/v3_040_project_knowledge.sql
+src/lemoncrow/infra/storage/migrations/v3_041_review_answer_category.sql
+src/lemoncrow/infra/storage/migrations/v3_042_review_structure_reconsideration.sql
+src/lemoncrow/infra/storage/migrations/v3_043_review_flow_send.sql
+src/lemoncrow/infra/storage/migrations/v3_044_review_viewer_state.sql
+src/lemoncrow/infra/storage/migrations/v3_045_review_user_settings.sql
+src/lemoncrow/infra/storage/migrations/v3_046_review_ask_author.sql
 
 # The terminal commands of the installed `lc` that need a model route or the repository's rules: `lc review --ai`,
 # `hook`, `init-action`, `config` and `lc settings`. The Review client hands them to this engine's interpreter
@@ -449,6 +503,9 @@ src/lemoncrow/pro/capabilities/review/pr_bot/local.py
 src/lemoncrow/pro/capabilities/review/pr_bot/runner.py
 src/lemoncrow/pro/capabilities/review/pr_bot/state.py
 src/lemoncrow/pro/capabilities/review/reproduce.py
+src/lemoncrow/pro/capabilities/review/proof/__init__.py
+src/lemoncrow/pro/capabilities/review/proof/wire.py
+src/lemoncrow/pro/capabilities/review/pr_bot/callers.py
 src/lemoncrow/pro/capabilities/review/pr_bot/chat.py
 src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py
 src/lemoncrow/pro/capabilities/review/pr_bot/diagram.py
@@ -488,8 +545,10 @@ src/lemoncrow/pro/capabilities/review/pr_bot/safety.py
 src/lemoncrow/pro/capabilities/review/pr_bot/spend.py
 src/lemoncrow/pro/capabilities/review/sources/gitlab.py
 src/lemoncrow/pro/capabilities/review/autofix_approval.py
+src/lemoncrow/pro/capabilities/review/batch_guard_tree.py
 src/lemoncrow/pro/capabilities/review/check_recommendations.py
 src/lemoncrow/pro/capabilities/review/check_regressions.py
 src/lemoncrow/pro/capabilities/review/consumer_inventory.py
 src/lemoncrow/pro/capabilities/review/landed_review_knowledge.py
+src/lemoncrow/pro/capabilities/review/part_proof.py
 src/lemoncrow/pro/capabilities/review/web_qa_runner.js

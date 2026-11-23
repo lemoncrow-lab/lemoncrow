@@ -17,10 +17,10 @@ def test_runtime_lite_entrypoint_accepts_all_shipped_host_identifiers(monkeypatc
 
     seen = []
     monkeypatch.setattr(mcp, "serve", lambda: seen.append(os.environ["LEMONCROW_AGENT"]) or 0)
-    for host in ("claude", "codex", "opencode", "cursor", "pi", "lemoncode"):
+    for host in ("claude", "codex", "opencode", "cursor", "pi"):
         result = CliRunner().invoke(cli, ["runtime", "lite-mcp", "--host", host])
         assert result.exit_code == 0, result.output
-    assert seen == ["claude", "codex", "opencode", "cursor", "pi", "lemoncode"]
+    assert seen == ["claude", "codex", "opencode", "cursor", "pi"]
 
 
 def test_runtime_status_is_a_first_class_product_namespace(monkeypatch) -> None:
@@ -69,7 +69,7 @@ def test_runtime_status_labels_local_and_hosted_modes(monkeypatch) -> None:
     result = CliRunner().invoke(cli, ["runtime", "status"])
 
     assert result.exit_code == 0, result.output
-    assert "✓ claude     enabled · Local Lite" in result.output
+    assert "✓ claude     enabled · Lite" in result.output
     assert "✓ codex      enabled · Hosted" in result.output
     assert "⚠ opencode   enabled · Unknown mode" in result.output
     assert "lc rt enable" not in result.output
@@ -163,7 +163,7 @@ def test_runtime_status_does_not_require_review(monkeypatch) -> None:
     result = CliRunner().invoke(cli, ["runtime", "status"])
 
     assert result.exit_code == 0, result.output
-    assert "LemonCrow Runtime" in result.output
+    assert "LemonCrow Workspaces" in result.output
     assert "host not installed" in result.output
     assert "Review" not in result.output
 
@@ -199,5 +199,5 @@ def test_runtime_enable_confirms_what_changed(tmp_path: Path, monkeypatch) -> No
     result = CliRunner().invoke(cli, ["runtime", "enable", "codex"])
 
     assert result.exit_code == 0, result.output
-    assert "✓ Runtime enabled for Codex · Local Lite" in result.output
+    assert "✓ Workspaces enabled for Codex · Lite" in result.output
     assert "Restart Codex to load the lc tools" in result.output

@@ -415,6 +415,28 @@ def test_named_branch_range_follows_branch_head_in_one_session(tmp_path: Path) -
     assert range_for_session(root, second).head_sha == second_range.head_sha
 
 
+def test_range_to_head_on_a_branch_is_that_branchs_review(tmp_path: Path) -> None:
+    root, repo = _named_range_repo(tmp_path)
+    store = _store(tmp_path)
+    repo.checkout("refs/heads/feature")
+    first_range = resolve_rev_range(root, "main...HEAD")
+    first = open_or_create_session(store, root, first_range)
+    assert first.source_ref == "named:refs/heads/main...refs/heads/feature"
+
+    _write(root, "src/session.py", _CHANGED.replace('"invalid"', '"newer"'))
+    _commit(repo, "feature two", 120)
+    assert open_or_create_session(store, root, resolve_rev_range(root, "main...HEAD")).id == first.id
+    assert open_or_create_session(store, root, resolve_rev_range(root, "main...feature")).id == first.id
+
+
+def test_range_to_a_detached_head_stays_snapshot_isolated(tmp_path: Path) -> None:
+    root, repo = _named_range_repo(tmp_path)
+    repo.checkout("refs/heads/feature")
+    repo.set_head(repo.head.target)
+    rng = resolve_rev_range(root, "main...HEAD")
+    assert source_ref(rng, repo_root=root) == f"{rng.base_sha}..{rng.head_sha}"
+
+
 def test_named_change_records_new_snapshot_for_rebase_without_reopening_equivalent_targets(tmp_path: Path) -> None:
     root, repo = _named_range_repo(tmp_path)
     store = _store(tmp_path)
@@ -620,10 +642,40 @@ def test_changing_the_tree_creates_a_second_dense_revision(tmp_path: Path) -> No
     assert [revision.revision_number for revision in store.list_revisions(session.id)] == [1, 2]
 
 
-def test_an_oversized_text_change_cannot_reuse_a_revision_with_placeholder_file_identity(tmp_path: Path) -> None:
+def test_a_changed_file_over_the_analysis_cap_still_rebuilds_the_ai_review_snapshot(tmp_path: Path) -> None:
+    """An 877 KB generated README in the working tree failed every `lc review --ai`: its bytes were not captured."""
+
+    from lemoncrow.pro.capabilities.review.gitdiff import MAX_BLOB_BYTES
+    from lemoncrow.pro.capabilities.review.snapshot import frozen_revision_overlay, materialize_review_side
+
+    root = tmp_path / "large-doc"
+    repo = _init_repo(root)
+    _write(root, "README.md", "# Status\n")
+    _commit(repo, "baseline", 0)
+    big = "# Status\n" + "| row | shipped |\n" * (MAX_BLOB_BYTES // 16 + 1000)
+    assert len(big.encode()) > MAX_BLOB_BYTES
+    _write(root, "README.md", big)
+    rng = resolve_rev_range(root)
+    store = _store(tmp_path)
+    session = open_or_create_session(store, root, rng)
+    revision = snapshot_revision(store, session, root, rng, store_root=tmp_path / "store")
+
+    overlay = frozen_revision_overlay(tmp_path / "store", revision, store=store)
+    assert overlay is not None and overlay["README.md"] == big.encode()
+    target = tmp_path / "snapshot"
+    materialize_review_side(tmp_path / "store", root, revision, side="new", target=target, store=store)
+    assert (target / "README.md").read_text() == big
+
+
+def test_an_oversized_text_change_cannot_reuse_a_revision_with_placeholder_file_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import gitdiff
+
+    monkeypatch.setattr(gitdiff, "MAX_CAPTURE_BLOB_BYTES", gitdiff.MAX_BLOB_BYTES)
     root = tmp_path / "large-repo"
     repo = _init_repo(root)
-    # Keep the file over gitdiff.MAX_BLOB_BYTES while making each edit tiny, so
+    # Keep the file over the (lowered) capture cap while making each edit tiny, so
     # the file unit is `unknown` but the hunk itself remains fingerprintable.
     lines = [f"value_{index} = {index}\n" for index in range(30000)]
     _write(root, "big.py", "".join(lines))
@@ -1883,9 +1935,9 @@ def test_comment_anchors_and_errors_name_the_snapshot_the_reader_shows(tmp_path:
 
     # The Reader calls the first capture "Snapshot 0"; nothing may call it "revision 1".
     assert revision.revision_number == 1
-    assert line.anchor_detail == "anchored on Snapshot 0"
-    assert whole.anchor_detail == "file-level comment on Snapshot 0"
-    with pytest.raises(ValueError, match="is not a file in Revision 0 of this review"):
+    assert line.anchor_detail == "anchored on Revision 1"
+    assert whole.anchor_detail == "file-level comment on Revision 1"
+    with pytest.raises(ValueError, match="is not a file in Revision 1 of this review"):
         annotate(store, session, revision, path="src/missing.py", start_line=1, end_line=1, body="nowhere")
 
 
@@ -1972,7 +2024,7 @@ def test_an_explicit_snapshot_takes_over_the_background_prepared_build(
     assert hosted.prepare_local_source_build(config, root, rng, store_root=prepared_root, session_id=None, limit=40)
 
     def no_rebuild(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("an explicit Snapshot must take over the prepared build, not rebuild it")
+        raise AssertionError("an explicit revision must take over the prepared build, not rebuild it")
 
     monkeypatch.setattr(local_source, "build_review_packet_with_blobs", no_rebuild)
     prepared_store = ReviewStore(prepared_root)
@@ -2262,6 +2314,48 @@ def test_legacy_review_adoption_recovers_original_base_from_earliest_revision(tm
     assert adopted.review_base_sha != str(repo.head.target)
 
 
+def test_clean_commit_refresh_reuses_newly_frozen_checkpoint_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A commit's stored checkpoint and final Review cannot reread different source bytes."""
+    from lemoncrow.pro.capabilities.review.sources import local as local_source
+
+    root, repo = _dirty_repo(tmp_path)
+    store = _store(tmp_path)
+    session = open_or_create_session(store, root, resolve_rev_range(root, working_tree=True))
+    refresh(store, session, root, store_root=tmp_path / "store", limit=5000)
+
+    original = local_source.build_review_packet_with_blobs
+    calls: list[tuple[str, bool, bool]] = []
+
+    def track(repo_root: Path, rng: Any, **kwargs: Any):
+        calls.append((rng.mode, bool(kwargs.get("with_impact", True)), bool(kwargs.get("with_provenance", True))))
+        return original(repo_root, rng, **kwargs)
+
+    monkeypatch.setattr(local_source, "build_review_packet_with_blobs", track)
+    original_record = local_source.record_revision
+    recorded: list[str] = []
+
+    def record_once(_store: Any, _session: Any, _root: Path, rng: Any, **kwargs: Any):
+        recorded.append(rng.mode)
+        return original_record(_store, _session, _root, rng, **kwargs)
+
+    monkeypatch.setattr(local_source, "record_revision", record_once)
+    sha = _commit(repo, "new review checkpoint", 1)
+    result = refresh(store, store.get_session(session.id) or session, root, store_root=tmp_path / "store", limit=5000)
+    checkpoint = store.find_commit(session.id, sha)
+    assert checkpoint is not None and result.revision.id == checkpoint.revision_id
+    assert result.revision.capture_kind == "commit"
+    # One immutable diff/blob capture, plus provenance and semantic impact on
+    # the same frozen bytes; a second git diff would race an advancing HEAD.
+    assert calls == [("commit_range", False, False)]
+    assert recorded == ["commit_range"]  # final Refresh reuses its completed checkpoint reconciliation
+    packet = read_packet_json(store, result.revision)
+    assert packet is not None and "provenance_disabled" not in packet.get("degraded", ())
+    assert "impact_disabled" not in packet.get("degraded", ())
+    assert store.read_blob_artifact(session.id, result.revision.id) is not None
+
+
 def test_commit_checkpoint_backfill_skips_full_impact_and_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2389,3 +2483,25 @@ def test_unborn_review_keeps_empty_tree_base_and_records_first_commit(tmp_path: 
     assert checkpoint.capture_kind == "commit"
     assert checkpoint.dirty is False
     assert captured.revision.id == checkpoint.id
+
+
+def test_enrichment_stamps_a_unit_stored_before_the_stamp_existed(tmp_path: Path) -> None:
+    """A revision from before migration v3_041 gains its structural answer the next time it is enriched."""
+    import sqlite3
+
+    root, _repo = _dirty_repo(tmp_path)
+    rng = resolve_rev_range(root)
+    store = _store(tmp_path)
+    session = open_or_create_session(store, root, rng)
+    build = build_review_packet_with_blobs(
+        root, rng, store_root=tmp_path / "store", with_impact=False, with_patch_text=True
+    )
+    revision = snapshot_revision(store, session, root, rng, store_root=tmp_path / "store", build=build)
+    assert {unit.answer_category for unit in store.list_units(revision.id)} == {"quick_check"}
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("UPDATE review_units SET answer_category = '', category_rule = ''")
+
+    reader = _store(tmp_path)
+    assert {unit.answer_category for unit in reader.list_units(revision.id)} == {""}
+    enrich_revision_projection(reader, session, revision, build)
+    assert {unit.answer_category for unit in _store(tmp_path).list_units(revision.id)} == {"quick_check"}

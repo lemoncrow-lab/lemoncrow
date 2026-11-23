@@ -11,13 +11,6 @@ from typing import Any
 import pytest
 
 from lemoncrow.pro.capabilities.review.capability_catalog import DynamicTarget
-from lemoncrow.pro.capabilities.review.execution import (
-    RUN_ON_BY_EXECUTOR_CLASS,
-    ExecutionSubject,
-    ExecutorClass,
-    StageOutcome,
-    run_on_for_locus,
-)
 from lemoncrow.pro.capabilities.review.planned_execution import (
     PlannedExecutionRefused,
     admit_planned_execution,
@@ -26,9 +19,16 @@ from lemoncrow.pro.capabilities.review.planned_execution import (
     stage_compute,
 )
 from lemoncrow.pro.capabilities.review.run_plan import ManualPick, RunPlan
-from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface
 from lemoncrow.pro.capabilities.review.test_impact import IMPACT_MAP_ENTRY
+from lemoncrow.pro.environment.execution import (
+    RUN_ON_BY_EXECUTOR_CLASS,
+    ExecutionSubject,
+    ExecutorClass,
+    StageOutcome,
+    run_on_for_locus,
+)
+from lemoncrow.pro.environment.runners import RunnerRegistry, SurfaceRunResult
 from tests.gateway.test_review_execution_contract import _result
 from tests.gateway.test_review_run_plan_api import _RUNTIME, HEADERS, _get, _review
 
@@ -233,7 +233,7 @@ def _running(plan: Mapping[str, Any]) -> set[str]:
 def _discovered_only(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Discovery finds a surface the trusted base does not configure."""
 
-    import lemoncrow.pro.capabilities.review.runtimes as runtimes_module
+    import lemoncrow.pro.capabilities.review.runner_host as runtimes_module
     import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
 
     ran: list[str] = []

@@ -14,13 +14,17 @@ table) is `research_notes/LemonCrow strategy memo assessment/design_system_spec.
 
 1. **One motif, the Hunk.** Every container is a hairline frame with an optional mono `@@ LABEL @@` header strip and an optional 3px gutter rail
    (`Hunk`, `HunkHead`, `HunkLabel`, `HunkBody`, `HunkRow` in `components/ui/hunk.tsx`). The rail carries state (severity, kind, review status),
-   is always redundant with a text badge, and is never decoration. Nest at most two deep.
+   is always redundant with a text badge, and is never decoration. Nest at most two deep. **`@@` appears only in real diff hunk headers inside
+   code.** The redesigned Review flow (SPEC section 2) never puts it in a title, eyebrow, label or empty state: its screens use
+   `Hunk` only as a frame, with plain headings and plain mono labels, and do not use `HunkHead`, `HunkLabel`, the `.eyebrow` class or `SheetTitle`.
+   Review's settings sections (Review flow, Review policy, Organization, AI & background) are framed cards with plain headings, and a
+   `Dialog` or `Sheet` header strip shows its title plainly (review-23.4). The CSS-drawn markers in `src/design/lc-components.css`
+   (`.eyebrow`, `.hunk-label`) are left as they are, because older Workspaces pages still use them.
 2. **One accent: lemon.** `#FFDC00` is a fill or a mark: the one primary action of a view (`Button variant="brand"`), the logo, the active
    indicator and focus ring on dark surfaces, the native-control accent. Never lemon text on a light surface, never a status colour.
-3. **Every other colour has one job.** Red is P0 and must-fix. Amber is P1 and still-to-do. Cyan is P2 and to-re-check. Green is fixed or
+3. **Every other colour has one job.** Red is P0 and must-fix. Amber is P1 and still-to-do. Blue (Olaryn info) is P2 and to-re-check. Green is fixed or
    success. Violet is AI or agent authorship, only in attribution chips. Ink and paper do everything else.
-4. **Three voices.** Red Hat Display for display (the app barely uses it), Red Hat Text for reading and UI, JetBrains Mono for labels, paths,
-   numbers and badges. Fonts are self-hosted and bundled under `/assets` (the local server serves nothing else).
+4. **Two voices (Olaryn).** Inter for reading, UI and display, Geist Mono for labels, paths, code, numbers and badges. Fonts are self-hosted and bundled under `/assets` (the local server serves nothing else).
 5. **One type scale.** No arbitrary sizes, no Tailwind defaults (see Type).
 6. **One button recipe.** Variants by intent, at most one `brand` per view.
 7. **One badge shape.** 20px, mono, uppercase, `rounded-sm`.
@@ -82,7 +86,7 @@ the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`.
 | Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action; `density="compact"` for a slot inside a strip, as on Home's savings band). It says what will appear and the one real route or action that gets there; never "No data" |
 
 A `Sheet` or `Dialog` opens with the Hunk header strip: `DialogHeader` / `SheetHeader` is the 36px mono strip and its `DialogTitle` /
-`SheetTitle` draws as `@@ TITLE @@` (the markers are CSS, so the accessible name is the title text and nothing else). The right slot takes
+`SheetTitle` is the plain title, with no `@@` markers (those belong only to real diff hunks; review-23.4). The right slot takes
 at most one meta string, badge or the close button; the one sentence that says what the overlay will and will not do goes in
 `DialogLede` / `SheetLede` under the strip (it is the dialog's description), and a status line that is not a description uses `LEDE_CLASS`.
 A title outside a header strip stays an ordinary heading (the command palette).
@@ -119,7 +123,7 @@ app puts one class on `<html>`), so one class works in both themes and takes alp
 
 | Token | Use |
 |---|---|
-| `background` / `foreground` | page surface (paper `#F8F6F1`, ink `#0A0A0A`) / primary text |
+| `background` / `foreground` | page surface (Olaryn page `#F9FAFB`, dark `#090909`) / primary text (`#101828`, dark `#D9D9D9`) |
 | `card`, `popover` (+ `-foreground`) | raised panels and Hunk bodies / floating surfaces |
 | `muted` / `muted-foreground` | sunken surface, Hunk header strips, table heads / muted text (at least 4.5:1 on every page surface) |
 | `subtle` | secondary text |

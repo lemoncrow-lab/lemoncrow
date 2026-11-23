@@ -4,6 +4,7 @@ import { Check, CircleAlert, FilePenLine, LoaderCircle, Maximize2, Minimize2, Pe
 import { Suspense, lazy, useState } from "react";
 
 import type { ReviewChangeProposal, ReviewProposalSelection } from "./types";
+import { revisionName } from "./revisionLabel";
 
 // CodeMirror (~350 KB) is only needed once a reviewer opens an edit.
 const EditableCodeEditor = lazy(() => import("./EditableCodeEditor"));
@@ -20,14 +21,14 @@ function proposalState(proposal: ReviewChangeProposal): { label: string; tone: s
     return {
       label: "Captured",
       tone: "border-emerald-900/60 bg-emerald-950/15 text-emerald-300",
-      detail: "Captured in an immutable Snapshot.",
+      detail: "Captured in an immutable revision.",
     };
   }
   if (proposal.state === "applied") {
     return {
       label: "Awaiting review update",
       tone: "border-cyan-900/60 bg-cyan-950/15 text-cyan-300",
-      detail: "Applied to the working source. Update the review to capture it as an immutable Snapshot.",
+      detail: "Applied to the working source. Update the review to capture it as an immutable revision.",
     };
   }
   if (!proposal.can_apply) {
@@ -36,13 +37,13 @@ function proposalState(proposal: ReviewChangeProposal): { label: string; tone: s
     return {
       label: "Saved proposal",
       tone: "border-border bg-muted/30 text-muted-foreground",
-      detail: "Saved as a review patch. It can only be applied from the latest Snapshot with local source editing.",
+      detail: "Saved as a review patch. It can only be applied from the latest revision with local source editing.",
     };
   }
   return {
     label: "Ready to apply",
     tone: "border-border bg-muted text-muted-foreground",
-    detail: "Saved against this exact Snapshot and source identity.",
+    detail: "Saved against this exact revision and source identity.",
   };
 }
 
@@ -278,7 +279,7 @@ export default function ReviewChangeProposalComposer({
         <>
           <div className="review-source-preview-heading">
             <span>{directEdit ? "Patch preview" : "Suggested patch"}</span>
-            <span>based on Snapshot {proposal.base_revision_number}</span>
+            <span>based on {revisionName(proposal.base_revision_number)}</span>
           </div>
           <PatchPreview patch={proposal.patch} />
           {proposal.conflict_reason && (

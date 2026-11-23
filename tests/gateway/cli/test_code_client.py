@@ -23,17 +23,6 @@ def test_permanent_cli_entrypoints_map_to_canonical_cli() -> None:
     assert "lemoncode" not in scripts
 
 
-def test_lemoncode_program_name_is_not_a_hosted_code_alias() -> None:
-    assert _argv_for_program("lemoncode", ["-p", "hello"]) == ["-p", "hello"]
-    assert _argv_for_program("lemoncrow-mcp", ["--host", "claude"]) == [
-        "runtime",
-        "mcp",
-        "--host",
-        "claude",
-    ]
-    assert _argv_for_program("lc", ["runtime", "code"]) == ["runtime", "code"]
-
-
 def test_bare_lc_remains_product_neutral() -> None:
     assert _argv_for_program("lc", []) == []
     result = CliRunner().invoke(cli, [])
@@ -69,6 +58,18 @@ def test_update_footer_only_targets_interactive_human_commands(monkeypatch: pyte
     for command, argv in (("mcp", ["mcp", "check"]), ("review", ["review", "--json"]), ("code", ["code", "-p", "hi"])):
         print_update_footer(command, argv)
     assert emitted == []
+
+
+def test_code_help_says_it_is_reserved_and_not_available_yet() -> None:
+    for argv in (["code", "--help"], ["--help"]):
+        result = CliRunner().invoke(cli, argv)
+        assert result.exit_code == 0, result.output
+        line = next(row for row in result.output.splitlines() if row.lstrip().startswith(("code ", "Reserved")))
+        assert "Reserved" in line and "not available yet" in line, line
+
+    result = CliRunner().invoke(cli, ["code", "-p", "hello"])
+    assert result.exit_code == 1
+    assert "reserved for the Hosted LemonCrow coding agent, which is not available yet" in result.output
 
 
 def test_code_help_is_hosted_only() -> None:
@@ -326,13 +327,13 @@ def test_runtime_index_reports_what_it_did(tmp_path: Path) -> None:
 
     first = CliRunner().invoke(cli, ["runtime", "index", "--repo-root", str(repo)])
     assert first.exit_code == 0, first.output
-    assert f"Updating Runtime Lite index for {repo.resolve()}" in first.output
-    assert "Runtime Lite index ready: 1 file · 1 indexed · 0 deleted" in first.output
+    assert f"Updating Workspaces Lite index for {repo.resolve()}" in first.output
+    assert "Workspaces Lite index ready: 1 file · 1 indexed · 0 deleted" in first.output
     assert "runtime-lite-v3.sqlite3" in first.output
 
     again = CliRunner().invoke(cli, ["runtime", "index", "--repo-root", str(repo)])
     assert again.exit_code == 0, again.output
-    assert "Runtime Lite index up to date: 1 file checked, nothing changed" in again.output
+    assert "Workspaces Lite index up to date: 1 file checked, nothing changed" in again.output
 
 
 def test_private_maintenance_commands_are_not_public_runtime_lite() -> None:

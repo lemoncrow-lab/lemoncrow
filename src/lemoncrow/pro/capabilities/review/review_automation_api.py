@@ -24,7 +24,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from lemoncrow.pro.capabilities.review import archive_safety
+from lemoncrow.pro.capabilities.review import archive_safety, request_reads, viewer_lens
 from lemoncrow.pro.capabilities.review.automation_rules import (
     ACTION_LABELS,
     ACTION_PERMISSIONS,
@@ -101,6 +101,8 @@ class ReviewAutomationDeps:
     landing_delegate_available: bool = True
     hosted_owned: Callable[[Any, str], None] | None = None
     """``(session, what)``: refuses (409) a write hosted owns while the Review is attached (RC5)."""
+    hidden: Callable[[Any], frozenset[str]] | None = None
+    """Whose work this viewer may not read yet: their comments are unknown to her by id, as on a read."""
 
 
 def _refuse(code: int, detail: Any) -> HTTPException:
@@ -395,7 +397,12 @@ def register_review_automation_routes(router: APIRouter, deps: ReviewAutomationD
     @router.get("/reviews/{review_id}/automation")
     async def _get_automation(review_id: str) -> dict[str, Any]:
         session = deps.session(review_id)
-        return cast(dict[str, Any], await run_in_threadpool(_automation_view, session))
+
+        def scoped_view() -> dict[str, Any]:
+            with request_reads.reads_once():
+                return _automation_view(session)
+
+        return cast(dict[str, Any], await run_in_threadpool(scoped_view))
 
     @router.post("/reviews/{review_id}/post-merge/{kind}")
     async def _post_post_merge(review_id: str, kind: str, request: Request) -> dict[str, Any]:
@@ -447,10 +454,15 @@ def register_review_automation_routes(router: APIRouter, deps: ReviewAutomationD
     async def _post_annotation_sync(annotation_id: str, request: Request) -> dict[str, Any]:
         """Change a published comment through the provider; the local copy follows only on success."""
 
-        annotation = store.get_annotation(annotation_id)
+        found = store.get_annotation(annotation_id)
+        if found is None:
+            raise _refuse(status.HTTP_404_NOT_FOUND, "no such comment")
+        session = deps.mutable_session(found.review_id)
+        annotation = viewer_lens.reachable(
+            frozenset() if deps.hidden is None else deps.hidden(session), found, lambda note: note.created_by
+        )
         if annotation is None:
             raise _refuse(status.HTTP_404_NOT_FOUND, "no such comment")
-        session = deps.mutable_session(annotation.review_id)
         if deps.hosted_owned is not None:
             deps.hosted_owned(session, "comments and provider operations")
         body = await _body(request)
@@ -529,7 +541,10 @@ def register_review_automation_routes(router: APIRouter, deps: ReviewAutomationD
         _strict(body, _DISMISS_KEYS)
         remote_ref = str(body.get("remote_ref") or "")
         published = None
+        hidden = frozenset() if deps.hidden is None else deps.hidden(session)
         for annotation in store.list_annotations(session.id):
+            if annotation.created_by in hidden:  # a hidden author's published review answers as one never published
+                continue
             for item in store.list_deliveries(annotation.id):
                 if item.target_type == "github_review" and item.state == "sent" and item.remote_ref == remote_ref:
                     published = item

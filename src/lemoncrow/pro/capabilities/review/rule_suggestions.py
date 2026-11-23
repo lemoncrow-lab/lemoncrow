@@ -398,7 +398,7 @@ def rule_yaml(suggestions: Sequence[RuleSuggestion]) -> str:
 def replace_content(base: TrustedBaseDocument, content: str) -> TrustedBaseDocument:
     """*base* as a present document holding *content* (what landing the patch would make the trusted base)."""
 
-    return TrustedBaseDocument(path=base.path, content=content, state="present", source=f"base Snapshot {base.path}")
+    return TrustedBaseDocument(path=base.path, content=content, state="present", source=f"base revision {base.path}")
 
 
 __all__ = [

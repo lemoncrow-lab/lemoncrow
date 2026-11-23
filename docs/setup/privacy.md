@@ -1,16 +1,16 @@
 # Privacy & network behavior
 
-Local Runtime repository intelligence and tool execution run on the developer machine. Using the Runtime plugin with Claude Code, Codex, OpenCode, or Cursor does not require a LemonCrow account and does not upload repository source to LemonCrow.
+Local Workspaces repository intelligence and tool execution run on the developer machine. Using the Workspaces plugin with Claude Code, Codex, OpenCode, or Cursor does not require a LemonCrow account and does not upload repository source to LemonCrow.
 
-Your local coding agent can still make its normal model-provider requests when using Runtime Lite integrations such as `lc with`. Those provider calls are not LemonCrow telemetry. `lc code` is different: it is the Hosted LemonCrow-owned agent and follows the network/data boundary of that Hosted deployment.
+Your local coding agent can still make its normal model-provider requests when using Workspaces Lite integrations such as `lc with`. Those provider calls are not LemonCrow telemetry. `lc code` is different: it is reserved for LemonCrow's hosted coding agent (not yet available), which will follow the network/data boundary of that Hosted deployment.
 
-Review, Hosted Runtime, Enterprise Runtime, and self-hosted/shared-service deployments have different network boundaries. This page calls those out separately rather than treating every LemonCrow product as one local server.
+Review, Workspaces Pro, Enterprise Workspaces, and self-hosted/shared-service deployments have different network boundaries. This page calls those out separately rather than treating every LemonCrow product as one local server.
 
-The installed `lc` client (Review and Runtime Lite) and the Local Review server it installs send no product telemetry: `lc audit` prints `"product_telemetry": false`, and there is no switch to turn off. The anonymous aggregate telemetry described under [Telemetry](#telemetry) belongs to the full LemonCrow engine you run from a source checkout (`uv run lc ...`). It is on by default there and contains no source code or prompts. Turn it off with `uv run lc rt telemetry remote off`, `DO_NOT_TRACK=1`, or `LEMONCROW_TELEMETRY=off`.
+The installed `lc` client (Review and Workspaces Lite) sends anonymous feature counts, on by default and announced once before anything is counted. The full LemonCrow engine you run from a source checkout (`uv run lc ...`) sends the wider anonymous telemetry described under [Telemetry](#telemetry). Neither contains source code or prompts. Turn it off with `lc rt telemetry remote off`, `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off`.
 
 ## What runs locally
 
-For the local Runtime path, repository indexing, code search, reads, edits, shell/tool execution, and generated repository state stay on the machine. Runtime Lite does not require a resident LemonCrow daemon or listening Runtime port.
+For the local Workspaces path, repository indexing, code search, reads, edits, shell/tool execution, and generated repository state stay on the machine. Workspaces Lite does not require a resident LemonCrow daemon or listening port.
 
 The local repository index lives under `.lemoncrow/workspace/` inside the Git worktree.
 
@@ -20,21 +20,49 @@ The local repository index lives under `.lemoncrow/workspace/` inside the Git wo
 |---|---|---|
 | Existing-agent model calls | The provider/account already used by Claude Code, Codex, OpenCode, Cursor, etc. | According to that host's normal behavior |
 | `lc auth login` | The configured hosted LemonCrow/Authward deployment | Only when you sign in |
-| Hosted / Enterprise Runtime | The deployment you explicitly selected | Only when you use that managed path |
-| `lc update` | The release installer on GitHub Releases for `lemoncrow-lab/lemoncrow` | Only when you run it |
+| Hosted / Enterprise Workspaces | The deployment you explicitly selected | Only when you use that managed path |
+| `lc update` | The release installer on GitHub Releases for `lemoncrow-lab/lemoncrow`, with its signature bundle when `cosign` is installed (cosign may refresh Sigstore's public trust root) | Only when you run it |
 | Optional dependency/host bootstrap | Upstream project releases used by an enabled feature or managed frontend | When you install/update that component |
 | Daily update check (full engine) | GitHub Releases API for `lemoncrow-lab/lemoncrow` | Only when enabled in settings |
-| Remote telemetry (full engine only) | The configured telemetry destination | On by default in a source checkout; disable with `uv run lc rt telemetry remote off`. The installed client sends none |
+| Feature counts (installed client) | `lemoncrow.com` | On by default, at most once a day; disable with `lc rt telemetry remote off` |
+| Remote telemetry (full engine) | The configured telemetry destination | On by default in a source checkout; disable with `uv run lc rt telemetry remote off` |
 | Make a wish (Review menu) | `lemoncrow.com` | Only when you explicitly press **Send wish** |
 
 Provider traffic is separate from LemonCrow telemetry.
 
 ## Telemetry
 
-This section applies to the full LemonCrow engine run from a source checkout
-(`uv run lc ...`). The installed `lc` client and the Local Review server send no
-product telemetry, and `lc rt telemetry` in the installed client only says
-that. In a source checkout, the commands below are `uv run lc ...`.
+### Installed client
+
+The installed `lc` counts which LemonCrow features are used, so we can tell what
+to improve and what to retire. This is on by default. The first counted command
+prints one line on standard error, and nothing is counted until it has:
+`Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
+
+- **What is sent:** one row per day for each combination of feature id, where it
+  ran (`cli`, `pr` or `reader`), `ok` or `error`, and a duration bucket, with its
+  count, plus the LemonCrow version, the day and a one-way hashed install key.
+  The features are the fixed `FEATURES` list in
+  `client/src/lemoncrow_client/usage.py`, plus its fixed `FRICTION_METRICS` list
+  for the local Reader: the Map opened, a blocked action's reason shown, a setting
+  changed before the first judgment, and who an opened Review waits on, with the
+  wait as a duration bucket.
+- **What is never sent:** code, prompts, findings, file or repository paths or
+  names, command arguments, account details.
+- **When:** finished UTC days, by the first counted command of a later day, in
+  one short request. No background process is started.
+- **See it:** `lc rt telemetry show` prints what is waiting, `lc rt telemetry status`
+  says whether it is on, and `lc audit` reports it.
+- **Turn it off:** `lc rt telemetry remote off` also deletes what is waiting;
+  `lc rt telemetry remote on` turns it back on. `DO_NOT_TRACK=1` and
+  `LEMONCROW_TELEMETRY=off` work too. It is also off in CI (`CI` is set), for a
+  hosted install, and under an administrator policy whose destination is not
+  `lemoncrow`.
+
+### Full engine
+
+The rest of this section applies to the full LemonCrow engine run from a source
+checkout, where the commands below are `uv run lc ...`.
 
 In the full engine, anonymous remote telemetry is **ON by default**, and the first
 command you run says so, once, on standard error (also when it is piped):
@@ -165,11 +193,11 @@ the block it appended to any pre-existing hook).
 
 ## Local identity versus hosted identity
 
-Local Runtime plugin use does not require a LemonCrow account. Generated repository intelligence stays local, and the external coding agent continues using its own provider identity.
+Local Workspaces plugin use does not require a LemonCrow account. Generated repository intelligence stays local, and the external coding agent continues using its own provider identity.
 
 A deliberately configured local Review/shared service can use a machine credential plus a Review browser capability. If that service binds only to loopback, do not forward its loopback port to other machines as though it were a hardened remote deployment.
 
-Hosted mode is separate. When `LEMONCROW_URL` points at a hosted LemonCrow server, `lc auth login` performs device authorization against that deployment. Hosted credentials are stored separately from local machine/service credentials: in hosted mode the client ignores the local `~/.lemoncrow/token` file (`$LEMONCROW_HOME/token`) and never sends a local machine token to a hosted origin. To supply an operator-provided credential instead of signing in, set `LEMONCROW_TOKEN_FILE` to its path or `LEMONCROW_TOKEN` to its value. Remote browser Review uses the hosted authorization flow. Signing in does not become a prerequisite for local Runtime use and does not silently change an existing local integration into hosted execution.
+Hosted mode is separate. When `LEMONCROW_URL` points at a hosted LemonCrow server, `lc auth login` performs device authorization against that deployment. Hosted credentials are stored separately from local machine/service credentials: in hosted mode the client ignores the local `~/.lemoncrow/token` file (`$LEMONCROW_HOME/token`) and never sends a local machine token to a hosted origin. To supply an operator-provided credential instead of signing in, set `LEMONCROW_TOKEN_FILE` to its path or `LEMONCROW_TOKEN` to its value. Remote browser Review uses the hosted authorization flow. Signing in does not become a prerequisite for local Workspaces use and does not silently change an existing local integration into hosted execution.
 
 ## Removal
 

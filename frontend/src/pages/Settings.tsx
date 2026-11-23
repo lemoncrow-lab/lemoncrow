@@ -1,6 +1,6 @@
 import { ChevronRight, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 
 import {
   IntelligenceOverview,
@@ -20,19 +20,23 @@ import {
   useProductCapabilities,
   useRuntimeCapabilities,
   type ProductId,
+  type ProductMode,
 } from "../lib/RuntimeCapabilities";
 import Integrations from "./Integrations";
 import ReviewDevices from "./ReviewDevices";
+import { parseAiBudget, setAiBudget } from "../review/aiBudget";
+import { ReviewSettingsScreen } from "../review/settings/ReviewSettingsScreen";
 import System from "./System";
 
-type SettingsSection = "products" | "ai" | "devices" | "integrations" | "editor" | "diagnostics" | "telemetry" | "advanced";
+type SettingsSection = "products" | "review" | "review-flow" | "org" | "ai" | "devices" | "integrations" | "editor" | "diagnostics" | "telemetry" | "advanced";
 
 /** This machine's effective AI route and locally persisted, non-secret preferences. */
 export const LOCAL_INTELLIGENCE_PATH = "/api/review-intelligence";
 const LOCAL_BUDGET_EDIT_SOURCE = "this machine's LemonCrow settings";
 
 type IntelligencePreferences = {
-  "intelligence.enabled": boolean;
+  /** The AI budget is edited by `AiBudgetField`, which saves it on its own; this form never writes it. */
+  "intelligence.monthly_budget_usd": number | null;
   "intelligence.driver": string;
   "intelligence.model": string;
   "intelligence.run_on": string;
@@ -48,6 +52,54 @@ type LocalIntelligenceSettings = {
   preferences: IntelligencePreferences;
   lifetime: string;
 };
+
+/**
+ * What this form writes. The AI budget has its own control in Review flow, and where background work runs
+ * (`intelligence.run_on`) is Review flow's "Where AI jobs run": a local install offers only this machine.
+ */
+const FORM_KEYS = [
+  "intelligence.driver",
+  "intelligence.model",
+  "intelligence.background.enabled",
+  "intelligence.background.monthly_model_calls",
+  "intelligence.background.daily_model_calls",
+] as const satisfies readonly (keyof IntelligencePreferences)[];
+
+type CallLimitKey = "intelligence.background.monthly_model_calls" | "intelligence.background.daily_model_calls";
+
+/** The shipped monthly ceiling (`DEFAULT_MONTHLY_MODEL_CALLS`), offered when a limit is first turned back on. */
+const DEFAULT_MONTHLY_CALLS = 200;
+
+/** A model-call limit: a whole number, or "Unlimited" (stored as -1). An empty field is NaN until filled. */
+function CallLimitField({ id, label, unlimitedLabel, value, fallback, onChange }: {
+  id: string;
+  label: string;
+  unlimitedLabel: string;
+  value: number;
+  /** Filled in when Unlimited is cleared and this field never held a limit; null leaves it empty. */
+  fallback: number | null;
+  onChange: (next: number) => void;
+}) {
+  const [lastLimit, setLastLimit] = useState<number | null>(value >= 0 ? value : null);
+  const unlimited = value < 0;
+  return (
+    <div>
+      <label className="block text-meta font-medium text-foreground" htmlFor={id}>{label}</label>
+      <Input id={id} type="number" min={0} max={1000000000} step={1} required={!unlimited} disabled={unlimited}
+        className="mt-1 block w-full max-w-sm" value={unlimited || Number.isNaN(value) ? "" : value}
+        onChange={(event) => {
+          const next = event.target.value === "" ? Number.NaN : Number(event.target.value);
+          if (next >= 0) setLastLimit(next);
+          onChange(next);
+        }} />
+      <label className="mt-2 flex items-center gap-2 text-ui text-foreground">
+        <Checkbox checked={unlimited}
+          onChange={(event) => onChange(event.target.checked ? -1 : lastLimit ?? fallback ?? Number.NaN)} />
+        {unlimitedLabel}
+      </label>
+    </div>
+  );
+}
 
 function AiSettingsEditor({ data, onSaved }: {
   data: LocalIntelligenceSettings;
@@ -68,6 +120,8 @@ function AiSettingsEditor({ data, onSaved }: {
   };
   const fieldClass = "mt-1 block w-full max-w-sm";
   const labelClass = "block text-meta font-medium text-foreground";
+  const limit = (key: CallLimitKey) => settings[key];
+  const monthly = limit("intelligence.background.monthly_model_calls");
 
   return (
     <form
@@ -75,21 +129,26 @@ function AiSettingsEditor({ data, onSaved }: {
       aria-label="Configure local AI"
       onSubmit={(event) => {
         event.preventDefault();
+        if (Number.isNaN(monthly) || Number.isNaN(limit("intelligence.background.daily_model_calls"))) {
+          setError("Enter a model-call limit, or choose unlimited.");
+          return;
+        }
         setSaving(true);
         setError("");
         setSaved(false);
         void requestBrowserJson<LocalIntelligenceSettings>(LOCAL_INTELLIGENCE_PATH + "/settings", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ settings }),
+          body: JSON.stringify({ settings: Object.fromEntries(FORM_KEYS.map((key) => [key, settings[key]])) }),
         })
-          .then((result) => { onSaved(result); setSettings(result.preferences); setSaved(true); })
+          .then((result) => { onSaved(result); setSettings(result.preferences); setSaved(true); const budget = parseAiBudget(result); if (budget) setAiBudget(budget); })
           .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not save AI settings."))
           .finally(() => setSaving(false));
       }}
     >
-      <div className="hunk-head">
-        <h3 className="hunk-label">Configure AI on this machine</h3>
+      {/* A settings card, not a diff hunk: a plain heading, no @@ label (review-23.4). */}
+      <div className="border-b border-border px-4 py-3">
+        <h3 className="text-label font-semibold text-foreground">Configure AI on this machine</h3>
       </div>
       <div className="space-y-4 p-4">
       <p className="text-meta text-muted-foreground">
@@ -120,40 +179,23 @@ function AiSettingsEditor({ data, onSaved }: {
             Use auto for the provider default; an explicit model requires an explicit provider.
           </span>
         </label>
-        <div>
-          <label className={labelClass} htmlFor="ai-run-on">Run background work</label>
-          <Select id="ai-run-on" value={settings["intelligence.run_on"]}
-            onValueChange={(value) => change("intelligence.run_on", value)}>
-            <SelectItem value="auto">Auto (this machine)</SelectItem>
-            <SelectItem value="local">This machine</SelectItem>
-          </Select>
-        </div>
-        <div className="space-y-3">
-          <label className="flex items-center gap-2 text-ui text-foreground">
-            <Checkbox checked={settings["intelligence.enabled"]}
-              onChange={(event) => change("intelligence.enabled", event.target.checked)} />
-            Enable AI intelligence
-          </label>
-          <label className="flex items-center gap-2 text-ui text-foreground">
+        <div className="sm:col-span-2">
+          <label className="flex items-center gap-2 text-ui font-medium text-foreground">
             <Checkbox checked={settings["intelligence.background.enabled"]}
               onChange={(event) => change("intelligence.background.enabled", event.target.checked)} />
-            Run background intelligence
+            Run background work on this machine
           </label>
+          <p className="mt-1 text-meta text-muted-foreground">
+            Automatic AI Review, Project Knowledge narration and discussion summaries. When this is off, AI you ask for still runs.
+            These limits count model calls for this background work only. The monthly AI budget still applies to it.
+          </p>
         </div>
-        <label className={labelClass} htmlFor="ai-monthly">
-          Monthly model-call limit
-          <Input id="ai-monthly" type="number" min={-1} max={1000000000} step={1}
-            className={fieldClass} value={settings["intelligence.background.monthly_model_calls"]}
-            onChange={(event) => change("intelligence.background.monthly_model_calls", Number(event.target.value))} />
-          <span className="mt-1 block text-meta font-normal text-muted-foreground">−1 means unlimited.</span>
-        </label>
-        <label className={labelClass} htmlFor="ai-daily">
-          Daily model-call limit
-          <Input id="ai-daily" type="number" min={-1} max={1000000000} step={1}
-            className={fieldClass} value={settings["intelligence.background.daily_model_calls"]}
-            onChange={(event) => change("intelligence.background.daily_model_calls", Number(event.target.value))} />
-          <span className="mt-1 block text-meta font-normal text-muted-foreground">−1 means no daily limit.</span>
-        </label>
+        <CallLimitField id="ai-monthly" label="Monthly model-call limit" unlimitedLabel="Unlimited"
+          value={monthly} fallback={DEFAULT_MONTHLY_CALLS}
+          onChange={(next) => change("intelligence.background.monthly_model_calls", next)} />
+        <CallLimitField id="ai-daily" label="Daily model-call limit" unlimitedLabel="No daily limit"
+          value={limit("intelligence.background.daily_model_calls")} fallback={null}
+          onChange={(next) => change("intelligence.background.daily_model_calls", next)} />
       </div>
       {error && <p role="alert" className="text-meta text-p0">{error}</p>}
       {saved && <p role="status" className="text-meta text-foreground">AI settings saved.</p>}
@@ -191,19 +233,25 @@ function AiBackgroundSettings() {
         <PageHeader
           eyebrow="Settings"
           title="AI & background"
-          description="The model route Review uses on this machine and the budget for automatic work."
+          description="The model route Review uses on this machine and the limits for automatic background work."
         />
         {data ? (
           <>
-            {data.intelligence.editable && (
-              <AiSettingsEditor data={data} onSaved={(result) => setData(result)} />
-            )}
+            {/* The dollar budget has one control, in Review flow › AI help; this page links to it rather than repeat it. */}
+            <p className="text-meta text-muted-foreground">
+              The monthly AI budget, in dollars and covering all AI help, is set in{" "}
+              <Link className="font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/review#ai-help">
+                Review flow › AI help
+              </Link>. The limits below count model calls, and only for automatic background work.
+            </p>
+            {data.intelligence.editable && <AiSettingsEditor data={data} onSaved={(result) => setData(result)} />}
             <IntelligenceOverview
               scope="local"
               route={data.intelligence}
               background={data.background}
               lifetime={data.lifetime}
               budgetEditSource={LOCAL_BUDGET_EDIT_SOURCE}
+              editedAbove={data.intelligence.editable}
             />
           </>
         ) : error ? (
@@ -225,49 +273,58 @@ function ReviewSettingsUnavailable() {
   return (
     <PageFrame className="space-y-3">
       <PageHeader eyebrow="Settings" title="LemonCrow Review is not installed" description="AI and background intelligence settings belong to Review." />
-      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/products">
+      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/diagnostics">
         View installed products
       </Link>
     </PageFrame>
   );
 }
 
-function productLabel(product: ProductId): string {
-  if (product === "review") return "Review";
-  if (product === "runtime") return "Runtime";
-  return "Core";
+function productLabel(product: ProductId, hosted: boolean): string {
+  if (product === "review") return "LemonCrow Review";
+  if (product === "runtime") return hosted ? "Workspaces Pro" : "Workspaces Lite";
+  return "LemonCrow Core";
 }
 
-function ProductsSettings() {
+/** Where an available product runs, in words (the deployment mode itself is an internal enum). */
+const MODE_DETAIL: Record<ProductMode, string> = {
+  local: "Runs on this machine",
+  hosted: "Hosted",
+  hybrid: "Hosted, with this machine",
+  none: "Ready",
+};
+
+/** The installed products, a panel of Diagnostics (it was its own Products tab). */
+function ProductsPanel() {
   const capabilities = useProductCapabilities();
   return (
-    <PageFrame className="space-y-4">
-      <section className="max-w-3xl space-y-3">
-        <PageHeader
-          eyebrow="Settings"
-          title="Products"
-          description={<>LemonCrow Review and Runtime are independent products behind the same <code className="text-foreground">lc</code> command.</>}
-        />
+    <section id="products" aria-labelledby="products-title" className="max-w-3xl scroll-mt-24 space-y-3">
+        <div>
+          <h2 id="products-title" className="text-title font-semibold text-foreground">Installed products</h2>
+          <p className="mt-1 text-meta text-muted-foreground">
+            LemonCrow Review and Workspaces are independent products behind the same <code className="text-foreground">lc</code> command.
+          </p>
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
           {(["review", "runtime"] as const).map((product) => {
             const state = capabilities.products[product];
-            const label = productLabel(product);
+            const label = productLabel(product, capabilities.products.core.mode === "hosted");
             const detail = state.available
-              ? `${state.mode} · ready`
+              ? MODE_DETAIL[state.mode]
               : state.installed
                 ? "Installed · currently unavailable"
                 : "Not installed";
             return (
               <Hunk key={product} data-testid={`product-state-${product}`}>
                 <HunkHead>
-                  <HunkLabel>LemonCrow {label}</HunkLabel>
+                  <HunkLabel>{label}</HunkLabel>
                   <Chip tone={state.available ? "success" : "neutral"}>{state.available ? "Available" : "Unavailable"}</Chip>
                 </HunkHead>
                 <HunkBody className="p-4">
                   <div className="text-meta text-muted-foreground">{detail}</div>
                   <p className="mt-3 text-ui text-subtle">
                     {product === "review"
-                      ? "Understand, verify, comment on, and revisit code changes without requiring Runtime."
+                      ? "Understand, verify, comment on, and revisit code changes without requiring Workspaces."
                       : "Code intelligence, agent sessions, MCP tools, and explicit Claude/Codex/OpenCode integration."}
                   </p>
                 </HunkBody>
@@ -275,7 +332,18 @@ function ProductsSettings() {
             );
           })}
         </div>
-      </section>
+    </section>
+  );
+}
+
+/** Diagnostics: the local server's health (with Workspaces) and the installed products (always). */
+function DiagnosticsSettings() {
+  const capabilities = useProductCapabilities();
+  if (capabilities.products.runtime.available) return <System forcedSection="health" after={<ProductsPanel />} />;
+  return (
+    <PageFrame className="space-y-4">
+      <PageHeader eyebrow="Settings" title="Diagnostics" description="Which LemonCrow products this installation has." />
+      <ProductsPanel />
     </PageFrame>
   );
 }
@@ -283,8 +351,8 @@ function ProductsSettings() {
 function RuntimeSettingsUnavailable() {
   return (
     <PageFrame className="space-y-3">
-      <PageHeader eyebrow="Settings" title="LemonCrow Runtime is not installed" description="This settings page belongs to Runtime. Review remains available independently." />
-      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/products">
+      <PageHeader eyebrow="Settings" title="Workspaces Lite is not installed" description="This settings page belongs to Workspaces. Review remains available independently." />
+      <Link className="inline-flex text-meta font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground" to="/settings/diagnostics">
         View installed products
       </Link>
     </PageFrame>
@@ -357,28 +425,40 @@ function EditorSettings() {
 
 // A badge, not a disabled card: the page behind this link is readable today, so
 // the card stays live and only its availability is called out.
+// A badge, not a disabled card: the page behind this link is readable today, so
+// the card stays live and only its availability is called out.
+// Watchdogs (unbuilt) and Projection (a developer inspector) are hidden from this list; their
+// /system/* routes still answer a direct link.
 const ADVANCED = [
-  ["Hosts", "/system/hosts", "Raw host adapter status and imports.", null],
-  ["Agents", "/system/agents", "Internal agent definitions.", null],
-  ["Skills", "/system/skills", "Installed runtime skills.", null],
-  ["MCP", "/system/mcp", "Internal MCP/runtime capability detail.", null],
-  ["Watchdogs", "/system/watchdogs", "Runtime watchdogs for agent sessions.", "Coming soon"],
-  ["Projection", "/system/projection", "Low-level projection inspector.", null],
-] as const;
+  ["Hosts", "/system/hosts", "The coding tools LemonCrow works with, what it adds to each, and how to install it.", null],
+  ["Agents", "/system/agents", "Specialist agents LemonCrow adds to Claude Code, with the tools and instructions each one uses.", null],
+  ["Skills", "/system/skills", "The skills LemonCrow adds to your coding agents.", null],
+  ["MCP", "/system/mcp", "The tools LemonCrow gives your coding agents, and whether each one is available.", null],
+] as readonly (readonly [string, string, string, string | null])[];
+
+const REVIEW_SECTION_ADDRESSES: ReadonlySet<string> = new Set(["reading", "notifications", "keyboard", "look", "more", "policy"]);
 
 export default function Settings() {
   const { section } = useParams<{ section?: string }>();
   const productCapabilities = useProductCapabilities();
   const runtimeCapabilities = useRuntimeCapabilities();
-  const active = (section as SettingsSection) || "products";
+  const active = (section as SettingsSection) || "diagnostics";
 
-  if (active === "products") return <ProductsSettings />;
+  // Products folded into Diagnostics: an old link lands on its panel.
+  if (active === "products") return <Navigate to="/settings/diagnostics#products" replace />;
+  if (active === "diagnostics") return <DiagnosticsSettings />;
+  if (active === "review") return productCapabilities.products.review.available ? <ReviewSettingsScreen /> : <ReviewSettingsUnavailable />;
+  // The organization page exists only on a hosted workspace (SPEC 7.1 P0-2): a local install has none, so it is absent.
+  if (active === "org") return <Navigate to="/settings/review" replace />;
+  // The retired "Review flow" page: an old bookmark lands on the Review settings.
+  if (active === "review-flow") return <Navigate to="/settings/review" replace />;
+  // A Review settings section by its own address (`/settings/look`): the Review page, scrolled to that section.
+  if (REVIEW_SECTION_ADDRESSES.has(active)) return <Navigate to={`/settings/review#${active}`} replace />;
   if (active === "ai") return productCapabilities.products.review.available ? <AiBackgroundSettings /> : <ReviewSettingsUnavailable />;
   if (active === "devices") return productCapabilities.products.review.available ? <ReviewDevices /> : <ReviewSettingsUnavailable />;
   if (!productCapabilities.products.runtime.available) return <RuntimeSettingsUnavailable />;
   if (active === "integrations") return <Integrations />;
   if (active === "editor") return <EditorSettings />;
-  if (active === "diagnostics") return <System forcedSection="health" />;
   if (active === "telemetry") return <System forcedSection="telemetry" />;
 
   if (!runtimeCapabilities.localDiagnostics) {

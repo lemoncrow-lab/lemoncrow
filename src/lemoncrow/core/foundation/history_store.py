@@ -17,13 +17,15 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import re
 import sqlite3
+import stat
 import time
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from lemoncrow.core.foundation.models import RawArtifact, Trace, coerce_trace_json, to_jsonable
 from lemoncrow.core.foundation.sqlite_base import SqliteTableStore
@@ -151,6 +153,48 @@ CREATE TABLE IF NOT EXISTS sync_status (
     payload_hash TEXT NOT NULL
 );
 """
+
+
+# Sources whose mirror is not a disposable copy: the Copilot parser reads its own mirror back, and the ``mcp``
+# mirror is what an agent recorded, with no host file behind it.
+RAW_RETENTION_KEEP_SOURCES: Final[frozenset[str]] = frozenset({"copilot", "mcp"})
+
+
+def prune_raw_content(raw_dir: Path, *, older_than_days: int, now: float | None = None) -> tuple[int, int]:
+    """Delete mirrored transcript files not rewritten for ``older_than_days``; return ``(files, bytes)``.
+
+    Only the redacted copy of the host's file goes. The ``raw_artifacts`` rows and the parsed traces stay, so
+    history, search and usage are unchanged, and the importer (which skips by row) does not mirror it again
+    unless the host file changes. Sources in ``RAW_RETENTION_KEEP_SOURCES`` are not touched; symlinks are
+    neither followed nor removed. ``older_than_days <= 0`` keeps everything.
+    """
+    if older_than_days <= 0:
+        return (0, 0)
+    cutoff = (time.time() if now is None else now) - older_than_days * 86_400
+    removed = freed = 0
+    try:
+        sources = sorted(raw_dir.iterdir())
+    except OSError:
+        return (0, 0)
+    for source in sources:
+        if source.name in RAW_RETENTION_KEEP_SOURCES or source.is_symlink() or not source.is_dir():
+            continue
+        for directory, _dirs, names in os.walk(source, topdown=False):
+            for name in names:
+                path = Path(directory, name)
+                try:
+                    info = path.lstat()
+                    if not stat.S_ISREG(info.st_mode) or info.st_mtime >= cutoff:
+                        continue
+                    path.unlink()
+                except OSError:
+                    continue
+                removed += 1
+                freed += info.st_size
+            if Path(directory) != source:
+                with contextlib.suppress(OSError):
+                    os.rmdir(directory)  # refuses unless empty
+    return (removed, freed)
 
 
 class HistoryStore(SqliteTableStore):
@@ -742,4 +786,4 @@ class HistoryStore(SqliteTableStore):
         return path
 
 
-__all__ = ["HistoryStore"]
+__all__ = ["RAW_RETENTION_KEEP_SOURCES", "HistoryStore", "prune_raw_content"]

@@ -7,7 +7,7 @@ the comment the Reader counts as sent is the one the list says it waits on.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from lemoncrow.pro.capabilities.review.session_models import Annotation, AnnotationVersion, DeliveryRecord
@@ -73,9 +73,12 @@ def feedback_state(
 
 
 def host_label(host: str) -> str:
-    """``claude`` -> ``Claude``, ``opencode`` -> ``OpenCode``."""
+    """``claude`` -> ``Claude Code``, ``opencode`` -> ``OpenCode``."""
 
-    return {"opencode": "OpenCode", "lemoncode": "LemonCode"}.get(host, host.capitalize())
+    return {
+        "claude": "Claude Code",
+        "opencode": "OpenCode",
+    }.get(host, host.capitalize())
 
 
 @dataclass(frozen=True)
@@ -143,6 +146,18 @@ def review_handoff(
     )
 
 
+def approved_on(facts: Mapping[str, str], revision_id: str) -> bool:
+    """Whether the latest verdict (``inbox_side_facts``) approves exactly this revision."""
+
+    return bool(revision_id) and facts.get("verdict") == "lgtm" and facts.get("verdict_revision") == revision_id
+
+
+def settled_by_approval(handoff: ReviewHandoff, approved: bool) -> ReviewHandoff:
+    """An approval on the current revision answers the comments that came back: none is back with the reviewer."""
+
+    return replace(handoff, returned=0) if approved and handoff.returned else handoff
+
+
 def handoff_row_fields(handoff: ReviewHandoff, *, status: str, actionable_targets: int) -> dict[str, Any]:
     """The Reviews-list fields for one row: whether it is back with the reviewer or waiting.
 
@@ -171,10 +186,12 @@ def handoff_row_fields(handoff: ReviewHandoff, *, status: str, actionable_target
 __all__ = [
     "FeedbackState",
     "ReviewHandoff",
+    "approved_on",
     "feedback_state",
     "feedback_version",
     "handoff_row_fields",
     "host_label",
     "is_open_root_feedback",
     "review_handoff",
+    "settled_by_approval",
 ]

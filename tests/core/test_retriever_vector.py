@@ -27,6 +27,7 @@ from lemoncrow.infra.storage.vector import (
     get_embedding_dim,
     is_vector_enabled,
     put_cached_embedding,
+    put_cached_embeddings_batch,
     vector_cache_key,
 )
 from lemoncrow.pro.foundation.retriever import WEIGHTS, WEIGHTS_WITH_VECTOR, TaskContext, retrieve, score_block
@@ -207,6 +208,48 @@ def test_playbook_embedding_cache_round_trip(tmp_path: Path) -> None:
     assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") is None
     put_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test", vector=[0.25, 0.75])
     assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") == [0.25, 0.75]
+
+
+def _cached_keys(root: Path, count: int) -> list[str]:
+    return [
+        key
+        for key in (f"k{index}" for index in range(count))
+        if get_cached_embedding(root, cache_key=key, embedder_name="local:test") is not None
+    ]
+
+
+def test_playbook_embedding_cache_drops_the_oldest_rows_past_its_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sidecar cache once grew to 32 GB because nothing ever removed a row."""
+    monkeypatch.setenv("LEMONCROW_VECTOR_CACHE_MAX_ROWS", "10")
+    for index in range(12):
+        put_cached_embedding(tmp_path, cache_key=f"k{index}", embedder_name="local:test", vector=[float(index)])
+    kept = _cached_keys(tmp_path, 12)
+    assert len(kept) == 10
+    assert "k0" not in kept and "k1" not in kept  # the oldest went
+    assert "k11" in kept  # the row just written stays
+
+
+def test_playbook_embedding_cache_batch_put_is_bounded_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_VECTOR_CACHE_MAX_ROWS", "10")
+    put_cached_embeddings_batch(
+        tmp_path, entries=[(f"k{index}", [float(index)]) for index in range(25)], embedder_name="local:test"
+    )
+    kept = _cached_keys(tmp_path, 25)
+    assert len(kept) == 9  # evicted to 90% of the cap, so the next put does not evict again
+    assert kept == [f"k{index}" for index in range(16, 25)]
+
+
+@pytest.mark.parametrize("cap", ["0", "-5"])
+def test_playbook_embedding_cache_cap_can_be_turned_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
+) -> None:
+    monkeypatch.setenv("LEMONCROW_VECTOR_CACHE_MAX_ROWS", cap)
+    put_cached_embeddings_batch(
+        tmp_path, entries=[(f"k{index}", [float(index)]) for index in range(25)], embedder_name="local:test"
+    )
+    assert len(_cached_keys(tmp_path, 25)) == 25
 
 
 def test_generate_embedding_different_inputs_differ(monkeypatch: pytest.MonkeyPatch) -> None:

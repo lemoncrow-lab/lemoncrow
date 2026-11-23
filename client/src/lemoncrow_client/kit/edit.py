@@ -39,6 +39,7 @@ from typing import Any, Final
 from .fsio import atomic_write, read_text, restore_bytes
 
 __all__ = [
+    "COMMITTED_CONFIG",
     "NEW_ALIASES",
     "OLD_ALIASES",
     "PROTECTED_PARTS",
@@ -54,8 +55,20 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: Directory names no edit may write into.
+#: Directory names no edit may write into (compared case-insensitively: macOS and
+#: Windows resolve ``.GIT`` to ``.git``).
 PROTECTED_PARTS: Final[frozenset[str]] = frozenset({".git", ".lemoncrow", "node_modules", ".venv"})
+
+#: The team config a repository commits under ``<repo>/.lemoncrow/``; a trailing ``/``
+#: names a directory. These stay editable. The rest of ``.lemoncrow/`` is LemonCrow's
+#: own state. ``lemoncrow.core.foundation.paths`` keeps them out of ``.lemoncrow/.gitignore``.
+COMMITTED_CONFIG: Final[tuple[str, ...]] = (
+    "review.yaml",
+    "review-instructions.md",
+    "review.json",
+    "environment.toml",
+    "rules/",
+)
 
 # Every spelling a model might use for the old/new pair, in priority order. The
 # first key found wins; canonical ``old_string``/``new_string`` always wins over
@@ -292,9 +305,28 @@ def _resolve(root: Path, raw_path: str, allowed_roots: Sequence[Path] = ()) -> P
             f"path escape denied: {raw_path} is outside the workspace root {root} — "
             "use the host's native tools for files outside the workspace"
         )
-    if any(part in PROTECTED_PARTS for part in resolved.parts):
+    if _is_protected(resolved.parts):
         raise ValueError(f"protected path denied: {raw_path}")
     return resolved
+
+
+def _is_protected(parts: tuple[str, ...]) -> bool:
+    """True unless no part is protected, or the path is committed team config.
+
+    Committed config is exactly ``<repo>/.lemoncrow/<entry>`` for an entry of
+    :data:`COMMITTED_CONFIG`, where ``<repo>`` holds a ``.git``; the spelling must match.
+    """
+    hits = [index for index, part in enumerate(parts) if part.casefold() in PROTECTED_PARTS]
+    if not hits:
+        return False
+    if len(hits) > 1 or parts[hits[0]] != ".lemoncrow":
+        return True
+    rest = parts[hits[0] + 1 :]
+    if not rest or not Path(*parts[: hits[0]], ".git").exists():
+        return True
+    if f"{rest[0]}/" in COMMITTED_CONFIG:
+        return len(rest) < 2
+    return len(rest) != 1 or rest[0] not in COMMITTED_CONFIG
 
 
 def _normalize_typography(text: str) -> str:

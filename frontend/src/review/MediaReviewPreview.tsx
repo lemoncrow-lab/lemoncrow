@@ -157,7 +157,7 @@ export default function MediaReviewPreview({ preview, documentPath, revisionId =
           <span className="text-muted-foreground">Path</span><span className="break-all text-subtle">{documentPath}</span>
           <span className="text-muted-foreground">Media type</span><span className="text-subtle">{preview.media_type}</span>
           <span className="text-muted-foreground">Status</span><span className="text-subtle">{status}</span>
-          <span className="text-muted-foreground">Source</span><span className="text-muted-foreground">This format is reviewed as rendered media rather than a textual diff. Use Preview or Compare to inspect the recorded Snapshot.</span>
+          <span className="text-muted-foreground">Source</span><span className="text-muted-foreground">This format is reviewed as rendered media rather than a textual diff. Use Preview or Compare to inspect the recorded revision.</span>
         </div>
       </div>
     );

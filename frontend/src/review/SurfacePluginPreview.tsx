@@ -164,7 +164,7 @@ function SidePane({
       </div>
       {!value || value.state === "loading" ? (
         <div className="flex min-h-40 items-center justify-center text-caption text-muted-foreground" role="status">
-          Rendering exact Snapshot {side} side…
+          Rendering exact revision {side} side…
         </div>
       ) : value.state === "error" ? (
         <div className="min-h-40 p-3 text-label" role="alert">

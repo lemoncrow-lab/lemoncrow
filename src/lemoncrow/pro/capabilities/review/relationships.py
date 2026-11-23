@@ -11,6 +11,7 @@ import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from lemoncrow.pro.capabilities.review import viewer_lens
 from lemoncrow.pro.capabilities.review.session_models import ReviewRelationship, ReviewSession
 
 if TYPE_CHECKING:
@@ -147,7 +148,13 @@ def change_context_payload(
             *(item for item in rows if item["kind"] == "scm_requirement"),
             *_derived_scm_requirements(store, session),
         ],
-        "landing": [item for item in rows if item["kind"] == "landing"],
+        # A reader who may not read the Review's full rows yet gets a landing's state, not the words its withdrawal
+        # was made from (its blockers) or who armed it (P7-1 F).
+        "landing": [
+            {**item, "metadata": viewer_lens.landing_metadata_wire(session.id, item["metadata"])}
+            for item in rows
+            if item["kind"] == "landing"
+        ],
     }
     if include_stack:
         payload["stack"] = stack_payload(store, session)

@@ -47,7 +47,7 @@ export function recipes(overrides: Partial<CheckRecipesProjection> = {}): CheckR
       command: ["pytest", "tests/test_checkout.py"], cwd: ".", report: "", granularity: "test", definition: "",
       fix_command: [], detect_changes: false, origin: "config", source: ".lemoncrow/review.yaml", digest: "recipe:sha256:r1", fix_digest: "",
     }],
-    policy: { discover: false, reruns: 0, quarantine: [], adequacy: false, autofix: false },
+    policy: { discover: false, reruns: 0, quarantine: [], adequacy: false, autofix: false, part_proof: true },
     errors: [],
     base_state: "present",
     entries: [],

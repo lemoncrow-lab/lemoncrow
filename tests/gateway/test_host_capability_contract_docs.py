@@ -11,7 +11,6 @@ MAIN_HOSTS = [
     "OpenCode",
     "Cursor",
     "Pi",
-    "LemonCode",
 ]
 
 ADDITIONAL_HOSTS = ["Copilot", "Hermes Agent", "Antigravity"]

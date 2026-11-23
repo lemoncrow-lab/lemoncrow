@@ -7,17 +7,6 @@ export const LONG_OUTPUT_THRESHOLD = 400; // chars
 // lib/format.ts — the one shared implementation for every page.
 
 // --- Host detection ---
-
-export const HOST_COLORS: Record<string, string> = {
-  lc: "bg-muted/40 text-subtle border-border/50",
-  claude: "bg-violet-900/40 text-violet-300 border-violet-700/50",
-  gemini: "bg-cyan-900/40 text-cyan-300 border-cyan-700/50",
-  copilot: "bg-cyan-900/40 text-cyan-300 border-cyan-700/50",
-  codex: "bg-emerald-900/40 text-emerald-300 border-emerald-700/50",
-  opencode: "bg-violet-900/40 text-violet-300 border-violet-700/50",
-  lemoncode: "bg-amber-900/40 text-amber-300 border-amber-700/50",
-};
-
 export function extractHost(trace: Pick<Trace, "agent" | "host" | "id"> | string): string {
   const agent = typeof trace === "string" ? trace : trace.agent;
   const host = typeof trace === "string" ? null : trace.host;
@@ -29,7 +18,6 @@ export function extractHost(trace: Pick<Trace, "agent" | "host" | "id"> | string
   if (i.startsWith("claude-") || a === "claude") return "claude";
   if (i.startsWith("codex-") || a === "codex") return "codex";
   if (i.startsWith("copilot-") || a === "copilot") return "copilot";
-  if (i.startsWith("lemoncode-") || a === "lemoncode") return "lemoncode";
   if (i.startsWith("opencode-") || a === "opencode") return "opencode";
   if (a.startsWith("lemoncrow:")) return "lc";
   return "unknown";

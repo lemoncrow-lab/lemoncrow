@@ -7,6 +7,8 @@ import type {
   ReviewProgress,
   ReviewSessionStatus,
 } from "./types";
+import { laterCount } from "./answerModel";
+import { partCount } from "./vocabulary";
 
 export type ReviewPrimaryActionKind =
   | "create_snapshot"
@@ -40,6 +42,7 @@ export type ReviewPrimaryDestination =
   | "finish_sheet"
   | "reload"
   | "comments"
+  | "handoff"
   | "target"
   | "readiness"
   | "none";
@@ -55,7 +58,7 @@ const DESTINATION: Record<ReviewPrimaryActionKind, ReviewPrimaryDestination> = {
   rereview_comments: "comments",
   review_comments: "comments",
   delivery_pending: "none",
-  waiting_agent: "none",
+  waiting_agent: "handoff",
   review_changed: "target",
   review_target: "target",
   review_requested_changes: "target",
@@ -67,8 +70,8 @@ export function primaryActionDestination(action: ReviewPrimaryAction): ReviewPri
 }
 
 /**
- * Whether "Finish review…" stays in the menu: only on an open, current
- * review where the primary action is something else.
+ * Whether "Finish review…" is in the menu: on any open, current review, also
+ * while it is the primary action, so the menu always has a way to finish.
  */
 export function finishAvailableInMenu({
   sessionStatus,
@@ -81,7 +84,26 @@ export function finishAvailableInMenu({
   revisionAdvanced: boolean;
   action: ReviewPrimaryAction;
 }): boolean {
-  return sessionStatus === "open" && !historical && !revisionAdvanced && action.kind !== "finish" && action.kind !== "create_snapshot";
+  return sessionStatus === "open" && !historical && !revisionAdvanced && action.kind !== "create_snapshot";
+}
+
+/**
+ * Whether "Reopen review" is in the menu: on a finished, current review whose
+ * primary action is something else (Merge when ready, set up or not), so a
+ * finished review always has a way back to open.
+ */
+export function reopenAvailableInMenu({
+  sessionStatus,
+  historical,
+  revisionAdvanced,
+  action,
+}: {
+  sessionStatus: ReviewSessionStatus;
+  historical: boolean;
+  revisionAdvanced: boolean;
+  action: ReviewPrimaryAction;
+}): boolean {
+  return sessionStatus === "finished" && !historical && !revisionAdvanced && action.kind !== "reopen";
 }
 
 /** Who the Review's feedback goes to, in words: "Claude a1b2", "PR #12", "author". */
@@ -117,6 +139,94 @@ export function handoffCounts(
   return { unsent: status.unpublished, published: status.published, inFlight: status.in_flight };
 }
 
+/**
+ * The header's one brand-styled action. Unsent feedback is the next step only
+ * while there is some to send; otherwise the review step itself leads and the
+ * feedback control steps aside (it stays in the palette and the Send sheet).
+ */
+export function headerLeadsWithSend({
+  unsent,
+  locked,
+  sessionStatus,
+  commentsState,
+}: {
+  unsent: number;
+  locked: boolean;
+  sessionStatus: ReviewSessionStatus;
+  commentsState: "loading" | "ready" | "failed";
+}): boolean {
+  return unsent > 0 && !locked && sessionStatus === "open" && commentsState === "ready";
+}
+
+/** The Send control's words: "Send 3 comments". */
+export function sendCommentsLabel(unsent: number): string {
+  return `Send ${unsent} comment${unsent === 1 ? "" : "s"}`;
+}
+
+/** A review step for the next area in the queue, or null when no area needs judgment. */
+export function targetStep({
+  progress,
+  nextTarget,
+  afterHandoff,
+  handoff,
+  started,
+}: {
+  progress: ReviewProgress;
+  nextTarget?: ReviewGuideTarget | null;
+  afterHandoff?: ReviewGuideTarget | null;
+  handoff: { unsent: number; published: number; inFlight: number };
+  started: boolean;
+}): ReviewPrimaryAction | null {
+  const unjudged = progress.unreviewed + progress.unknown + laterCount(progress);
+  if (progress.needs_changes + progress.changed_since_review + unjudged === 0) return null;
+  // Requested changes that are already with the fixer are waited on, not re-judged:
+  // review goes on from the first part that is not one of them.
+  const handedOff = handoff.published + handoff.inFlight > 0 && handoff.unsent === 0;
+  const head = handedOff && nextTarget?.reasonCode === "request_change_open" ? (afterHandoff ?? null) : (nextTarget ?? null);
+  // The head of the canonical queue is where this action goes, so its typed
+  // reason picks the label: label, detail and destination cannot disagree.
+  // A specific label names a count, so it needs one; otherwise the generic
+  // "Review next" is never wrong. Without a head (nothing navigable yet) the
+  // counts follow the queue's tiers.
+  const code = head
+    ? head.reasonCode
+    : progress.needs_changes > 0 && !handedOff
+      ? "request_change_open"
+      : progress.changed_since_review > 0
+        ? "changed_since_judgment"
+        : "";
+  const step = { disabled: !head, targetId: head?.targetId };
+  if (code === "request_change_open" && progress.needs_changes > 0) {
+    const count = progress.needs_changes;
+    return {
+      kind: "review_requested_changes",
+      label: count === 1 ? "Review requested changes" : `Review ${count} requested changes`,
+      detail: head?.reason || "Parts still carry a needs-changes judgment.",
+      ...step,
+    };
+  }
+  if (code === "changed_since_judgment" && progress.changed_since_review > 0) {
+    const count = progress.changed_since_review;
+    return {
+      kind: "review_changed",
+      label: count === 1 ? "Re-review changed part" : `Re-review ${partCount(count)}`,
+      detail: head?.reason || "Content you already reviewed changed and needs another human judgment.",
+      ...step,
+    };
+  }
+  if (unjudged + progress.changed_since_review > 0 || !handedOff) {
+    // "Start review" only until the reviewer is in the code; from there the step names the part.
+    const untouched = !started && progress.reviewed + progress.needs_changes + progress.changed_since_review === 0;
+    return {
+      kind: "review_target",
+      label: untouched ? "Start review" : head?.label ? `Review next: ${head.label}` : "Review next part",
+      detail: head?.reason || `${partCount(unjudged)} still need human judgment.`,
+      ...step,
+    };
+  }
+  return null;
+}
+
 export function deriveReviewPrimaryAction({
   historical,
   sessionStatus,
@@ -128,6 +238,8 @@ export function deriveReviewPrimaryAction({
   readiness,
   landing,
   nextTarget,
+  afterHandoff,
+  started = false,
 }: {
   historical: boolean;
   sessionStatus: ReviewSessionStatus;
@@ -144,12 +256,16 @@ export function deriveReviewPrimaryAction({
     conditions?: ReviewLandingCondition[];
   } | null;
   nextTarget?: ReviewGuideTarget | null;
+  /** The first queue part that is not a requested change: where review goes once those are handed off. */
+  afterHandoff?: ReviewGuideTarget | null;
+  /** The reviewer is already in the code (Code tab or guided tour), so the first step is no longer "Start review". */
+  started?: boolean;
 }): ReviewPrimaryAction {
   if (historical) {
     return {
       kind: "go_latest",
       label: "Back to latest",
-      detail: "Historical Snapshots are read-only. Return to the latest Snapshot.",
+      detail: "Historical revisions are read-only. Return to the latest revision.",
       disabled: false,
     };
   }
@@ -184,11 +300,15 @@ export function deriveReviewPrimaryAction({
     return {
       kind: "reload_state",
       label: "Reload review",
-      detail: "A newer Snapshot exists and this one no longer accepts changes. Reload before judging the new Snapshot.",
+      detail: "A newer revision exists and this one no longer accepts changes. Reload before judging the new revision.",
       disabled: false,
     };
   }
+  const handoff = handoffCounts(feedbackStatus, feedbackDelivery);
   if (commentsState === "loading") {
+    // Reviewing the next area never depends on the comments; only finishing does.
+    const step = targetStep({ progress, nextTarget, afterHandoff, handoff, started });
+    if (step) return step;
     return {
       kind: "checking_comments",
       label: "Checking comments…",
@@ -205,10 +325,9 @@ export function deriveReviewPrimaryAction({
     };
   }
 
-  // Feedback is handled by the header's Send feedback panel. This descriptor
-  // keeps recovery, re-review and outcome actions available in the menu.
+  // Unsent feedback has its own Send control (see headerLeadsWithSend); this
+  // descriptor is the review step, and the menu item while Send leads.
   const destination = handoffDestinationLabel(feedbackDelivery);
-  const handoff = handoffCounts(feedbackStatus, feedbackDelivery);
   const toPullRequest = handoffToPullRequest(feedbackDelivery, feedbackStatus);
   if (toPullRequest && handoff.inFlight > 0) {
     return {
@@ -228,59 +347,17 @@ export function deriveReviewPrimaryAction({
     };
   }
 
-  const unjudged = progress.unreviewed + progress.unknown;
-  if (progress.needs_changes + progress.changed_since_review + unjudged > 0) {
-    // The head of the canonical queue is where this action goes, so its typed
-    // reason picks the label: label, detail and destination cannot disagree.
-    // A specific label names a count, so it needs one; otherwise the generic
-    // "Review next area" is never wrong. Without a head (nothing navigable
-    // yet) the counts follow the queue's tiers.
-    const code = nextTarget
-      ? nextTarget.reasonCode
-      : progress.needs_changes > 0
-        ? "request_change_open"
-        : progress.changed_since_review > 0
-          ? "changed_since_judgment"
-          : "";
-    const step = { disabled: !nextTarget, targetId: nextTarget?.targetId };
-    // Requested changes that are already with the fixer are waited on, not re-judged.
-    const handedOff = handoff.published + handoff.inFlight > 0 && handoff.unsent === 0;
-    if (code === "request_change_open" && progress.needs_changes > 0 && !(handedOff && unjudged + progress.changed_since_review === 0)) {
-      const count = progress.needs_changes;
-      return {
-        kind: "review_requested_changes",
-        label: count === 1 ? "Review requested changes" : `Review ${count} requested changes`,
-        detail: nextTarget?.reason || "Review areas still carry a needs-changes judgment.",
-        ...step,
-      };
-    }
-    if (code === "changed_since_judgment" && progress.changed_since_review > 0) {
-      const count = progress.changed_since_review;
-      return {
-        kind: "review_changed",
-        label: count === 1 ? "Re-review changed area" : `Re-review ${count} changed areas`,
-        detail: nextTarget?.reason || "Content you already reviewed changed and needs another human judgment.",
-        ...step,
-      };
-    }
-    if (unjudged + progress.changed_since_review > 0 || !handedOff) {
-      return {
-        kind: "review_target",
-        label: "Review next area",
-        detail: nextTarget?.reason || `${unjudged} review area${unjudged === 1 ? "" : "s"} still need human judgment.`,
-        ...step,
-      };
-    }
-  }
+  const step = targetStep({ progress, nextTarget, afterHandoff, handoff, started });
+  if (step) return step;
 
-  // Queued, working or in doubt: the handoff state itself lives on the header
-  // chip and the Send sheet, never as a resend offer here.
+  // Queued, working or in doubt: nothing to judge until the fix returns. The
+  // action opens the Send sheet to inspect delivery, never to resend.
   if (handoff.published + handoff.inFlight > 0) {
     return {
       kind: "waiting_agent",
       label: `Waiting on ${destination}`,
-      detail: `Feedback is with ${destination}; the next Snapshot or addressed comments return this Review to you.`,
-      disabled: true,
+      detail: `Feedback is with ${destination}; the next revision or addressed comments return this Review to you.`,
+      disabled: false,
     };
   }
   if (!toPullRequest && feedbackStatus.unpublished === 0 && feedbackStatus.open_total > 0) {
@@ -301,20 +378,15 @@ export function deriveReviewPrimaryAction({
     };
   }
 
-  if (landing?.landing.supported && landing.armable) {
+  // Merge when ready is offered only after Finish (the finished branch above); an
+  // open review whose work is done leads with Finish review. A merge still armed
+  // stays visible so it can be inspected or cancelled.
+  if (landing?.landing.supported && landing.armable && landing.landing.armed) {
     const provider = landing.landing.provider || "the connected provider";
-    if (landing.landing.armed) {
-      return {
-        kind: "review_readiness",
-        label: "Merge when ready enabled",
-        detail: `Merge when ready is enabled in ${provider}. Open Status to inspect or cancel it.`,
-        disabled: false,
-      };
-    }
     return {
       kind: "review_readiness",
-      label: "Merge when ready",
-      detail: `Enable ${provider} to merge automatically when its remaining requirements pass.`,
+      label: "Merge when ready enabled",
+      detail: `Merge when ready is enabled in ${provider}. Open Status to inspect or cancel it.`,
       disabled: false,
     };
   }
@@ -333,6 +405,23 @@ export function deriveReviewPrimaryAction({
         kind: "review_readiness",
         label: "Review coverage",
         detail: landingCoverage.detail,
+        disabled: false,
+      };
+    }
+    // Every part is judged and nothing failed: checks that never ran are said in the Finish sheet,
+    // not a reason to keep the reviewer from finishing. A check that failed still leads.
+    const unmet = landing?.conditions?.filter((condition) => !["pass", "waived", "not_applicable"].includes(condition.state)) ?? [];
+    const onlyChecksNotRun = unmet.length > 0
+      ? unmet.every((condition) => condition.category === "verification" && condition.state !== "fail")
+      : !landing?.conditions
+        && readiness.failedChecks === 0
+        && readiness.unresolvedChecks > 0
+        && readiness.blockers.every((blocker) => blocker.id === "unresolved-checks");
+    if (onlyChecksNotRun) {
+      return {
+        kind: "finish",
+        label: "Finish review",
+        detail: "Every part is reviewed. Tests or checks have not run; Finish lists what is still open.",
         disabled: false,
       };
     }

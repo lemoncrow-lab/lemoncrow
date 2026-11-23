@@ -45,6 +45,7 @@ from typing import Any, Final, Literal, cast
 
 import yaml
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.behavior import (
     BEHAVIOR_CONTRACT_VERSION,
     BehaviorChange,
@@ -361,7 +362,7 @@ def _blob_reader(blob: Any) -> Callable[[], bytes | None]:
 def snapshot_base_tree(store: Any, revision: Any, roots: Sequence[Path | None]) -> BaseTree | None:
     """The Snapshot's base tree: its persisted manifest, else the base commit."""
 
-    manifest = store.read_source_tree_artifact(revision.review_id, revision.id, side="old")
+    manifest = request_reads.source_tree_once(store, revision.review_id, revision.id, "old")
     if manifest is not None:
         rows = sorted((str(path), str(entry.get("content_digest") or "")) for path, entry in manifest.items())
 
@@ -1053,7 +1054,7 @@ class StaticSideEffectService:
                 f"planned on the {entry.executor} executor, which does not run static analysis; nothing was analyzed",
             )
         if not latest:
-            return StaticReport("not_run", "not analyzed while this Snapshot was current")
+            return StaticReport("not_run", "not analyzed while this revision was current")
         rows = [row for row in self._changed(revision) if analyzable(row.path, row.old_path)]
         if not rows:
             return StaticReport(
@@ -1061,7 +1062,7 @@ class StaticSideEffectService:
             )
         if _on_event_loop():
             self._start_background(revision, rows)
-            return StaticReport("pending", "static analysis of this Snapshot is running off the request path")
+            return StaticReport("pending", "static analysis of this revision is running off the request path")
         return self._shared_analysis(revision, rows)
 
     def _start_background(self, revision: Any, rows: Sequence[ChangedPath]) -> None:

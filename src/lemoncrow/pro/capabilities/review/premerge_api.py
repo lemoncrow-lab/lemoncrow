@@ -414,7 +414,7 @@ def register_premerge_routes(router: APIRouter, deps: PremergeDeps) -> None:
         )
         if not result.applicable or result.status == "PASS":
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"{check.title} is not blocking on this Snapshot"
+                status_code=status.HTTP_409_CONFLICT, detail=f"{check.title} is not blocking on this revision"
             )
         raw_hours = body.get("hours")
         if raw_hours is not None and (not isinstance(raw_hours, (int, float)) or isinstance(raw_hours, bool)):

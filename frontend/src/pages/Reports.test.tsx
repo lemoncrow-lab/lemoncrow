@@ -67,7 +67,23 @@ describe("Reports page", () => {
 
     renderReports();
     expect(await screen.findByText("codebench")).toBeInTheDocument();
-    expect((await screen.findAllByText("20260920T203438Z")).length).toBeGreaterThan(0);
+    // The run id sits behind a copy button, not in the reading line.
+    expect(await screen.findByRole("button", { name: /Copy Run ID 20260920T203438Z/ })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "CodeBench" })).toBeInTheDocument();
+  });
+
+  it("keeps a plain-text report's columns instead of folding them into a paragraph", async () => {
+    const meta = {
+      id: "p:codebench:r1", project_id: "p", project_root: "/w", project_label: "w",
+      suite: "codebench", run_id: "r1", generated_at: "2026-09-20T20:34:38Z", has_report: true, files: ["report.txt"],
+    };
+    const text = "=== CodeBench head-to-head ===\nmetric     baseline  lemoncrow\ncost_usd   6.1842    4.0100";
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      Promise.resolve(jsonResponse(String(input).includes("/v1/reports/p/") ? { ...meta, markdown: text, format: "text" } : [meta])),
+    );
+    renderReports();
+    const pre = await screen.findByText(/=== CodeBench head-to-head ===/);
+    expect(pre.tagName).toBe("PRE");
+    expect(pre.textContent).toBe(text);
   });
 });

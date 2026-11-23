@@ -105,10 +105,7 @@ def _lite_factory(environment: Mapping[str, str]) -> BackendFactory:
     def create(root: Path) -> McpBackend:
         from ..lite.mcp import LiteMcp
 
-        if not (root / ".git").exists():
-            raise BackendUnavailable(
-                f"{root} is not a Git worktree; pass project_id naming a repository inside this connector's workspace"
-            )
+        # LiteMcp also supports workspace folders containing multiple repositories.
         env = {**environment, "LEMONCROW_WORKSPACE_ROOT": str(root)}
         try:
             return LiteMcp(environment=env)
@@ -276,8 +273,13 @@ class Request:
 
     @property
     def public_base_url(self) -> str:
-        forwarded = self.headers.get("x-forwarded-proto", "")
-        scheme = forwarded.split(",", 1)[0].strip() if forwarded else "http"
+        # Cloudflare terminates TLS, forwarding HTTP to the loopback gateway.
+        # Its origin headers are not guaranteed to include X-Forwarded-Proto.
+        # Public connector names always advertise HTTPS; only direct loopback
+        # (the --no-tunnel development mode) is allowed to advertise HTTP.
+        host = self.public_host
+        is_loopback = host in {"localhost", "127.0.0.1", "[::1]"} or host.startswith("127.")
+        scheme = "http" if is_loopback else "https"
         return f"{scheme}://{self.public_authority}"
 
     def form(self) -> dict[str, str]:
@@ -679,7 +681,7 @@ class RemoteGateway:
             session.active -= 1
             session.last_used = time.monotonic()
 
-    def _run_client_lane(self, session: _Session, body: Mapping[str, Any]) -> dict[str, Any] | None | Response:
+    def _run_client_lane(self, session: _Session, body: Mapping[str, Any]) -> dict[str, Any] | Response | None:
         if not session.client_slots.acquire(timeout=_CLIENT_ADMISSION_WAIT_S):
             return _busy(body.get("id"))
         if not self._capacity.acquire(timeout=_CLIENT_ADMISSION_WAIT_S):
@@ -691,7 +693,7 @@ class RemoteGateway:
             self._capacity.release()
             session.client_slots.release()
 
-    def _run_serial_lane(self, session: _Session, body: Mapping[str, Any]) -> dict[str, Any] | None | Response:
+    def _run_serial_lane(self, session: _Session, body: Mapping[str, Any]) -> dict[str, Any] | Response | None:
         # lc-debt: serial per OAuth client; port a lane admission model if
         # stateful calls ever need to run in parallel for one client.
         if not session.lock.acquire(timeout=_SERIAL_ADMISSION_WAIT_S):
@@ -734,7 +736,7 @@ class RemoteGateway:
         # blocks that client's other calls; split stateless Lite tools into a
         # concurrent lane once LiteMcp's routing is made thread-safe.
         lane = _lane_for(body, concurrent_client_tools=self.mode == "hosted")
-        result: dict[str, Any] | None | Response
+        result: dict[str, Any] | Response | None
         try:
             if lane == "control":
                 result = session.backend.handle(body)

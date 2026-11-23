@@ -29,6 +29,9 @@ from typing import Any, Final, Literal
 from lemoncrow.pro.capabilities.review.freshness import parse_timestamp
 from lemoncrow.pro.capabilities.review.readiness import conditions_digest
 from lemoncrow.pro.capabilities.review.session_models import (
+    Annotation,
+    AnnotationVersion,
+    ReviewActivityEvent,
     ReviewDecisionEvent,
     ReviewEvidence,
     ReviewMarkEvent,
@@ -40,9 +43,11 @@ from lemoncrow.pro.capabilities.review.session_models import (
 STATEMENT_TYPE: Final[str] = "https://in-toto.io/Statement/v1"
 #: Versioned predicate type. A breaking predicate change is a new ``/vN`` URI.
 PREDICATE_TYPE: Final[str] = "https://lemoncrow.dev/attestations/review-record/v1"
+PREDICATE_TYPE_V2: Final[str] = "https://lemoncrow.dev/attestations/review-record/v2"
 #: DSSE ``payloadType`` of an in-toto Statement.
 PAYLOAD_TYPE: Final[str] = "application/vnd.in-toto+json"
 RECORD_SCHEMA_VERSION: Final[int] = 1
+RECORD_SCHEMA_VERSION_V2: Final[int] = 2
 
 SigningMode = Literal["organization_key", "user_key", "sigstore", "unsigned"]
 SIGNING_MODES: Final[tuple[str, ...]] = ("organization_key", "user_key", "sigstore", "unsigned")
@@ -191,6 +196,12 @@ class RecordFacts:
     outcomes: tuple[ReviewOutcome, ...]
     mark_events: tuple[ReviewMarkEvent, ...]
     decision_events: tuple[ReviewDecisionEvent, ...]
+    annotations: tuple[Annotation, ...] = ()
+    annotation_versions: tuple[tuple[str, tuple[AnnotationVersion, ...]], ...] = ()
+    annotation_origins: tuple[tuple[str, str, str], ...] = ()
+    coverage_events: tuple[ReviewActivityEvent, ...] = ()
+    #: AI review hints raised on the revision, created at or before the record instant.
+    ai_annotations: tuple[Annotation, ...] = ()
 
 
 def _at_or_before(created_at: str, as_of: datetime) -> bool:
@@ -200,8 +211,15 @@ def _at_or_before(created_at: str, as_of: datetime) -> bool:
     return instant is None or instant <= as_of
 
 
-def gather_record_facts(store: Any, session: ReviewSession, revision: ReviewRevision, *, as_of: str) -> RecordFacts:
-    """Read the rows a record binds from the store, as of *as_of* (append-only tables)."""
+def gather_record_facts(
+    store: Any, session: ReviewSession, revision: ReviewRevision, *, as_of: str, coverage_actor_id: str = ""
+) -> RecordFacts:
+    """Read the rows a record binds from the store, as of *as_of* (append-only tables).
+
+    *coverage_actor_id* is whose self-reported coverage the record binds: the
+    record's deciding reviewer, never whoever happens to be viewing (hosted
+    verification runs as the viewer). Empty falls back to the session's reviewer.
+    """
 
     instant = parse_timestamp(as_of)
     if instant is None:
@@ -220,17 +238,79 @@ def gather_record_facts(store: Any, session: ReviewSession, revision: ReviewRevi
         for item in store.list_decision_events(session.id, reviewer_id=None)
         if _at_or_before(item.created_at, instant)
     )
+    every_note = tuple(store.list_annotations(session.id))
+    annotations = tuple(
+        note for note in every_note if note.reconsidered_after_structure and _at_or_before(note.created_at, instant)
+    )
+    ai_annotations = tuple(
+        note
+        for note in every_note
+        if note.source == "ai_review"
+        and not note.parent_id
+        and note.revision_id == revision.id
+        and _at_or_before(note.created_at, instant)
+    )
+    versions_by_id = store.annotation_versions_for_review(session.id) if annotations else {}
+    from lemoncrow.pro.capabilities.review.seen_coverage import reviewer_coverage_events
+
+    coverage_events = (
+        reviewer_coverage_events(store, session, revision, as_of=as_of, reviewer_id=coverage_actor_id)
+        if hasattr(store, "list_activity_events")
+        else ()
+    )
     return RecordFacts(
         evidence=evidence,
         waivers=waivers,
+        coverage_events=coverage_events,
+        ai_annotations=ai_annotations,
         outcomes=outcomes,
         mark_events=mark_events,
         decision_events=decision_events,
+        annotations=annotations,
+        annotation_versions=tuple(
+            (
+                note.id,
+                tuple(
+                    version for version in versions_by_id.get(note.id, ()) if _at_or_before(version.created_at, instant)
+                ),
+            )
+            for note in annotations
+        ),
+        annotation_origins=tuple(
+            (note.id, origin.path, origin.unit_key)
+            for note in annotations
+            if (origin := store.annotation_origin_anchor(note.id)) is not None
+        ),
     )
 
 
-def current_decision(store: Any, session: ReviewSession, revision: ReviewRevision) -> ReviewDecision | None:
+def human_decision_for(outcome: ReviewOutcome) -> ReviewDecision | None:
+    """The decision one stored outcome row is, or ``None`` for a comment (not a decision).
+
+    Pinned to the row: signing it later never depends on what the Review's newest decision is by then.
+    """
+
+    kind = _DECISION_OUTCOMES.get(outcome.outcome)
+    if kind is None:
+        return None
+    return ReviewDecision(
+        kind="human_outcome",
+        outcome=kind,
+        actor_id=outcome.reviewer_id,
+        actor_type="human",
+        decided_at=outcome.created_at,
+        reference=outcome.id,
+    )
+
+
+def current_decision(
+    store: Any, session: ReviewSession, revision: ReviewRevision, *, include_retracted: bool = False
+) -> ReviewDecision | None:
     """The decision on *revision* a record may be emitted after, or ``None``.
+
+    A verdict the person retracted and has not sent again is no decision (SPEC 4.18), so a merge or an export never
+    names it; the next decision (an auto-approval, a break-glass) is used instead. *include_retracted* keeps it, for
+    the one caller that asks "is a signature for this verdict being made", which a resend of it is.
 
     A provider-observed merge of this Snapshot wins (it is the landing that
     happened); otherwise the newest human LGTM / changes-requested outcome on
@@ -276,17 +356,16 @@ def current_decision(store: Any, session: ReviewSession, revision: ReviewRevisio
                 reference=landing.id,
                 detail=detail,
             )
+    from lemoncrow.pro.capabilities.review.record_retraction import withheld_outcome_ids
+
+    # The same rule readiness reads (record_retraction.standing_outcomes): a retracted verdict, and the older verdicts
+    # of the reviewer who retracted it, name no decision.
+    retracted = frozenset() if include_retracted else withheld_outcome_ids(store, session.id, revision_id=revision.id)
     for outcome in store.list_outcomes(session.id):  # newest first
-        if outcome.revision_id != revision.id or outcome.outcome not in _DECISION_OUTCOMES:
+        if outcome.revision_id != revision.id or outcome.id in retracted:
             continue
-        return ReviewDecision(
-            kind="human_outcome",
-            outcome=_DECISION_OUTCOMES[outcome.outcome],
-            actor_id=outcome.reviewer_id,
-            actor_type="human",
-            decided_at=outcome.created_at,
-            reference=outcome.id,
-        )
+        if (human := human_decision_for(outcome)) is not None:
+            return human
     if approved_here and approval is not None:
         # No human decision: the policy auto-approval in force on this Snapshot is the decision.
         return ReviewDecision(
@@ -339,6 +418,95 @@ def snapshot_section(session: ReviewSession, revision: ReviewRevision, *, number
         "source_fingerprint": revision.source_fingerprint,
         "packet_sha256": revision.packet_sha256,
         "dirty": bool(revision.dirty),
+    }
+
+
+#: What the ``ai_hints`` section means, stated inside the payload (SPEC 4.18 "AI in this record").
+AI_HINTS_BASIS: Final[str] = "raised_on_revision_not_proof_shown"
+PART_STATES: Final[tuple[str, ...]] = ("reviewed", "needs_changes", "later")
+
+
+@dataclass(frozen=True, slots=True)
+class RecordPart:
+    """One part of the change as the reviewer was asked about it, with the state Wrap up showed.
+
+    ``category`` is the answer category (``decision``, ``quick_check``,
+    ``accepted_by_rule``); ``state`` the part's mark state at the record instant.
+    """
+
+    unit_key: str
+    label: str
+    path: str
+    category: str
+    state: str
+    rule: str = ""
+
+
+def parts_section(parts: Sequence[RecordPart]) -> dict[str, Any]:
+    """Parts by how they were asked and answered. Only stored facts: no count is invented.
+
+    Accepted-by-rule parts are counted with their rule and listed nowhere else.
+    A quick check carries no stored "quick-checked" method (P2-3 A), so the
+    record lists the quick checks that were NOT confirmed and the ones marked
+    Needs a change, and counts the rest only as quick checks.
+    """
+
+    counts: dict[str, int] = {"decision": 0, "quick_check": 0, "accepted_by_rule": 0}
+    rules: dict[str, int] = {}
+    decisions: list[dict[str, str]] = []
+    quick_check_changes: list[dict[str, str]] = []
+    not_confirmed: list[dict[str, str]] = []
+    later = 0
+    for part in sorted(parts, key=lambda row: (row.path, row.unit_key, row.label)):
+        counts[part.category] = counts.get(part.category, 0) + 1
+        if part.category == "accepted_by_rule":
+            rules[part.rule] = rules.get(part.rule, 0) + 1
+            continue
+        row = {"unit_key": part.unit_key, "label": part.label, "path": part.path}
+        if part.state == "later":
+            later += 1
+        if part.category == "decision":
+            decisions.append({**row, "state": part.state if part.state in PART_STATES else "unanswered"})
+        elif part.state == "needs_changes":
+            quick_check_changes.append(row)
+        elif part.state not in PART_STATES:
+            not_confirmed.append(row)
+    return {
+        "counts": {**counts, "rules": dict(sorted(rules.items()))},
+        "decisions": decisions,
+        "quick_check_changes": quick_check_changes,
+        "not_confirmed": not_confirmed,
+        "later": later,
+    }
+
+
+def ai_hints_section(facts: RecordFacts, *, revision_id: str) -> dict[str, Any]:
+    """AI hints raised on this revision. A hint is never a decision and its later fate is not bound."""
+
+    return {
+        "basis": AI_HINTS_BASIS,
+        "hints": [
+            {
+                "id": note.id,
+                "path": note.anchor.path,
+                "side": note.anchor.side,
+                "start_line": int(note.anchor.start_line),
+                "end_line": int(note.anchor.end_line),
+                "created_at": note.created_at,
+            }
+            for note in sorted(facts.ai_annotations, key=lambda row: (row.created_at, row.id))
+            if note.revision_id == revision_id
+        ],
+    }
+
+
+def change_section(revision: ReviewRevision) -> dict[str, str]:
+    """Which coding-agent session produced this revision, as captured (certainty included)."""
+
+    return {
+        "agent_host": revision.provenance_host,
+        "agent_session_id": revision.provenance_session_id,
+        "provenance_certainty": str(revision.provenance_certainty),
     }
 
 
@@ -448,11 +616,53 @@ def judgments_section(facts: RecordFacts) -> dict[str, Any]:
         }
         for item in sorted(facts.decision_events, key=lambda row: (row.created_at, row.id))
     ]
-    return {
+    output: dict[str, Any] = {
         "outcomes": outcomes,
         "target_judgments": {"count": len(marks), "by_state": by_state, "digest": _digest_of(marks)},
         "decisions": {"count": len(decisions), "digest": _digest_of(decisions)},
     }
+    # Optional additive v1 extension. It changes no historical statements: old
+    # reviews without structured reconsideration serialize byte-for-byte as before.
+    # Every future statement containing one binds the immutable creation context.
+    versions_by_note = dict(facts.annotation_versions)
+    origins_by_note = {note_id: (path, unit_key) for note_id, path, unit_key in facts.annotation_origins}
+    structure = []
+    for note in sorted(facts.annotations, key=lambda row: (row.created_at, row.id)):
+        if not note.reconsidered_after_structure:
+            continue
+        versions = versions_by_note.get(note.id, ())
+        version_rows = [
+            {
+                "id": version.id,
+                "revision_id": version.revision_id,
+                "number": version.version_number,
+                "body_digest": sha256_digest(version.body.encode("utf-8")),
+                "kind": version.kind,
+                "state": version.state,
+                "actor": version.changed_by,
+                "change_kind": version.change_kind,
+                "at": version.created_at,
+            }
+            for version in sorted(versions, key=lambda value: value.version_number)
+        ]
+        structure.append(
+            {
+                "id": note.id,
+                "review_id": note.review_id,
+                "revision_id": note.revision_id,
+                "structure_revision_id": note.structure_revision_id,
+                "original_path": origins_by_note.get(note.id, ("", ""))[0],
+                "original_unit_key": origins_by_note.get(note.id, ("", ""))[1],
+                "reviewer_id": note.created_by,
+                "created_at": note.created_at,
+                "source": note.source,
+                "reported_after_structure": True,
+                "annotation_history_digest": _digest_of(version_rows),
+            }
+        )
+    if structure:
+        output["structure_reconsiderations"] = {"count": len(structure), "digest": _digest_of(structure)}
+    return output
 
 
 def readiness_section(readiness: Mapping[str, Any]) -> dict[str, Any]:
@@ -546,6 +756,16 @@ class RecordContext:
     repository: str
     exported_by_id: str
     exported_by_type: str = "human"
+    #: The parts and their states at the record instant (``None``: the composition cannot say).
+    parts: Sequence[RecordPart] | None = None
+
+
+def _parts_for(context: RecordContext, decision: ReviewDecision) -> Sequence[RecordPart] | None:
+    """The parts a record may bind: only the session reviewer's own answers, only on a human outcome."""
+
+    if context.parts is None or decision.kind != "human_outcome" or decision.actor_id != context.session.reviewer_id:
+        return None
+    return context.parts
 
 
 def build_statement(
@@ -555,21 +775,38 @@ def build_statement(
     signing: SigningIdentity,
     issued_at: str,
     facts: RecordFacts | None = None,
+    shape: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The in-toto Statement for one decided Snapshot (pure given *facts*)."""
+    """The in-toto Statement for one decided Snapshot (pure given *facts*).
+
+    A human outcome is a v2 record; a landing decision and a provider merge stay v1
+    byte for byte. *shape* is an already-signed statement being rebuilt: the rebuild
+    keeps its version and the optional v2 sections it carries, so a record signed
+    before a section existed still reproduces.
+    """
 
     if parse_timestamp(issued_at) is None:
         raise RecordSchemaError("issued_at must be an aware ISO-8601 instant")
     session, revision = context.session, context.revision
     if revision.review_id != session.id:
-        raise RecordSchemaError("the Snapshot does not belong to this Review")
-    rows = facts if facts is not None else gather_record_facts(context.store, session, revision, as_of=issued_at)
+        raise RecordSchemaError("the revision does not belong to this Review")
+    rows = (
+        facts
+        if facts is not None
+        else gather_record_facts(context.store, session, revision, as_of=issued_at, coverage_actor_id=decision.actor_id)
+    )
     policy = context.readiness.get("policy_generation")
     digest: dict[str, str] = {"lemoncrowTreeFingerprint": revision.tree_fingerprint}
     if revision.head_sha:
         digest["gitCommit"] = revision.head_sha
+    if shape is None:
+        is_v2 = decision.kind == "human_outcome"
+        wanted = {"parts", "ai_hints", "change"}
+    else:
+        is_v2 = shape.get("predicateType") == PREDICATE_TYPE_V2
+        wanted = set(_mapping(shape.get("predicate"))) & {"parts", "ai_hints", "change"}
     predicate: dict[str, Any] = {
-        "schema_version": RECORD_SCHEMA_VERSION,
+        "schema_version": RECORD_SCHEMA_VERSION_V2 if is_v2 else RECORD_SCHEMA_VERSION,
         "issuer": {"kind": context.issuer_kind, "id": context.issuer_id, "service": "lemoncrow"},
         "issued_at": issued_at,
         "as_of": issued_at,
@@ -591,10 +828,21 @@ def build_statement(
         "waivers": waivers_section(rows),
         "judgments": judgments_section(rows),
     }
+    if is_v2:
+        from lemoncrow.pro.capabilities.review.seen_coverage import coverage_section
+
+        predicate["seen_coverage"] = coverage_section(rows.coverage_events, revision_id=revision.id)
+        parts = _parts_for(context, decision)
+        if "parts" in wanted and parts is not None:
+            predicate["parts"] = parts_section(parts)
+        if "ai_hints" in wanted:
+            predicate["ai_hints"] = ai_hints_section(rows, revision_id=revision.id)
+        if "change" in wanted:
+            predicate["change"] = change_section(revision)
     statement = {
         "_type": STATEMENT_TYPE,
         "subject": [{"name": f"lemoncrow-review/{session.id}/snapshot/{revision.id}", "digest": digest}],
-        "predicateType": PREDICATE_TYPE,
+        "predicateType": PREDICATE_TYPE_V2 if is_v2 else PREDICATE_TYPE,
         "predicate": predicate,
     }
     errors = validate_statement(statement)
@@ -627,6 +875,44 @@ _PREDICATE_SECTIONS: Final[Mapping[str, type]] = {
 _SNAPSHOT_KEYS: Final[tuple[str, ...]] = ("review_id", "revision_id", "tree_fingerprint", "head_sha", "base_sha")
 
 
+def _v2_section_errors(predicate: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if "parts" in predicate:
+        parts = _mapping(predicate.get("parts"))
+        counts = _mapping(parts.get("counts"))
+
+        def is_count(value: object) -> bool:
+            return isinstance(value, int) and not isinstance(value, bool)
+
+        if (
+            not all(is_count(counts.get(key)) for key in ("decision", "quick_check", "accepted_by_rule"))
+            or not isinstance(counts.get("rules"), Mapping)
+            or not all(
+                isinstance(parts.get(key), list) for key in ("decisions", "quick_check_changes", "not_confirmed")
+            )
+            or not is_count(parts.get("later"))
+        ):
+            errors.append(
+                "v2 parts must carry counts, decisions, quick-check changes, unconfirmed parts and a later count"
+            )
+    hints = predicate.get("ai_hints")
+    if "ai_hints" in predicate and (
+        not isinstance(hints, Mapping)
+        or hints.get("basis") != AI_HINTS_BASIS
+        or not isinstance(hints.get("hints"), list)
+    ):
+        errors.append("v2 AI hints must state their basis and list the hints")
+    change = predicate.get("change")
+    if "change" in predicate and (
+        not isinstance(change, Mapping)
+        or not all(
+            isinstance(change.get(key), str) for key in ("agent_host", "agent_session_id", "provenance_certainty")
+        )
+    ):
+        errors.append("v2 change must name its agent host, agent session and provenance certainty")
+    return errors
+
+
 def validate_statement(statement: object) -> list[str]:
     """Predicate schema violations (empty when the statement is a valid v1 review record)."""
 
@@ -635,8 +921,8 @@ def validate_statement(statement: object) -> list[str]:
     errors: list[str] = []
     if statement.get("_type") != STATEMENT_TYPE:
         errors.append(f"_type is not {STATEMENT_TYPE}")
-    if statement.get("predicateType") != PREDICATE_TYPE:
-        errors.append(f"predicateType is not {PREDICATE_TYPE}")
+    if statement.get("predicateType") not in {PREDICATE_TYPE, PREDICATE_TYPE_V2}:
+        errors.append("predicateType is not a recognized review-record version")
     subject = statement.get("subject")
     if (
         not isinstance(subject, list)
@@ -645,7 +931,7 @@ def validate_statement(statement: object) -> list[str]:
         or not isinstance(subject[0].get("digest"), Mapping)
         or not subject[0].get("digest")
     ):
-        errors.append("subject must name exactly one Snapshot with a digest")
+        errors.append("subject must name exactly one revision with a digest")
     predicate = statement.get("predicate")
     if not isinstance(predicate, Mapping):
         return [*errors, "predicate is not a JSON object"]
@@ -655,8 +941,25 @@ def validate_statement(statement: object) -> list[str]:
             errors.append(f"predicate.{key} is missing or not a {kind.__name__}")
     if errors:
         return errors
-    if predicate["schema_version"] != RECORD_SCHEMA_VERSION:
-        errors.append(f"unsupported predicate schema_version {predicate['schema_version']!r}")
+    expected = (
+        RECORD_SCHEMA_VERSION_V2 if statement.get("predicateType") == PREDICATE_TYPE_V2 else RECORD_SCHEMA_VERSION
+    )
+    if predicate["schema_version"] != expected:
+        errors.append(f"unsupported predicate schema_version {predicate['schema_version']!r} for this predicate type")
+    if expected == RECORD_SCHEMA_VERSION_V2:
+        coverage = predicate.get("seen_coverage")
+        if (
+            not isinstance(coverage, Mapping)
+            or coverage.get("basis") != "reviewer_reported_not_independent_evidence"
+            or not isinstance(coverage.get("seen"), list)
+            or not isinstance(coverage.get("skipped"), list)
+        ):
+            errors.append("v2 coverage must list self-reported seen and skipped parts")
+        elif coverage.get("revision_id") != predicate.get("snapshot", {}).get("revision_id"):
+            errors.append("v2 coverage belongs to a different revision")
+        # Sections P6-1 added are optional when absent (a record signed in the P3-2 era has none)
+        # and checked whenever present.
+        errors.extend(_v2_section_errors(predicate))
     if parse_timestamp(predicate["issued_at"]) is None:
         errors.append("predicate.issued_at is not an aware ISO-8601 instant")
     signing = predicate["signing"]
@@ -673,7 +976,7 @@ def validate_statement(statement: object) -> list[str]:
         if not isinstance(snapshot.get(key), str):
             errors.append(f"predicate.snapshot.{key} is missing")
     if not snapshot.get("review_id") or not snapshot.get("revision_id") or not snapshot.get("tree_fingerprint"):
-        errors.append("predicate.snapshot does not identify the Snapshot")
+        errors.append("predicate.snapshot does not identify the revision")
     decision = predicate["decision"]
     if decision.get("kind") not in DECISION_KINDS or not decision.get("outcome"):
         errors.append("predicate.decision names no known decision")
@@ -723,8 +1026,12 @@ def compare_with_store(
     current_policy_generation: Mapping[str, Any] | None,
     readiness_at: Mapping[str, Any] | None,
     run_plan: Mapping[str, Any] | None,
+    parts_at: Sequence[RecordPart] | None = None,
 ) -> dict[str, str]:
     """Recompute every stored section of *statement* and say which still match.
+
+    ``parts_at`` is the parts and their states now (``None``: not recomputable here,
+    for example because the record is for an older Snapshot).
 
     ``readiness_at`` is the readiness core re-evaluated at the recorded
     ``evaluated_at`` (``None``: not re-evaluated). A section that changed after
@@ -736,7 +1043,15 @@ def compare_with_store(
     if not isinstance(predicate, Mapping) or revision is None:
         return {"snapshot": "mismatch"}
     as_of = str(predicate.get("as_of") or "")
-    facts = gather_record_facts(store, session, revision, as_of=as_of)
+    recorded_decision = predicate.get("decision")
+    recorded_actor = recorded_decision.get("actor") if isinstance(recorded_decision, Mapping) else None
+    facts = gather_record_facts(
+        store,
+        session,
+        revision,
+        as_of=as_of,
+        coverage_actor_id=str(recorded_actor.get("id") or "") if isinstance(recorded_actor, Mapping) else "",
+    )
 
     def verdict(same: bool) -> str:
         return "match" if same else "mismatch"
@@ -747,6 +1062,23 @@ def compare_with_store(
         "waivers": verdict(predicate.get("waivers") == waivers_section(facts)),
         "judgments": verdict(predicate.get("judgments") == judgments_section(facts)),
     }
+    if predicate.get("schema_version") == RECORD_SCHEMA_VERSION_V2:
+        from lemoncrow.pro.capabilities.review.seen_coverage import coverage_section
+
+        out["seen_coverage"] = verdict(
+            predicate.get("seen_coverage") == coverage_section(facts.coverage_events, revision_id=revision.id)
+        )
+        if "ai_hints" in predicate:
+            out["ai_hints"] = verdict(predicate.get("ai_hints") == ai_hints_section(facts, revision_id=revision.id))
+        if "change" in predicate:
+            out["change"] = verdict(predicate.get("change") == change_section(revision))
+        if "parts" in predicate:
+            same_reviewer = isinstance(recorded_actor, Mapping) and recorded_actor.get("id") == session.reviewer_id
+            out["parts"] = (
+                "not_checked"
+                if parts_at is None or not same_reviewer
+                else verdict(predicate.get("parts") == parts_section(parts_at))
+            )
     recorded_policy = predicate.get("policy_generation")
     recorded_digest = str(recorded_policy.get("digest") or "") if isinstance(recorded_policy, Mapping) else ""
     if current_policy_generation is None:
@@ -825,7 +1157,17 @@ def summarize(statement: Mapping[str, Any]) -> dict[str, Any]:
     policy = _mapping(predicate.get("policy_generation"))
     readiness = _mapping(predicate.get("readiness"))
     actor = _mapping(decision.get("actor"))
+    parts = predicate.get("parts")
+    decisions = _mapping(parts).get("decisions") if isinstance(parts, Mapping) else None
     return {
+        # How many decisions the reviewer answered one by one (None: this record binds no parts).
+        "parts_reviewed_one_by_one": (
+            sum(
+                1 for row in decisions if isinstance(row, Mapping) and row.get("state") in {"reviewed", "needs_changes"}
+            )
+            if isinstance(decisions, list)
+            else None
+        ),
         "review_id": str(snapshot.get("review_id") or ""),
         "revision_id": str(snapshot.get("revision_id") or ""),
         "snapshot_number": snapshot.get("number"),
@@ -877,6 +1219,7 @@ def cited_evidence_ids(statement: Mapping[str, Any]) -> dict[str, tuple[str, ...
 
 
 __all__ = [
+    "AI_HINTS_BASIS",
     "DECISION_KINDS",
     "PAYLOAD_TYPE",
     "PREDICATE_TYPE",
@@ -889,18 +1232,23 @@ __all__ = [
     "DecisionKind",
     "RecordContext",
     "RecordFacts",
+    "RecordPart",
     "RecordSchemaError",
     "ReviewDecision",
     "SigningIdentity",
     "SigningMode",
+    "ai_hints_section",
     "build_statement",
     "canonical_json",
+    "change_section",
     "cited_evidence_ids",
     "compare_with_store",
     "current_decision",
     "evidence_section",
     "gather_record_facts",
+    "human_decision_for",
     "judgments_section",
+    "parts_section",
     "policy_section",
     "readiness_consistent",
     "readiness_section",

@@ -35,7 +35,7 @@ Software engineer: ship the asked-for change end to end — locate, edit, verify
 - **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc rt debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
 
-Inside Git worktrees, use `mcp__lc__code_search` first for unknown source and `mcp__lc__read` for known paths/ranges; do not use Bash grep/rg for repository discovery, including in subagents. Outside Git worktrees, Bash `grep`/`rg` remains available for standalone directories. Keep `mcp__lc__edit` for edits and `mcp__lc__bash` for execution. If lc is unavailable, stop rather than falling back.
+Git source discovery → `mcp__lc__code_search` first; combine terms. Known files → `mcp__lc__read`. Don't embed source grep/rg in compound Bash. Use `mcp__lc__bash` for Git, tests, logs, non-Git search and exact shell output. Index misses fall back to grep.
 
 **Reply register — ultra.** Maximum readable compression. Answer, then stop.
 

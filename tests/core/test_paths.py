@@ -218,3 +218,25 @@ def test_workspace_store_dir_never_shows_up_in_git_status(tmp_path: Path) -> Non
 
     assert store_dir.parent == repo / DEFAULT_STORE_DIRNAME
     assert _git(["status", "--porcelain"], repo) == ""
+
+
+def test_the_committed_team_config_is_not_ignored(tmp_path: Path) -> None:
+    """Every entry the edit tool treats as committed config must also reach ``git add``."""
+    from lemoncrow_client.kit.edit import COMMITTED_CONFIG
+
+    from lemoncrow.core.foundation.paths import ensure_gitignore
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init", "-q"], repo)
+    ensure_gitignore(repo)
+    config = [f"{entry}team.md" if entry.endswith("/") else entry for entry in COMMITTED_CONFIG]
+    state = ["workspace/code_context.sqlite", "environment.toml.bak", "rules.md"]
+    for relative in [*config, *state]:
+        path = repo / DEFAULT_STORE_DIRNAME / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+
+    untracked = _git(["ls-files", "--others", "--exclude-standard", DEFAULT_STORE_DIRNAME], repo).split()
+
+    assert sorted(untracked) == sorted(f"{DEFAULT_STORE_DIRNAME}/{relative}" for relative in config)

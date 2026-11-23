@@ -706,3 +706,91 @@ def test_revision_compare_frontier_contract() -> None:
         )
     )
     assert total == len(units)
+
+
+def test_a_later_mark_attests_nothing_about_content() -> None:
+    """P0-4: "Decide later" is carried as it was, never reopened and never stale, and never groups as reviewed."""
+    revision = _revision()
+    later = _mark("k", "fp-a", state="later")
+
+    # The content moves under it: still left for later, nothing reopens, no "changed since review".
+    moved = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-b")], [later])
+    assert moved.reopened == ()
+    assert moved.carried == (later,)
+    frontier = compute_frontier("rev-1", "local", revision, (_unit("k", "fp-b"),), [later])
+    (entry,) = frontier.entries
+    assert (entry.state, entry.changed_since_mark) == ("later", False)
+    # An unfingerprintable unit does not turn it into "unknown" either: it never claimed to have seen content.
+    opaque = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-x", method="unknown")], [later])
+    assert opaque.reopened == () and opaque.carried == (later,)
+
+    groups = group_frontier(frontier, [])
+    assert [e.unit_key for e in groups.not_yet_reviewed] == ["k"]
+    assert groups.unchanged_reviewed == () and groups.changed_since_review == () and groups.unresolved == ()
+    # A fingerprint-moved `reviewed` mark is the contrast: it is reopened.
+    (reviewed,) = compute_frontier("rev-1", "local", revision, (_unit("k", "fp-b"),), [_mark("k", "fp-a")]).entries
+    assert reviewed.changed_since_mark is True
+    # And it is not in the frontier's reviewed fingerprints, which are what a judgment carries forward.
+    assert frontier.reviewed_unit_fingerprints == ()
+
+
+def test_setting_a_part_aside_does_not_move_the_revision_the_reviewer_last_reviewed(tmp_path: Path) -> None:
+    """P1-2 B: `later` is not a judgment, so it leaves the reviewed frontier where it was."""
+    root, _repo_handle = _repo(tmp_path, files=3)
+    store, session, _rng = _session(tmp_path, root)
+    first = _refresh(store, session, root, tmp_path)
+    units = [unit for unit in store.list_units(first.revision.id) if unit.kind == "file"]
+    mark_unit(store, session, first.revision, units[0], state="later")
+    assert store.frontier_revision(session.id, session.reviewer_id) == ""
+    assert _states(store, session.id) == {units[0].unit_key: "later"}
+    # Nor does the marks fallback of "the revision I last looked at" count it (SPEC P1-2 B).
+    from lemoncrow.pro.capabilities.review.sources.local import baseline_revision
+
+    assert baseline_revision(store, session.id, reviewer_id=session.reviewer_id) is None
+    # The event is still recorded, as an audit of what the reviewer did.
+    assert [event.to_state for event in store.list_mark_events(session.id)] == ["later"]
+    mark_unit(store, session, first.revision, units[1])
+    assert store.frontier_revision(session.id, session.reviewer_id) == first.revision.id
+
+    # A later revision still carries the part left for later, and the reviewer's baseline is the judged one.
+    _write(root, _rel(2), _REVIEWED.format(i=2) + "\n# more\n")
+    second = _refresh(store, session, root, tmp_path)
+    assert second.previous_revision is not None and second.previous_revision.id == first.revision.id
+    assert _states(store, session.id)[units[0].unit_key] == "later"
+
+
+def test_a_reviewer_who_only_set_parts_aside_keeps_them_across_a_new_revision(tmp_path: Path) -> None:
+    root, _repo_handle = _repo(tmp_path, files=3)
+    store, session, _rng = _session(tmp_path, root)
+    first = _refresh(store, session, root, tmp_path)
+    units = [unit for unit in store.list_units(first.revision.id) if unit.kind == "file"]
+    for unit in units:
+        mark_unit(store, session, first.revision, unit, state="later")
+    _write(root, _rel(0), _REVIEWED.format(i=0) + "\n# more\n")
+    second = _refresh(store, session, root, tmp_path)
+    assert second.created is True
+    assert {mark.state for mark in store.list_marks(session.id)} == {"later"}
+    assert {entry.state for entry in second.frontier.entries if entry.kind == "file"} == {"later"}
+    assert not any(entry.changed_since_mark for entry in second.frontier.entries)
+
+
+def test_a_part_left_for_later_resets_when_its_hunk_key_is_renumbered() -> None:
+    def hunk(ordinal: int, fingerprint: str) -> ReviewUnit:
+        return ReviewUnit(
+            revision_id="",
+            unit_key=f"hun:{ordinal}",
+            kind="hunk",
+            path="a.py",
+            ordinal=ordinal,
+            content_fingerprint=fingerprint,
+        )
+
+    before = [hunk(0, "fp-a")]
+    after = [hunk(0, "fp-b"), hunk(1, "fp-c")]  # the file was re-hunked: ordinal 0 now names other content
+    later = _mark("hun:0", "fp-a", state="later")
+    result = reconcile(before, after, [later])
+    assert [(mark.state, mark.unit_key) for mark in result.reopened] == [("unreviewed", "hun:0")]
+    assert result.reasons == (("local", "hun:0", "hunks_renumbered"),)
+    # The same mark on a unit whose key is stable is carried as it was.
+    stable = reconcile([hunk(0, "fp-a")], [hunk(0, "fp-b")], [later])
+    assert stable.carried == (later,) and stable.reopened == ()

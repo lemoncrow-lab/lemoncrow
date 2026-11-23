@@ -16,6 +16,8 @@
  * Retention: at most REVIEW_FRICTION_MAX_SESSIONS sessions and nothing older
  * than REVIEW_FRICTION_RETENTION_MS; both are enforced on every write.
  * `clearReviewFriction()` removes everything.
+ *
+ * The four counts that do leave the browser live in `reviewFrictionCounts.ts`.
  */
 
 import { useEffect } from "react";
@@ -23,6 +25,8 @@ import { useEffect } from "react";
 export const REVIEW_FRICTION_STORAGE_KEY = "lc.review.friction.v1";
 export const REVIEW_FRICTION_MAX_SESSIONS = 50;
 export const REVIEW_FRICTION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/** Set by this browser's first human judgment: the "first useful Review" settings changes are counted against. */
+export const REVIEW_FIRST_JUDGMENT_KEY = "lc.review.friction.first-judgment.v1";
 
 export type FrictionSurface = "brief" | "tour" | "implementation" | "map";
 export type FrictionRail = "context" | "ask" | null;
@@ -90,6 +94,7 @@ export function readReviewFriction(): ReviewFrictionSession[] {
 export function clearReviewFriction(): void {
   try {
     storage()?.removeItem(REVIEW_FRICTION_STORAGE_KEY);
+    storage()?.removeItem(REVIEW_FIRST_JUDGMENT_KEY);
   } catch {
     // Storage unavailable: nothing was kept.
   }
@@ -219,6 +224,11 @@ export class ReviewFrictionRecorder {
       this.session.rereview.firstJudgmentMs = Math.max(0, elapsed - this.session.rereview.startMs);
     }
     this.pendingRereview = false;
+    try {
+      storage()?.setItem(REVIEW_FIRST_JUDGMENT_KEY, "1");
+    } catch {
+      // Storage unavailable: settings changes keep counting as before the first Review.
+    }
     this.save();
   }
 

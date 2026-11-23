@@ -4,7 +4,9 @@ import type { ReviewGuideTarget } from "./readerModel";
 import {
   deriveReviewPrimaryAction,
   finishAvailableInMenu,
+  headerLeadsWithSend,
   primaryActionDestination,
+  sendCommentsLabel,
   type ReviewPrimaryActionKind,
   type ReviewPrimaryDestination,
 } from "./reviewPrimaryAction";
@@ -112,14 +114,24 @@ const FINISH_DETAIL = "Human judgments, discussions, and required verification h
 
 const MATRIX: Array<[string, Partial<Input>, Expected]> = [
   [
+    "nothing judged yet",
+    { progress: { ...progress, reviewed: 0, unreviewed: 4 }, nextTarget: head("t-first", "unreviewed", "Not reviewed yet") },
+    { kind: "review_target", label: "Start review", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-first" },
+  ],
+  [
+    "discussions still loading never hold back the next area",
+    { commentsState: "loading", progress: { ...progress, reviewed: 0, unreviewed: 4 }, nextTarget: head("t-first", "unreviewed", "Not reviewed yet") },
+    { kind: "review_target", label: "Start review", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-first" },
+  ],
+  [
     "unreviewed work remains",
     { progress: { ...progress, reviewed: 2, unreviewed: 2 }, nextTarget: head("t-next", "unreviewed", "Not reviewed yet") },
-    { kind: "review_target", label: "Review next area", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-next" },
+    { kind: "review_target", label: "Review next: authorize", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-next" },
   ],
   [
     "unreviewed work remains before the queue has loaded",
     { progress: { ...progress, reviewed: 2, unreviewed: 2 } },
-    { kind: "review_target", label: "Review next area", disabled: true, destination: "none", detail: "2 review areas still need human judgment.", finishInMenu: true, opensReadiness: false },
+    { kind: "review_target", label: "Review next part", disabled: true, destination: "none", detail: "2 parts still need human judgment.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "requested changes remain",
@@ -140,12 +152,12 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
       progress: { ...progress, reviewed: 2, unreviewed: 2 },
       nextTarget: head("t-file", "request_change_open", "Requested change is still open"),
     },
-    { kind: "review_target", label: "Review next area", disabled: false, destination: "target", detail: "Requested change is still open", finishInMenu: true, opensReadiness: false, targetId: "t-file" },
+    { kind: "review_target", label: "Review next: authorize", disabled: false, destination: "target", detail: "Requested change is still open", finishInMenu: true, opensReadiness: false, targetId: "t-file" },
   ],
   [
     "content changed since review",
     { progress: { ...progress, reviewed: 3, changed_since_review: 1 }, nextTarget: head("t-changed", "changed_since_judgment", "Changed since your review") },
-    { kind: "review_changed", label: "Re-review changed area", disabled: false, destination: "target", detail: "Changed since your review", finishInMenu: true, opensReadiness: false, targetId: "t-changed" },
+    { kind: "review_changed", label: "Re-review changed part", disabled: false, destination: "target", detail: "Changed since your review", finishInMenu: true, opensReadiness: false, targetId: "t-changed" },
   ],
   [
     "a reconsidered decision heads the queue ahead of changed areas",
@@ -153,7 +165,7 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
       progress: { ...progress, reviewed: 1, changed_since_review: 2, unreviewed: 1 },
       nextTarget: head("t-decision", "decision_scope_changed", "Decision: scope changed"),
     },
-    { kind: "review_target", label: "Review next area", disabled: false, destination: "target", detail: "Decision: scope changed", finishInMenu: true, opensReadiness: false, targetId: "t-decision" },
+    { kind: "review_target", label: "Review next: authorize", disabled: false, destination: "target", detail: "Decision: scope changed", finishInMenu: true, opensReadiness: false, targetId: "t-decision" },
   ],
   [
     "addressed comments need re-review",
@@ -176,9 +188,9 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
     { kind: "review_readiness", label: "Review failed check", disabled: false, destination: "readiness", detail: "Current verification explicitly reports failure.", finishInMenu: true, opensReadiness: true },
   ],
   [
-    "verification is unknown",
+    "checks have not run but every part is reviewed",
     { readiness: { ...readiness, ready: false, unresolvedChecks: 1, detail: "1 unresolved check" } },
-    { kind: "review_readiness", label: "Review verification", disabled: false, destination: "readiness", detail: "Verification is not run, unknown, stale, or otherwise unresolved.", finishInMenu: true, opensReadiness: true },
+    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: "Every part is reviewed. Tests or checks have not run; Finish lists what is still open.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "open comments remain",
@@ -188,32 +200,43 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
   [
     "unsent comments never take over the next area to review",
     { feedbackStatus: { ...feedback, open_total: 2, unpublished: 2 }, feedbackDelivery: claude, progress: { ...progress, reviewed: 3, unreviewed: 1 }, nextTarget: head("t-next", "unreviewed", "Not reviewed yet") },
-    { kind: "review_target", label: "Review next area", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-next" },
+    { kind: "review_target", label: "Review next: authorize", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-next" },
   ],
   [
     "unsent comments with everything reviewed go to the verdict",
     { feedbackStatus: { ...feedback, open_total: 1, unpublished: 1 }, feedbackDelivery: noAgent },
-    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: false, opensReadiness: false },
+    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: true, opensReadiness: false },
   ],
   [
     "feedback delivery in flight",
     { feedbackStatus: { ...feedback, open_total: 1, in_flight: 1 }, feedbackDelivery: claude },
-    { kind: "waiting_agent", label: "Waiting on Claude", disabled: true, destination: "none", detail: "Feedback is with Claude; the next Snapshot or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+    { kind: "waiting_agent", label: "Waiting on Claude", disabled: false, destination: "handoff", detail: "Feedback is with Claude; the next revision or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "feedback with the agent, working",
     { feedbackStatus: { ...feedback, open_total: 2, published: 2 }, feedbackDelivery: claude },
-    { kind: "waiting_agent", label: "Waiting on Claude", disabled: true, destination: "none", detail: "Feedback is with Claude; the next Snapshot or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+    { kind: "waiting_agent", label: "Waiting on Claude", disabled: false, destination: "handoff", detail: "Feedback is with Claude; the next revision or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "feedback copied for the author",
     { feedbackStatus: { ...feedback, open_total: 2, published: 2 }, feedbackDelivery: { ...noAgent, supported: true, kind: "export", label: "author", target_ref: "clipboard:author" } },
-    { kind: "waiting_agent", label: "Waiting on author", disabled: true, destination: "none", detail: "Feedback is with author; the next Snapshot or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+    { kind: "waiting_agent", label: "Waiting on author", disabled: false, destination: "handoff", detail: "Feedback is with author; the next revision or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "requested changes handed to the agent with nothing else to judge",
     { feedbackStatus: { ...feedback, open_total: 2, published: 2 }, feedbackDelivery: claude, progress: { ...progress, reviewed: 3, needs_changes: 1 }, nextTarget: head("t-asked", "request_change_open", "Requested change is still open") },
-    { kind: "waiting_agent", label: "Waiting on Claude", disabled: true, destination: "none", detail: "Feedback is with Claude; the next Snapshot or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+    { kind: "waiting_agent", label: "Waiting on Claude", disabled: false, destination: "handoff", detail: "Feedback is with Claude; the next revision or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+  ],
+  [
+    "requested changes copied for the author while other parts are unreviewed: review goes on",
+    {
+      feedbackStatus: { ...feedback, open_total: 1, published: 1 },
+      feedbackDelivery: { ...noAgent, supported: true, kind: "export", label: "author", target_ref: "clipboard:author" },
+      progress: { ...progress, reviewed: 1, needs_changes: 1, unreviewed: 2 },
+      nextTarget: head("t-asked", "request_change_open", "Requested change is still open"),
+      afterHandoff: { ...head("t-next", "unreviewed", "Not reviewed yet"), label: "settle" },
+    },
+    { kind: "review_target", label: "Review next: settle", disabled: false, destination: "target", detail: "Not reviewed yet", finishInMenu: true, opensReadiness: false, targetId: "t-next" },
   ],
   [
     "requested changes not yet sent are still the reviewer's",
@@ -223,17 +246,17 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
   [
     "all work reviewed",
     {},
-    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: false, opensReadiness: false },
+    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: true, opensReadiness: false },
   ],
   [
     "source drift alone is not a Review step",
     { sourceChanged: true },
-    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: false, opensReadiness: false },
+    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: true, opensReadiness: false },
   ],
   [
     "GitHub PR review with comments not on the PR goes to the verdict",
     { feedbackStatus: github({ unpublished: 2 }), feedbackDelivery: noAgent },
-    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: false, opensReadiness: false },
+    { kind: "finish", label: "Finish review", disabled: false, destination: "finish_sheet", detail: FINISH_DETAIL, finishInMenu: true, opensReadiness: false },
   ],
   [
     "GitHub PR review with a publish in doubt",
@@ -243,7 +266,7 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
   [
     "GitHub PR review with everything published waits on the pull request",
     { feedbackStatus: github({ published: 2 }), feedbackDelivery: { ...noAgent, kind: "github", supported: true, label: "PR #7" } },
-    { kind: "waiting_agent", label: "Waiting on PR #7", disabled: true, destination: "none", detail: "Feedback is with PR #7; the next Snapshot or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
+    { kind: "waiting_agent", label: "Waiting on PR #7", disabled: false, destination: "handoff", detail: "Feedback is with PR #7; the next revision or addressed comments return this Review to you.", finishInMenu: true, opensReadiness: false },
   ],
   [
     "hosted policy blocker",
@@ -259,9 +282,9 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
     { kind: "review_readiness", label: "Review blockers", disabled: false, destination: "readiness", detail: "1 more approval required", finishInMenu: true, opensReadiness: true },
   ],
   [
-    "historical Snapshot",
+    "historical revision",
     { historical: true, feedbackStatus: { ...feedback, open_total: 1, unpublished: 1 }, feedbackDelivery: claude },
-    { kind: "go_latest", label: "Back to latest", disabled: false, destination: "latest_snapshot", detail: "Historical Snapshots are read-only. Return to the latest Snapshot.", finishInMenu: false, opensReadiness: false },
+    { kind: "go_latest", label: "Back to latest", disabled: false, destination: "latest_snapshot", detail: "Historical revisions are read-only. Return to the latest revision.", finishInMenu: false, opensReadiness: false },
   ],
   [
     "finished Review",
@@ -296,7 +319,7 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
   [
     "degraded: content identity unavailable",
     { progress: { ...progress, reviewed: 3, unknown: 1 }, nextTarget: head("t-unknown", "fingerprint_unavailable", "Content identity unavailable; review individually") },
-    { kind: "review_target", label: "Review next area", disabled: false, destination: "target", detail: "Content identity unavailable; review individually", finishInMenu: true, opensReadiness: false, targetId: "t-unknown" },
+    { kind: "review_target", label: "Review next: authorize", disabled: false, destination: "target", detail: "Content identity unavailable; review individually", finishInMenu: true, opensReadiness: false, targetId: "t-unknown" },
   ],
   [
     "degraded: landing conditions unavailable fail closed",
@@ -321,12 +344,12 @@ const MATRIX: Array<[string, Partial<Input>, Expected]> = [
     { kind: "checking_comments", label: "Checking comments…", disabled: true, destination: "none", detail: "Existing review discussions are still loading; readiness cannot assume there are none.", finishInMenu: true, opensReadiness: false },
   ],
   [
-    "newer Snapshot exists",
+    "newer revision exists",
     { revisionAdvanced: true, progress: { ...progress, reviewed: 3, unreviewed: 1 }, nextTarget: head("t-next", "unreviewed", "Not reviewed yet") },
-    { kind: "reload_state", label: "Reload review", disabled: false, destination: "reload", detail: "A newer Snapshot exists and this one no longer accepts changes. Reload before judging the new Snapshot.", finishInMenu: false, opensReadiness: false },
+    { kind: "reload_state", label: "Reload review", disabled: false, destination: "reload", detail: "A newer revision exists and this one no longer accepts changes. Reload before judging the new revision.", finishInMenu: false, opensReadiness: false },
   ],
   [
-    "newer Snapshot on a finished GitHub PR review never publishes from the old one",
+    "newer revision on a finished GitHub PR review never publishes from the old one",
     { sessionStatus: "finished", revisionAdvanced: true, feedbackStatus: github({ unpublished: 2 }) },
     { kind: "reopen", label: "Reopen review", disabled: false, destination: "finish_sheet", detail: "Reopen this finished review before making new judgments. Finishing does not commit or merge.", finishInMenu: false, opensReadiness: false },
   ],
@@ -362,6 +385,43 @@ describe("deriveReviewPrimaryAction state matrix (plan §8.10)", () => {
   });
 });
 
+describe("header primary selection", () => {
+  const open = { locked: false, sessionStatus: "open" as const, commentsState: "ready" as const };
+  const states: Array<[string, Partial<Input>, string]> = [
+    ["nothing reviewed", { progress: { ...progress, reviewed: 0, unreviewed: 4 }, nextTarget: head("t-1", "unreviewed", "Not reviewed yet") }, "Start review"],
+    ["in progress", { progress: { ...progress, reviewed: 2, unreviewed: 2 }, nextTarget: head("t-1", "unreviewed", "Not reviewed yet") }, "Review next: authorize"],
+    ["all reviewed", {}, "Finish review"],
+  ];
+
+  it("stops saying Start review once the reviewer is in the code", () => {
+    const untouched = { progress: { ...progress, reviewed: 0, unreviewed: 4 }, nextTarget: head("t-1", "unreviewed", "Not reviewed yet") };
+    expect(deriveReviewPrimaryAction(input({ ...untouched, started: false })).label).toBe("Start review");
+    const inCode = deriveReviewPrimaryAction(input({ ...untouched, started: true }));
+    expect(inCode.label).toBe("Review next: authorize");
+    expect(inCode.targetId).toBe("t-1");
+  });
+
+  it.each(states)("with nothing unsent, the review step leads (%s)", (_name, overrides, label) => {
+    const state = input({ ...overrides, feedbackStatus: { ...feedback, open_total: 0, unpublished: 0 } });
+    expect(headerLeadsWithSend({ ...open, unsent: 0 })).toBe(false);
+    expect(deriveReviewPrimaryAction(state).label).toBe(label);
+  });
+
+  it.each(states)("with unsent comments, Send leads and the review step moves to the menu (%s)", (_name, overrides, label) => {
+    const state = input({ ...overrides, feedbackStatus: { ...feedback, open_total: 2, unpublished: 2 }, feedbackDelivery: claude });
+    expect(headerLeadsWithSend({ ...open, unsent: 2 })).toBe(true);
+    expect(sendCommentsLabel(2)).toBe("Send 2 comments");
+    expect(deriveReviewPrimaryAction(state).label).toBe(label);
+  });
+
+  it("never leads with Send while comments load, on a locked or finished review", () => {
+    expect(sendCommentsLabel(1)).toBe("Send 1 comment");
+    expect(headerLeadsWithSend({ ...open, unsent: 1, commentsState: "loading" })).toBe(false);
+    expect(headerLeadsWithSend({ ...open, unsent: 1, locked: true })).toBe(false);
+    expect(headerLeadsWithSend({ ...open, unsent: 1, sessionStatus: "finished" })).toBe(false);
+  });
+});
+
 describe("deriveReviewPrimaryAction", () => {
   it("counts a pull request Review's handoff on the PR, and an agent route's with the agent", () => {
     const github = { ...feedback, open_total: 2, unpublished: 2, github: { unpublished: 0, published: 2, in_flight: 0 } };
@@ -370,18 +430,18 @@ describe("deriveReviewPrimaryAction", () => {
     expect(action({ feedbackStatus: github, feedbackDelivery: claude })).toMatchObject({ kind: "finish" });
   });
 
-  it("never offers finish while current target judgment remains", () => {
+  it("never offers finish while current part judgment remains", () => {
     expect(action({
       progress: { ...progress, reviewed: 3, unreviewed: 1 },
       nextTarget: head("t-1", "unreviewed", "Not reviewed yet"),
-    })).toMatchObject({ kind: "review_target", label: "Review next area", targetId: "t-1", disabled: false });
+    })).toMatchObject({ kind: "review_target", label: "Review next: authorize", targetId: "t-1", disabled: false });
   });
 
   it("puts changed work ahead of ordinary pending review", () => {
     expect(action({
       progress: { ...progress, reviewed: 2, changed_since_review: 1, unreviewed: 1 },
       nextTarget: head("changed", "changed_since_judgment", "Changed since your review"),
-    })).toMatchObject({ kind: "review_changed", label: "Re-review changed area", targetId: "changed" });
+    })).toMatchObject({ kind: "review_changed", label: "Re-review changed part", targetId: "changed" });
   });
 
   it("keeps remaining review ahead of a handoff that is out, and names the real destination once it waits", () => {
@@ -404,23 +464,39 @@ describe("deriveReviewPrimaryAction", () => {
       sourceChanged: true,
       progress: { ...progress, reviewed: 3, unreviewed: 1 },
       nextTarget: head("t-1", "unreviewed", "Not reviewed yet"),
-    })).toMatchObject({ kind: "review_target", label: "Review next area", targetId: "t-1" });
+    })).toMatchObject({ kind: "review_target", label: "Review next: authorize", targetId: "t-1" });
     expect(action({ commentsState: "failed" })).toMatchObject({ kind: "reload_state", label: "Retry review state" });
   });
 
-  it("makes provider-native Merge when ready the lifecycle action once LemonCrow-owned work is clear", () => {
+  it("leads an open, fully judged review with an armable provider with Finish review, never Merge when ready", () => {
     const landing = {
       armable: true,
       landing: { supported: true, armed: false, provider: "github", state: "not_armed" },
     };
+    const open = action({ landing });
+    expect(open).toMatchObject({ kind: "finish", label: "Finish review" });
+    expect(primaryActionDestination(open)).toBe("finish_sheet");
     expect(action({
       readiness: { ...readiness, ready: false, label: "1 landing condition unresolved", detail: "Required checks" },
       landing,
-    })).toMatchObject({ kind: "review_readiness", label: "Merge when ready" });
-    expect(primaryActionDestination(action({ landing }))).toBe("readiness");
-    expect(action({
-      landing: { ...landing, landing: { ...landing.landing, armed: true, state: "delegated" } },
-    })).toMatchObject({ kind: "review_readiness", label: "Merge when ready enabled" });
+    }).label).not.toMatch(/Merge when ready/);
+  });
+
+  it("offers provider-native Merge when ready only after Finish, and keeps an armed merge visible", () => {
+    const landing = {
+      armable: true,
+      landing: { supported: true, armed: false, provider: "github", state: "not_armed" },
+    };
+    const armed = { ...landing, landing: { ...landing.landing, armed: true, state: "delegated" } };
+    const finished = action({ sessionStatus: "finished", landing });
+    expect(finished).toMatchObject({ kind: "review_readiness", label: "Merge when ready" });
+    expect(primaryActionDestination(finished)).toBe("readiness");
+    expect(action({ sessionStatus: "finished", landing: armed })).toMatchObject({ kind: "review_readiness", label: "Merge when ready enabled" });
+    // Where no provider can merge, a finished review offers Reopen, not a merge.
+    expect(action({ sessionStatus: "finished", landing: { ...landing, landing: { ...landing.landing, supported: false } } }))
+      .toMatchObject({ kind: "reopen", label: "Reopen review" });
+    // A merge still armed on an open review stays visible so it can be inspected or cancelled.
+    expect(action({ landing: armed })).toMatchObject({ kind: "review_readiness", label: "Merge when ready enabled" });
   });
 
   it("treats a merged landing as done rather than offering to arm it again", () => {
@@ -436,9 +512,9 @@ describe("deriveReviewPrimaryAction", () => {
       conditions: [
         {
           id: "latest-snapshot-reviewed",
-          label: "Latest revision reviewed",
+          label: "Latest revision not reviewed yet",
           state: "pending" as const,
-          detail: "1 review area still needs human judgment or re-review.",
+          detail: "1 part still needs human judgment or re-review.",
           owner: "lemoncrow" as const,
           category: "human_review",
           url: "",
@@ -447,7 +523,7 @@ describe("deriveReviewPrimaryAction", () => {
           id: "verification",
           label: "Verification requirements",
           state: "not_applicable" as const,
-          detail: "No required verification result is configured or recorded for this Snapshot.",
+          detail: "No required verification result is configured or recorded for this revision.",
           owner: "lemoncrow" as const,
           category: "verification",
           url: "",
@@ -465,7 +541,7 @@ describe("deriveReviewPrimaryAction", () => {
     })).toMatchObject({
       kind: "review_readiness",
       label: "Review coverage",
-      detail: "1 review area still needs human judgment or re-review.",
+      detail: "1 part still needs human judgment or re-review.",
     });
 
     expect(action({
@@ -488,13 +564,51 @@ describe("deriveReviewPrimaryAction", () => {
     });
   });
 
-  it("routes verification blockers to evidence rather than finish", () => {
+  it("routes a failed check to evidence, but finishes once only unrun checks are left", () => {
     expect(action({
       readiness: { ...readiness, ready: false, failedChecks: 2, blockers: [{ id: "failed-checks", label: "2 failed checks", detail: "fail", tone: "rose" }] },
     })).toMatchObject({ kind: "review_readiness", label: "Review 2 failed checks" });
     expect(action({
       readiness: { ...readiness, ready: false, unresolvedChecks: 1, blockers: [{ id: "unresolved-checks", label: "1 unresolved check", detail: "unknown", tone: "amber" }] },
+    })).toMatchObject({ kind: "finish", label: "Finish review" });
+    // Unrun checks plus another unmet requirement are not "only unrun checks": evidence still leads.
+    expect(action({
+      readiness: {
+        ...readiness,
+        ready: false,
+        unresolvedChecks: 1,
+        blockers: [
+          { id: "unresolved-checks", label: "1 unresolved check", detail: "unknown", tone: "amber" },
+          { id: "policy:reviewers", label: "1 more approval required", detail: "Hosted policy", tone: "amber" },
+        ],
+      },
     })).toMatchObject({ kind: "review_readiness", label: "Review verification" });
+  });
+
+  it("finishes when the server's only open conditions are checks that have not run", () => {
+    const condition = (state: "pending" | "fail") => ({
+      id: "verification",
+      label: "Verification requirements",
+      state,
+      detail: "No test ran.",
+      owner: "lemoncrow" as const,
+      category: "verification",
+      url: "",
+    });
+    const landing = (state: "pending" | "fail") => ({
+      armable: false,
+      landing: { supported: false, armed: false, provider: "", state: "" },
+      conditions: [{ ...condition("pending"), id: "latest-snapshot-reviewed", category: "human_review", state: "pass" as const }, condition(state)],
+    });
+    const notReady = { ...readiness, ready: false, unresolvedChecks: 2, detail: "2 unresolved checks" };
+    expect(action({ readiness: notReady, landing: landing("pending") })).toMatchObject({ kind: "finish", label: "Finish review" });
+    expect(action({ readiness: notReady, landing: landing("fail") })).toMatchObject({ kind: "review_readiness", label: "Review failed check" });
+  });
+
+  it("keeps Finish review… in the menu while Finish review is the primary action", () => {
+    const primary = action();
+    expect(primary.kind).toBe("finish");
+    expect(finishAvailableInMenu({ sessionStatus: "open", historical: false, revisionAdvanced: false, action: primary })).toBe(true);
   });
 
   it("only offers finish after durable state and readiness are clear", () => {

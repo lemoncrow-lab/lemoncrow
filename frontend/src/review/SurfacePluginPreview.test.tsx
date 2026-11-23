@@ -69,7 +69,7 @@ describe("SurfacePluginPreview", () => {
     expect(surfaceComparable(surface({ preview: descriptor({ status: "unavailable" }) }))).toBe(false);
   });
 
-  it("renders the new side of an image artifact pinned to the requested Snapshot", async () => {
+  it("renders the new side of an image artifact pinned to the requested revision", async () => {
     installObjectUrls();
     api.fetchSurfacePreview.mockImplementation(async (_id: string, _provider: string, _surface: string, side: string) => artifact(side));
 
@@ -212,7 +212,7 @@ describe("SurfacePluginPreview", () => {
     await waitFor(() => expect(pane.querySelector("pre")?.textContent).toBe('{"id":98765432109876543210}'));
   });
 
-  it("offers an opaque artifact as a named download of the exact Snapshot bytes", async () => {
+  it("offers an opaque artifact as a named download of the exact revision bytes", async () => {
     installObjectUrls();
     api.fetchSurfacePreview.mockResolvedValue({
       blob: new Blob(["x".repeat(2048)], { type: "application/zip" }),

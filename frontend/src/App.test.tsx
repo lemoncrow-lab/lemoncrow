@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 import App from "./App";
 import {
   CORE_ONLY_PRODUCT_CAPABILITIES,
@@ -176,6 +176,51 @@ describe("App router smoke test", () => {
     expect(container).toBeTruthy();
   });
 
+  it("keeps one element and one main landmark when moving to Home and back, even for /reviews/", async () => {
+    mockAllFetches();
+    const Directory = () => <main aria-label="Home body">Home body <Link to="/account">back to account</Link></main>;
+    const Actions = () => <><Link to="/reviews">to home</Link><Link to="/reviews/">to home slash</Link><Link to="/account">to account</Link></>;
+    render(
+      <MemoryRouter initialEntries={["/account"]}>
+        <TimeRangeProvider>
+          <App
+            reviewComposition={{ Directory, Reader: () => null, directoryIsHome: true }}
+            shellComposition={{ HeaderActions: Actions, routes: [{ path: "/account", Component: () => <div>Account</div> }], titles: [{ prefix: "/account", title: "Account" }] }}
+          />
+        </TimeRangeProvider>
+      </MemoryRouter>
+    );
+    const body = screen.getByTestId("app-body");
+    expect(body).toHaveAttribute("role", "main");
+    for (const name of ["to home", "to home slash"]) {
+      await userEvent.click(screen.getByRole("link", { name }));
+      await screen.findByText("Home body");
+      expect(screen.getByTestId("app-body")).toBe(body); // nothing above Home remounted: a palette toast and its Undo survive
+      expect(body).not.toHaveAttribute("role");
+      expect(screen.getAllByRole("main")).toHaveLength(1);
+      await userEvent.click(screen.getByRole("link", { name: "back to account" }));
+      await screen.findByText("Account");
+      expect(screen.getByTestId("app-body")).toBe(body);
+      expect(screen.getAllByRole("main")).toHaveLength(1);
+    }
+  });
+
+  it("a review route that fails to load shows exactly one main landmark", async () => {
+    mockAllFetches();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const Broken = () => { throw new Error("Reader exploded"); };
+    render(
+      <MemoryRouter initialEntries={["/r/abc"]}>
+        <TimeRangeProvider>
+          <App reviewComposition={{ Directory: () => null, Reader: Broken }} />
+        </TimeRangeProvider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByText("Review couldn't load")).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    spy.mockRestore();
+  });
+
   it("allows a hosted wrapper to inject private routes and header actions without replacing the product shell", () => {
     mockAllFetches();
     const HostedAccount = () => <div>Hosted account page</div>;
@@ -198,9 +243,10 @@ describe("App router smoke test", () => {
     expect(screen.getByText("Hosted account page")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Hosted account" })).toHaveAttribute("href", "/account");
     const primary = screen.getByRole("navigation", { name: "Primary navigation" });
-    expect(primary.querySelectorAll("a")).toHaveLength(5);
+    expect(primary.querySelectorAll("a")).toHaveLength(6);
     expect(screen.getByRole("link", { name: /^home$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^code$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^knowledge$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^activity$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^reviews$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^usage$/i })).toBeInTheDocument();
@@ -232,39 +278,34 @@ describe("App router smoke test", () => {
     expect(screen.getByText("Hosted settings page")).toBeInTheDocument();
   });
 
-  it("types the LemonCrow wordmark on hover and collapses back to the lemon mark", () => {
-    vi.useFakeTimers();
+  it("always shows the LemonCrow wordmark beside the lemon mark, on desktop and phone", () => {
     mockAllFetches();
     renderAt("/home");
 
     const brand = screen.getByRole("link", { name: "LemonCrow home" });
     const mark = screen.getByTestId("lemoncrow-brand-mark");
     expect(brand.querySelector("img")).toBeInTheDocument();
-    expect(mark).toBeEmptyDOMElement();
-    expect(brand).toHaveStyle({ width: "1.5rem" });
-
+    expect(mark).toHaveTextContent(/^LEMONCROW$/);
+    expect(brand.getAttribute("style")).toBeNull();
+    // Neither hover nor focus is needed for the name, and leaving does not hide it.
     fireEvent.mouseEnter(brand);
-    expect(brand).toHaveStyle({ width: "calc(1.5rem + 0.5rem + 10 * (1ch + 0.14em))" });
-    act(() => {
-      vi.advanceTimersByTime(36 * 3);
-    });
-    expect(mark).toHaveTextContent("LEM_");
-
-    act(() => {
-      vi.advanceTimersByTime(36 * 7);
-    });
-    expect(mark).toHaveTextContent("LEMONCROW_");
-
-    act(() => {
-      vi.advanceTimersByTime(200);
-    });
-    expect(mark).toHaveTextContent("LEMONCROW");
-
+    expect(mark).toHaveTextContent(/^LEMONCROW$/);
     fireEvent.mouseLeave(brand);
-    expect(mark).toBeEmptyDOMElement();
-    expect(brand).toHaveStyle({ width: "1.5rem" });
+    expect(mark).toHaveTextContent(/^LEMONCROW$/);
+    fireEvent.blur(brand);
+    expect(mark).toHaveTextContent(/^LEMONCROW$/);
+    const phone = screen.getByRole("button", { name: "Open navigation" });
+    expect(within(phone).getByTestId("lemoncrow-brand-mark-mobile")).toHaveTextContent(/^LEMONCROW$/);
+    expect(within(phone).getByTestId("mobile-nav-menu-icon")).toBeInTheDocument();
+  });
 
-    vi.useRealTimers();
+  it("has no global time window in the top bar; Usage and Telemetry carry their own", async () => {
+    mockAllFetches();
+    renderAt("/usage");
+    const header = screen.getByRole("banner");
+    expect(within(header).queryByRole("combobox", { name: /time window/i })).toBeNull();
+    expect(within(header).queryByText("Window")).toBeNull();
+    expect(await screen.findByRole("combobox", { name: "Usage time window" })).toBeInTheDocument();
   });
 
   it("routes the LemonCrow brand back to Home", () => {
@@ -278,12 +319,22 @@ describe("App router smoke test", () => {
     expect(screen.getByRole("link", { name: /^home$/i })).toHaveAttribute("aria-current", "page");
   });
 
+  it("shows a not-found page for an unknown path instead of redirecting to Home", async () => {
+    mockAllFetches();
+    renderAt("/no-such-page");
+
+    expect(await screen.findByText("This page does not exist")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Home" })).toHaveAttribute("href", "/home");
+  });
+
   it("moves the primary destinations into the prompt menu on compact screens", async () => {
     mockAllFetches();
     renderAt("/usage");
 
     const trigger = screen.getByRole("button", { name: "Open navigation" });
     expect(trigger).toHaveClass("md:hidden");
+    // A menu glyph, not only the logo, says the mark opens a menu.
+    expect(within(trigger).getByTestId("mobile-nav-menu-icon")).toBeInTheDocument();
 
     const primary = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(primary).toHaveClass("hidden", "md:flex");
@@ -304,18 +355,20 @@ describe("App router smoke test", () => {
     mockAllFetches();
     renderAt("/home");
     const primary = screen.getByRole("navigation", { name: "Primary navigation" });
-    expect(primary.querySelectorAll("a")).toHaveLength(5);
+    expect(primary.querySelectorAll("a")).toHaveLength(6);
     expect(screen.getByRole("link", { name: /^home$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^code$/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^knowledge$/i })).toHaveAttribute("href", "/knowledge");
     expect(screen.getByRole("link", { name: /^activity$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^reviews$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^usage$/i })).toBeInTheDocument();
     expect(screen.getByText("beta")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("link", { name: /^integrations$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /^runs$/i })).not.toBeInTheDocument();
+    // The gear opens the first settings tab; there is no Products tab any more.
     expect(screen.getByRole("link", { name: /^settings$/i })).toHaveAttribute(
       "href",
-      "/settings/products"
+      "/settings/review"
     );
   });
 
@@ -337,7 +390,8 @@ describe("App router smoke test", () => {
     renderAt("/home", RUNTIME_ONLY_PRODUCT_CAPABILITIES);
 
     const primary = screen.getByRole("navigation", { name: "Primary navigation" });
-    expect(primary.querySelectorAll("a")).toHaveLength(4);
+    expect(primary.querySelectorAll("a")).toHaveLength(5);
+    expect(screen.getByRole("link", { name: /^knowledge$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^home$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^code$/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^activity$/i })).toBeInTheDocument();
@@ -362,7 +416,7 @@ describe("App router smoke test", () => {
     renderAt("/code", LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
 
     expect(await screen.findByRole("searchbox", { name: "Find code" }, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "This page is available on LemonCrow hosted" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This page is available on Workspaces Pro" })).not.toBeInTheDocument();
     // Project Knowledge is reached from Code, not from a new navigation item.
     fireEvent.click(screen.getByRole("button", { name: "Project Knowledge" }));
     expect(await screen.findByText("Nothing synced yet", undefined, { timeout: 5000 })).toBeInTheDocument();
@@ -378,27 +432,65 @@ describe("App router smoke test", () => {
 
   it("does not open hosted-only knowledge on a local Dashboard", async () => {
     mockAllFetches();
-    renderAt("/knowledge/memory", LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
+    // Checks (rubrics) need the full index; Agent Memory, Playbooks and Review rules do not.
+    renderAt("/knowledge/rubrics", LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
 
-    expect(await screen.findByRole("heading", { name: "This page is available on LemonCrow hosted" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "This page is available on Workspaces Pro" })).toBeInTheDocument();
+    // Not a dead end: a way back and a way to learn what Pro adds.
+    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/home");
+    expect(screen.getByRole("link", { name: /Learn about Workspaces Pro/ })).toHaveAttribute(
+      "href",
+      "https://docs.lemoncrow.com/setup/pro-hosted-runtime",
+    );
   });
 
-  it("opens only Project Knowledge under Knowledge on a local Dashboard", async () => {
+  it("opens Project Knowledge first on a local Dashboard, beside Agent Memory, Playbooks and Review rules", async () => {
     mockAllFetches();
     renderAt("/knowledge", LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
 
     expect(await screen.findByText("Nothing synced yet", undefined, { timeout: 5000 })).toBeInTheDocument();
-    const sections = screen.getByLabelText("Knowledge section");
-    expect(within(sections).getByText("Project")).toBeInTheDocument();
-    expect(within(sections).queryByText("Playbooks")).not.toBeInTheDocument();
-    expect(within(sections).queryByText("Agent Memory")).not.toBeInTheDocument();
+    // The four kinds the legend names are each a tab; Checks needs the full index.
+    const sections = screen.getByRole("radiogroup", { name: "Knowledge section" });
+    expect(within(sections).getAllByRole("radio").map((tab) => tab.textContent)).toEqual([
+      "Project Knowledge",
+      "Agent Memory",
+      "Playbooks",
+      "Review rules",
+    ]);
+    expect(within(sections).getByRole("radio", { name: "Project Knowledge" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("link", { name: /^knowledge$/i })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("answers Agent Memory and Playbooks on a local Dashboard from its own sessions", async () => {
+    const fetchSpy = mockAllFetches();
+    renderAt("/knowledge/memory", LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
+
+    expect(await screen.findByText("No lessons recorded yet", undefined, { timeout: 5000 })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "Playbooks" }));
+    expect(await screen.findByText("No playbooks proposed yet")).toBeInTheDocument();
+    // Read from the sessions, never from the memory or playbook stores a local Dashboard does not serve.
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+    expect(urls.some((url) => url.includes("/api/traces"))).toBe(true);
+    expect(urls.some((url) => /\/api\/(blocks|memory)/.test(url))).toBe(false);
+
+    // Review rules are the repository's review.yaml, as Review reads them.
+    await userEvent.click(screen.getByRole("radio", { name: "Review rules" }));
+    expect(await screen.findByRole("heading", { name: "Review policy" })).toBeInTheDocument();
+    expect(await screen.findByTestId("settings-policy-note")).toBeInTheDocument();
   });
 
   it("does not offer Project Knowledge where no server advertises it", async () => {
     mockAllFetches();
     renderAt("/knowledge/project");
 
-    expect(await screen.findByRole("heading", { name: "This page is available on LemonCrow hosted" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "This page is available on Workspaces Pro" })).toBeInTheDocument();
+  });
+
+  it("keeps one main landmark on /reviews when the Review product is unavailable (Home is not drawn)", async () => {
+    mockAllFetches();
+    renderAt("/reviews", createProductCapabilities({ review: false, runtime: true, mode: "local", runtimeCapabilities: LOCAL_DASHBOARD_RUNTIME_CAPABILITIES }));
+    await screen.findByTestId("app-body");
+    expect(await screen.findAllByRole("main")).toHaveLength(1);
   });
 
   it("does not open /code on a local Dashboard whose server serves no code map", async () => {
@@ -413,7 +505,7 @@ describe("App router smoke test", () => {
       }),
     );
 
-    expect(await screen.findByRole("heading", { name: "This page is available on LemonCrow hosted" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "This page is available on Workspaces Pro" })).toBeInTheDocument();
   });
 
   it("lists no code-map projection inspector on a local Dashboard", async () => {
@@ -440,14 +532,14 @@ describe("App router smoke test", () => {
     const primary = screen.getByRole("navigation", { name: "Primary navigation" });
     expect(primary.querySelectorAll("a")).toHaveLength(1);
     expect(screen.getByRole("link", { name: /^home$/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^settings$/i })).toHaveAttribute("href", "/settings/products");
+    expect(screen.getByRole("link", { name: /^settings$/i })).toHaveAttribute("href", "/settings/diagnostics");
   });
 
   it("explains an unavailable Runtime on direct deep links", () => {
     mockAllFetches();
     renderAt("/code", REVIEW_ONLY_PRODUCT_CAPABILITIES);
 
-    expect(screen.getByRole("heading", { name: "LemonCrow Runtime is not installed" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workspaces Lite is not installed" })).toBeInTheDocument();
     expect(screen.getByText(/Other installed LemonCrow products are unaffected/)).toBeInTheDocument();
   });
 
@@ -463,18 +555,37 @@ describe("App router smoke test", () => {
     mockAllFetches();
     renderAt("/settings/integrations", REVIEW_ONLY_PRODUCT_CAPABILITIES);
 
-    expect(await screen.findByRole("heading", { name: "LemonCrow Runtime is not installed" })).toBeInTheDocument();
-    const settingsNav = screen.getAllByRole("navigation").find((nav) => nav.textContent?.includes("Products"));
+    expect(await screen.findByRole("heading", { name: "Workspaces Lite is not installed" })).toBeInTheDocument();
+    const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
     expect(settingsNav).toBeTruthy();
+    expect(within(settingsNav).queryByText("Products")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Integrations" })).not.toBeInTheDocument();
+    // Tabs are grouped by product; a group with nothing installed is not drawn.
+    expect(within(settingsNav).getByRole("group", { name: "Review" })).toHaveTextContent("Review connections");
+    expect(within(settingsNav).queryByRole("group", { name: "Workspaces" })).not.toBeInTheDocument();
+    // Diagnostics (with the installed products) is offered whatever is installed; the Workspaces-only tabs are not.
+    expect(within(settingsNav).getByRole("group", { name: "System" })).toHaveTextContent(/^SystemDiagnostics$/);
   });
 
-  it("shows installed product state from the capability manifest", async () => {
+  it("shows installed product state on Diagnostics, and sends the old Products tab there", async () => {
     mockAllFetches();
     renderAt("/settings/products", REVIEW_ONLY_PRODUCT_CAPABILITIES);
 
     expect(await screen.findByTestId("product-state-review")).toHaveTextContent("Available");
     expect(screen.getByTestId("product-state-runtime")).toHaveTextContent("Not installed");
+    expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Diagnostics" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("folds the installed products into Diagnostics beside the server health", async () => {
+    mockAllFetches();
+    renderAt("/settings/diagnostics");
+
+    expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Installed products" })).toBeInTheDocument();
+    expect(screen.getByTestId("product-state-runtime")).toHaveTextContent("Available");
+    const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(settingsNav).queryByRole("link", { name: "Products" })).not.toBeInTheDocument();
   });
 
   it("shows canonical savings prominently on Home", async () => {
@@ -484,9 +595,10 @@ describe("App router smoke test", () => {
     const summary = await screen.findByLabelText("Savings summary");
     // Pages are lazy route chunks: the region can mount before its data lands.
     await waitFor(() => expect(summary).toHaveTextContent("12 sessions"));
-    expect(summary).toHaveTextContent("$42.180");
-    expect(summary).toHaveTextContent("37.5%");
-    expect(summary).toHaveTextContent("$93.000 / $135.18 baseline");
+    expect(summary).toHaveTextContent("$42.18");
+    // Cost reduction = saved / (cost + saved) = 42.18 / 135.18, the same figure Usage shows.
+    expect(summary).toHaveTextContent("31.2%");
+    expect(summary).toHaveTextContent("$93.00 / $135.18 baseline");
     expect(summary).toHaveTextContent("75.0k");
     expect(screen.getByRole("link", { name: /details/i })).toHaveAttribute(
       "href",
@@ -500,7 +612,7 @@ describe("App router smoke test", () => {
     renderAt("/home");
 
     expect(
-      await screen.findByText("Savings data is unavailable. Usage details may still be available.")
+      await screen.findByText("Savings couldn't be loaded.")
     ).toBeInTheDocument();
     expect(screen.queryByText("Home data is unavailable.")).not.toBeInTheDocument();
   });
@@ -508,12 +620,33 @@ describe("App router smoke test", () => {
   it("folds swarm execution into Activity as an activity-type view", async () => {
     mockAllFetches();
     renderAt("/activity");
-    const activityView = await screen.findByLabelText("Activity view");
+    const activityView = await screen.findByRole("radiogroup", { name: "Activity view" });
     expect(activityView.closest("header")).toBeInTheDocument();
-    expect(activityView).toHaveAttribute("data-value", "sessions");
-    await userEvent.click(activityView);
-    expect(screen.getByRole("option", { name: "Swarms" })).toBeInTheDocument();
+    // Every view is a visible segment, not an option behind a select.
+    expect(within(activityView).getByRole("radio", { name: "Sessions" })).toHaveAttribute("aria-checked", "true");
+    expect(within(activityView).getByRole("radio", { name: "Plans" })).toBeInTheDocument();
+    await userEvent.click(within(activityView).getByRole("radio", { name: "Swarms" }));
+    await waitFor(() => expect(within(activityView).getByRole("radio", { name: "Swarms" })).toHaveAttribute("aria-checked", "true"));
     expect(screen.queryByRole("link", { name: /^swarms$/i })).not.toBeInTheDocument();
+  });
+
+  it("sends the old Knowledge Plans link to Activity", async () => {
+    mockAllFetches();
+    renderAt("/knowledge/plans");
+    const activityView = await screen.findByRole("radiogroup", { name: "Activity view" }, { timeout: 5000 });
+    expect(within(activityView).getByRole("radio", { name: "Plans" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("gives the full Knowledge one tab per kind, with Checks beside them", async () => {
+    mockAllFetches();
+    renderAt("/knowledge/memory");
+    const sections = await screen.findByLabelText("Knowledge section", undefined, { timeout: 5000 });
+    expect(within(sections).getByRole("radio", { name: "Agent Memory" })).toHaveAttribute("aria-checked", "true");
+    for (const label of ["Agent Memory", "Playbooks", "Review rules", "Checks"]) {
+      expect(within(sections).getByText(label)).toBeInTheDocument();
+    }
+    expect(within(sections).queryByText("Failures")).not.toBeInTheDocument();
+    expect(within(sections).queryByText("Plans")).not.toBeInTheDocument();
   });
 
   it("redirects legacy Runs URLs to Activity", async () => {
@@ -522,15 +655,12 @@ describe("App router smoke test", () => {
     expect(await screen.findByRole("link", { name: /^activity$/i })).toHaveAttribute("aria-current", "page");
   });
 
-  it("does not expose internal Knowledge as Code navigation", async () => {
+  it("marks Knowledge, not Code, as the current page under /knowledge", async () => {
     mockAllFetches();
     renderAt("/knowledge/memory");
     expect(screen.queryByRole("link", { name: /index & map/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^knowledge$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^code$/i })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    expect(screen.getByRole("link", { name: /^knowledge$/i })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: /^code$/i })).not.toHaveAttribute("aria-current");
   });
 
   it("keeps Usage as one dashboard without secondary product tabs", async () => {
@@ -571,7 +701,7 @@ describe("App router smoke test", () => {
 
     expect(screen.getByRole("link", { name: /^advanced$/i })).toHaveAttribute("aria-current", "page");
     await userEvent.click(screen.getByRole("link", { name: /back to advanced/i }));
-    expect(screen.getByRole("link", { name: /^agents internal agent definitions\./i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^agents specialist agents lemoncrow adds to claude code/i })).toBeInTheDocument();
   });
 
   it("uses Settings secondary navigation for setup and diagnostics", async () => {
@@ -697,7 +827,7 @@ describe("App shell failure and availability handling", () => {
 
     expect(
       await screen.findByText(
-        "Your organization doesn't have LemonCrow Runtime. Ask your LemonCrow workspace administrator for access.",
+        "Your organization doesn't have Workspaces Pro. Ask your LemonCrow workspace administrator for access.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view your products/i })).toHaveAttribute("href", "/account");
@@ -709,10 +839,10 @@ describe("App shell failure and availability handling", () => {
     mockAllFetches();
     renderAt("/code", REVIEW_ONLY_PRODUCT_CAPABILITIES);
 
-    expect(await screen.findByRole("heading", { name: "LemonCrow Runtime is not installed" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Workspaces Lite is not installed" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View installed products" })).toHaveAttribute(
       "href",
-      "/settings/products",
+      "/settings/diagnostics",
     );
   });
 

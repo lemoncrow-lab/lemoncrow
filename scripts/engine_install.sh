@@ -362,7 +362,7 @@ fi
 # controller's auto-update all clean and repopulate that tree. Whichever starts
 # second overwrites the first one's tree *while it is running*, so the first
 # installs the other's wheel and delegates to the other's host scripts (the
-# "Unknown option: --lemoncode" failure). Serialize instead: later installers
+# "Unknown option:" failure). Serialize instead: later installers
 # wait rather than clobber. Held for this whole script, bundle.sh included.
 _acquire_install_lock() {
     [[ "${LEMONCROW_INSTALL_LOCK_HELD:-0}" == "1" ]] && return 0
@@ -385,7 +385,7 @@ _acquire_install_lock
 # Record who wrote this tree. bundle.sh re-checks it before installing the wheel
 # and before installing hosts, so a tree swapped out mid-run names the process
 # that did it instead of surfacing as a confusing error from an older script
-# ("Unknown option: --lemoncode").
+# ("Unknown option:").
 _write_install_stamp() {
     # Exported so bundle.sh/lib/common.sh can restore this tree if another
     # installer overwrites it mid-run — the on-disk stamp is what gets clobbered.

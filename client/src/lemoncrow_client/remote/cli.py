@@ -120,8 +120,8 @@ USAGE: Final[str] = """usage:
   lc runtime mcp service restart|code|remove [HOST]
 
 Publishes this workspace as a remote MCP server over OAuth 2.1 (pairing code).
-The gateway runs inside this client: Runtime Lite by default, or the hosted
-thin client when Runtime is installed in hosted mode. No LemonCrow server.
+The gateway runs inside this client: Workspaces Lite by default, or the hosted
+thin client when Workspaces is installed in hosted mode. No LemonCrow server.
 A public URL needs cloudflared on PATH; --no-tunnel serves loopback only.
 --persistent keeps a stable https://HOST/mcp through a Cloudflare named tunnel
 and installs two user services (systemd or launchd).
@@ -294,7 +294,7 @@ def _quick_banner(
         else:
             sink.write("                   single use for this server process\n")
     sink.write(f"  Local server:    {server.url}/mcp\n")
-    sink.write(f"  Runtime:         {'hosted thin client' if mode == 'hosted' else 'Runtime Lite'}\n")
+    sink.write(f"  Workspaces:      {'hosted thin client' if mode == 'hosted' else 'Workspaces Lite'}\n")
     sink.write(f"  Workspace:       {workspace}\n\n")
     if url is not None:
         sink.write(f"  MCP server URL:  {url}/mcp\n  Authentication:  {auth}\n\n")

@@ -224,11 +224,6 @@ def test_host_installer_selection_contract() -> None:
 
 def test_installer_environment_contract() -> None:
     """case: test_model_gateway_installers_do_not_reuse_service_url"""
-    lemoncode = (SCRIPTS / "install_lemoncode.sh").read_text()
-    assert "LEMONCROW_GATEWAY_URL" in lemoncode
-    assert "LEMONCROW_GATEWAY_BASE" in lemoncode
-    assert "LEMONCROW_SERVICE_URL" not in lemoncode
-    assert "LEMONCROW_SERVICE_BASE" not in lemoncode
     opencode = (SCRIPTS / "install_opencode.sh").read_text()
     assert "LEMONCROW_GATEWAY_URL" not in opencode
     assert "LEMONCROW_GATEWAY_BASE" not in opencode
@@ -415,7 +410,6 @@ def test_distribution_install_failure_contract() -> None:
     for host, cli in [
         ("codex", "codex"),
         ("opencode", "opencode"),
-        ("lemoncode", "lemoncode"),
         ("copilot", "code"),
         ("antigravity", "antigravity"),
     ]:

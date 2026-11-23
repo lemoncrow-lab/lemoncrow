@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall_runtime.sh — Remove LemonCrow Runtime without touching Review or shared account state.
+# uninstall_runtime.sh — Remove LemonCrow Workspaces without touching Review or shared account state.
 set -euo pipefail
 
 STATE_DIR="${LEMONCROW_HOME:-${HOME}/.lemoncrow}"
@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
 usage: uninstall_runtime.sh [--dry-run] [--keep-hosts]
 
 By default LemonCrow removes host MCP entries and its Pi host and extension
-before removing Runtime. --keep-hosts skips that step.
+before removing Workspaces. --keep-hosts skips that step.
 USAGE
             exit 0 ;;
         *) echo "uninstall_runtime.sh: unknown option: $1" >&2; exit 2 ;;
@@ -114,7 +114,7 @@ adjust_local_server_owner
 run rm -rf "$STATE_DIR/runtime"
 if [[ "$RUNTIME_LOCAL" == "1" && -d "$RUNTIME_ENGINE_ROOT" ]]; then
     if [[ "$DRY_RUN" == "1" ]]; then
-        printf '[dry-run] remove local Runtime engine %q\n' "$RUNTIME_ENGINE_ROOT"
+        printf '[dry-run] remove local Workspaces engine %q\n' "$RUNTIME_ENGINE_ROOT"
     elif command -v uv >/dev/null 2>&1; then
         UV_TOOL_BIN_DIR="$BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" uv tool uninstall lemoncrow >/dev/null 2>&1 || rm -rf "$RUNTIME_ENGINE_ROOT"
     else
@@ -122,7 +122,7 @@ if [[ "$RUNTIME_LOCAL" == "1" && -d "$RUNTIME_ENGINE_ROOT" ]]; then
     fi
     # uv may remove legacy root launchers. Product clients restore lc below; no
     # full-engine command should survive Runtime uninstall.
-    rm -f "$BIN_DIR/lemoncrow" "$BIN_DIR/lemoncode" "$BIN_DIR/lemoncrow-mcp"
+    rm -f "$BIN_DIR/lemoncrow" "$BIN_DIR/lemoncrow-mcp"
 fi
 
 if [[ "$lc_owned" == "1" ]]; then
@@ -134,6 +134,6 @@ if [[ "$lc_owned" == "1" ]]; then
     fi
 fi
 
-printf '✓ LemonCrow Runtime uninstalled\n'
+printf '✓ LemonCrow Workspaces uninstalled\n'
 printf '  Review:  %s\n' "$([[ -x "$REVIEW_CLIENT" ]] && echo preserved || echo not installed)"
 printf '  Account: preserved under %s/account\n' "$STATE_DIR"

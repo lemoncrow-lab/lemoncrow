@@ -118,8 +118,8 @@ def check(command: str, helps: dict[str, str]) -> list[str]:
     elif verb in {"status", "update"}:
         corpus = helps[verb]
     elif verb == "uninstall":
-        if sub not in {"review", "runtime", "all"}:
-            problems.append(f"`lc uninstall {sub}`: the product must be review, runtime or all")
+        if sub not in {"review", "workspaces", "runtime", "all"}:
+            problems.append(f"`lc uninstall {sub}`: the product must be review, workspaces (old name runtime) or all")
         corpus = helps["uninstall"]
     for flag in flags:
         if not corpus or not has_flag(corpus, flag):

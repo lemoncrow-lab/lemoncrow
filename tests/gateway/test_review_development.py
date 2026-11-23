@@ -722,8 +722,8 @@ def test_narrative_is_a_deterministic_account_of_the_projection(change: Change) 
 
     narrative = change.view(first)["snapshot"]["narrative"]
     assert narrative == [
-        "Claude and Codex changed 2 files — Claude: auth.py; Codex: cache.py.",
-        "1 of 2 checks failed (run by Claude and Codex).",
+        "Claude Code and Codex changed 2 files — Claude Code: auth.py; Codex: cache.py.",
+        "1 of 2 checks failed (run by Claude Code and Codex).",
         "1 changed file has no recorded author: session.py.",
     ]
     assert change.view(first)["snapshot"]["narrative"] == narrative
@@ -758,11 +758,11 @@ def test_agent_lifecycle_reaches_review_activity_once_per_transition(change: Cha
         ("development.session_ended", "claude:author"),
     ]
     by_kind = {item.kind: item for item in activity}
-    assert by_kind["development.contributor"].summary == "Claude started authoring this Change"
+    assert by_kind["development.contributor"].summary == "Claude Code started authoring this Change"
     assert by_kind["development.contributor"].actor_type == "agent"
-    assert by_kind["development.handoff"].summary == "Review feedback sent to Claude (2 comments)"
+    assert by_kind["development.handoff"].summary == "Review feedback sent to Claude Code (2 comments)"
     assert json.loads(by_kind["development.handoff"].detail_json)["annotation_ids"] == ["ann-1", "ann-2"]
-    assert by_kind["development.session_ended"].summary == "Claude finished (completed)"
+    assert by_kind["development.session_ended"].summary == "Claude Code finished (completed)"
 
 
 # --------------------------------------------------------------------------- #

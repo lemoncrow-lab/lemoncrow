@@ -167,7 +167,7 @@ describe("reviewSurfaceModel", () => {
     expect(persistentReviewViews(plan, targets, true)).toEqual(["brief", "implementation", "map"]);
   });
 
-  it("indexes Brief and Guided Review concepts back onto exact Snapshot targets", () => {
+  it("indexes Brief and Guided Review concepts back onto exact revision parts", () => {
     const plan = projection([
       { id: "i-auth", key: "cohort:auth", kind: "behavior", title: "Session rotation", targets: ["t-auth"] },
     ], 1);

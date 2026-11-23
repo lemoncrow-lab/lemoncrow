@@ -87,7 +87,10 @@ function HomepageHeader() {
           <Link
             className="button button--outline button--lg"
             href="https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md"
-            style={{ borderColor: "#9B75D9", color: "#9B75D9" }}
+            style={{
+              borderColor: "rgb(var(--foreground))",
+              color: "rgb(var(--foreground))",
+            }}
           >
             Matched benchmarks
           </Link>

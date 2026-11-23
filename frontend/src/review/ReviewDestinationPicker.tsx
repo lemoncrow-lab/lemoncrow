@@ -12,13 +12,14 @@ import { Check, ChevronDown, Send } from "lucide-react";
 import { useState, type ReactNode, type Ref } from "react";
 
 import { fetchReviewDestinationOptions, putReviewDestination } from "./reviewApi";
+import { sendCommentsLabel } from "./reviewPrimaryAction";
 import type {
   FeedbackDeliveryCapability,
-  FeedbackDelivery,
   ReviewDestinationKind,
   ReviewDestinationOption,
   ReviewDestinationState,
 } from "./types";
+import { fmtWhen } from "../lib/format";
 
 function message(reason: unknown): string {
   return String(reason instanceof Error ? reason.message : reason);
@@ -37,18 +38,9 @@ function sessionTimestamp(value: string | undefined): { date: Date; label: strin
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const day = date.toDateString() === now.toDateString()
-    ? "Today"
-    : date.toDateString() === yesterday.toDateString()
-      ? "Yesterday"
-      : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   return {
     date,
-    label: `${day} · ${time}`,
+    label: fmtWhen(date),
   };
 }
 /**
@@ -176,33 +168,22 @@ export function destinationChipLabel(delivery: FeedbackDeliveryCapability | null
   return delivery.label || delivery.host || "coding agent";
 }
 
-/** Stable entry into the feedback panel, regardless of its destination. */
-export function sendActionLabel(unsent: number): string {
-  return unsent > 0 ? `Send feedback · ${unsent}` : "Send feedback";
-}
-
-/** One feedback action with a separate destination dropdown. */
+/** The Send action with a separate destination dropdown; the header shows it only while comments are unsent. */
 export function ReviewHandoffControls({
   reviewId,
   delivery,
-  lastDelivery,
   unsent,
-  waiting,
   busy,
   onSendNow,
-  onShowHandoff,
   onDestinationChanged,
   buttonRef,
   busyLabel,
 }: {
   reviewId: string;
   delivery: FeedbackDeliveryCapability | null;
-  lastDelivery: FeedbackDelivery | null;
   unsent: number;
-  waiting: boolean;
   busy: boolean;
   onSendNow(): void;
-  onShowHandoff(): void;
   onDestinationChanged(state: ReviewDestinationState): void;
   buttonRef?: Ref<HTMLButtonElement>;
   busyLabel?: string;
@@ -214,10 +195,7 @@ export function ReviewHandoffControls({
     : delivery?.fallback
       ? delivery.reason || "No exact author session"
       : undefined;
-  const state = lastDelivery && ["queued", "working", "consumed", "sent"].includes(lastDelivery.state)
-    ? ` · ${lastDelivery.state}`
-    : "";
-  const action = busyLabel ?? sendActionLabel(unsent);
+  const action = busyLabel ?? sendCommentsLabel(unsent);
   return (
     <div className="flex shrink-0 items-center">
       <UiButton
@@ -225,11 +203,9 @@ export function ReviewHandoffControls({
         variant="brand"
         type="button"
         disabled={busy}
-        onClick={waiting && unsent === 0 ? onShowHandoff : onSendNow}
+        onClick={onSendNow}
         aria-label={action}
-        tooltip={reason ?? (waiting && unsent === 0
-          ? `Feedback is with ${label}${state}. Open feedback to inspect delivery or record a review outcome.`
-          : `Preview feedback for ${label} and choose a review outcome. Nothing is sent until you confirm.`)}
+        tooltip={reason ?? `Preview feedback for ${label} and choose a review outcome. Nothing is sent until you confirm.`}
         className="rounded-r-none px-3 review-reader-primary"
       >
         <Send size={14} aria-hidden="true" />

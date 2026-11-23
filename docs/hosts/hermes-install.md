@@ -15,7 +15,7 @@ The installer updates `$HERMES_HOME/config.yaml` (or `~/.hermes/config.yaml`) wi
 ## Verify
 
 ```bash
-make verify
+make verify-full
 lc rt status
 ```
 
@@ -28,7 +28,7 @@ cat ~/.hermes/config.yaml
 ## Expected behavior
 
 - LemonCrow tools appear in Hermes' external toolset.
-- Hermes can use LemonCrow repository/context tools according to the capabilities exposed by the installed Runtime.
+- Hermes can use LemonCrow repository/context tools according to the capabilities exposed by the installed Workspaces client.
 - Evidence depth is lower than hosts with richer native lifecycle hooks.
 
 ## Implementation/debug details

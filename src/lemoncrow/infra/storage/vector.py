@@ -65,6 +65,41 @@ def _vector_cache_path(root: str | Path) -> Path:
     return Path(root) / "vector_cache.sqlite"
 
 
+# The sidecar cache holds one JSON vector per distinct rendered block (about 30 KB at the default 1536
+# dimensions) and nothing else ever removed one: it reached 32 GB. Past the cap, the oldest-inserted rows go.
+# lc-debt: FIFO by rowid (an upsert keeps its rowid, a read is not recorded); upgrade path is a last_used column
+# touched on read, once a read-heavy caller needs hot rows to outlive cold ones.
+_DEFAULT_CACHE_MAX_ROWS = 50_000
+_CACHE_EVICT_TO_FRACTION = 0.9
+
+
+def _cache_max_rows() -> int:
+    """``LEMONCROW_VECTOR_CACHE_MAX_ROWS``; ``0`` (or less) keeps every row."""
+    raw = os.environ.get("LEMONCROW_VECTOR_CACHE_MAX_ROWS")
+    if raw is None:
+        return _DEFAULT_CACHE_MAX_ROWS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_CACHE_MAX_ROWS
+
+
+def _evict_over_cap(conn: sqlite3.Connection) -> None:
+    """Drop the oldest rows once the cache passes its cap, down to 90% of it so the next put does not evict again."""
+    cap = _cache_max_rows()
+    if cap <= 0:
+        return
+    count = int(conn.execute("SELECT COUNT(*) FROM playbook_embedding_cache").fetchone()[0])
+    if count <= cap:
+        return
+    excess = count - max(1, int(cap * _CACHE_EVICT_TO_FRACTION))
+    conn.execute(
+        "DELETE FROM playbook_embedding_cache WHERE rowid IN "
+        "(SELECT rowid FROM playbook_embedding_cache ORDER BY rowid LIMIT ?)",
+        (excess,),
+    )
+
+
 def _ensure_vector_cache(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS playbook_embedding_cache (
@@ -113,6 +148,7 @@ def put_cached_embedding(root: str | Path, *, cache_key: str, embedder_name: str
             """,
             (cache_key, embedder_name, json.dumps(vector, ensure_ascii=False)),
         )
+        _evict_over_cap(conn)
         conn.commit()
 
 
@@ -173,6 +209,7 @@ def put_cached_embeddings_batch(
             """,
             [(cache_key, embedder_name, json.dumps(vector, ensure_ascii=False)) for cache_key, vector in entries],
         )
+        _evict_over_cap(conn)
         conn.commit()
 
 

@@ -197,3 +197,18 @@ def test_local_flow_agent_requests_human_decides_agent_claims(tmp_path: Path, mo
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "lemoncrow-root"))
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
     asyncio.run(_exercise_local_flow(tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "judgment"),
+    [
+        ("PATCH", "/api/review-settings", True),
+        ("DELETE", "/api/review-settings", True),
+        ("GET", "/api/review-settings", False),
+        ("PUT", "/api/review-intelligence/settings", True),
+        ("GET", "/api/review-intelligence/settings", False),
+        ("PATCH", "/api/review-settings/other", False),
+    ],
+)
+def test_an_agent_cannot_change_the_reviewers_settings(method: str, path: str, judgment: bool) -> None:
+    assert is_judgment_request(method, path) is judgment

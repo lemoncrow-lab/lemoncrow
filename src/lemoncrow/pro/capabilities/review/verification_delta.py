@@ -30,6 +30,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -634,12 +635,33 @@ def _snapshot_entries(path: str, text: str) -> dict[str, str]:
     return out
 
 
+# A vanished test whose lines mostly survive under a new name in the same file is that test, renamed.
+_RENAMED_CASE_RATIO = 0.6
+# lc-debt: pairs vanished and new tests only up to this many comparisons; past it each vanished test counts as lost (the loud side); index bodies by line to go further.
+_MAX_RENAME_COMPARISONS = 2_500
+
+
+def _renamed_to(case: TestCase, candidates: Mapping[str, TestCase]) -> str | None:
+    """The key of the new test *case* most resembles, when it resembles one enough."""
+
+    lines = case.body.splitlines()
+    matcher = SequenceMatcher(None, autojunk=False)
+    matcher.set_seq2(lines)
+    best, best_ratio = None, _RENAMED_CASE_RATIO
+    for key, other in candidates.items():
+        matcher.set_seq1(other.body.splitlines())
+        if matcher.quick_ratio() >= best_ratio and (ratio := matcher.ratio()) >= best_ratio:
+            best, best_ratio = key, ratio
+    return best
+
+
 def _lost_assertions(item: ChangedText, moved_bodies: frozenset[str]) -> tuple[int, list[str]]:
     """Assertions the change takes away, per test case: ``(count, test names)``.
 
     A case that disappears with its body reappearing anywhere in the Snapshot
-    was renamed or moved, not deleted. Without recognizable cases the file's
-    assertion count is compared instead.
+    was renamed or moved, not deleted; one whose body mostly reappears under a
+    new name in the same file is compared with that test. Without recognizable
+    cases the file's assertion count is compared instead.
     """
 
     before = test_cases(item.old_path or item.path, item.base)
@@ -647,6 +669,9 @@ def _lost_assertions(item: ChangedText, moved_bodies: frozenset[str]) -> tuple[i
         old, new = _assertion_counts(item.base)[0], _assertion_counts(item.head)[0]
         return max(0, old - new), []
     after = test_cases(item.path, item.head)
+    unpaired = {key: case for key, case in after.items() if key not in before}
+    if sum(key not in after for key in before) * len(unpaired) > _MAX_RENAME_COMPARISONS:
+        unpaired = {}
     lost = 0
     names: list[str] = []
     for key, case in before.items():
@@ -656,7 +681,8 @@ def _lost_assertions(item: ChangedText, moved_bodies: frozenset[str]) -> tuple[i
         elif case.body and case.body in moved_bodies:
             gone = 0
         else:
-            gone = old
+            twin = _renamed_to(case, unpaired)
+            gone = old if twin is None else max(0, old - _assertion_counts(unpaired.pop(twin).body)[0])
         if gone:
             lost += gone
             names.append(case.prose)
@@ -710,6 +736,8 @@ def weakening_deltas(producer: str, files: Sequence[ChangedText]) -> list[Behavi
                 before_names, after_names = base_markers[kind], head_markers[kind]
                 if len(after_names) <= len(before_names):
                     continue
+                if kind != "focused" and not item.base:
+                    continue  # a new file disabled nothing; a focus marker there still hides the other tests
                 added = list((Counter(after_names) - Counter(before_names)).elements()) or after_names
                 out.append(
                     _weakening(

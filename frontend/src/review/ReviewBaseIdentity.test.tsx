@@ -12,27 +12,34 @@ function overview(rangeMode: string, recordedBase?: string, effectiveBase = "fee
 }
 
 describe("Review base identity", () => {
-  it("shows the recorded Review base and effective Snapshot base when frozen", () => {
+  it("shows one base once when the recorded and compared bases are the same", () => {
+    render(<ReviewBaseIdentity overview={overview("working_tree", "fe804a9221ab0000", "fe804a9221ab0000")} />);
+    const detail = screen.getByTestId("review-base-identity");
+    expect(detail.textContent).toBe("Basefe804a9");
+    expect(detail.getAttribute("title")).toBe("Changes are compared against fe804a9221ab0000.");
+    expect(detail.textContent).not.toContain("Snapshot");
+  });
+
+  it("says plainly what each base is when the compared base moved past the recorded one", () => {
     render(<ReviewBaseIdentity overview={overview("working_tree", "1234567890abcdef", "fedcba9876543210")} />);
     const detail = screen.getByTestId("review-base-identity");
-    expect(detail.textContent).toContain("Review base1234567890ab");
-    expect(detail.textContent).toContain("Snapshot basefedcba987654");
-    expect(detail.getAttribute("title")).toContain("Recorded Review base 1234567890abcdef");
-    expect(detail.getAttribute("title")).toContain("Effective Snapshot base fedcba9876543210");
-    expect(detail.textContent).not.toContain("Base not frozen");
+    expect(detail.textContent).toBe("Started from1234567·now compared tofedcba9");
+    expect(detail.getAttribute("title")).toContain("The review started from 1234567890abcdef");
+    expect(detail.getAttribute("title")).toContain("compared against fedcba9876543210");
+    expect(detail.textContent).not.toContain("Review base");
   });
 
-  it.each(["working_tree", "staged"])("names unfrozen %s Reviews, including old clients, detached and unbound fallback", (mode) => {
+  it.each(["working_tree", "staged"])("names an unfixed base on %s Reviews", (mode) => {
     render(<ReviewBaseIdentity overview={overview(mode, "")} />);
     const detail = screen.getByTestId("review-base-identity");
-    expect(detail.textContent).toContain("Base not frozen");
-    expect(detail.textContent).toContain("Snapshot basefeedabcd1234");
-    expect(detail.getAttribute("title")).toContain("older client or detached checkout");
+    expect(detail.textContent).toBe("Basefeedabc· not fixed");
+    expect(detail.getAttribute("title")).toContain("no fixed base");
+    expect(detail.getAttribute("title")).toContain("feedabcd1234567890");
   });
 
-  it("treats an omitted recorded base (legacy server) as unfrozen", () => {
+  it("treats an omitted recorded base as not fixed", () => {
     render(<ReviewBaseIdentity overview={overview("working_tree")} />);
-    expect(screen.getByText("Base not frozen")).toBeTruthy();
+    expect(screen.getByText("· not fixed")).toBeTruthy();
   });
 
   it("does not apply mutable base semantics to commit-range Reviews", () => {

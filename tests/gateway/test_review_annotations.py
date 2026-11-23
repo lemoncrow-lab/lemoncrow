@@ -14,6 +14,7 @@ reviewed?" has no answer (spec SS5.4).
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -288,7 +289,7 @@ def test_a_line_past_the_end_of_the_file_is_refused(review: Review) -> None:
 
 
 def test_a_path_outside_the_review_is_refused(review: Review) -> None:
-    with pytest.raises(ValueError, match="not a file in Revision 0"):
+    with pytest.raises(ValueError, match="not a file in Revision 1"):
         annotate(
             review.store,
             review.session,
@@ -629,7 +630,7 @@ def test_the_export_reads_like_the_plan_and_names_its_orphans(review: Review) ->
     text = render_markdown(bundle)
 
     assert text.startswith("## Review feedback")
-    assert "Snapshot 0 · working_tree" in text
+    assert "Revision 1 · working tree" in text
     assert "### src/session.py:L10 — request change" in text
     assert "this hides an invalid session" in text
     assert "### Comments that lost their anchor" in text
@@ -706,6 +707,73 @@ def test_the_api_builds_the_anchor_from_a_selected_line_range(review: Review, cl
     assert stored.anchor.blob_sha != ""
 
 
+def test_structure_reconsideration_is_a_durable_server_validated_human_note(review: Review, client: TestClient) -> None:
+    """The renderer cannot manufacture an attested after-structure claim by changing comment text."""
+    unit = next(
+        u
+        for u in review.store.list_units(review.revision.id)
+        if u.kind == "symbol" and u.path == "src/session.py" and "refresh" in u.symbol
+    )
+    url = f"/api/reviews/{review.session.id}"
+    note = {
+        "path": "src/session.py",
+        "start_line": _COMMENT_LINE,
+        "end_line": _COMMENT_LINE,
+        "side": "additions",
+        "body": "Restore the guard",
+        "kind": "request_change",
+        "target_unit_key": unit.unit_key,
+        "mark_target": True,
+        "reconsidered_after_structure": True,
+        "expected_revision_id": review.revision.id,
+    }
+    # A forged flag with no recorded answer-and-clear sequence is rejected without creating a note.
+    refused = _post(client, url + "/annotations", note)
+    assert refused.status_code == 422, refused.text
+    assert not review.store.list_annotations(review.session.id)
+    for state in ("reviewed", "unreviewed"):
+        result = _post(
+            client,
+            url + "/marks",
+            {
+                "unit_key": unit.unit_key,
+                "state": state,
+                "expected_revision_id": review.revision.id,
+            },
+        )
+        assert result.status_code == 200, result.text
+    created = _post(client, url + "/annotations", note)
+    assert created.status_code == 201, created.text
+    payload = created.json()["annotation"]
+    assert payload["reconsidered_after_structure"] is True
+    assert payload["structure_revision_id"] == review.revision.id
+    assert payload["body"] == "Restore the guard"
+    listed = _get(client, url + "/annotations")
+    assert listed.status_code == 200
+    assert any(
+        row["id"] == payload["id"] and row["reconsidered_after_structure"] for row in listed.json()["annotations"]
+    )
+    reopened = ReviewStore(review.store_root)
+    reopened.init()
+    stored = reopened.get_annotation(payload["id"])
+    assert stored is not None and stored.reconsidered_after_structure is True
+    assert stored.structure_revision_id == review.revision.id
+    assert stored.body == "Restore the guard"
+    history = reopened.list_annotations_at_revision(review.session.id, review.revision.id)
+    assert any(item.id == payload["id"] and item.reconsidered_after_structure for item in history)
+    activity = [
+        event
+        for event in reopened.list_activity_events(review.session.id, kinds=("annotation.created",))
+        if event.subject_id == payload["id"]
+    ]
+    assert len(activity) == 1
+    assert json.loads(activity[0].detail_json)["reviewer_reported_reconsideration"] is True
+    assert json.loads(activity[0].detail_json)["structure_revision_id"] == review.revision.id
+    # No request can invent a different revision or attach the flag to an ordinary note.
+    assert _post(client, url + "/annotations", {**note, "kind": "comment"}).status_code == 422
+    assert _post(client, url + "/annotations", {**note, "reconsidered_after_structure": "true"}).status_code == 422
+
+
 def test_the_api_refuses_an_empty_body_and_a_missing_path(review: Review, client: TestClient) -> None:
     url = f"/api/reviews/{review.session.id}/annotations"
     assert _post(client, url, {"path": "src/session.py", "start_line": 1, "body": "   "}).status_code == 400
@@ -725,7 +793,7 @@ def test_the_api_refuses_a_path_that_is_not_in_the_review(review: Review, client
         },
     )
     assert response.status_code == 422
-    assert "not a file in Revision 0" in response.json()["detail"]
+    assert "not a file in Revision 1" in response.json()["detail"]
 
 
 def test_the_listing_carries_the_reason_each_anchor_is_where_it_is(review: Review, client: TestClient) -> None:

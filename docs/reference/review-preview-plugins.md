@@ -11,7 +11,7 @@ Review surfaces use four independent extension points:
 | --- | --- | --- |
 | Surface provider | *What* can be reviewed for this change | `lemoncrow.review_surface_providers` |
 | Runner | *How* a revision executes (Docker, command, HTTP service) | `lemoncrow.review_runners` |
-| Preview renderer | *How* old/new Snapshot artifacts are produced | `lemoncrow.review_preview_renderers` |
+| Preview renderer | *How* old/new revision artifacts are produced | `lemoncrow.review_preview_renderers` |
 | Surface comparator | *How different* old/new artifacts or safe run results are | `lemoncrow.review_surface_comparators` |
 
 A provider attaches a versioned **preview descriptor** to a surface. The Reader
@@ -39,7 +39,7 @@ PreviewDescriptor(
     display="html",            # image | html | text | json | download
     media_type="text/html",    # expected artifact type
     label="CSV table",         # shown in the Reader
-    sides=("old", "new"),      # which Snapshot sides exist for this preview
+    sides=("old", "new"),      # which revision sides exist for this preview
     scope="data",              # repository subtree the host materializes
     options={"path": "data/prices.csv"},  # opaque, renderer-owned JSON
     version=1,
@@ -202,12 +202,12 @@ Set both in the environment of the LemonCrow server, or persist them with
 
 ### What the host guarantees
 
-- **Revision pinning.** The Reader requests a preview for one explicit Snapshot
+- **Revision pinning.** The Reader requests a preview for one explicit revision
   (`revision_id`) and side. The host resolves the surface from that revision and
   materializes that side from the immutable revision — never from the live
   checkout. Workspaces and artifacts are keyed by that side's content identity
   (plus renderer, config and the checkout's dependency state), so an old side
-  can never be served for a new side or for different content — and Snapshots
+  can never be served for a new side or for different content — and revisions
   of a Review that share a side (usually the unchanged old side) render it once.
 - **Path confinement.** `scope`, `request.path()`, sandbox `cwd` and artifact
   paths must stay inside the workspace or `output_dir`; symlinks are resolved
@@ -234,7 +234,7 @@ Set both in the environment of the LemonCrow server, or persist them with
   preview builds are shared by content under `review/web-previews/builds/`,
   slimmed to their static output once built; the 32 most recently used are
   kept. Older entries are removed once idle for an hour, and anything unused
-  for three days is removed regardless. Snapshot source trees under
+  for three days is removed regardless. Revision source trees under
   `review/snapshot-sources/` are shared by content and removed after three
   hours unused. Removal renames the entry aside and deletes it in the
   background.
@@ -252,7 +252,7 @@ could misread bumps the version.
 The `storybook` provider turns changed `*.stories.*` files — and components
 with a sibling story file, such as `Button.tsx` next to `Button.stories.tsx` —
 into one surface per story. The renderer builds the static Storybook of each
-Snapshot side once, inside the sandbox, and captures
+Revision side once, inside the sandbox, and captures
 `iframe.html?id=<story-id>&viewMode=story`. A story that exists on only one side
 is reported as unavailable on the other. A story that throws while rendering is
 reported as failed with Storybook's error message, not shown as a screenshot of

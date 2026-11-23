@@ -7,9 +7,10 @@ inventory and docs work without a graph, provider configuration or model.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Final, Literal, cast
 
 import pygit2
 
@@ -25,6 +26,16 @@ from lemoncrow.pro.capabilities.review.project_knowledge import (
     build_baseline_projection,
     build_source_advance_projection,
 )
+
+_DOCUMENT_SUFFIXES: Final[frozenset[str]] = frozenset({".md", ".rst", ".txt"})
+#: A tree larger than this is refused even for a partial baseline: walking it is unbounded work.
+_MAX_TREE_PATHS: Final[int] = 200_000
+#: Canonical commits walked to place a generation in Git history.
+_MAX_ORDER_COMMITS: Final[int] = 4096
+
+
+def _is_document(path: str) -> bool:
+    return Path(path).suffix.lower() in _DOCUMENT_SUFFIXES
 
 
 class CanonicalGitKnowledge:
@@ -77,11 +88,10 @@ class CanonicalGitKnowledge:
             raise ValueError("canonical generation must be an immutable commit")
         return commit
 
-    def _paths(self, tree: Any, prefix: str = "") -> list[str]:
-        # lc-debt: baseline inventory requires a bounded whole-tree walk;
-        # add generation-backed affected-subtree bootstrap for larger repositories.
+    def _paths(self, tree: Any, *, limit: int | None = None) -> list[str]:
+        bound = self.max_paths if limit is None else limit
         result: list[str] = []
-        pending = [(tree, prefix)]
+        pending = [(tree, "")]
         while pending:
             node, parent = pending.pop()
             for entry in node:
@@ -90,9 +100,52 @@ class CanonicalGitKnowledge:
                     pending.append((self.git[entry.id], path + "/"))
                 else:
                     result.append(path)
-                    if len(result) > self.max_paths:
+                    if len(result) > bound:
                         raise ValueError("Project Knowledge path bound exceeded; use an affected-path adapter")
         return sorted(result)
+
+    def _baseline_paths(self, tree: Any, *, partial: bool) -> tuple[list[str], int]:
+        """The paths a baseline records, and how many committed paths it leaves out.
+
+        Without *partial* a tree over ``max_paths`` is refused. With it the
+        baseline keeps repository documents first, then the remaining paths in
+        order: documents are what Review reads, a bare inventory row is not.
+        """
+
+        # lc-debt: a partial baseline has no inventory row for the omitted paths until a
+        # later advance touches them; add generation-backed subtree bootstrap to cover them.
+        paths = self._paths(tree, limit=_MAX_TREE_PATHS if partial else self.max_paths)
+        if len(paths) <= self.max_paths:
+            return paths, 0
+        ranked = sorted(paths, key=lambda path: (not _is_document(path), path))
+        return sorted(ranked[: self.max_paths]), len(paths) - self.max_paths
+
+    def generation_order(
+        self, generation_ids: Iterable[str], base_revision: str
+    ) -> dict[str, Literal["predates", "after_base"]]:
+        """Place stored generations against a Change's Git base using Git ancestry.
+
+        A generation is matched by its exact identity on the canonical branch,
+        so only a commit this adapter would itself have recorded can answer.
+        Anything not found within the walk, or unrelated to the base, is absent.
+        """
+
+        wanted = set(generation_ids)
+        base = self._immutable_commit(base_revision)
+        order: dict[str, Literal["predates", "after_base"]] = {}
+        walker = self.git.walk(self._canonical().id, pygit2.GIT_SORT_TOPOLOGICAL)  # type: ignore[arg-type]
+        for count, commit in enumerate(walker):
+            if count >= _MAX_ORDER_COMMITS or not wanted:
+                break
+            generation = self._generation(commit).id
+            if generation not in wanted:
+                continue
+            wanted.discard(generation)
+            if commit.id == base.id or self.git.descendant_of(base.id, commit.id):
+                order[generation] = "predates"
+            elif self.git.descendant_of(commit.id, base.id):
+                order[generation] = "after_base"
+        return order
 
     def _facts(self, commit: Any, paths: list[str]) -> tuple[tuple[KnowledgeFact, ...], tuple[str, ...]]:
         generation = self._generation(commit)
@@ -115,7 +168,7 @@ class CanonicalGitKnowledge:
                     source_paths=(path,),
                 )
             )
-            if not self.include_document_bodies or Path(path).suffix.lower() not in {".md", ".rst", ".txt"}:
+            if not self.include_document_bodies or not _is_document(path):
                 continue
             blob = cast(pygit2.Blob, self.git[entry.id])
             if blob.size > 65536:
@@ -278,7 +331,7 @@ class CanonicalGitKnowledge:
                 snapshot = review_store.get_revision(revision_id)
                 if snapshot is None or str(getattr(snapshot, "base_sha", "")) != str(original.id):
                     raise ValueError(
-                        "canonical merge window is ambiguous; fast-forward Snapshot base differs from stored generation"
+                        "canonical merge window is ambiguous; fast-forward base differs from stored generation"
                     )
             else:
                 # Normal merge: the first parent is our stored generation,
@@ -340,8 +393,19 @@ class CanonicalGitKnowledge:
         }
 
     def sync(
-        self, store: ProjectKnowledgeStore, *, previous_revision: str = "", rebuild: bool = False
+        self,
+        store: ProjectKnowledgeStore,
+        *,
+        previous_revision: str = "",
+        rebuild: bool = False,
+        partial_baseline: bool = False,
     ) -> dict[str, Any]:
+        """Bootstrap or advance from immutable objects.
+
+        *partial_baseline* lets a tree over ``max_paths`` start from a bounded,
+        documents-first baseline whose result reports what it left out.
+        """
+
         commit = self._canonical()
         generation = self._generation(commit)
         observed_at = datetime.fromtimestamp(commit.commit_time, UTC).isoformat()
@@ -351,9 +415,15 @@ class CanonicalGitKnowledge:
             raise ValueError("previous revision does not match stored canonical generation")
         if current == generation.id and not rebuild:
             return {"applied": False, "kind": "unchanged", "generation": generation.to_wire()}
+        omitted = 0
         if rebuild or not current:
-            paths = self._paths(commit.tree)
+            paths, omitted = self._baseline_paths(commit.tree, partial=partial_baseline)
             facts, degraded = self._facts(commit, paths)
+            if omitted:
+                degraded = (
+                    *degraded,
+                    f"baseline limited to {len(paths)} of {len(paths) + omitted} committed paths, documents first",
+                )
             projection = build_baseline_projection(generation, facts=facts, observed_at=observed_at)
             if self._canonical().id != commit.id:
                 raise ValueError("canonical ref advanced during bootstrap; retry")
@@ -398,6 +468,7 @@ class CanonicalGitKnowledge:
             "generation": generation.to_wire(),
             "entries": len(projection.entries),
             "degraded_reasons": list(degraded),
-            "coverage": "path_inventory_and_document_excerpts",
+            "coverage": "partial_documents_first" if omitted else "path_inventory_and_document_excerpts",
+            "paths_omitted": omitted,
             "canonical_ref_advanced_during_sync": str(self._canonical().id) != str(commit.id),
         }

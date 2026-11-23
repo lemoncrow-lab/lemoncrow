@@ -164,49 +164,53 @@ def claude_transcript_candidates(session_id: str) -> list[Path]:
 _CTX_TAIL_BYTES = 65536
 
 
-def transcript_context_state(session_id: str) -> tuple[int, str]:
-    """Return (live context tokens, model) for a Claude session.
+def transcript_context_from_path(transcript_path: str | Path) -> tuple[int, str]:
+    """Live Claude context from the last usage AFTER the most recent compact.
 
-    Context = the most recent assistant turn's input + cache reads + cache
-    writes — i.e. what the next turn will re-read. Tail-reads the newest
-    transcript so it is cheap enough to call from per-tool-call hooks.
-    Returns ``(0, "")`` when the session or usage cannot be located.
+    Bounded tail-reading avoids an O(transcript size) scan each prompt. A
+    compact boundary fences off old usage even if Claude retains those turns.
+    Unknown usage must be 0, never the previous context window's size.
     """
-    candidates = claude_transcript_candidates(session_id)
-    if not candidates:
-        return 0, ""
-    newest = candidates[0]
     try:
-        with newest.open("rb") as fh:
+        with Path(transcript_path).open("rb") as fh:
             fh.seek(0, os.SEEK_END)
             fh.seek(max(0, fh.tell() - _CTX_TAIL_BYTES))
             lines = fh.read().decode("utf-8", errors="replace").splitlines()
     except OSError:
         return 0, ""
     for raw in reversed(lines):
-        raw = raw.strip()
-        if not raw:
-            continue
         try:
             entry = json.loads(raw)
-        except json.JSONDecodeError:
-            continue  # first tail line may be partial
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") == "system" and entry.get("subtype") == "compact_boundary":
+            return 0, ""
         if entry.get("type") != "assistant":
             continue
-        msg = entry.get("message") or {}
-        usage = msg.get("usage") if isinstance(msg, dict) else None
+        msg = entry.get("message")
+        if not isinstance(msg, dict):
+            continue
+        usage = msg.get("usage")
         if not isinstance(usage, dict):
             continue
-        ctx = (
-            int(usage.get("input_tokens", 0) or 0)
-            + int(usage.get("cache_read_input_tokens", 0) or 0)
-            + int(usage.get("cache_creation_input_tokens", 0) or 0)
-        )
-        if ctx <= 0:
+        try:
+            ctx = sum(
+                int(usage.get(key, 0) or 0)
+                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+            )
+        except (TypeError, ValueError):
             continue
-        model = str(msg.get("model") or "").strip()
-        return ctx, model
+        if ctx > 0:
+            return ctx, str(msg.get("model") or "").strip()
     return 0, ""
+
+
+def transcript_context_state(session_id: str) -> tuple[int, str]:
+    """Live Claude context, using the same parser as the Claude hooks."""
+    candidates = claude_transcript_candidates(session_id)
+    return transcript_context_from_path(candidates[0]) if candidates else (0, "")
 
 
 @dataclass
@@ -967,7 +971,9 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
       ``calls_cost_saved_usd``): each avoided roundtrip re-reads the live
       context at the cache-read rate and, on newer rows, also carries the
       turn's average output (billed at the output rate and re-entering context
-      at the cache-write rate).
+      at the cache-write rate).  Workspaces Lite rows store the measured
+      ``ctx_tokens`` / ``avg_output_tokens`` instead and are priced here by
+      the same formula (:func:`_price_measured_calls`).
     * ``kind == "compaction"`` rows mark a Claude-managed context reset. They
       bound carry windows but are not counted as LemonCrow-generated savings.
     * ``kind == "output_style"`` (telegraphic prose the model did not emit) and
@@ -987,6 +993,8 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
     calls_usd = max(0.0, float(ev.get("calls_usd") or ev.get("calls_cost_saved_usd") or 0.0))
     if str(ev.get("kind") or "") == "compaction":
         return 0, 0.0, 0, 0.0, 0
+    if calls > 0 and "calls_usd" not in ev and "calls_cost_saved_usd" not in ev:
+        calls_usd = _price_measured_calls(ev, calls)
     if tokens <= 0:
         return 0, 0.0, calls, calls_usd, 0
     # Prefer the cost the dispatcher pre-priced at write time; re-price only the
@@ -999,6 +1007,36 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
     if pricing is not None and pricing.known and pricing.input > 0:
         return tokens, pricing.input / 1_000_000 * tokens, calls, calls_usd, 0
     return 0, 0.0, calls, calls_usd, tokens
+
+
+def _price_measured_calls(ev: dict[str, Any], calls: int) -> float:
+    """Price avoided calls a writer measured but could not price (Workspaces Lite).
+
+    The full server stored ``calls_usd`` at write time. Lite has no price
+    table, so it stores the inputs: ``ctx_tokens``, the live context each
+    avoided round trip would re-read at the cache-read rate, and
+    ``avg_output_tokens``, the turn output it would emit (output rate, then a
+    cache write). Same formula as ``mcp_server._price_avoided_calls_usd``;
+    unknown model or context prices at 0.0.
+    """
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
+
+    ctx = max(0, int(ev.get("ctx_tokens") or 0))
+    model_raw = str(ev.get("model") or "").strip()
+    if ctx <= 0 or not model_raw:
+        return 0.0
+    pricing = get_model_pricing(resolve_model_id(model_raw))
+    if pricing is None or not pricing.known or pricing.cache_read <= 0:
+        return 0.0
+    threshold = pricing.long_context_threshold()
+    out = max(0, int(ev.get("avg_output_tokens") or 0))
+    usd = pricing.request_cost_usd(
+        cache_read_tokens=calls * ctx,
+        output_tokens=calls * out,
+        cache_write_tokens=calls * out,
+        long_context=threshold > 0 and ctx > threshold,
+    )
+    return round(max(0.0, usd), 6)
 
 
 def _find_savings_sidecar(session_id: str, root: Path) -> Path:
@@ -2599,7 +2637,8 @@ def _row_epoch(ts_str: str) -> float | None:
     try:
         # Rows are stamped naive-UTC (datetime.utcnow); pin the zone so the
         # epoch matches time.time() exactly.
-        return datetime.fromisoformat(ts_str).replace(tzinfo=UTC).timestamp()
+        dt = datetime.fromisoformat(ts_str)
+        return (dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)).timestamp()
     except (ValueError, TypeError, OSError, OverflowError):
         return None
 
@@ -3149,12 +3188,12 @@ def aggregate_savings_by_day(root: str | Path, *, since_day: str, today: str) ->
     # sum of per-day maxima where ``_window_from_aggregate`` takes the maximum
     # of per-partition sums. Those agree only when every partition of a session
     # lands on the same day (the transcript path, which re-buckets the same
-    # turns onto the same turn-days). The ``session_end`` path puts each
-    # partition's cumulative snapshot on its own Stop day, and that is the
-    # ordinary shape -- ``session_dir`` searches back only ``search_days``, so a
-    # session resumed later mints a new partition on a later day while the old
-    # one keeps its own snapshot on its own. Three such partitions still rolled
-    # up at the full, unmitigated 2x.
+    # turn-days). The ``session_end`` path puts each partition's cumulative
+    # snapshot on its own Stop day, and stores written before ``session_dir``
+    # reused older partitions hold that shape: it searched back only
+    # ``search_days``, so a session resumed later minted a new partition on a
+    # later day while the old one kept its own snapshot on its own. Three such
+    # partitions still rolled up at the full, unmitigated 2x.
     spend_by_partition: dict[str, dict[str, float]] = {}
 
     def _bucket(day: str) -> dict[str, float | int]:

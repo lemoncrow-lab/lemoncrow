@@ -12,6 +12,9 @@ branding:
 # `openai-api-key`). It is handed, through `env:`, to the two steps that need it (the gate and the review) and to no
 # other, and the runner is told to mask it. A key set as ANTHROPIC_API_KEY / OPENAI_API_KEY on the calling step still
 # works, but GitHub passes a calling step's `env` to every step of this action, so prefer the input.
+# Two routes need no API key: Workload Identity Federation (the `anthropic-federation-*` IDs and `permissions:
+# id-token: write`; the review exchanges a fresh GitHub OIDC token for a short-lived Anthropic one, in memory only), and
+# a Claude subscription through the claude CLI (`claude-code-oauth-token`, a secret, handled like a key).
 inputs:
   anthropic-api-key:
     description: >-
@@ -23,6 +26,36 @@ inputs:
     description: >-
       Your OpenAI API key, from a repository secret (the expression is `secrets.OPENAI_API_KEY` in double braces). Used for the review's model
       calls only. OPENAI_API_KEY set as an environment variable on the step works too.
+    default: ""
+  anthropic-federation-rule-id:
+    description: >-
+      No API key: the ID (fdrl_...) of a Workload Identity Federation rule in the Claude Console. With
+      `anthropic-organization-id` and `permissions: id-token: write` on the workflow, each model call is made with a
+      short-lived Anthropic token the review gets for this job's GitHub OIDC token; nothing secret is stored. An ID,
+      not a secret. anthropic-api-key (or ANTHROPIC_API_KEY), when also set, wins. See docs/setup/github-action.md,
+      "No API key". ANTHROPIC_FEDERATION_RULE_ID on the step works too.
+    default: ""
+  anthropic-organization-id:
+    description: >-
+      Your Anthropic organization ID (Claude Console > Settings > Organization), for `anthropic-federation-rule-id`.
+      ANTHROPIC_ORGANIZATION_ID on the step works too.
+    default: ""
+  anthropic-service-account-id:
+    description: >-
+      Optional, for `anthropic-federation-rule-id`: the service account (svac_...) the rule targets.
+      ANTHROPIC_SERVICE_ACCOUNT_ID on the step works too.
+    default: ""
+  anthropic-workspace-id:
+    description: >-
+      Optional, for `anthropic-federation-rule-id`: the workspace (wrkspc_...), needed when the rule covers more than
+      one. ANTHROPIC_WORKSPACE_ID on the step works too.
+    default: ""
+  claude-code-oauth-token:
+    description: >-
+      No API key: a Claude subscription token from `claude setup-token`, from a repository secret (the expression is
+      `secrets.CLAUDE_CODE_OAUTH_TOKEN` in double braces). The Action installs a pinned claude CLI and the review's
+      model calls run through it, with read-only tools and its own default model. Used only when there is no Anthropic
+      key or federation. Chat answers need an API route and are refused on this one.
     default: ""
   github-token:
     description: >-
@@ -37,7 +70,8 @@ inputs:
     description: >-
       anthropic, openai or litellm. The default, auto, uses the key you passed as `anthropic-api-key` or
       `openai-api-key` (or ANTHROPIC_API_KEY / OPENAI_API_KEY from the step's environment), Anthropic first when
-      both are set.
+      both are set. A federation (`anthropic-federation-rule-id`) counts as Anthropic, after a key; then
+      `claude-code-oauth-token`; then OpenAI.
     default: auto
   model:
     description: >-
@@ -170,6 +204,11 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         INPUT_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         INPUT_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        INPUT_CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        INPUT_ANTHROPIC_FEDERATION_RULE_ID: ${{ inputs.anthropic-federation-rule-id }}
+        INPUT_ANTHROPIC_ORGANIZATION_ID: ${{ inputs.anthropic-organization-id }}
+        INPUT_ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ inputs.anthropic-service-account-id }}
+        INPUT_ANTHROPIC_WORKSPACE_ID: ${{ inputs.anthropic-workspace-id }}
         LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
         LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
         LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
@@ -177,6 +216,11 @@ runs:
         LEMONCROW_REVIEW_MENTIONS: ${{ inputs.mention-aliases }}
         LEMONCROW_REVIEW_CHAT_ASSOCIATIONS: ${{ inputs.chat-allowed-associations }}
         INPUT_MODEL: ${{ inputs.model }}
+        # Checked here, so a typo stops the run with a status that names the input instead of a usage error after the install.
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_DEPTH: ${{ inputs.depth }}
+        INPUT_DIAGRAM: ${{ inputs.diagram }}
+        INPUT_MAX_RUNS: ${{ inputs.max-runs-per-pr }}
       run: |
         if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
         python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py"
@@ -216,11 +260,11 @@ runs:
         path: ${{ steps.cache_pin.outputs.dir }}
         key: ${{ steps.cache_pin.outputs.key }}
 
-    # Pinned to the commit the v5 tag points at (v5.4.2), so organizations that require SHA-pinned actions allow it.
+    # Pinned to the commit of the tag named on the `uses:` line, so organizations that require SHA-pinned actions allow it.
     # Its own cache is off on purpose: it would key on the caller's lockfiles, not on this action's.
     - name: Set up uv
       if: steps.gate.outputs.run == 'true' || steps.gate.outputs.refresh == 'true'
-      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       with:
         version: "0.11.32"
         enable-cache: false
@@ -245,6 +289,14 @@ runs:
         fi
         uv sync "${args[@]}"
 
+    # The `claude-code-oauth-token` route only: the claude CLI, at an exact version, from npm (on GitHub's hosted
+    # runners Node is already installed). No other route installs it.
+    - name: Install Claude Code
+      id: claude_cli
+      if: steps.gate.outputs.run == 'true' && steps.gate.outputs.agent == 'claude'
+      shell: bash
+      run: npm install --global --no-fund --no-audit --loglevel=error @anthropic-ai/claude-code@2.1.309
+
     # Security scan (optional): a pinned Opengrep binary, verified against a SHA-256 before it is ever run, cached between
     # runs. The review step runs it on the changed files only, with a timeout and a result bound. Every step here ends
     # with exit 0: no failure of the scanner fails the review (the summary says "security scan unavailable").
@@ -267,6 +319,11 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         INPUT_ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         INPUT_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        INPUT_CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude-code-oauth-token }}
+        INPUT_ANTHROPIC_FEDERATION_RULE_ID: ${{ inputs.anthropic-federation-rule-id }}
+        INPUT_ANTHROPIC_ORGANIZATION_ID: ${{ inputs.anthropic-organization-id }}
+        INPUT_ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ inputs.anthropic-service-account-id }}
+        INPUT_ANTHROPIC_WORKSPACE_ID: ${{ inputs.anthropic-workspace-id }}
         LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
         LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
         LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
@@ -303,7 +360,14 @@ runs:
         # a key set as an environment variable on the calling step alone.
         if [ -n "$INPUT_ANTHROPIC_API_KEY" ]; then export ANTHROPIC_API_KEY="$INPUT_ANTHROPIC_API_KEY"; fi
         if [ -n "$INPUT_OPENAI_API_KEY" ]; then export OPENAI_API_KEY="$INPUT_OPENAI_API_KEY"; fi
-        unset INPUT_ANTHROPIC_API_KEY INPUT_OPENAI_API_KEY
+        if [ -n "${INPUT_CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then export CLAUDE_CODE_OAUTH_TOKEN="$INPUT_CLAUDE_CODE_OAUTH_TOKEN"; fi
+        unset INPUT_ANTHROPIC_API_KEY INPUT_OPENAI_API_KEY INPUT_CLAUDE_CODE_OAUTH_TOKEN
+        # Workload Identity Federation: IDs only. The review fetches a fresh GitHub OIDC token for each exchange itself
+        # (ACTIONS_ID_TOKEN_REQUEST_URL, set by `permissions: id-token: write`), so no token is ever written to disk.
+        if [ -n "${INPUT_ANTHROPIC_FEDERATION_RULE_ID:-}" ]; then export ANTHROPIC_FEDERATION_RULE_ID="$INPUT_ANTHROPIC_FEDERATION_RULE_ID"; fi
+        if [ -n "${INPUT_ANTHROPIC_ORGANIZATION_ID:-}" ]; then export ANTHROPIC_ORGANIZATION_ID="$INPUT_ANTHROPIC_ORGANIZATION_ID"; fi
+        if [ -n "${INPUT_ANTHROPIC_SERVICE_ACCOUNT_ID:-}" ]; then export ANTHROPIC_SERVICE_ACCOUNT_ID="$INPUT_ANTHROPIC_SERVICE_ACCOUNT_ID"; fi
+        if [ -n "${INPUT_ANTHROPIC_WORKSPACE_ID:-}" ]; then export ANTHROPIC_WORKSPACE_ID="$INPUT_ANTHROPIC_WORKSPACE_ID"; fi
         # actions/checkout leaves the workflow token in .git/config unless it was told not to (persist-credentials:
         # false), and a checkout made by this action never has it. Give git the token for this step only, in the
         # environment, never on disk.
@@ -315,6 +379,9 @@ runs:
           export GIT_CONFIG_COUNT="$((slot + 1))"
         fi
         mkdir -p "$XDG_CACHE_HOME"
+        # An input set to an empty string reaches here empty, and the command refuses an empty option value.
+        DEPTH="${DEPTH:-auto}"
+        FAIL_ON="${FAIL_ON:-none}"
         args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON" --diagram "${DIAGRAM:-auto}")
         if [ -n "$MAX_RUNS" ]; then args+=(--max-runs-per-pr "$MAX_RUNS"); fi
         if [ "$LEMONCROW_REVIEW_DRAFTS" = "true" ]; then args+=(--review-drafts); fi

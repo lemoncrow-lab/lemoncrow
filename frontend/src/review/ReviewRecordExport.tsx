@@ -4,7 +4,10 @@ import { Download, FileSignature } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { exportReviewRecord, fetchReviewRecordFile, fetchReviewRecordStatus } from "./reviewApi";
+import { usePrincipalLabel } from "./plainWords";
 import type { ReviewRecordExportResult, ReviewRecordStatus, ReviewRecordSummary } from "./types";
+import { revisionName } from "./revisionLabel";
+import { fmtWhen } from "../lib/format";
 
 /** How every surface names an unsigned record; never shortened or softened. */
 export const UNSIGNED_RECORD_LABEL = "UNSIGNED record (no signature)";
@@ -14,12 +17,12 @@ function recordLabel(record: ReviewRecordSummary): string {
   return record.label || `Signed ${record.key_id}`;
 }
 
-function fileName(record: ReviewRecordSummary): string {
+export function fileName(record: ReviewRecordSummary): string {
   const suffix = record.signing_state === "signed" ? "dsse.json" : "unsigned.dsse.json";
   return `review-record-${record.record_id}.${suffix}`;
 }
 
-function saveBlob(blob: Blob, name: string): void {
+export function saveBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -29,6 +32,21 @@ function saveBlob(blob: Blob, name: string): void {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Export and download the record of the decision just recorded on *snapshotId*:
+ * signed when this composition can sign, otherwise an explicitly UNSIGNED one.
+ * Returns how the downloaded record reads, in the one vocabulary for records.
+ */
+export async function downloadDecisionRecord(reviewId: string, snapshotId: string): Promise<string> {
+  const status = await fetchReviewRecordStatus(reviewId);
+  const exported = await exportReviewRecord(reviewId, {
+    signing: status.signing.available ? "auto" : "unsigned",
+    ...(snapshotId ? { expected_revision_id: snapshotId } : {}),
+  });
+  saveBlob(await fetchReviewRecordFile(reviewId, exported.record.record_id), fileName(exported.record));
+  return recordLabel(exported.record);
 }
 
 /**
@@ -46,6 +64,7 @@ export default function ReviewRecordExport({
   snapshotId?: string;
   readOnly?: boolean;
 }) {
+  const principalName = usePrincipalLabel();
   const [status, setStatus] = useState<ReviewRecordStatus | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -112,8 +131,8 @@ export default function ReviewRecordExport({
             <div className="text-caption font-semibold text-foreground">Signed review record</div>
             <div className="mt-1 text-caption leading-4 text-muted-foreground">
               {status.decision
-                ? `Snapshot ${status.snapshot_number} · ${status.decision.outcome.replaceAll("_", " ")} by ${status.decision.actor.id || "unknown"}`
-                : "No decision on the latest Snapshot yet; a record is exported once the Review is decided."}
+                ? `${revisionName(status.snapshot_number)} · ${status.decision.outcome.replaceAll("_", " ")} by ${principalName(status.decision.actor.id)}`
+                : "No decision on the latest revision yet; a record is exported once the Review is decided."}
             </div>
             <div
               className={`mt-1 text-caption leading-4 ${signing.available ? "text-emerald-300" : "text-amber-300"}`}
@@ -174,7 +193,7 @@ export default function ReviewRecordExport({
                   <span className="truncate text-caption text-subtle">{recordLabel(record)}</span>
                 </div>
                 <div className="mt-0.5 font-mono text-caption text-muted-foreground">
-                  {record.issued_at.replace("T", " ").slice(0, 19)} · {record.payload_digest.slice(0, 12)}
+                  {fmtWhen(record.issued_at)} · {record.payload_digest.slice(0, 12)}
                 </div>
               </div>
               <UiButton

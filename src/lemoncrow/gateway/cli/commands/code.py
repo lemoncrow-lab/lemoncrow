@@ -504,8 +504,15 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
 @click.option("--local-retrieval", type=click.Choice(["off", "auto", "force"]), default="auto", hidden=True)
 @click.option("--local-retrieval-model", default="", hidden=True)
 @click.option("--yolo", is_flag=True, hidden=True)
-@click.option("-p", "--prompt", default=None, help="Run one prompt with LemonCrow's Hosted coding agent and exit.")
-@click.option("--resume", default=None, metavar="SESSION_ID", help="Resume a Hosted coding-agent session.")
+@click.option(
+    "-p", "--prompt", default=None, help="Reserved: run one prompt with the Hosted coding agent (not available yet)."
+)
+@click.option(
+    "--resume",
+    default=None,
+    metavar="SESSION_ID",
+    help="Reserved: resume a Hosted coding-agent session (not available yet).",
+)
 @click.option(
     "--project-root",
     type=click.Path(path_type=Path, file_okay=False),
@@ -535,7 +542,11 @@ def code_group(
     mcp_enabled: bool,
     mcp_schema_mode: str,
 ) -> None:
-    """Code with LemonCrow's Hosted coding agent."""
+    """Reserved for the Hosted coding agent; not available yet.
+
+    `lc code` is reserved for LemonCrow's Hosted coding agent, which is not
+    available yet: it says so and exits. For a local agent, use `lc with <host>`.
+    """
 
     if internal_private and os.environ.get("LEMONCROW_INTERNAL_PRIVATE_RUNTIME", "").strip() != "1":
         raise click.ClickException(
@@ -551,9 +562,9 @@ def code_group(
 
     if not internal_private:
         raise click.ClickException(
-            "`lc code` is the Hosted LemonCrow coding agent, not a local Runtime Lite launcher. "
-            "The OSS Runtime keeps local agent integrations under `lc with ...` and public host lifecycle under `lc host`. "
-            "Hosted owned-loop transport is not wired in this build yet."
+            "`lc code` is reserved for the Hosted LemonCrow coding agent, which is not available yet. "
+            "It is not a local Workspaces Lite launcher: local agent integrations live under `lc with ...` "
+            "and public host lifecycle under `lc host`."
         )
 
     from lemoncrow.core.capabilities.code_intelligence_provider import (
@@ -637,18 +648,14 @@ def _host_engine_module(engine: str) -> tuple[Any, str]:
         from lemoncrow.gateway.cli import pi_host
 
         return pi_host, "Pi"
-    if engine != "lemoncode":
-        raise click.ClickException("public host management supports LemonCode or Pi")
-    from lemoncrow.gateway.cli import lemoncode_host
-
-    return lemoncode_host, "LemonCode"
+    raise click.ClickException("public host management supports Pi")
 
 
 def _host_engine_option(function: Any) -> Any:
     return click.option(
         "--engine",
-        type=click.Choice(["lemoncode", "pi"]),
-        default="lemoncode",
+        type=click.Choice(["pi"]),
+        default="pi",
         show_default=True,
         help="Public coding-agent host managed by LemonCrow.",
     )(function)
@@ -718,16 +725,14 @@ def code_host_update_cmd(ctx: click.Context, engine: str) -> None:
     "--source",
     type=click.Path(path_type=Path, file_okay=False),
     default=None,
-    help="Host source checkout (defaults to ./lemoncode for LemonCode; required for Pi).",
+    help="Pi host source checkout (required for source builds).",
 )
 @click.pass_context
 def code_host_build_cmd(ctx: click.Context, engine: str, source: Path | None) -> None:
     """Build the host from a source checkout and install it."""
     module, label = _host_engine_module(engine)
     if source is None:
-        if engine == "pi":
-            raise click.ClickException("--source is required for Pi source builds")
-        source = Path("lemoncode")
+        raise click.ClickException("--source is required for Pi source builds")
     path = module.build_host_from_source(_code_store_root(ctx), source)
     _install_pi_integration(engine)
     click.echo(style.success(f"{label} host built and installed {style.dim(style.home_relative(path))}"))
@@ -754,7 +759,7 @@ def code_host_remove_cmd(ctx: click.Context, engine: str, yes: bool) -> None:
     click.echo(style.success(f"{label} host removed" if removed else f"{label} host was not installed"))
 
 
-@click.command("index", short_help="Build or refresh this repository's Runtime Lite index.")
+@click.command("index", short_help="Build or refresh this repository's Workspaces Lite index.")
 @click.option(
     "--repo-root",
     default=None,
@@ -771,7 +776,7 @@ def runtime_index_cmd(
     frame_prefix: str,
     no_stats: bool,
 ) -> None:
-    """Build or refresh the local open-source Runtime Lite repository index."""
+    """Build or refresh the local open-source Workspaces Lite repository index."""
     del no_stats  # Lite output is already compact; accepted for background callers.
     if repo_root is None:
         from lemoncrow.core.foundation.paths import resolve_workspace_root
@@ -789,10 +794,10 @@ def runtime_index_cmd(
     took = _format_lite_duration(report.elapsed_s)
     files = style.plural(report.files_seen, "file")
     if report.files_changed or report.files_deleted:
-        headline = "Runtime Lite index ready"
+        headline = "Workspaces Lite index ready"
         summary = f"{files} · {report.files_changed:,} indexed · {report.files_deleted:,} deleted · {took}"
     else:
-        headline = "Runtime Lite index up to date"
+        headline = "Workspaces Lite index up to date"
         summary = f"{files} checked, nothing changed · {took}"
     line = f"{style.success(style.bold(headline))}: {summary}\n  {style.dim(style.home_relative(report.path))}"
     click.echo(f"{prefix_markup}{line}" if frame_prefix else line)
@@ -837,7 +842,7 @@ def _lite_index_with_progress(lite_root: Path, *, force: bool, frame_prefix: str
     mode = "Rebuilding" if force else "Updating"
     brand = f"color({style.BRAND})"
     console.print(
-        f"{prefix}[{brand}]◆[/{brand}] [bold]{mode} Runtime Lite index[/bold] [dim]for "
+        f"{prefix}[{brand}]◆[/{brand}] [bold]{mode} Workspaces Lite index[/bold] [dim]for "
         f"{escape(style.home_relative(lite_root))}[/dim]",
         soft_wrap=True,
     )

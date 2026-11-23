@@ -55,7 +55,7 @@ def _runtime_integrations() -> list[dict[str, Any]]:
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable product status.")
 @click.pass_context
 def product_status_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show installed products, deployment, sign-in, and Runtime integrations."""
+    """Show installed products, deployment, sign-in, and Workspaces integrations."""
 
     root = Path(ctx.obj["root"])
     review_installed = _review_installed(root)
@@ -101,7 +101,7 @@ def product_status_cmd(ctx: click.Context, as_json: bool) -> None:
                 lines.append(style.next_step("Sign in with", "lc auth login", indent=4))
         lines.append(style.next_step("Review the current change with", "lcr", indent=4))
 
-    lines += ["", f"  {style.heading('Runtime')} {style.dim('· coding agents')}"]
+    lines += ["", f"  {style.heading('Workspaces')} {style.dim('· coding agents')}"]
     lines += integration_rows(integrations, width=width, indent=4)
     lines.append(style.next_step("Manage coding agents with", "lc rt status", indent=4))
     for line in lines:

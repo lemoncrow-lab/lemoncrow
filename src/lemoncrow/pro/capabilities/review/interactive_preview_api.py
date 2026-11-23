@@ -5,7 +5,7 @@ hands its existing gates (session scope, mutability, expected revision, run
 plan admission, budget usage, trusted-base reads, hermetic context) to this
 module. Routes (all under the Review API prefix, authenticated by the router):
 
-``GET  /reviews/{id}/interactive-preview``                       offer + this viewer's sessions
+``GET  /reviews/{id}/interactive-preview[?preview=<name>]``      offer + this viewer's sessions
 ``POST /reviews/{id}/interactive-preview/sessions``              admit through the run plan, start
 ``POST /reviews/{id}/interactive-preview/sessions/{sid}/enter``  one-time entry URL into one side
 ``POST /reviews/{id}/interactive-preview/sessions/{sid}/stop``   stop now (tears down, records)
@@ -14,6 +14,11 @@ The session token travels only in the start response body and the
 ``X-LemonCrow-Preview-Token`` request header, never in a URL, so request
 logs never carry it. The entry URL carries a single-use ticket that expires
 in a minute.
+
+Every ``[previews.<name>]`` the trusted base's ``environment.toml`` declares can run: the
+offer lists them (``previews``, in declaration order) and ``preview`` names the one it
+describes; a start body's ``preview`` picks one. Without a name, the first declared is the
+default. A viewer runs one preview session at a time, so starting another replaces it.
 """
 
 from __future__ import annotations
@@ -27,12 +32,13 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.compute_ledger import ComputeRecorder
 from lemoncrow.pro.capabilities.review.interactive_preview import (
     LIMITED_BY_BUDGET,
@@ -50,6 +56,7 @@ from lemoncrow.pro.capabilities.review.preview_runtime import (
     PreviewRecipeError,
     PreviewStartFailed,
     SandboxedPreviewDriver,
+    environment_preview_recipes,
     load_preview_recipe,
     lockfile_text_digest,
     static_recipe,
@@ -62,13 +69,13 @@ from lemoncrow.pro.capabilities.review.preview_sessions import (
     SIDES,
     PreviewSession,
 )
-from lemoncrow.pro.capabilities.review.preview_state import PreviewState
+from lemoncrow.pro.environment.preview_state import InMemoryPreviewState, PreviewState
 
 TOKEN_HEADER: Final[str] = "X-LemonCrow-Preview-Token"
 NOT_DETECTED: Final[str] = "No previewable app was detected in the trusted base."
 #: Where the offer is surfaced; there is no top-level control (Phase 14 UX rule).
 OPENS_FROM: Final[tuple[str, ...]] = ("behavior_changes", "checks_rail")
-_START_KEYS: Final[frozenset[str]] = frozenset({"expected_revision_id", "ttl_seconds"})
+_START_KEYS: Final[frozenset[str]] = frozenset({"expected_revision_id", "ttl_seconds", "preview"})
 _ENTER_KEYS: Final[frozenset[str]] = frozenset({"side", "path"})
 _STOP_KEYS: Final[frozenset[str]] = frozenset({"expected_revision_id"})
 _MAX_BODY: Final[int] = 4096
@@ -83,6 +90,10 @@ _LOCKFILES: Final[tuple[str, ...]] = (
     "poetry.lock",
 )
 _STATIC_FRAMEWORKS: Final[tuple[str, ...]] = ("next", "astro", "vite")
+
+
+#: Every local Review app's previews, so the live-preview cap counts this machine's.
+_LOCAL_PREVIEW_STATE: Final[InMemoryPreviewState] = InMemoryPreviewState()
 
 
 def _short_runtime_root() -> Path:
@@ -151,6 +162,8 @@ class InteractivePreviewBackend:
             tree_root=store_root / "review" / "interactive-previews",
             frame_ancestors=(f"http://127.0.0.1:{port}", f"http://localhost:{port}"),
             static_builds=True,
+            # The local server builds one Review app per repository and Review; the cap is per machine.
+            state=_LOCAL_PREVIEW_STATE,
         )
         backend.closers.append(close)
         return backend
@@ -181,14 +194,16 @@ class InteractivePreviewDeps:
     review_config: Callable[[Any], str]
     """Trusted-base ``.lemoncrow/review.yaml`` text (never head bytes)."""
     read_side: Callable[[Any, str, str], str | None]
-    """One file of one Snapshot side: ``(revision, path, side)``."""
+    """One file of one revision side: ``(revision, path, side)``."""
     hermetic: Callable[[Any, Any, str], Any]
     """Trusted hermetic context for one side (``_hermetic_execution``)."""
     materialize: Callable[[Any, str, Path], None]
-    """Materialize one exact Snapshot side into a fresh directory."""
+    """Materialize one exact revision side into a fresh directory."""
     build_static: Callable[[Any, str, str, str], Path] | None = None
     """``(revision, side, framework, root)`` -> sandboxed static build output."""
     artifacts: Callable[[], Any] | None = None
+    environment_config: Callable[[Any], str | None] = lambda _revision: None
+    """Trusted-base ``.lemoncrow/environment.toml`` text (``None``: absent or unknown)."""
 
 
 @dataclass(frozen=True)
@@ -200,11 +215,17 @@ class _Offer:
     driver: PreviewDriver | None = None
     remaining_minutes: float | None = None
     admission: Mapping[str, Any] | None = None
+    previews: tuple[str, ...] = ()
+    """The trusted base's environment.toml previews, in declaration order (the first is the default)."""
+    preview: str = ""
+    """The preview this offer describes (``""``: review.yaml or a static build)."""
 
     def to_wire(self) -> dict[str, Any]:
         return {
             "state": self.state,
             "reason": self.reason,
+            "previews": list(self.previews),
+            "preview": self.preview or None,
             "entry": dict(self.entry) if self.entry is not None else None,
             "admission": dict(self.admission) if self.admission is not None else None,
             "recipe": (
@@ -318,7 +339,22 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
         max_live=backend.max_live_previews,
     )
 
-    def resolve_recipe(revision: Any) -> tuple[PreviewRecipe | None, str]:
+    def declared_previews(revision: Any) -> tuple[dict[str, PreviewRecipe], str]:
+        """The environment.toml previews, or why the file cannot run any."""
+
+        try:
+            return environment_preview_recipes(deps.environment_config(revision)), ""
+        except PreviewRecipeError as exc:
+            return {}, f"The trusted base's environment.toml previews cannot run: {exc}"
+
+    def resolve_recipe(
+        revision: Any, declared: Mapping[str, PreviewRecipe], broken: str, preview: str
+    ) -> tuple[PreviewRecipe | None, str]:
+        # environment.toml [previews] first; review.yaml interactive_preview only without them.
+        if broken:
+            return None, broken
+        if declared:
+            return declared[preview], ""
         try:
             recipe = load_preview_recipe(deps.review_config(revision))
         except PreviewRecipeError as exc:
@@ -349,7 +385,24 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
                 return _entry_wire(row)
         return None
 
-    def offer(session: Any, revision: Any) -> _Offer:
+    def offer(session: Any, revision: Any, preview: str | None = None) -> _Offer:
+        declared, broken = declared_previews(revision)
+        if preview is not None and not broken and preview not in declared:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"no preview named {preview!r}; the trusted base declares {', '.join(declared)}"
+                    if declared
+                    else f"no preview named {preview!r}; the trusted base's environment.toml declares no previews"
+                ),
+            )
+        selected = (preview or next(iter(declared))) if declared else ""
+        found = _offer(session, revision, declared, broken, selected)
+        return replace(found, previews=tuple(declared), preview=selected)
+
+    def _offer(
+        session: Any, revision: Any, declared: Mapping[str, PreviewRecipe], broken: str, selected: str
+    ) -> _Offer:
         detected = deps.detected(revision)
         plan = deps.plan(session, revision)
         displayed = plan.entry(INTERACTIVE_PREVIEW_ENTRY)
@@ -376,7 +429,7 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
             return _Offer(
                 "not_available", reason or f"the run plan would not run it ({state})", wire, admission=admitted
             )
-        recipe, why = resolve_recipe(revision)
+        recipe, why = resolve_recipe(revision, declared, broken, selected)
         if recipe is None:
             return _Offer("not_available", why, wire, admission=admitted)
         if backend.unavailable:
@@ -445,7 +498,7 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
                 target.chmod(0o700)
                 project = (target / recipe.root).resolve()
                 if project != target.resolve() and target.resolve() not in project.parents:
-                    raise PreviewStartFailed("interactive_preview.root escapes the Snapshot")
+                    raise PreviewStartFailed("interactive_preview.root escapes the revision")
                 if not project.is_dir():
                     raise PreviewStartFailed(f"interactive_preview.root is missing on {side}: {recipe.root}")
                 hermetic = deps.hermetic(session, revision, side)
@@ -505,12 +558,17 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
             manager.ensure_sweeper()
 
     @router.get("/reviews/{review_id}/interactive-preview")
-    async def _describe(review_id: str) -> dict[str, Any]:
+    async def _describe(review_id: str, preview: str | None = None) -> dict[str, Any]:
         sweep_shared()
         session = deps.session(review_id)
         revision = deps.latest(session)
         viewer = deps.viewer_id(session)
-        current = await asyncio.to_thread(offer, session, revision)
+
+        def scoped_offer() -> Any:
+            with request_reads.reads_once():
+                return offer(session, revision, preview)
+
+        current = await asyncio.to_thread(scoped_offer)
         sessions = await asyncio.to_thread(manager.describe, session.id, viewer)
         return {**current.to_wire(), "revision_id": revision.id, "sessions": sessions}
 
@@ -537,7 +595,10 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ttl_seconds must be an integer"
             )
-        current = await asyncio.to_thread(offer, session, revision)
+        wanted = body.get("preview")
+        if wanted is not None and not isinstance(wanted, str):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="preview must be a string")
+        current = await asyncio.to_thread(offer, session, revision, wanted)
         if current.state != "available" or current.recipe is None or current.driver is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -588,6 +649,7 @@ def register_interactive_preview_routes(router: APIRouter, deps: InteractivePrev
                 content_access=str(hermetic.content_access),
                 managed_cap=managed_cap,
                 slot=slot,
+                preview=current.preview,
             )
         except PreviewRefused as exc:
             raise _refused(exc) from exc

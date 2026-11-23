@@ -1,5 +1,6 @@
 import React, { type ReactNode, useEffect, useState } from "react";
 import Link from "@docusaurus/Link";
+import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 
 import styles from "./styles.module.css";
 
@@ -18,13 +19,16 @@ type Props = {
   className?: string;
 };
 
-// Same honest, live-fetched badge as landing/src/components/GitHubStars.tsx --
-// no hardcoded count, renders nothing until a real number loads (and nothing
-// at all if the API is unreachable).
+// Same honest badge as landing/src/components/GitHubStars.tsx -- no hardcoded
+// count. The count read at build time (docusaurus.config.ts customFields) is
+// used as is; only a build that could not read it fetches it in the browser.
+// Until (or unless) a real number exists, the chip is a plain GitHub link.
 export default function GithubStarsNavbarItem({ className }: Props): ReactNode {
-  const [stars, setStars] = useState<number | null>(null);
+  const built = useDocusaurusContext().siteConfig.customFields?.githubStars;
+  const [stars, setStars] = useState<number | null>(typeof built === "number" ? built : null);
 
   useEffect(() => {
+    if (stars !== null) return;
     let alive = true;
     fetch(`https://api.github.com/repos/${REPO}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -37,9 +41,8 @@ export default function GithubStarsNavbarItem({ className }: Props): ReactNode {
     };
   }, []);
 
-  if (stars === null) return null;
-
-  const label = stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : `${stars}`;
+  // Until (or unless) the count loads, the chip is a plain GitHub link: never an empty gap in the navbar.
+  const label = stars === null ? "GitHub" : stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : `${stars}`;
 
   return (
     <Link
@@ -47,7 +50,7 @@ export default function GithubStarsNavbarItem({ className }: Props): ReactNode {
       className={[styles.badge, "navbar__item", className]
         .filter(Boolean)
         .join(" ")}
-      aria-label={`${stars} GitHub stars`}
+      aria-label={stars === null ? "LemonCrow on GitHub" : `${stars} GitHub stars`}
     >
       <svg
         viewBox="0 0 24 24"

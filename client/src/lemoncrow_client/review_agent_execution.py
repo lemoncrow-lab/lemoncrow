@@ -164,7 +164,7 @@ def execute_approved_leased_agent(
         explicit_operator_approval=explicit_operator_approval,
     )
     if stopped() or client.heartbeat(lease) != "running":
-        raise AgentInvocationRefused("agent task cancelled before Snapshot fetch")
+        raise AgentInvocationRefused("agent task cancelled before revision fetch")
     with materialize_leased_agent_snapshot(client, lease, limits=source_limits) as (snapshot, _manifest):
         return execute_approved_offline_agent(
             client,

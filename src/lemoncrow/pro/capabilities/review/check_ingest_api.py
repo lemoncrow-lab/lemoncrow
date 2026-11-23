@@ -161,7 +161,7 @@ def register_check_ingest_routes(
         if revision.id != latest(current).id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="a static finding is judged on the latest Snapshot; reload it first",
+                detail="a static finding is judged on the latest revision; reload it first",
             )
 
         def _record() -> dict[str, Any]:

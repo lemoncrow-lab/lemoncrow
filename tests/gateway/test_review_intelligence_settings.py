@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.core import settings
+from lemoncrow.pro.capabilities.review.ai_budget import BUDGET_SETTING
 from lemoncrow.pro.capabilities.review.background_budget import BackgroundWorkRequest, JobPriority
 from lemoncrow.pro.capabilities.review.background_budget_store import LocalBackgroundBudgetStore
 from lemoncrow.pro.capabilities.review.background_local import (
@@ -42,7 +43,11 @@ def test_default_projection_is_editable_local_and_names_its_settings(monkeypatch
     assert payload["scope"] == "local"
     route = payload["intelligence"]
     assert route["editable"] is True and "provider credentials" in route["edit_source"]
-    assert route["settings"] == [*SETTINGS_KEYS.values(), *LOCAL_BACKGROUND_SETTINGS]
+    assert route["settings"] == [BUDGET_SETTING, *SETTINGS_KEYS.values(), *LOCAL_BACKGROUND_SETTINGS]
+    # No budget set: no limit, and a call may start (OWNER-2).
+    assert payload["preferences"][BUDGET_SETTING] is None
+    assert payload["ai_budget"]["monthly_budget_usd"] is None and payload["ai_budget"]["may_run"] is True
+    assert "intelligence.enabled" not in payload["preferences"]
     assert route["status"] == "ready" and route["resolved"]["driver"] == "openai"
     assert route["run_on"]["effective_value"] == "local" and route["run_on"]["offered_here"] is True
     assert payload["preferences"]["intelligence.driver"] == "auto"
@@ -71,12 +76,20 @@ def test_background_switch_off_shows_off_in_the_route_and_the_envelope(settings_
     assert payload["background"]["reason"] == "background_disabled"
 
 
-def test_intelligence_off_turns_the_envelope_off_too(settings_root: Path) -> None:
-    settings.write_setting(settings_root, "intelligence.enabled", False)
+def test_a_zero_budget_pauses_the_envelope_and_changes_no_label(settings_root: Path) -> None:
+    settings.write_setting(settings_root, BUDGET_SETTING, 0)
     payload = local_intelligence_settings()
-    assert payload["intelligence"]["status"] == "disabled"
-    assert payload["intelligence"]["background_enabled"] is False
-    assert payload["background"]["state"] == "disabled"
+    # Which route would run is a label: it does not refuse at $0 (OWNER-1: nothing is hidden).
+    assert payload["intelligence"]["status"] != "disabled"
+    assert payload["intelligence"]["background_enabled"] is True
+    assert payload["ai_budget"]["may_run"] is False and payload["ai_budget"]["reason"] == "AI budget is $0"
+    assert payload["preferences"][BUDGET_SETTING] == 0
+    assert payload["background"]["state"] == "paused" and payload["background"]["reason"] == "ai_budget_exhausted"
+    request = BackgroundWorkRequest(
+        key="zero-budget", capability="review.auto_ai", priority=JobPriority.REVIEW_AUTO, max_calls=1, locus="local"
+    )
+    refused = LocalBackgroundBudgetStore(settings_root).reserve(request)
+    assert not refused.admitted and refused.reason.value == "ai_budget_exhausted"
 
 
 def test_spent_monthly_budget_is_one_paused_state_with_its_reason(settings_root: Path) -> None:
@@ -113,6 +126,24 @@ def test_no_credential_or_endpoint_reaches_the_projection(monkeypatch: pytest.Mo
     assert secret not in document and endpoint not in document
 
 
+def test_a_pinned_model_without_a_provider_is_refused_before_it_breaks_the_route(settings_root: Path) -> None:
+    before = settings.load_raw(settings_root)
+    with pytest.raises(ValueError, match="choose a provider"):
+        update_local_intelligence_settings({"settings": {"intelligence.model": "some-model"}})
+    with pytest.raises(ValueError, match="choose a provider"):
+        update_local_intelligence_settings(
+            {"settings": {"intelligence.driver": "auto", "intelligence.model": "some-model"}}
+        )
+    assert settings.load_raw(settings_root) == before
+
+    update_local_intelligence_settings(
+        {"settings": {"intelligence.driver": "claude", "intelligence.model": "some-model"}}
+    )
+    assert local_intelligence_settings()["intelligence"]["status"] != "invalid"
+    with pytest.raises(ValueError, match="choose a provider"):
+        update_local_intelligence_settings({"settings": {"intelligence.driver": "auto"}})
+
+
 def test_browser_updates_use_the_same_local_settings_as_terminal(settings_root: Path) -> None:
     update_local_intelligence_settings(
         {
@@ -120,7 +151,7 @@ def test_browser_updates_use_the_same_local_settings_as_terminal(settings_root: 
                 "intelligence.driver": "claude",
                 "intelligence.model": "auto",
                 "intelligence.run_on": "local",
-                "intelligence.enabled": True,
+                BUDGET_SETTING: 12.5,
                 "intelligence.background.enabled": False,
                 "intelligence.background.monthly_model_calls": 90,
                 "intelligence.background.daily_model_calls": 5,
@@ -131,6 +162,11 @@ def test_browser_updates_use_the_same_local_settings_as_terminal(settings_root: 
     assert values["intelligence.driver"] == "claude"
     assert values["intelligence.background.monthly_model_calls"] == 90
     assert values["intelligence.background.daily_model_calls"] == 5
+    assert values[BUDGET_SETTING] == 12.5
+    projection = local_intelligence_settings()
+    assert projection["preferences"][BUDGET_SETTING] == 12.5 and projection["ai_budget"]["monthly_budget_usd"] == 12.5
+    update_local_intelligence_settings({"settings": {BUDGET_SETTING: None}})
+    assert "intelligence.monthly_budget_usd" not in settings.load_raw(settings_root)
     projection = local_intelligence_settings()
     assert projection["preferences"]["intelligence.driver"] == "claude"
     assert projection["preferences"]["intelligence.background.enabled"] is False
@@ -142,7 +178,12 @@ def test_browser_updates_use_the_same_local_settings_as_terminal(settings_root: 
     [
         ("llm.api_key", "secret"),
         ("intelligence.driver", "invalid-driver"),
-        ("intelligence.enabled", "not a boolean"),
+        ("intelligence.enabled", False),
+        (BUDGET_SETTING, -2),
+        (BUDGET_SETTING, "5"),
+        (BUDGET_SETTING, True),
+        (BUDGET_SETTING, float("inf")),
+        (BUDGET_SETTING, float("nan")),
         ("intelligence.background.monthly_model_calls", -2),
         ("intelligence.background.daily_model_calls", 1.5),
         ("intelligence.run_on", "managed"),

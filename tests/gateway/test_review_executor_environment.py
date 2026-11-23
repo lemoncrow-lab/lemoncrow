@@ -11,14 +11,16 @@ environment unknown (``""``), so it never carries.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from lemoncrow.pro.capabilities.review import hermetic, runtimes
-from lemoncrow.pro.capabilities.review.execution import EXECUTOR_FINGERPRINT_VERSION
-from lemoncrow.pro.capabilities.review.runtimes import command_environment, command_identity
+from lemoncrow.pro.capabilities.review import hermetic
+from lemoncrow.pro.capabilities.review.runner_host import command_environment, command_identity, command_view
+from lemoncrow.pro.environment import runners as runtimes
+from lemoncrow.pro.environment.execution import EXECUTOR_FINGERPRINT_VERSION
 
 
 def _tool(path: Path, body: str) -> Path:
@@ -128,6 +130,7 @@ def test_a_new_kernel_is_another_environment(monkeypatch: pytest.MonkeyPatch) ->
     assert command_environment(["sh"]) == ""
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="the bubblewrap view maps the workspace to /workspace")
 def test_an_unknown_component_makes_the_whole_environment_unknown(tools: Path, tmp_path: Path) -> None:
     """Unknown never compares equal: an unknown environment has no executor digest at all."""
 
@@ -150,7 +153,7 @@ def test_an_unknown_component_makes_the_whole_environment_unknown(tools: Path, t
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     _tool(workspace / "run.sh", 'echo "run 1.0"\n')
-    view = runtimes.command_view(workspace=workspace)
+    view = command_view(workspace=workspace)
     [script, *_wrappers] = command_identity(["./run.sh"], view=view).executables
     assert (script.path, script.version, script.sha256) == ("/workspace/run.sh", "", "")
     assert command_identity(["./run.sh"], view=view).executor_digest == ""

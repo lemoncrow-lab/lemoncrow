@@ -174,7 +174,7 @@ class AgentSandbox:
             or source in repo.parents
             or repo in source.parents
         ):
-            raise AgentInvocationRefused("agent must use a separately materialized immutable Snapshot")
+            raise AgentInvocationRefused("agent must use a separately materialized immutable revision")
         if binary == repo or repo in binary.parents or binary == source or source in binary.parents:
             raise AgentInvocationRefused("agent executable cannot be supplied by untrusted repository source")
         if not (1 <= len(invocation.stdin.encode("utf-8")) <= _MAX_INPUT):

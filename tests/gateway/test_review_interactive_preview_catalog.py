@@ -8,7 +8,6 @@ from dataclasses import replace
 import pytest
 
 from lemoncrow.pro.capabilities.review.capability_catalog import PRESET_SELECTIONS, STATIC_CATALOG, detect_capabilities
-from lemoncrow.pro.capabilities.review.execution import EnvironmentFingerprint
 from lemoncrow.pro.capabilities.review.interactive_preview_api import remaining_minutes, static_framework
 from lemoncrow.pro.capabilities.review.preview_runtime import PreviewRecipeError, load_preview_recipe, static_recipe
 from lemoncrow.pro.capabilities.review.preview_sessions import (
@@ -22,6 +21,7 @@ from lemoncrow.pro.capabilities.review.preview_sessions import (
     token_matches,
 )
 from lemoncrow.pro.capabilities.review.run_plan import BudgetUsage, execution_class
+from lemoncrow.pro.environment.execution import EnvironmentFingerprint
 
 
 def test_preview_catalog_policy_contract() -> None:

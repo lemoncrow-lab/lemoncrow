@@ -18,6 +18,7 @@ import {
   type AssumptionsModel,
 } from "./assumptionsModel";
 import "./assumptions.css";
+import { revisionName } from "../revisionLabel";
 
 /**
  * N04 hook point: a host with a real Challenge flow passes this and each row
@@ -72,13 +73,13 @@ function StateBadge({ row }: { row: AssumptionRow }) {
   if (row.state === "contradicted") {
     return <Badge tone="destructive" className="as-badge" data-state="contradicted">{`Contradicted by ${row.contradictedBy.join(", ")}`}</Badge>;
   }
-  return <Badge tone="neutral" className="as-badge" data-state="unverified">Unverified</Badge>;
+  return <Badge tone="neutral" className="as-badge" data-state="unverified">Not verified</Badge>;
 }
 
 function SupportLine({ support }: { support: AssumptionSupport }) {
   const notes = [RELATION[support.relation]];
   if (support.mapping === "inferred") notes.push("relevance inferred, not counted");
-  if (!support.current) notes.push(support.snapshot_number !== null ? `from Snapshot ${support.snapshot_number}, not re-run on this one` : "not recorded on this Snapshot");
+  if (!support.current) notes.push(support.snapshot_number !== null ? `from ${revisionName(support.snapshot_number)}, not re-run on this one` : "not recorded on this revision");
   return (
     <li data-testid="assumption-support" data-current={support.current ? "true" : "false"}>
       <span className="as-code">{support.key}</span>
@@ -130,7 +131,7 @@ function Row({ row, model, props }: { row: AssumptionRow; model: AssumptionsMode
             ))}
           </ul>
         ) : (
-          <div className="as-note">Review level · not tied to a loaded changed target</div>
+          <div className="as-note">Whole change</div>
         )}
         {(row.sourcesOmitted > 0 || row.unresolvedTargets > 0) && (
           <div className="as-note">
@@ -160,7 +161,7 @@ function Row({ row, model, props }: { row: AssumptionRow; model: AssumptionsMode
                       {label}
                     </Button>
                   ) : <span className="as-code">{label}</span>}
-                  <span className="as-note">{` · ${site.exactness === "snapshot" ? "this Snapshot" : "working index"}${site.uncertainty ? ` · candidate: ${site.uncertainty}` : ""}`}</span>
+                  <span className="as-note">{` · ${site.exactness === "snapshot" ? "this revision" : "working index"}${site.uncertainty ? ` · candidate: ${site.uncertainty}` : ""}`}</span>
                 </li>
               );
             })}
@@ -188,7 +189,7 @@ function Row({ row, model, props }: { row: AssumptionRow; model: AssumptionsMode
             </Button>
           )}
           {props.onChallenge && (
-            <Button variant="ghost" size="compact" type="button" aria-describedby={titleId} onClick={() => props.onChallenge?.(row, model.context)}>
+            <Button variant="outline" size="compact" type="button" aria-describedby={titleId} onClick={() => props.onChallenge?.(row, model.context)}>
               Challenge
             </Button>
           )}
@@ -252,19 +253,21 @@ export default function Assumptions(props: AssumptionsProps) {
     plural(looked.statedLimits, "stated limit"),
     plural(looked.aiQuestions, "AI question"),
     plural(looked.behaviorChanges, "behavior change"),
-    plural(looked.consumerSites, "consumer site"),
+    looked.consumerSites === null
+      ? "consumer sites not measured"
+      : `${looked.consumerSitesAtLeast ? "at least " : ""}${plural(looked.consumerSites, "consumer site")}`,
   ].join(", ");
 
   return (
     <div className="as-root" data-testid="assumptions" data-snapshot={identity}>
       <p className="as-intro">
-        What this change relies on, and whether a recorded check demonstrates it. Unverified means no linked check on this Snapshot shows it holds; AI suggestions are leads to investigate, not facts.
+        What this change relies on, and whether a recorded check shows it holds. AI suggestions are leads, not facts.
       </p>
       {model.scope.kind !== "review" && <p className="as-note" data-testid="assumptions-scope">{`Scoped to ${model.scope.label}`}</p>}
       {model.counts.rows > 0 && (
         <ul className="as-legend" aria-label="Assumption states" data-testid="assumptions-counts">
           <li>{plural(model.counts.rows, "assumption")}</li>
-          <li>{`${model.counts.unverified} unverified`}</li>
+          <li>{`${model.counts.unverified} not verified`}</li>
           {model.counts.checked > 0 && <li>{`${model.counts.checked} checked`}</li>}
           {model.counts.contradicted > 0 && <li>{`${model.counts.contradicted} contradicted`}</li>}
           {model.counts.duplicatesMerged > 0 && <li>{`${plural(model.counts.duplicatesMerged, "repeated record")} folded in`}</li>}
@@ -287,11 +290,11 @@ export default function Assumptions(props: AssumptionsProps) {
       )}
       {model.counts.rows === 0 ? (
         <p className="as-note" data-testid="assumptions-empty">
-          {`No precondition, invariant, idempotency, concurrency, authorization, data-shape, failure/retry or side-effect assumption in what was looked at: ${lookedAt}. That is not the same as safe.`}
+          No assumptions found in what was looked at.
         </p>
       ) : groups.length === 0 && focusId ? (
         <p className="as-note" data-testid="assumptions-focus-empty">
-          {`None of the ${plural(model.counts.rows, "assumption")} found is on this code. That is not the same as safe: choose All changed code to see them.`}
+          {`None of the ${plural(model.counts.rows, "assumption")} found is on this code. Choose All changed code to see them.`}
         </p>
       ) : (
         groups.map(({ group, rows }) => <Group key={`${identity}:${group.kind}`} group={group} rows={rows} model={model} props={props} />)

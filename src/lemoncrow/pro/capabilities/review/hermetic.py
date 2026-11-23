@@ -44,8 +44,8 @@ hash-pinned ``requirements*.txt`` in
 with a visible reason by :func:`unsupported_lockfiles`; nothing falls back to
 the live checkout.
 
-Caches are write-isolated by source trust (:func:`~lemoncrow.pro.capabilities.
-review.execution.cache_namespace`): an untrusted head run writes only its own
+Caches are write-isolated by source trust (:func:`~lemoncrow.pro.environment.execution.
+cache_namespace`): an untrusted head run writes only its own
 namespace and nothing it writes is readable by a trusted or base run.
 """
 
@@ -71,7 +71,6 @@ import sys
 import tempfile
 import threading
 import time
-import uuid
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -82,7 +81,15 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 import yaml
 
-from lemoncrow.pro.capabilities.review.execution import (
+from lemoncrow.pro.capabilities.review.run_evidence import (
+    DEFAULT_RAW_RETENTION_SECONDS,
+    RedactionPolicy,
+    RunArtifactStore,
+    protect_bytes,
+    protect_text,
+)
+from lemoncrow.pro.environment.dependency_cache import TARBALL_IDLE_SECONDS, DependencyCache, tree_lock
+from lemoncrow.pro.environment.execution import (
     DEFAULT_UNVERIFIED_INTEGRATIONS,
     PARTIAL_IMAGE_PREFIX,
     UNKNOWN_ENVIRONMENT_VALUES,
@@ -101,14 +108,6 @@ from lemoncrow.pro.capabilities.review.execution import (
     UnverifiedIntegration,
     VerificationEnvironment,
     canonical_digest,
-    readable_cache_namespaces,
-)
-from lemoncrow.pro.capabilities.review.run_evidence import (
-    DEFAULT_RAW_RETENTION_SECONDS,
-    RedactionPolicy,
-    RunArtifactStore,
-    protect_bytes,
-    protect_text,
 )
 
 HERMETIC_POLICY_VERSION: Final[int] = 1
@@ -124,11 +123,11 @@ MAX_REDIRECTS: Final[int] = 3
 FETCH_TIMEOUT_SECONDS: Final[float] = 60.0
 INSTALL_TIMEOUT_SECONDS: Final[int] = 600
 FETCH_CONCURRENCY: Final[int] = 8
-KEEP_TREES_PER_NAMESPACE: Final[int] = 8
-TREE_IDLE_SECONDS: Final[float] = 7 * 24 * 3600
-TARBALL_IDLE_SECONDS: Final[float] = 30 * 24 * 3600
-_PRUNE_EVERY_SECONDS: Final[float] = 600.0
 SINK_MOUNT: Final[str] = "/lemoncrow-sinks"
+#: Where the run stage sees the npm cache seeded from the verified tarballs (read-only).
+NPM_CACHE_MOUNT: Final[str] = "/lemoncrow-npm-cache"
+_NPM_CACHE_KIND: Final[str] = "npm-cache"
+_NPM_PRUNE_EVERY_SECONDS: Final[float] = 600.0
 SINK_MAX_CAPTURES: Final[int] = 256
 SINK_MAX_PAYLOAD_BYTES: Final[int] = 256 * 1024
 _PREVIEW_CHARS: Final[int] = 2048
@@ -1059,21 +1058,22 @@ print(json.dumps({"ok": True, "packages": len(plan["packages"]), "bytes": total,
 """
 
 
-def _bwrap() -> str:
-    found = shutil.which("bwrap") or shutil.which("bubblewrap")
+def _bwrap(search_path: str | None = None) -> str:
+    found = shutil.which("bwrap", path=search_path) or shutil.which("bubblewrap", path=search_path)
     if not found:
         raise HermeticUnavailable("hermetic stages require bubblewrap; refusing to run unsandboxed")
     return found
 
 
-def offline_bwrap_prefix(*, unshare_all: bool = True) -> list[str]:
+def offline_bwrap_prefix(*, unshare_all: bool = True, search_path: str | None = None) -> list[str]:
     """Base bubblewrap argv for an offline stage: runtime read-only, nothing else.
 
     No host home, credentials, ``/etc`` secrets, Docker socket or ambient
-    environment are mounted or inherited.
+    environment are mounted or inherited. *search_path* is where ``bwrap`` is
+    looked up (``None``: ``PATH``); the attested proof passes the system path.
     """
 
-    command = [_bwrap(), "--die-with-parent", "--new-session"]
+    command = [_bwrap(search_path), "--die-with-parent", "--new-session"]
     command.extend(("--unshare-all",) if unshare_all else ("--unshare-net", "--unshare-pid"))
     command.extend(("--proc", "/proc", "--dev", "/dev"))
     for mount in _RUNTIME_MOUNTS:
@@ -1110,155 +1110,95 @@ class ProvisionedTree:
     node_modules: Path
     plan: InstallPlan
     stages: tuple[StageOutcome, ...]
-
-
-_PRUNE_GUARD = threading.Lock()
-_LAST_PRUNE: dict[str, float] = {}
-_TREE_LOCKS: dict[str, threading.Lock] = {}
-
-
-def _tree_lock(key: str) -> threading.Lock:
-    # lc-debt: process-local lock map grows with distinct plan digests; bounded by trees provisioned per process.
-    with _PRUNE_GUARD:
-        return _TREE_LOCKS.setdefault(key, threading.Lock())
-
-
-class DependencyCache:
-    """Fetch/build caches under ``<store>/review/hermetic/<namespace>``.
-
-    A run writes only to its own namespace and reads only the namespaces
-    :func:`readable_cache_namespaces` allows. Writers touch entries on use and
-    :meth:`prune` (run by the writer, amortized) is the closer.
-    """
-
-    def __init__(self, root: Path, namespace: CacheNamespace) -> None:
-        self.root = root
-        self.namespace = namespace
-
-    @staticmethod
-    def for_store(store_root: Path, namespace: CacheNamespace) -> DependencyCache:
-        return DependencyCache(store_root / "review" / "hermetic", namespace)
-
-    def _dir(self, namespace: CacheNamespace, kind: str) -> Path:
-        return self.root / namespace / kind
-
-    @property
-    def writable_tarballs(self) -> Path:
-        return self._dir(self.namespace, "tarballs")
-
-    def readable_tarball_dirs(self) -> tuple[Path, ...]:
-        return tuple(self._dir(ns, "tarballs") for ns in readable_cache_namespaces(self.namespace))
-
-    def tarball(self, sha512_hex: str) -> Path | None:
-        for directory in self.readable_tarball_dirs():
-            candidate = directory / f"{sha512_hex}.tgz"
-            try:
-                if candidate.is_file() and hashlib.sha512(candidate.read_bytes()).hexdigest() == sha512_hex:
-                    os.utime(candidate)
-                    return candidate
-            except OSError:
-                continue
-        return None
-
-    def store_tarball(self, sha512_hex: str, payload: bytes) -> Path:
-        return self._store_blob(self.writable_tarballs, f"{sha512_hex}.tgz", payload)
-
-    @property
-    def writable_wheels(self) -> Path:
-        return self._dir(self.namespace, "wheels")
-
-    def readable_wheel_dirs(self) -> tuple[Path, ...]:
-        return tuple(self._dir(ns, "wheels") for ns in readable_cache_namespaces(self.namespace))
-
-    def wheel(self, sha256_hex: str) -> Path | None:
-        """A cached wheel whose bytes still hash to *sha256_hex*."""
-
-        for directory in self.readable_wheel_dirs():
-            candidate = directory / f"{sha256_hex}.whl"
-            try:
-                if candidate.is_file() and hashlib.sha256(candidate.read_bytes()).hexdigest() == sha256_hex:
-                    os.utime(candidate)
-                    return candidate
-            except OSError:
-                continue
-        return None
-
-    def store_wheel(self, sha256_hex: str, payload: bytes) -> Path:
-        return self._store_blob(self.writable_wheels, f"{sha256_hex}.whl", payload)
-
-    @staticmethod
-    def _store_blob(directory: Path, name: str, payload: bytes) -> Path:
-        directory.mkdir(parents=True, exist_ok=True)
-        target = directory / name
-        tmp = directory / f".{name}.{uuid.uuid4().hex}.tmp"
-        tmp.write_bytes(payload)
-        tmp.replace(target)
-        return target
-
-    def tree(self, plan_digest: str, content: str = "node_modules") -> Path | None:
-        for namespace in readable_cache_namespaces(self.namespace):
-            entry = self._dir(namespace, "trees") / plan_digest
-            try:
-                marker = json.loads((entry / "tree.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if marker.get("plan_digest") == plan_digest and (entry / content).is_dir():
-                try:
-                    os.utime(entry)
-                except OSError:
-                    pass
-                return entry / content
-        return None
-
-    def new_tree_dir(self, plan_digest: str) -> tuple[Path, Path]:
-        trees = self._dir(self.namespace, "trees")
-        trees.mkdir(parents=True, exist_ok=True)
-        staging = trees / f".{plan_digest}.{uuid.uuid4().hex}.tmp"
-        staging.mkdir()
-        return staging, trees / plan_digest
-
-    def prune(self, *, force: bool = False) -> None:
-        """Closer: drop idle trees beyond the per-namespace budget and idle tarballs."""
-
-        key = str(self.root.resolve()) if self.root.exists() else str(self.root)
-        now = time.time()
-        with _PRUNE_GUARD:
-            if not force and now - _LAST_PRUNE.get(key, 0.0) < _PRUNE_EVERY_SECONDS:
-                return
-            _LAST_PRUNE[key] = now
-        for namespace in readable_cache_namespaces(self.namespace)[:1]:
-            trees = self._dir(namespace, "trees")
-            try:
-                rows = sorted(
-                    (item for item in trees.iterdir() if item.is_dir()),
-                    key=lambda item: item.stat().st_mtime,
-                    reverse=True,
-                )
-            except OSError:
-                rows = []
-            for index, entry in enumerate(rows):
-                try:
-                    idle = now - entry.stat().st_mtime
-                except OSError:
-                    continue
-                stale_tmp = entry.name.startswith(".") and idle > 3600
-                if (
-                    stale_tmp
-                    or (index >= KEEP_TREES_PER_NAMESPACE and idle >= TREE_IDLE_SECONDS)
-                    or idle >= 4 * TREE_IDLE_SECONDS
-                ):
-                    shutil.rmtree(entry, ignore_errors=True)
-            for kind in ("tarballs", "wheels"):
-                try:
-                    for item in self._dir(namespace, kind).iterdir():
-                        if now - item.stat().st_mtime >= TARBALL_IDLE_SECONDS:
-                            item.unlink(missing_ok=True)
-                except OSError:
-                    continue
+    npm_cache: Path
+    """An npm cache directory (``npm_config_cache``) holding every package of *plan* by its integrity."""
 
 
 def _stage_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def npm_cache_dir(cache: DependencyCache) -> Path:
+    """The run's npm cache, in npm's own layout, under the run's namespace only.
+
+    Entries live where npm reads a package by its lockfile integrity
+    (``_cacache/content-v2/<algorithm>/<aa>/<bb>/<rest of the hex digest>``), and npm
+    re-checks that hash on every read. Each entry is a hard link to (else a copy of)
+    a tarball that was already verified, so the tarballs are stored once.
+    """
+
+    return cache.root / cache.namespace / _NPM_CACHE_KIND
+
+
+def _npm_cache_entry(root: Path, pkg: PlannedPackage) -> Path:
+    algorithm, digest = pkg.strongest
+    hexdigest = digest.hex()
+    return root / "_cacache" / "content-v2" / algorithm / hexdigest[:2] / hexdigest[2:4] / hexdigest[4:]
+
+
+def _touch(path: Path) -> bool:
+    """Mark *path* used (it and the tarball it links idle from now); ``False`` when it is absent."""
+
+    try:
+        if not path.is_file():
+            return False
+        os.utime(path)
+    except OSError:
+        return False
+    return True
+
+
+def _seed_npm_cache(root: Path, entries: Iterable[tuple[PlannedPackage, Path]]) -> None:
+    """Place each verified tarball where npm looks it up by integrity."""
+
+    for pkg, source in entries:
+        target = _npm_cache_entry(root, pkg)
+        if target.is_file():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staged = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            staged.unlink(missing_ok=True)
+            os.link(source, staged)
+        except OSError:
+            shutil.copyfile(source, staged)
+        staged.replace(target)
+
+
+def _prune_npm_cache(root: Path, *, force: bool = False) -> None:
+    """Closer for the npm cache: entries idle as long as an idle tarball go, amortized per directory."""
+
+    now = time.time()
+    stamp = root / ".pruned"
+    try:
+        last = stamp.stat().st_mtime
+    except OSError:
+        last = 0.0
+    if not force and now - last < _NPM_PRUNE_EVERY_SECONDS:
+        return
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        stamp.touch()
+    except OSError:
+        return
+    content = root / "_cacache" / "content-v2"
+    for directory, _subdirs, files in os.walk(content, topdown=False):
+        for name in files:
+            path = os.path.join(directory, name)
+            try:
+                idle = now - os.lstat(path).st_mtime
+            except OSError:
+                continue
+            if idle >= TARBALL_IDLE_SECONDS or (name.startswith(".") and idle > 3600):
+                try:
+                    os.unlink(path)
+                except OSError:
+                    continue
+        if directory != str(content):
+            try:
+                os.rmdir(directory)
+            except OSError:
+                pass
 
 
 def provision_npm_dependencies(
@@ -1271,25 +1211,33 @@ def provision_npm_dependencies(
 ) -> ProvisionedTree:
     """Fetch (registry-only) then build (offline) the reviewed lockfile's dependency tree.
 
-    Raises :class:`HermeticRefused` for policy violations and
-    :class:`HermeticUnavailable` when the host or registry cannot serve.
+    Fetch also seeds :func:`npm_cache_dir` with every locked package, so npm run
+    offline finds each one by its integrity. Raises :class:`HermeticRefused` for
+    policy violations and :class:`HermeticUnavailable` when the host or registry
+    cannot serve.
     """
 
     started = time.monotonic()
     plan = plan_npm_install(project, policy)
     blocked = (*plan.blocked_scripts, *(f"skipped {item}" for item in plan.skipped))
+    npm_cache = npm_cache_dir(cache)
+    npm_cache.mkdir(parents=True, exist_ok=True)
+    uncached = [pkg for pkg in plan.packages if not _touch(_npm_cache_entry(npm_cache, pkg))]
     existing = cache.tree(plan.digest)
-    if existing is not None:
+    if existing is not None and not uncached:
         hit = (
             StageOutcome("fetch", "skipped", network="registry_only", detail="dependency tree cache hit", cache="hit"),
             StageOutcome("build", "passed", detail="dependency tree cache hit", cache="hit", blocked=blocked),
         )
-        return ProvisionedTree(existing, plan, hit)
+        _prune_npm_cache(npm_cache)
+        return ProvisionedTree(existing, plan, hit, npm_cache)
 
     client = fetcher or RegistryFetcher(policy, should_cancel=should_cancel)
     missing: list[PlannedPackage] = []
     digests: dict[str, str] = {}
-    for pkg in plan.packages:
+    sources: dict[str, Path] = {}
+    # A built tree whose npm cache lacks entries (pruned, or built before the cache) needs only those tarballs.
+    for pkg in plan.packages if existing is None else uncached:
         algorithm, expected = pkg.strongest
         cached = None
         if algorithm == "sha512":
@@ -1297,11 +1245,13 @@ def provision_npm_dependencies(
             cached = cache.tarball(expected.hex())
         if cached is None:
             missing.append(pkg)
+        else:
+            sources[pkg.path] = cached
 
     fetched_bytes = 0
     byte_guard = threading.Lock()
 
-    def fetch_one(pkg: PlannedPackage) -> tuple[str, str]:
+    def fetch_one(pkg: PlannedPackage) -> tuple[str, str, Path]:
         nonlocal fetched_bytes
         if should_cancel is not None and should_cancel():
             raise HermeticUnavailable("dependency fetch cancelled by revoked authority")
@@ -1314,13 +1264,13 @@ def provision_npm_dependencies(
             if fetched_bytes > MAX_TOTAL_FETCH_BYTES:
                 raise HermeticRefused(f"dependency fetch exceeds {MAX_TOTAL_FETCH_BYTES} bytes")
         sha512_hex = hashlib.sha512(payload).hexdigest()
-        cache.store_tarball(sha512_hex, payload)
-        return pkg.path, sha512_hex
+        return pkg.path, sha512_hex, cache.store_tarball(sha512_hex, payload)
 
     if missing:
         with ThreadPoolExecutor(max_workers=min(FETCH_CONCURRENCY, len(missing))) as pool:
-            for path, sha512_hex in pool.map(fetch_one, missing):
+            for path, sha512_hex, stored in pool.map(fetch_one, missing):
                 digests[path] = sha512_hex
+                sources[path] = stored
     fetch_stage = StageOutcome(
         "fetch",
         "passed",
@@ -1334,14 +1284,22 @@ def provision_npm_dependencies(
         blocked=blocked,
         cache="miss" if missing else "hit",
     )
+    # Every tarball here was verified against its lockfile integrity; npm checks it again on read.
+    _seed_npm_cache(npm_cache, ((pkg, sources[pkg.path]) for pkg in uncached))
+    if existing is not None:
+        _prune_npm_cache(npm_cache)
+        tree_hit = StageOutcome("build", "passed", detail="dependency tree cache hit", cache="hit", blocked=blocked)
+        return ProvisionedTree(existing, plan, (fetch_stage, tree_hit), npm_cache)
 
     if should_cancel is not None and should_cancel():
         raise HermeticUnavailable("dependency build cancelled by revoked authority")
     build_started = time.monotonic()
-    with _tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
+    with tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
         existing = cache.tree(plan.digest)
         if existing is not None:
-            return ProvisionedTree(existing, plan, (fetch_stage, StageOutcome("build", "passed", cache="hit")))
+            return ProvisionedTree(
+                existing, plan, (fetch_stage, StageOutcome("build", "passed", cache="hit")), npm_cache
+            )
         staging, final = cache.new_tree_dir(plan.digest)
         try:
             report = _run_offline_install(plan, digests, cache, staging, should_cancel=should_cancel)
@@ -1357,6 +1315,7 @@ def provision_npm_dependencies(
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
     cache.prune()
+    _prune_npm_cache(npm_cache)
     build_blocked = tuple(dict.fromkeys((*blocked, *(str(item) for item in report.get("blocked", ())))))
     build_stage = StageOutcome(
         "build",
@@ -1366,7 +1325,7 @@ def provision_npm_dependencies(
         blocked=build_blocked,
         cache="miss",
     )
-    return ProvisionedTree(final / "node_modules", plan, (fetch_stage, build_stage))
+    return ProvisionedTree(final / "node_modules", plan, (fetch_stage, build_stage), npm_cache)
 
 
 def _run_offline_install(
@@ -1377,7 +1336,7 @@ def _run_offline_install(
     *,
     should_cancel: Callable[[], bool] | None = None,
 ) -> Mapping[str, Any]:
-    from lemoncrow.pro.capabilities.review.sandbox_limits import (
+    from lemoncrow.pro.environment.sandbox_limits import (
         SandboxCapacityBusy,
         SandboxExecutionCancelled,
         run_limited,
@@ -1598,8 +1557,21 @@ def provision_dependencies(
             project, policy=policy, cache=cache, fetcher=fetcher, should_cancel=should_cancel
         )
         stages.extend(tree.stages)
+        # lc-debt: node_modules is the shared built tree, read-only, so `npm ci` (which empties it first)
+        # still fails in the bubblewrap run stage (the OCI run stage gives it a per-run writable layer);
+        # upgrade: the same layer under bubblewrap (--tmp-overlay).
         mounts.append((tree.node_modules, f"{base}/node_modules"))
+        mounts.append((tree.npm_cache, NPM_CACHE_MOUNT))
         prefix.append(f"{base}/node_modules/.bin")
+        # npm never reaches a registry from the run stage: it reads every locked package from the
+        # seeded cache by its integrity, and its logs go to the sandbox's /tmp.
+        env.extend(
+            (
+                ("npm_config_offline", "true"),
+                ("npm_config_cache", NPM_CACHE_MOUNT),
+                ("npm_config_logs_dir", "/tmp/lemoncrow-npm-logs"),
+            )
+        )
         ecosystems.append("npm")
     if python_state:
         require_active()
@@ -1610,6 +1582,16 @@ def provision_dependencies(
         mounts.append((python.root, PYTHON_ENV_MOUNT))
         prefix.append(f"{PYTHON_VENV}/bin")
         env.extend((("VIRTUAL_ENV", PYTHON_VENV), ("PYTHONDONTWRITEBYTECODE", "1")))
+        # `uv run` uses the provisioned environment as it is: no sync, no index, no Python download.
+        env.extend(
+            (
+                ("UV_PROJECT_ENVIRONMENT", PYTHON_VENV),
+                ("UV_OFFLINE", "1"),
+                ("UV_NO_SYNC", "1"),
+                ("UV_PYTHON_DOWNLOADS", "never"),
+                ("UV_CACHE_DIR", "/tmp/lemoncrow-uv-cache"),
+            )
+        )
         ecosystems.append("pypi")
     require_active()
     return ProvisionedDependencies(
@@ -1619,6 +1601,94 @@ def provision_dependencies(
         env=tuple(env),
         lockfile_digest=lockfile_digest(project),
         ecosystems=tuple(ecosystems),
+    )
+
+
+#: The lockfiles a declared ``environment.toml`` dependency may name: the ones fetch can provision.
+DECLARED_LOCKFILES: Final[tuple[str, ...]] = ("package-lock.json", "uv.lock")
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredDependencies:
+    """The trusted base's ``environment.toml`` ``[[dependencies]]`` lockfiles; only a trusted dispatcher builds one."""
+
+    lockfiles: tuple[str, ...] = ()
+
+
+def _declared_refusal(lockfile: str) -> str:
+    name = PurePosixPath(lockfile).name
+    if name in DECLARED_LOCKFILES or (name.startswith("requirements") and name.endswith(".txt")):
+        return ""
+    tool = _UNSUPPORTED_LOCKFILES.get(name, "")
+    return (
+        f"dependencies: {lockfile}{f' ({tool})' if tool else ''} cannot be provisioned hermetically "
+        "(package-lock.json, uv.lock and hash-pinned requirements*.txt can); refusing to run without it"
+    )
+
+
+def provision_declared_dependencies(
+    workspace: Path,
+    declared: DeclaredDependencies,
+    *,
+    policy: HermeticPolicy,
+    cache: DependencyCache,
+    sandbox_root: str = "/workspace",
+    fetcher: RegistryFetcher | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> ProvisionedDependencies:
+    """Provision exactly the declared lockfiles' projects (their directories) for the run stage.
+
+    The declaration replaces the scan of the run directory: each lockfile's directory is
+    provisioned by :func:`provision_dependencies`, so fetch reads the lockfile itself and the
+    declared ``install`` command never runs. A lockfile no provisioner reads, or one missing
+    on this side, refuses the run (:class:`HermeticRefused`).
+    """
+
+    directories: list[str] = []
+    for lockfile in declared.lockfiles:
+        refusal = _declared_refusal(lockfile)
+        if refusal:
+            raise HermeticRefused(refusal)
+        root = workspace.resolve()
+        target = (workspace / lockfile).resolve()
+        if root not in target.parents:
+            raise HermeticRefused(f"dependencies: {lockfile} resolves outside the reviewed tree")
+        if not target.is_file():
+            raise HermeticRefused(f"dependencies: {lockfile} is declared but this side of the change has no such file")
+        directory = PurePosixPath(lockfile).parent.as_posix()
+        if directory not in directories:
+            directories.append(directory)
+    from lemoncrow.pro.capabilities.review.hermetic_python import python_project_state
+
+    python = [directory for directory in directories if python_project_state(workspace / directory)]
+    if len(python) > 1:
+        # lc-debt: one provisioned Python environment per run (one fixed mount); upgrade: a mount per project.
+        raise HermeticRefused(f"dependencies: Python projects in {', '.join(python)}; a run provisions one")
+    parts = [
+        provision_dependencies(
+            workspace / directory,
+            policy=policy,
+            cache=cache,
+            sandbox_project=sandbox_root if directory == "." else f"{sandbox_root}/{directory}",
+            fetcher=fetcher,
+            should_cancel=should_cancel,
+        )
+        for directory in directories
+    ]
+    digest = hashlib.sha256()
+    for directory, part in zip(directories, parts, strict=True):
+        digest.update(f"{directory}\0{part.lockfile_digest}\0".encode())
+    env: dict[str, str] = {}
+    for part in parts:
+        env.update(part.env)
+    return ProvisionedDependencies(
+        stages=tuple(stage for part in parts for stage in part.stages),
+        # npm projects share the run's one npm cache mount.
+        mounts=tuple(dict.fromkeys(mount for part in parts for mount in part.mounts)),
+        path_prefix=tuple(dict.fromkeys(entry for part in parts for entry in part.path_prefix)),
+        env=tuple(env.items()),
+        lockfile_digest=digest.hexdigest() if parts else "",
+        ecosystems=tuple(dict.fromkeys(ecosystem for part in parts for ecosystem in part.ecosystems)),
     )
 
 
@@ -2428,7 +2498,7 @@ class HermeticContext:
 
         from dataclasses import replace
 
-        from lemoncrow.pro.capabilities.review.execution import cache_namespace
+        from lemoncrow.pro.environment.execution import cache_namespace
 
         return replace(self, namespace=cache_namespace(side, self.source_trust))
 
@@ -2454,7 +2524,7 @@ def hermetic_context(
 ) -> HermeticContext:
     """Build a :class:`HermeticContext`; an invalid trusted policy yields a refusing context."""
 
-    from lemoncrow.pro.capabilities.review.execution import cache_namespace
+    from lemoncrow.pro.environment.execution import cache_namespace
 
     namespace = cache_namespace(side, source_trust)
     try:
@@ -2538,9 +2608,9 @@ __all__ = [
     "DEFAULT_PYPI_INDEX",
     "DEFAULT_REGISTRIES",
     "ECOSYSTEMS",
+    "NPM_CACHE_MOUNT",
     "SINK_MOUNT",
     "SINK_PORTS",
-    "DependencyCache",
     "FixtureSpec",
     "HermeticContext",
     "HermeticPolicy",
@@ -2561,6 +2631,7 @@ __all__ = [
     "hermetic_policy_from_wire",
     "kernel_release",
     "load_hermetic_policy",
+    "npm_cache_dir",
     "npm_dependency_digest",
     "npm_project_state",
     "offline_bwrap_prefix",

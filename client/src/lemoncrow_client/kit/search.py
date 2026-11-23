@@ -17,7 +17,7 @@ import mimetypes
 import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +40,8 @@ _FILE_PATHS_ONLY_CAP = 200
 # Wall-clock budget for running a user-supplied content_regex across all
 # candidate files. Caps catastrophic-backtracking ReDoS to a bounded hang.
 _REGEX_DEADLINE_SECONDS = 5.0
+# Wall-clock bound on reading every candidate to rank it by ``rank_terms``.
+_RANK_DEADLINE_SECONDS = 10.0
 # Per-line input cap fed to the user regex — a single pathological line cannot
 # drive backtracking time superlinearly past this bound.
 _REGEX_MAX_LINE_CHARS = 20_000
@@ -298,6 +300,15 @@ def _parse_when(value: str | None) -> datetime | None:
         return None
 
 
+def _in_skip_dir(path: Path, root: Path) -> bool:
+    """Whether ``path`` lies in a skipped directory below ``root``.
+
+    Directories above the root do not count: a clone under ``~/build`` still has files.
+    """
+    below_root = path.relative_to(root) if path.is_relative_to(root) else path
+    return not SKIP_DIRS.isdisjoint(below_root.parts)
+
+
 def _iter_files(
     root: Path,
     base: Path,
@@ -346,7 +357,7 @@ def _iter_files(
         fallback_spec = PatternSpec(pattern=".")
         found: dict[Path, PatternSpec] = {}
         for item in _walk(base):
-            if not item.is_file() or any(part in SKIP_DIRS for part in item.parts):
+            if not item.is_file() or _in_skip_dir(item, root):
                 continue
             resolved = item.resolve()
             if not resolved.is_relative_to(root):
@@ -371,7 +382,7 @@ def _iter_files(
                 resolved = match.resolve()
                 if not resolved.is_relative_to(root):
                     continue
-                if any(part in SKIP_DIRS for part in resolved.parts):
+                if _in_skip_dir(resolved, root):
                     continue
                 if universe is not None and resolved not in universe:
                     continue
@@ -386,7 +397,7 @@ def _iter_files(
             continue
         if candidate.is_dir():
             for item in _walk(candidate):
-                if not item.is_file() or any(part in SKIP_DIRS for part in item.parts):
+                if not item.is_file() or _in_skip_dir(item, root):
                     continue
                 resolved = item.resolve()
                 if not resolved.is_relative_to(root):
@@ -911,6 +922,44 @@ def _render_text_result(
     return redact_tool_output("\n".join(rendered)), len(match_lines)
 
 
+def _rank_by_terms(
+    root: Path,
+    candidates: list[tuple[Path, PatternSpec]],
+    terms: Sequence[str],
+    limit: int,
+) -> tuple[list[tuple[Path, PatternSpec]], dict[Path, int], bool]:
+    """The ``limit`` candidates holding the most distinct ``terms``, then the most occurrences.
+
+    A walk in path order that stops at ``limit`` matches keeps whichever files sort
+    first, whatever they say. A term in a file's own path counts, once its content
+    holds some term. Returns them best first, each file's distinct-term count, and
+    whether a bound left candidates unread.
+    """
+    lowered = [term.lower() for term in terms]
+    scored: list[tuple[int, int, str, tuple[Path, PatternSpec]]] = []
+    deadline = time.monotonic() + _RANK_DEADLINE_SECONDS
+    cut = len(candidates) >= _MAX_SEARCH_CANDIDATES
+    for pair in candidates:
+        if time.monotonic() > deadline:
+            cut = True
+            break
+        candidate = pair[0]
+        source = _read_search_text(candidate) if _is_text_file(candidate) else None
+        if source is None:
+            continue
+        content = source.lower()
+        occurrences = [content.count(term) for term in lowered]
+        if not any(occurrences):
+            continue
+        rel = str(candidate.relative_to(root)) if candidate.is_relative_to(root) else str(candidate)
+        where = rel.lower()
+        distinct = sum(1 for term, count in zip(lowered, occurrences, strict=True) if count or term in where)
+        scored.append((distinct, sum(occurrences), rel, pair))
+    scored.sort(key=lambda row: (-row[0], -row[1], row[2]))
+    best = scored[:limit]
+    return [row[3] for row in best], {row[3][0]: row[0] for row in best}, cut
+
+
 def search_workspace(
     *,
     path: str = ".",
@@ -933,8 +982,13 @@ def search_workspace(
     include_metadata: bool = True,
     badge_provider: Callable[[str, list[str]], str | None] | None = None,
     hooks: SearchHooks | None = None,
+    rank_terms: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Search and read files in one structured response.
+
+    ``rank_terms`` keeps the ``file_limit`` files holding the most of those terms
+    instead of the first ones in path order, for a regex that alternates between
+    them. The result has ``search_incomplete`` when a bound left files unread.
 
     ``badge_provider`` (optional, content mode only) receives ``(rel_path, [symbol
     names matched as definitions])`` and returns a short string appended to that
@@ -1073,6 +1127,14 @@ def search_workspace(
         )
     )
     limit = file_limit or 100
+    # The regex budget bounds matching, not the walk: on a large tree the walk alone
+    # used to spend it, and every file then reported no match.
+    if regex is not None:
+        deadline = time.monotonic() + _REGEX_DEADLINE_SECONDS
+    term_counts: dict[Path, int] = {}
+    scan_cut = False
+    if rank_terms:
+        candidates, term_counts, scan_cut = _rank_by_terms(root, candidates, rank_terms, limit)
     blocks: list[dict[str, str]] = []
     total_chars = 0
     effective_cap_chars = cap_chars
@@ -1163,7 +1225,7 @@ def search_workspace(
                 lines_after=max(0, lines_after),
             )
             match_count = len(line_nos)
-            score = float(match_count) + (0.15 * len(symbols))
+            score = float(match_count) + (0.15 * len(symbols)) + 1000.0 * term_counts.get(candidate, 0)
             ranked.append(
                 RankedMatch(
                     file=rel,
@@ -1186,6 +1248,8 @@ def search_workspace(
                 payload["skipped"] = _skipped_oversized_footer(skipped_oversized)
             if include_metadata:
                 payload["_meta"] = {"fileMatchCount": 0, "capChars": cap_chars}
+            if scan_cut:
+                payload["search_incomplete"] = True
             return payload
 
         ranked.sort(key=lambda item: (-item.score, item.file))
@@ -1246,6 +1310,8 @@ def search_workspace(
             payload["skipped"] = _skipped_oversized_footer(skipped_oversized)
         if include_metadata:
             payload["_meta"] = {"fileMatchCount": len(matches_payload), "capChars": cap_chars}
+        if scan_cut:
+            payload["search_incomplete"] = True
         return payload
 
     file_match_count = 0
@@ -1427,6 +1493,8 @@ def search_workspace(
                     "inlineCharsBudget": inline_chars_budget,
                     "spilled": True,
                 }
+    if scan_cut:
+        response["search_incomplete"] = True
     return response
 
 

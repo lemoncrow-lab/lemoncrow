@@ -32,7 +32,7 @@ function node(id: string, path: string, exactness: "snapshot" | "current_index")
 }
 
 describe("ReviewContextFiles", () => {
-  it("loads context separately from targets and never exposes a review mutation", async () => {
+  it("loads context separately from parts and never exposes a review mutation", async () => {
     reviewApi.fetchReviewMap.mockResolvedValue({
       level: "architecture",
       graph: {
@@ -59,13 +59,13 @@ describe("ReviewContextFiles", () => {
       />,
     );
 
-    expect(screen.getByText(/opening or loading it never marks a Review target reviewed/i)).toBeInTheDocument();
+    expect(screen.getByText(/opening or loading it never marks a part reviewed/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Load" }));
     expect(await screen.findByText("docs/architecture.md")).toBeInTheDocument();
     expect(screen.getByText("schemas/order.json")).toBeInTheDocument();
     expect(screen.queryByText("src/changed.py")).toBeNull();
     expect(screen.getByText("current index")).toBeInTheDocument();
-    expect(screen.getByText("Snapshot context")).toBeInTheDocument();
+    expect(screen.getByText("Revision context")).toBeInTheDocument();
 
     await userEvent.click(screen.getByText("docs/architecture.md"));
     expect(onOpenInCode).toHaveBeenCalledWith({ path: "docs/architecture.md", line: 1, endLine: 10 });

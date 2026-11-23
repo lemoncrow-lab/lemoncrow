@@ -4,12 +4,10 @@
  * handoff, and collecting is offered only where the server can do it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import ReviewActionMenu from "./ReviewActionMenu";
 import ReviewSplitSheet from "./ReviewSplitSheet";
-import { useReviewCorrections } from "./reviewCorrections";
 import type { ReviewActionListing, ReviewActionRoute } from "./reviewActionsApi";
 import type { ReviewSplitListing, ReviewSplitPreview, ReviewSplitRecord } from "./reviewSplitApi";
 
@@ -100,39 +98,6 @@ function listingOf(overrides: Partial<ReviewSplitListing> = {}): ReviewSplitList
 
 const ACTIONS: ReviewActionListing = { revision_id: "rrv-1", actions: [], catalog: [], fix_all_limit: 25 };
 
-function Harness({ readOnly = false }: { readOnly?: boolean }) {
-  const corrections = useReviewCorrections({ reviewId: "review-1", revisionId: "rrv-1", enabled: true, readOnly });
-  return (
-    <>
-      <ReviewActionMenu
-        busy={false}
-        readOnly={readOnly}
-        historical={false}
-        allowRefresh={false}
-        showFinish={false}
-        reviewId="review-1"
-        codeTheme="github-dark"
-        diffStyle="split"
-        diffOverflow="scroll"
-        contextOpen={false}
-        focusMode={false}
-        onRefresh={vi.fn()}
-        onFinish={vi.fn()}
-        onDownloadPatch={vi.fn()}
-        onCodeThemeChange={vi.fn()}
-        onDiffStyleChange={vi.fn()}
-        onToggleDiffOverflow={vi.fn()}
-        onToggleContext={vi.fn()}
-        onToggleFocus={vi.fn()}
-        onShowShortcuts={vi.fn()}
-        onOpenFeedback={vi.fn()}
-        correctionActions={corrections.palette}
-      />
-      {corrections.sheet}
-    </>
-  );
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   actionsApi.fetchReviewActions.mockResolvedValue(ACTIONS);
@@ -141,35 +106,6 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(navigator, "clipboard");
-});
-
-describe("Request split", () => {
-  it("is an entry in the existing Fix & corrections menu that opens the split preview", async () => {
-    splitApi.previewReviewSplit.mockResolvedValue(previewOf());
-    render(<Harness />);
-    await waitFor(() => expect(actionsApi.fetchReviewActions).toHaveBeenCalled());
-    await userEvent.click(screen.getByRole("button", { name: "Review actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Fix & corrections/ }));
-    const entry = await screen.findByRole("menuitem", { name: /Request split/ });
-    expect(entry.getAttribute("aria-disabled")).toBeNull();
-    expect(entry.textContent).toContain("this Review stays open");
-    await userEvent.click(entry);
-    const layers = await screen.findAllByTestId("review-split-layer");
-    expect(layers.map((item) => item.textContent)).toEqual([
-      expect.stringContaining("1. Billing"),
-      expect.stringContaining("2. Auth"),
-    ]);
-    expect(splitApi.previewReviewSplit).toHaveBeenCalledWith("review-1", "rrv-1", { route: undefined, directive: "" });
-  });
-
-  it("is listed but disabled on a read-only Review", async () => {
-    render(<Harness readOnly />);
-    await waitFor(() => expect(actionsApi.fetchReviewActions).toHaveBeenCalled());
-    await userEvent.click(screen.getByRole("button", { name: "Review actions" }));
-    await userEvent.click(await screen.findByRole("menuitem", { name: /Fix & corrections/ }));
-    const entry = await screen.findByRole("menuitem", { name: /Request split/ });
-    expect(entry.getAttribute("aria-disabled")).toBe("true");
-  });
 });
 
 describe("ReviewSplitSheet", () => {
@@ -238,7 +174,7 @@ describe("ReviewSplitSheet", () => {
         splits: [
           splitRecord({
             status: "completed",
-            message: "2 stacked Reviews linked to this one; 5 judgments carried on exactly matching targets",
+            message: "2 stacked Reviews linked to this one; 5 judgments carried on exactly matching parts",
             children: [
               { layer: 1, cohort_id: "area:billing", branch: "lemoncrow/split/abcd/01", base_sha: "", head_sha: "", review_id: "child-1", revision_id: "", title: "Split 1/2 · Billing", status: "open", extra_paths: ["src/auth.py"], missing_paths: [] },
               { layer: 2, cohort_id: "area:auth", branch: "lemoncrow/split/abcd/02", base_sha: "", head_sha: "", review_id: "child-2", revision_id: "", title: "Split 2/2 · Auth", status: "open", extra_paths: [], missing_paths: [] },
@@ -252,7 +188,7 @@ describe("ReviewSplitSheet", () => {
     const record = await screen.findByTestId("review-split-record");
     expect(within(record).getByRole("link", { name: "Split 1/2 · Billing" })).toBeTruthy();
     expect(record.textContent).toContain("also changes 1 file of other layers");
-    expect(record.textContent).toContain("5 judgments carried on identical targets · 2 not carried");
+    expect(record.textContent).toContain("5 judgments carried on identical parts · 2 not carried");
     expect(within(record).queryByRole("button", { name: "Collect branches" })).toBeNull();
   });
 });

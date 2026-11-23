@@ -39,6 +39,8 @@ _MAX_OUTPUT_CHARS: Final[int] = 24_000
 _MAX_FETCH_BYTES: Final[int] = 2_000_000
 _MAX_REDIRECTS: Final[int] = 5
 _SKIP_DIRS: Final[frozenset[str]] = frozenset({".git", ".lemoncrow", "node_modules", ".venv", "venv"})
+# Interpreters the macOS shell sandbox may reach when they live in a Homebrew keg (node needs dependency kegs too).
+_SHELL_INTERPRETERS: Final[tuple[str, ...]] = ("python3", "python")
 
 
 def _profile() -> str:
@@ -270,10 +272,12 @@ def _confined_shell(root: Path, command: str) -> list[str]:
             raise ValueError("Review bash requires bubblewrap; refusing to run unsandboxed") from exc
         return [*prefix, "--bind", str(root), str(root), "--chdir", str(root), "--", *shell]
     if sys.platform == "darwin":
-        from lemoncrow.pro.capabilities.review.macos_sandbox import sandbox_command
+        from lemoncrow.pro.environment.macos_sandbox import sandbox_command
 
         try:
-            return sandbox_command(shell, workspace=root, cwd=root, writable_workspace=True)
+            return sandbox_command(
+                shell, workspace=root, cwd=root, writable_workspace=True, path_executables=_SHELL_INTERPRETERS
+            )
         except RuntimeError as exc:
             raise ValueError(str(exc)) from exc
     raise ValueError("Review bash has no sandbox on this platform; refusing to run unsandboxed")

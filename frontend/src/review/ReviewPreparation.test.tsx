@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 
-import ReviewPreparation, { PreparationProgress } from "./ReviewPreparation";
+import ReviewPreparation, { PREPARATION_STALL_MS, PreparationProgress } from "./ReviewPreparation";
 import { useLayoutEffect } from "react";
 import { ReviewPreparationProvider, useReviewPreparation } from "./reviewPreparationContext";
 import { authenticatedFetch } from "./reviewApi";
@@ -26,7 +26,7 @@ function mount(path = `/reviews/preparing/${id}`) {
 const steps = [
   { key: "packet_diff", label: "Diff captured", state: "done", elapsed: 0.2 },
   { key: "publish", label: "Publishing reviewable source revision", state: "running", elapsed: null },
-  { key: "state_units", label: "Loading review targets and marks", state: "pending", elapsed: null },
+  { key: "state_units", label: "Loading parts and marks", state: "pending", elapsed: null },
 ];
 
 afterEach(() => {
@@ -110,12 +110,12 @@ describe("Review preparation", () => {
       .toBe(`/r/1234abcd?startup=${id}#p=prep-1&sr=1`));
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "33");
     fireEvent.click(screen.getByRole("button", { name: "Show preparation steps" }));
-    expect(screen.getByText("Loading review targets and marks")).toBeInTheDocument();
+    expect(screen.getByText("Loading parts and marks")).toBeInTheDocument();
     expect(screen.getByText("0.2s")).toBeInTheDocument();
   });
-  it("updates the snapshot file count while keeping the overall step count", async () => {
+  it("updates the revision file count while keeping the overall step count", async () => {
     const snapshotSteps = (count: number) => [steps[0], {
-      ...steps[1], label: `Creating new snapshot · Building review targets · ${count}/2249 files`,
+      ...steps[1], label: `Creating new revision · Finding changed parts · ${count}/2249 files`,
     }, steps[2]];
     fetchProgress.mockResolvedValueOnce(new Response(JSON.stringify({
       id, state: "running", review_url: "", steps: snapshotSteps(0),
@@ -168,13 +168,58 @@ describe("Review preparation", () => {
     expect(screen.queryByRole("region", { name: "Review preparation" })).not.toBeInTheDocument();
   });
 
+  it("an address that cannot be a preparation says so, with a way home, and never polls", () => {
+    mount("/reviews/preparing/not-an-id");
+    expect(screen.getByTestId("preparation-not-found")).toHaveTextContent("This preparation link isn't valid");
+    expect(screen.getByRole("link", { name: "All reviews" })).toHaveAttribute("href", "/reviews");
+    expect(fetchProgress).not.toHaveBeenCalled();
+  });
+
   it("shows an expired job with a recovery action and stops polling", async () => {
     fetchProgress.mockResolvedValue(new Response("Expired", { status: 404 }));
     mount();
-    await waitFor(() => expect(screen.getByText("Preparation expired. Run lc review again to retry."))
+    await waitFor(() => expect(screen.getByText("This preparation has expired."))
       .toBeInTheDocument());
     expect(screen.getByRole("link", { name: "Open reviews" })).toHaveAttribute("href", "/reviews");
+    // Nothing will open and reconnecting cannot help: neither is offered.
+    expect(screen.queryByText("The review opens as soon as the source revision is ready.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(screen.getByText("lc review").tagName).toBe("CODE");
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 950)); });
     expect(fetchProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a way out when one step stops moving, and not before", () => {
+    vi.useFakeTimers();
+    try {
+      render(<MemoryRouter><PreparationProgress fullPage steps={[
+        { key: "reader_structure", label: "Reading review structure", state: "running", elapsed: null },
+      ]} /></MemoryRouter>);
+      act(() => vi.advanceTimersByTime(PREPARATION_STALL_MS - 2000));
+      expect(screen.queryByTestId("preparation-stalled")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(3000));
+      const stalled = screen.getByTestId("preparation-stalled");
+      expect(within(stalled).getByRole("button", { name: "Reload" })).toBeInTheDocument();
+      expect(within(stalled).getByRole("link", { name: "Open reviews" })).toHaveAttribute("href", "/reviews");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("abandons a progress request that never answers and keeps polling", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchProgress.mockImplementation((_path, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }));
+      mount();
+      expect(fetchProgress).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_100); });
+      expect(screen.getByText("Cannot load preparation progress. Reconnecting…")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
+      expect(fetchProgress).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

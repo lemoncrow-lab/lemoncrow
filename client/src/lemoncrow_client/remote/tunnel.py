@@ -14,18 +14,47 @@ Cloudflare-side secret stays in the credentials file cloudflared wrote.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
-from collections.abc import Callable
+import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Final
 
 from .state import write_private_json
+
+
+def device_slug(hostname: str | None = None) -> str:
+    """Sanitize a machine hostname for use in tunnel names."""
+    if hostname is None:
+        # The host name without importing socket, which this package keeps out (test_packaging_audit); "" if unknown.
+        hostname = platform.node()
+    raw = hostname.strip().lower()
+    return re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+
+
+def default_tunnel_name(*, environment: Mapping[str, str] | None = None, hostname: str | None = None) -> str:
+    """Device-unique tunnel name, e.g. lemoncrow-mcp-pankaj-rog.
+
+    Cloudflare Tunnels are origin connection pools. When multiple machines share
+    the same tunnel ID, Cloudflare load balances across them as identical replicas.
+    Deriving the tunnel name from the local machine hostname ensures each device gets
+    its own tunnel and never receives traffic meant for a different machine.
+    """
+    env = os.environ if environment is None else environment
+    if configured := env.get("LEMONCROW_MCP_TUNNEL_NAME", "").strip():
+        return configured
+    slug = device_slug(hostname)
+    return f"lemoncrow-mcp-{slug}" if slug else "lemoncrow-mcp"
+
 
 SHARED_TUNNEL_NAME: Final[str] = "lemoncrow-mcp"
 INSTALL_URL: Final[str] = "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
@@ -37,6 +66,11 @@ _TUNNEL_URL_RE: Final[re.Pattern[str]] = re.compile(r"https://[a-z0-9-]+\.tryclo
 _CONTROL_PLANE_URL: Final[str] = "https://api.trycloudflare.com"
 _CREATED_TUNNEL_RE: Final[re.Pattern[str]] = re.compile(r"Created tunnel \S+ with id (\S+)")
 _CREDENTIALS_WRITTEN_RE: Final[re.Pattern[str]] = re.compile(r"Tunnel credentials written to (\S+)\.")
+# Cloudflared can exit successfully while silently appending its certificate's
+# DNS zone to an unrelated FQDN (e.g. lc.olaryn.com.beseam.com).
+_ROUTED_HOST_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:Added CNAME\s+|\bINF\s+)([a-z0-9.-]+)\s+" r"(?:which will route|is already configured)", re.IGNORECASE
+)
 
 
 class TunnelSetupError(RuntimeError):
@@ -147,6 +181,38 @@ def _cloudflared(binary: str, *arguments: str) -> subprocess.CompletedProcess[st
     return subprocess.run([binary, *arguments], capture_output=True, text=True, check=False)
 
 
+def _ensure_tunnel_credentials(binary: str, tunnel_id: str, credentials: Path) -> None:
+    """Recover the existing tunnel secret without replacing the tunnel or DNS."""
+    if credentials.exists():
+        return
+    try:
+        credentials.parent.mkdir(parents=True, exist_ok=True)
+        # cloudflared may print the secret even with --cred-file. Capture it and
+        # never include either output stream in an error or progress message.
+        with tempfile.TemporaryDirectory(prefix=".tunnel-credentials-", dir=credentials.parent) as temporary:
+            recovered = Path(temporary) / "credentials.json"
+            result = _cloudflared(binary, "tunnel", "token", "--cred-file", str(recovered), tunnel_id)
+            if result.returncode != 0:
+                raise ValueError("credential retrieval failed")
+            document = json.loads(recovered.read_text(encoding="utf-8"))
+            if (
+                not isinstance(document, dict)
+                or document.get("TunnelID") != tunnel_id
+                or not all(
+                    isinstance(document.get(key), str) and document[key] for key in ("AccountTag", "TunnelSecret")
+                )
+            ):
+                raise ValueError("invalid tunnel credentials")
+            recovered.chmod(0o600)
+            os.replace(recovered, credentials)
+    except (OSError, ValueError):
+        raise TunnelSetupError(
+            f"Could not restore credentials for tunnel {tunnel_id!r}; "
+            "run `cloudflared tunnel login` for its account and retry. "
+            "The existing tunnel was preserved."
+        ) from None
+
+
 def find_existing_tunnel(binary: str, name: str) -> tuple[str, str] | None:
     result = _cloudflared(binary, "tunnel", "list", "--name", name, "-o", "json")
     if result.returncode != 0:
@@ -161,11 +227,7 @@ def find_existing_tunnel(binary: str, name: str) -> tuple[str, str] | None:
     if not tunnel_id:
         raise TunnelSetupError(f"`cloudflared tunnel list` returned a tunnel with no id: {tunnels[0]!r}")
     credentials = default_cert_path().parent / f"{tunnel_id}.json"
-    if not credentials.exists():
-        raise TunnelSetupError(
-            f"tunnel {name!r} (id={tunnel_id}) exists but {credentials} is missing; run "
-            f"`cloudflared tunnel token --cred-file {credentials} {tunnel_id}`, or --reset-tunnel"
-        )
+    _ensure_tunnel_credentials(binary, tunnel_id, credentials)
     return tunnel_id, str(credentials)
 
 
@@ -181,13 +243,50 @@ def create_tunnel(binary: str, name: str) -> tuple[str, str]:
     return created.group(1), written.group(1)
 
 
-def route_dns(binary: str, tunnel_ref: str, hostname: str) -> None:
-    """``--overwrite-dns`` re-points a hostname that CNAMEs to another tunnel."""
+def _certificate_dns_zone() -> str | None:
+    """Best-effort DNS zone of cloudflared's certificate; keep the token private."""
+    try:
+        pem = default_cert_path().read_text(encoding="utf-8")
+        encoded = "".join(line for line in pem.splitlines() if not line.startswith("-----"))
+        credentials = json.loads(base64.b64decode(encoded))
+        request = urllib.request.Request(
+            f"https://api.cloudflare.com/client/v4/zones/{credentials['zoneID']}",
+            headers={"Authorization": f"Bearer {credentials['apiToken']}"},
+        )
+        with urllib.request.urlopen(request, timeout=4) as response:
+            zone = json.load(response).get("result", {}).get("name")
+        return zone.lower().rstrip(".") if isinstance(zone, str) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
+
+def route_dns(binary: str, tunnel_ref: str, hostname: str) -> None:
+    """Route the exact FQDN; never allow cloudflared to append another zone."""
+    hostname = hostname.lower().rstrip(".")
+    if zone := _certificate_dns_zone():
+        if hostname != zone and not hostname.endswith(f".{zone}"):
+            raise TunnelSetupError(
+                f"cloudflared is authenticated to {zone!r}, not the DNS zone for {hostname!r}; "
+                "no DNS record was created. Log in with `cloudflared tunnel login` "
+                "for the correct DNS zone/account first."
+            )
     result = _cloudflared(binary, "tunnel", "route", "dns", "--overwrite-dns", tunnel_ref, hostname)
     if result.returncode != 0:
         raise TunnelSetupError(
             f"`cloudflared tunnel route dns {tunnel_ref} {hostname}` failed: {result.stderr.strip()}"
+        )
+    output = f"{result.stdout}\n{result.stderr}"
+    routed = _ROUTED_HOST_RE.search(output)
+    if routed is not None and routed.group(1).lower().rstrip(".") != hostname.lower().rstrip("."):
+        actual = routed.group(1)
+        raise TunnelSetupError(
+            f"Cloudflare routed {actual!r} instead of {hostname!r}. "
+            "Your cloudflared origin certificate selected the wrong DNS zone. "
+            f"Create a DNS CNAME for {hostname} in its actual Cloudflare zone, "
+            f"pointing at {tunnel_ref}.cfargotunnel.com, or log in with "
+            "`cloudflared tunnel login` using a certificate authorized for that zone. "
+            "A tunnel in a different Cloudflare account may require moving/creating "
+            "the tunnel in the hostname's account."
         )
 
 
@@ -197,29 +296,34 @@ def provision_shared_tunnel(
     hostname: str,
     binary: str,
     narrate: Callable[[str], None],
+    tunnel_name: str | None = None,
     reset: bool = False,
+    environment: Mapping[str, str] | None = None,
 ) -> TunnelState:
-    """Ensure the one shared tunnel exists and route ``hostname`` to it."""
+    """Ensure the device tunnel exists and route ``hostname`` to it."""
 
     path = tunnel_state_path(store_root)
     state = None if reset else load_tunnel_state(path)
-    if state is None:
+    if state is None or not Path(state.credentials_path).exists():
         if not default_cert_path().exists():
             narrate("Not logged in to Cloudflare; running `cloudflared tunnel login`...")
             # Interactive on purpose: the operator must see and open the login URL.
             login = subprocess.run([binary, "tunnel", "login"], check=False)
             if login.returncode != 0:
                 raise TunnelSetupError(f"`cloudflared tunnel login` exited {login.returncode}")
-        existing = find_existing_tunnel(binary, SHARED_TUNNEL_NAME)
+    if state is None:
+        target_name = tunnel_name or default_tunnel_name(environment=environment)
+        existing = find_existing_tunnel(binary, target_name)
         if existing is None:
-            narrate(f"Creating shared tunnel {SHARED_TUNNEL_NAME!r}...")
-            tunnel_id, credentials = create_tunnel(binary, SHARED_TUNNEL_NAME)
+            narrate(f"Creating shared tunnel {target_name!r}...")
+            tunnel_id, credentials = create_tunnel(binary, target_name)
         else:
             tunnel_id, credentials = existing
-            narrate(f"Reusing shared tunnel {SHARED_TUNNEL_NAME!r} (id={tunnel_id}).")
-        state = TunnelState(SHARED_TUNNEL_NAME, tunnel_id, "*", credentials)
+            narrate(f"Reusing shared tunnel {target_name!r} (id={tunnel_id}).")
+        state = TunnelState(target_name, tunnel_id, "*", credentials)
         save_tunnel_state(path, state)
     else:
+        _ensure_tunnel_credentials(binary, state.tunnel_id, Path(state.credentials_path))
         narrate(f"Using shared tunnel {state.tunnel_name!r} (id={state.tunnel_id}).")
     narrate(f"Routing DNS: {hostname} -> {state.tunnel_name}...")
     route_dns(binary, state.tunnel_id, hostname)
@@ -254,6 +358,8 @@ __all__ = [
     "SHARED_TUNNEL_NAME",
     "TunnelSetupError",
     "TunnelState",
+    "default_tunnel_name",
+    "device_slug",
     "extract_tunnel_url",
     "load_tunnel_state",
     "missing_cloudflared_help",

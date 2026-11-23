@@ -15,6 +15,8 @@
  * their own list, with the reason attached.
  */
 
+import { HOST_LABELS, hostLabel } from "./developmentLabels";
+import { plainCode, principalLabel, type PrincipalLabeler } from "./plainWords";
 import type { Annotation, AnnotationKind, AnnotationSource, DiffSide } from "./types";
 import type { BadgeTone } from "../components/ui/badge";
 import type { HunkRail } from "../components/ui/hunk";
@@ -69,18 +71,39 @@ export function annotationSourceTone(annotation: Annotation): BadgeTone {
   return annotation.created_by_actor === "agent" ? "ai" : SOURCE_BADGE_TONES[annotationSource(annotation)];
 }
 
+const AGENT_ROLE_LABELS: Record<string, string> = {
+  plan: "Planning agent",
+  code: "Coding agent",
+  review: "Review agent",
+  author: "Author",
+  unknown: "Other agent",
+};
+
+/** An agent's role as a reader says it ("Planning agent"), never as `Agent(plan)`. */
+export function agentRoleLabel(role: string): string {
+  const key = role.trim().toLowerCase() || "unknown";
+  return AGENT_ROLE_LABELS[key] ?? `${key.charAt(0).toUpperCase()}${key.slice(1).replace(/[_-]+/g, " ")} agent`;
+}
+
+/** The source chip (AUTHOR, AI REVIEW, or an agent's role); the agent itself is named by `annotationProducerDetail`. */
 export function annotationIdentityLabel(annotation: Annotation): string {
   const source = annotationSource(annotation);
   return (source === "author" || source === "ai_review") && annotation.agent_role
-    ? `Agent(${annotation.agent_role})`
+    ? agentRoleLabel(annotation.agent_role).toUpperCase()
     : SOURCE_LABELS[source];
 }
 
-export function annotationProducerDetail(annotation: Annotation): string {
-  const hosts: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
-  return annotation.agent_host
-    ? [hosts[annotation.agent_host] || annotation.agent_host, annotation.agent_model].filter(Boolean).join(" · ")
-    : annotation.source_id || annotation.created_by;
+/** Who wrote it, as a reader names them: the agent product, else the person ("you" for the viewer); never a session or principal id. */
+export function annotationProducerDetail(
+  annotation: Annotation,
+  principalName: PrincipalLabeler = (id, fallback) => principalLabel(id, "", fallback),
+): string {
+  const known = (host: string): string => (HOST_LABELS[host.toLowerCase()] ? hostLabel(host) : host);
+  if (annotation.agent_host) {
+    return [known(annotation.agent_host), annotation.agent_model].filter(Boolean).join(" · ");
+  }
+  if (annotation.created_by_actor === "agent") return (HOST_LABELS[annotation.created_by] ? hostLabel(annotation.created_by) : "") || principalName(annotation.created_by, "") || plainCode(annotation.created_by) || "agent";
+  return principalName(annotation.created_by, "");
 }
 
 export function annotationProducerTitle(annotation: Annotation): string {

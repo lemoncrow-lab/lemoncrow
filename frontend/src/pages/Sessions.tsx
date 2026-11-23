@@ -9,19 +9,24 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Plug,
   RefreshCw,
   Terminal,
   X,
 } from "lucide-react";
 import { api, type TraceSummary, type SessionSummary } from "../api";
 import { MetricCard, cx } from "../components/WorkbenchUI";
-import { fmtUsd, fmtDate, fmtDuration, fmtRelativeTime } from "../lib/format";
+import { EmptyState as UiEmptyState } from "../components/ui/empty-state";
+import { ServerUnreachable, describeError, isUnreachable } from "../components/ServerUnreachable";
+import { REDUCTION_LABEL, SAVED_LABEL, costReductionPct } from "../lib/savings";
+import { fmtPct, fmtUsd, fmtDate, fmtDuration, fmtRelativeTime } from "../lib/format";
 import { setVisibleInterval } from "../lib/visibleInterval";
-import { extractHost, HOST_COLORS } from "./sessions/helpers";
+import { extractHost } from "./sessions/helpers";
 import { StatusDot } from "./sessions/StatusBadge";
 import { SessionExplorerDetail } from "./sessions/SessionDetail";
 
@@ -96,6 +101,11 @@ function latestActivityMs(
 // show everything we have, newest activity first.
 const SESSIONS_SINCE_ALL = "36500d";
 
+/** From md the list is a rail beside the detail, so the newest session opens on arrival; a phone shows the list first. */
+function listBesideDetail(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(min-width: 768px)").matches;
+}
+
 export default function Sessions() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -104,12 +114,14 @@ export default function Sessions() {
   const [traces, setTraces] = useState<TraceSummary[] | null>(null);
   const [loadingTraces, setLoadingTraces] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [errUnreachable, setErrUnreachable] = useState(false);
   const [searchInput, setSearchInput] = useState(searchParams.get("q") ?? "");
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const tracesRequestSeq = useRef(0);
   const [summaries, setSummaries] = useState<SessionSummary[] | null>(null);
+  const [summariesSettled, setSummariesSettled] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hostFilter, setHostFilter] = useState("all");
   const [workspaceFilter, setWorkspaceFilter] = useState("all");
@@ -141,11 +153,30 @@ export default function Sessions() {
     return Array.from(seen.values());
   }, [traces]);
 
+  // Newest activity first: the summaries' updated_at beats the trace's created_at.
+  const orderedTraces = useMemo(() => {
+    if (!displayTraces) return null;
+    return displayTraces.slice().sort((a, b) => {
+      const sa = sessionsMap?.get(a.session_id || a.id);
+      const sb = sessionsMap?.get(b.session_id || b.id);
+      return latestActivityMs(b, sb) - latestActivityMs(a, sa);
+    });
+  }, [displayTraces, sessionsMap]);
+  const newestId = orderedTraces?.[0] ? orderedTraces[0].session_id || orderedTraces[0].id : null;
+
+  // Desktop opens the newest session beside the list (once the summaries can say which is newest).
+  useEffect(() => {
+    if (id || !newestId || !summariesSettled || !listBesideDetail()) return;
+    const search = searchParams.toString();
+    navigate({ pathname: `/activity/${newestId}`, search: search ? `?${search}` : "" }, { replace: true });
+  }, [id, navigate, newestId, searchParams, summariesSettled]);
+
   const fetchTracesPage = useCallback(
     (offset: number) => {
       const requestSeq = ++tracesRequestSeq.current;
       setLoadingTraces(true);
       setErr(null);
+      setErrUnreachable(false);
       api
         .traces(50, offset, "all", hostFilter, workspaceFilter, query)
         .then((res) => {
@@ -168,7 +199,8 @@ export default function Sessions() {
         })
         .catch((e) => {
           if (requestSeq !== tracesRequestSeq.current) return;
-          setErr(e instanceof Error ? e.message : String(e));
+          setErrUnreachable(isUnreachable(e));
+          setErr(describeError(e));
           setLoadingTraces(false);
         });
     },
@@ -179,7 +211,8 @@ export default function Sessions() {
     api
       .sessions(SESSIONS_SINCE_ALL, (page + 1) * 50)
       .then(setSummaries)
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => setSummariesSettled(true));
   }, [page]);
 
   // Debounce search input → query
@@ -231,7 +264,8 @@ export default function Sessions() {
       })
       .catch((e) => {
         if (requestSeq !== tracesRequestSeq.current) return;
-          setErr(e instanceof Error ? e.message : String(e));
+        setErrUnreachable(isUnreachable(e));
+        setErr(describeError(e));
       });
   }, [query, page, hostFilter, workspaceFilter]);
 
@@ -243,12 +277,14 @@ export default function Sessions() {
   // Periodically refresh data every 30 seconds while the page is visible
   useEffect(() => setVisibleInterval(refresh, 30000), [refresh]);
   return (
-    <div className="flex h-[calc(100vh-41px)] flex-col overflow-hidden border border-border/80 bg-surface-sunken md:flex-row">
+    // The page scrolls the window under the sticky shell header; the history list is a sticky rail beside it.
+    <div className="flex min-h-[calc(100dvh-41px)] flex-col border-x border-border/80 bg-surface-sunken md:flex-row">
       {/* Sidebar — master list */}
       <aside
         className={cx(
-          "flex-shrink-0 flex flex-col border-b md:border-b-0 md:border-r border-border bg-surface transition-all duration-200 ease-in-out overflow-hidden",
-          sidebarCollapsed ? "w-full md:w-12" : "w-full md:w-80"
+          "flex-shrink-0 flex flex-col border-b md:border-b-0 md:border-r border-border bg-surface transition-all duration-200 ease-in-out md:sticky md:top-[41px] md:h-[calc(100dvh-41px)] md:self-start md:overflow-hidden",
+          sidebarCollapsed ? "w-full md:w-12" : "w-full md:w-80",
+          id ? "hidden md:flex" : "min-h-0 flex-1 md:flex-none"
         )}
       >
         {sidebarCollapsed ? (
@@ -322,6 +358,7 @@ export default function Sessions() {
                     onClick={() => setSearchInput("")}
                     size="icon"
                     variant="ghost"
+                    aria-label="Clear search"
                   >
                     <X size={14} />
                   </UiButton>
@@ -357,35 +394,29 @@ export default function Sessions() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              {err && (
+            <div className="flex-1 md:overflow-y-auto custom-scrollbar">
+              {err && errUnreachable && <ServerUnreachable className="m-3" onRetry={refresh} />}
+              {err && !errUnreachable && (
                 <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">{err}</div>
               )}
 
-              {displayTraces
-                ?.slice()
-                .sort((a, b) => {
-                  const sa = sessionsMap?.get(a.session_id || a.id);
-                  const sb = sessionsMap?.get(b.session_id || b.id);
-                  return latestActivityMs(b, sb) - latestActivityMs(a, sa);
-                })
-                .map((t) => {
+              {orderedTraces?.map((t) => {
                   const sid = t.session_id || t.id;
                   const isActive = id === sid;
                   const summary = sessionsMap?.get(sid);
                   const sessionModel = resolveSessionModel(summary, t);
                   const host = extractHost(t);
-                  const hostTextClass =
-                    HOST_COLORS[host]?.split(" ")[1] || "text-muted-foreground";
                   // _live sessions are still running in the RunLedger and
                   // haven't committed a final status to SQLite yet.
                   const displayStatus = t._live ? "running" : t.status;
                   const costAvailable =
                     Boolean(summary) && summary?.cost_status !== "unavailable" &&
                     ((summary?.total_turns ?? 0) > 0 || (summary?.total_cost_usd ?? 0) > 0);
-                  const costPrefix =
-                    summary?.cost_status === "estimated" ? "~" : "";
-
+                  // "Priced" already says the host reported no cost; the value itself stays neutral.
+                  const costTitle =
+                    summary?.cost_status === "estimated"
+                      ? "Priced from the recorded token usage: the host did not report a cost."
+                      : undefined;
                   return (
                     <UiButton unstyled
                       key={t.id}
@@ -408,17 +439,14 @@ export default function Sessions() {
                             className="shrink-0"
                           />
                           <span
-                            className={cx(
-                              "shrink-0 text-caption font-mono uppercase tracking-tag",
-                              hostTextClass
-                            )}
+                            className="shrink-0 text-caption font-mono uppercase tracking-tag text-foreground"
                             title={host}
                           >
                             {host}
                           </span>
                           {sessionModel && (
                             <span
-                              className="min-w-0 truncate text-caption font-mono text-cyan-200"
+                              className="min-w-0 truncate text-caption font-mono text-muted-foreground"
                               title={sessionModel}
                             >
                               {sessionModel}
@@ -455,7 +483,8 @@ export default function Sessions() {
 
                       <p
                         className={cx(
-                          "mb-2 text-body font-mono line-clamp-2 leading-relaxed",
+                          // Titles in the sans font so a list of them scans; ids, times and amounts stay monospace.
+                          "mb-2 text-body line-clamp-2 leading-relaxed",
                           isActive
                             ? "text-foreground font-semibold"
                             : "text-muted-foreground group-hover/card:text-subtle"
@@ -470,21 +499,25 @@ export default function Sessions() {
                             [
                               summary?.cost_status === "estimated" ? "Priced" : "Cost",
                               summary && costAvailable
-                                ? `${costPrefix}${fmtUsd(summary.total_cost_usd)}`
+                                ? fmtUsd(summary.total_cost_usd)
                                 : "—",
-                              "text-red-300",
+                              // Spend is not an error: neutral text, not red.
+                              "text-foreground",
+                              costTitle,
                             ],
                             [
-                              "Est. Saved",
-                              summary
+                              SAVED_LABEL,
+                              summary && summary.savings_status !== "unavailable"
                                 ? fmtUsd(summary.total_lemoncrow_savings_usd)
                                 : "—",
-                              "text-emerald-300",
+                              "text-ok",
+                              undefined,
                             ],
-                          ] as [string, string, string][]
-                        ).map(([label, value, valCls]) => (
+                          ] as [string, string, string, string | undefined][]
+                        ).map(([label, value, valCls, title]) => (
                           <div
                             key={label}
+                            title={title}
                             className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5"
                           >
                             <div className="truncate text-caption font-mono tracking-tag uppercase text-muted-foreground leading-none">
@@ -516,9 +549,9 @@ export default function Sessions() {
                 </UiButton>
               )}
 
-              {!loadingTraces && traces?.length === 0 && (
+              {!loadingTraces && !err && traces?.length === 0 && (
                 <div className="p-4 text-center text-label text-muted-foreground">
-                  No sessions found
+                  {query || hostFilter !== "all" || workspaceFilter !== "all" ? "No sessions match" : "No sessions yet"}
                 </div>
               )}
             </div>
@@ -527,11 +560,26 @@ export default function Sessions() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
+      <main className={cx("min-w-0 flex-1", !id && "hidden md:block")}>
         {id ? (
-          <SessionExplorerDetail sessionId={id} />
+          <div className="flex flex-col">
+            {/* Below md the list and the detail take turns: the detail used to start ~2650px down the page. */}
+            <div className="shrink-0 border-b border-border px-3 py-1.5 md:hidden">
+              <UiButton type="button" size="xs" variant="ghost" onClick={() => navigate({ pathname: "/activity", search: searchParams.toString() })}>
+                <ArrowLeft size={14} aria-hidden="true" /> All sessions
+              </UiButton>
+            </div>
+            <div className="flex-1">
+              <SessionExplorerDetail sessionId={id} />
+            </div>
+          </div>
         ) : (
-          <EmptyState summaries={summaries} />
+          <EmptyState
+            summaries={summaries}
+            summaryLimit={(page + 1) * 50}
+            failed={Boolean(err)}
+            noSessions={!loadingTraces && !err && traces?.length === 0 && !summaries?.length && !query && hostFilter === "all" && workspaceFilter === "all"}
+          />
         )}
       </main>
     </div>
@@ -542,24 +590,76 @@ export default function Sessions() {
 // Empty state — shown when no session is selected
 // ---------------------------------------------------------------------------
 
-function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
+function countSessions(count: number): string {
+  return `${count} ${count === 1 ? "session" : "sessions"}`;
+}
+
+function EmptyState({
+  summaries,
+  summaryLimit,
+  failed,
+  noSessions,
+}: {
+  summaries: SessionSummary[] | null;
+  /** How many summaries were asked for: a full page means older sessions exist past it. */
+  summaryLimit: number;
+  failed: boolean;
+  noSessions: boolean;
+}) {
+  if (failed) {
+    // The list on the left says what went wrong and offers Retry; totals of nothing would only add "—" cards.
+    return (
+      <div className="p-4 animate-in fade-in duration-300">
+        <UiEmptyState
+          icon={<Terminal aria-hidden="true" />}
+          title="Sessions are unavailable"
+          description="The session list could not load. Retry from the list."
+        />
+      </div>
+    );
+  }
+  if (noSessions) {
+    return (
+      <div className="p-4 animate-in fade-in duration-300">
+        <UiEmptyState
+          icon={<Plug aria-hidden="true" />}
+          title="No sessions yet"
+          description="Sessions appear here once a connected coding agent records one. Connect a coding agent in Integrations."
+          action={
+            <UiButton asChild variant="outline">
+              <Link to="/settings/integrations">Open Integrations</Link>
+            </UiButton>
+          }
+        />
+      </div>
+    );
+  }
+
   const usageSummaries = summaries;
   const pricedSummaries =
     summaries?.filter((summary) => summary.cost_status !== "unavailable" &&
       (summary.total_turns > 0 || summary.total_cost_usd > 0)) ?? null;
   const totalCost =
     pricedSummaries?.reduce((sum, item) => sum + item.total_cost_usd, 0) ?? 0;
-  const totalSaved =
-    usageSummaries?.reduce(
-      (sum, item) => sum + item.total_lemoncrow_savings_usd,
-      0
-    ) ?? 0;
-  const hasUnpriced = Boolean(
-    usageSummaries?.some((summary) => summary.cost_status === "unavailable")
+  const measuredSavings =
+    usageSummaries?.filter((summary) => summary.savings_status !== "unavailable") ?? [];
+  const totalSaved = measuredSavings.reduce(
+    (sum, item) => sum + item.total_lemoncrow_savings_usd,
+    0
   );
+  const unmeasuredCount = (usageSummaries?.length ?? 0) - measuredSavings.length;
+  const unpricedCount =
+    usageSummaries?.filter((summary) => summary.cost_status === "unavailable").length ?? 0;
+  // The totals come from the summaries loaded with the list, so say which sessions they cover.
+  const windowLabel = usageSummaries
+    ? usageSummaries.length >= summaryLimit
+      ? `Totals for the ${countSessions(usageSummaries.length)} loaded, newest first. Load more in the list to include older ones.`
+      : `Totals for all ${countSessions(usageSummaries.length)}.`
+    : null;
 
   return (
-    <div className="h-full space-y-4 overflow-y-auto p-4 custom-scrollbar animate-in fade-in duration-300">
+    <div className="space-y-4 p-4 animate-in fade-in duration-300">
+      {windowLabel && <p className="text-label text-muted-foreground">{windowLabel}</p>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard
           label="Sessions"
@@ -567,26 +667,37 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
           tone="neutral"
         />
         <MetricCard
-          label="Total Cost"
+          label="Cost"
           value={
             usageSummaries
               ? pricedSummaries && pricedSummaries.length > 0
-                ? `${hasUnpriced ? "≥" : ""}${fmtUsd(totalCost)}`
+                ? `${unpricedCount ? "≥" : ""}${fmtUsd(totalCost)}`
                 : "—"
               : "—"
           }
-          tone="warning"
+          detail={unpricedCount ? `At least: ${countSessions(unpricedCount)} without a price.` : undefined}
+          tone="neutral"
         />
         <MetricCard
-          label="Est. Savings"
-          value={usageSummaries ? fmtUsd(totalSaved) : "—"}
+          label={SAVED_LABEL}
+          value={
+            usageSummaries && measuredSavings.length > 0
+              ? `${unmeasuredCount ? "≥" : ""}${fmtUsd(totalSaved)}`
+              : "—"
+          }
+          detail={
+            usageSummaries && measuredSavings.length > 0 && unmeasuredCount
+              ? `At least: ${countSessions(unmeasuredCount)} without recorded savings.`
+              : undefined
+          }
           tone="success"
         />
         <MetricCard
-          label="Efficiency"
+          // The same label, formula and precision as Home and Usage (lib/savings.ts).
+          label={REDUCTION_LABEL}
           value={
-            usageSummaries && pricedSummaries && pricedSummaries.length > 0
-              ? `${Math.round((totalSaved / (totalCost + totalSaved || 1)) * 100)}%`
+            usageSummaries && pricedSummaries && pricedSummaries.length > 0 && !unmeasuredCount
+              ? fmtPct(costReductionPct(totalCost, totalSaved))
               : "—"
           }
           tone="neutral"
@@ -599,7 +710,7 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
           Select a session
         </h3>
         <p className="mx-auto max-w-sm text-label leading-relaxed text-muted-foreground">
-          Inspect reasoning logs, tool executions, costs, and file changes from any past run.
+          Pick a session in the list to see its prompts, tool calls, cost and changed files.
         </p>
       </div>
     </div>

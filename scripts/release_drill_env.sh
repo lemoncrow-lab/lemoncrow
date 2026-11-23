@@ -38,6 +38,12 @@ export LEMONCROW_NON_INTERACTIVE=1
 export LEMONCROW_NO_PATH=1
 export LEMONCROW_NO_HOSTS=1
 export LEMONCROW_NO_STACK=1
+# rtk is an optional, best-effort external command compactor. A real install
+# defaults to bootstrapping Rust and compiling it from source, adding minutes
+# without exercising LemonCrow's release upgrade/data-migration contract.
+# Keep the installer/compiled-wheel/Review-state upgrade real and isolated;
+# check optional compactor installation in its dedicated integration tests.
+export LEMONCROW_INSTALL_RTK=0
 # The package cache is content-addressed and holds no product state: keep the host's, so the drill
 # does not download every wheel again. Resolved before XDG_CACHE_HOME moves.
 if command -v uv >/dev/null 2>&1; then

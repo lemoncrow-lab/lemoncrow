@@ -16,7 +16,7 @@ import shutil
 import threading
 import time
 import zipfile
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -1357,6 +1357,107 @@ def test_a_string_literal_is_never_a_changed_symbol(tmp_path: Path) -> None:
         assert '"' not in symbol.symbol_name, f"string literal reported as a symbol: {symbol.symbol_name!r}"
         assert " " not in symbol.symbol_name
     assert "non_definition_symbols" in result.degraded
+
+
+_CACHE_TS = """const store = new Map<string, { value: unknown; expires: number }>();
+
+export async function wrap<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = store.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value as T;
+  const value = await fn();
+  store.set(key, { value, expires: Date.now() + ttlMs });
+  return value;
+}
+
+export function clear(): void {
+  store.clear();
+}
+"""
+_LIST_TS_BASE = """import { db } from "../db";
+
+export type Filter = { tenantId: string; status?: string };
+export async function listInvoices({ tenantId, status }: { tenantId: string; status?: string }) {
+  return db.query(tenantId, status);
+}
+"""
+_LIST_TS_NEW = """import { db } from "../db";
+import { wrap } from "../lib/cache";
+
+export type Filter = { tenantId: string; status?: string };
+export async function listInvoices({ tenantId, status, page }: { tenantId: string; status?: string; page: number }) {
+  const key = `${tenantId}:${status}:${page}`;
+  return wrap(key, 60_000, () => db.query(tenantId, status, page));
+}
+"""
+
+
+def test_locals_and_anonymous_shape_fields_are_never_changed_symbols(tmp_path: Path) -> None:
+    """The Map listed `hit`, `value`, `expires` beside `wrap` and `clear`.
+
+    A function's `const` temporaries, the fields of an inline `{ value; expires }`
+    type argument and a destructured parameter's `{ tenantId; page }` type are not
+    declarations a reviewer reads. They used to reach the packet's symbol list,
+    and from it the Map's "Changed symbols" and its `symbol_count`.
+    """
+    from lemoncrow.pro.capabilities.review.review_map import build_review_map
+
+    root = tmp_path / "ts-locals"
+    repo = _init_repo(root)
+    _write(root, "invoices/list.ts", _LIST_TS_BASE)
+    _commit(repo, "base", 0)
+    _write(root, "invoices/list.ts", _LIST_TS_NEW)
+    _write(root, "lib/cache.ts", _CACHE_TS)
+    _commit(repo, "cache", 60)
+
+    result = _impact(root)
+    by_path: dict[str, list[str]] = {}
+    for symbol in result.symbols:
+        by_path.setdefault(symbol.file_path, []).append(symbol.symbol_name)
+    # `store` is a module-scope binding and stays; the untouched `Filter` is not changed.
+    assert by_path == {"invoices/list.ts": ["listInvoices"], "lib/cache.ts": ["store", "wrap", "clear"]}
+
+    packet = {
+        "files": [{"path": path, "status": "modified"} for path in sorted(by_path)],
+        "symbols": [asdict(symbol) for symbol in result.symbols],
+    }
+    revision = type("Revision", (), {"id": "rrv", "head_sha": "", "degraded": ()})()
+    payload = build_review_map(
+        review_id="r",
+        revision=revision,
+        packet=packet,
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+    )
+    nodes = {node["path"]: node for node in payload["graph"]["nodes"] if node.get("path") in by_path}
+    for path, names in by_path.items():
+        assert [row["label"] for row in nodes[path]["symbols"]] == names
+        assert nodes[path]["symbol_count"] == len(names)
+
+
+def test_declarations_stay_changed_symbols_whatever_their_nesting(tmp_path: Path) -> None:
+    """The scope rule drops locals, not declarations.
+
+    Interface and type-alias members, class fields and methods, enums, namespace
+    exports, a nested function and a function-valued local binding all stay.
+    """
+    source = """export interface Opts { retries: number; run(o: { fast: boolean }): void; nested: { deep: number } }
+export type Shape = { width: number };
+export enum Mode { On }
+export namespace Ns { export const flag = 1; }
+export class Box { size = 1; grow(): void; grow(by?: number) { const step = by ?? 1; } }
+export function Panel() {
+  const onSave = useCallback(() => 1, []);
+  const count = 2;
+  function helper() { return count; }
+  return onSave;
+}
+"""
+    root = _ts_repo(tmp_path, "ts-decls", "src/decls.ts", "export const seed = 1;\n", source)
+    names = {symbol.symbol_name for symbol in _impact(root).symbols}
+    assert names >= {"Opts", "retries", "run", "nested", "Shape", "width", "Mode", "flag", "Box", "size", "grow"}
+    assert names >= {"Panel", "onSave", "helper"}
+    assert names.isdisjoint({"fast", "deep", "step", "count"})
 
 
 def test_a_json_key_is_never_a_changed_symbol(tmp_path: Path) -> None:

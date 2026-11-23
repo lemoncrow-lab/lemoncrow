@@ -254,7 +254,7 @@ def run_exact_verifier(
     memory_mb: int = 2048,
 ) -> VerifierExecution:
     """Run the exact verifier with stripped credentials and strongest local sandbox available."""
-    from lemoncrow.pro.capabilities.review.sandbox_limits import limit_prefix_for
+    from lemoncrow.pro.environment.sandbox_limits import limit_prefix_for
 
     started = time.perf_counter()
     env = verifier_environment(root)

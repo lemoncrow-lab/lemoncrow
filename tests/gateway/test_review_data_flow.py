@@ -1041,11 +1041,11 @@ def test_the_source_generation_row_names_the_review_snapshot_or_says_there_is_no
         "policy.source_generation"
     )
     assert fact is not None and fact.status == "fact"
-    assert fact.detail == f"Review r1 Snapshot 2: trusted base github {'c' * 12} (pull_base), captured t"
+    assert fact.detail == f"Review r1 Revision 3: trusted base github {'c' * 12} (pull_base), captured t"
     client = build_data_flow(_inputs(surface="hosted", source_generation=SourceGeneration("r2", 0))).row(
         "policy.source_generation"
     )
-    assert client is not None and (client.status, client.detail) == ("unknown", "Review r2 Snapshot 0")
+    assert client is not None and (client.status, client.detail) == ("unknown", "Review r2 Revision 1")
 
 
 def _recorded(*models: Any) -> Any:
@@ -1064,7 +1064,7 @@ def test_recorded_models_name_observed_requested_and_default_identities_within_a
     assert build_data_flow(_inputs()).row("models.recorded") is None
     assert build_data_flow(_inputs(surface="hosted", hosted=_HOSTED)).row("models.recorded") is None
     empty = _recorded()
-    assert (empty.status, empty.detail) == ("not_set", "Review r1 Snapshot 1 has no settled intelligence run")
+    assert (empty.status, empty.detail) == ("not_set", "Review r1 Revision 2 has no settled intelligence run")
     row = _recorded(
         ModelIdentity("claude", observed_models=("claude-sonnet-4-5-20250929",)),
         ModelIdentity("claude", observed_models=("claude-sonnet-4-5-20250929",)),
@@ -1074,9 +1074,9 @@ def test_recorded_models_name_observed_requested_and_default_identities_within_a
         ModelIdentity("ollama", observed_models=("qwen2.5:14b", "llama3.1:8b")),
     )
     assert row.status == "fact"
-    assert row.origins == (FlowOrigin("Review r1 Snapshot 1 intelligence runs", "review_record"),)
+    assert row.origins == (FlowOrigin("Review r1 Revision 2 intelligence runs", "review_record"),)
     assert row.detail == (
-        "Review r1 Snapshot 1: claude observed claude-sonnet-4-5-20250929; codex provider default (unreported); "
+        "Review r1 Revision 2: claude observed claude-sonnet-4-5-20250929; codex provider default (unreported); "
         "litellm observed anthropic/claude-3-5-sonnet-20240620 (+more); ollama observed qwen2.5:14b, llama3.1:8b; "
         "openai requested gpt-4.1 (not observed)"
     )
@@ -1113,7 +1113,7 @@ def test_a_recorded_model_or_driver_shaped_like_an_endpoint_or_secret_is_withhel
     )
     assert model not in row.detail and CANARY not in row.detail and "example.com" not in row.detail
     assert row.detail == (
-        "Review r1 Snapshot 1: litellm requested (model id withheld) (not observed); "
+        "Review r1 Revision 2: litellm requested (model id withheld) (not observed); "
         "openai observed (model id withheld); unrecognized driver observed gpt-4.1"
     )
 

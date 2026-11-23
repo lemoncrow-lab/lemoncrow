@@ -8,6 +8,7 @@ or notification plumbing; those are not part of the public engine.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import importlib.util
 import logging
@@ -15,9 +16,9 @@ import re
 import sqlite3
 import threading
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,9 +29,16 @@ from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.pro.capabilities.review.api import register_review_api
 from lemoncrow.pro.capabilities.review.change_sets import CHANGE_SET_KIND
 from lemoncrow.pro.capabilities.review.development import sync_ledgers_before_capture
-from lemoncrow.pro.capabilities.review.gitdiff import BlobPair, RevRange, load_blobs, resolve_rev_range, source_state
+from lemoncrow.pro.capabilities.review.gitdiff import (
+    BlobPair,
+    RevRange,
+    load_blobs,
+    load_old_blobs,
+    resolve_rev_range,
+    source_state,
+)
 from lemoncrow.pro.capabilities.review.models import ReviewPacket, review_packet_from_dict
-from lemoncrow.pro.capabilities.review.packet import PacketBuild
+from lemoncrow.pro.capabilities.review.packet import PacketBuild, attach_workspace_impact
 from lemoncrow.pro.capabilities.review.readiness import SnapshotProgress
 from lemoncrow.pro.capabilities.review.session_models import (
     ReviewRevision,
@@ -47,6 +55,7 @@ from lemoncrow.pro.capabilities.review.sources.local import (
     claim_review,
     enrich_revision_projection,
     freeze_branch_base,
+    read_packet_json,
     record_revision,
     record_scm_relationship,
     review_subject,
@@ -66,6 +75,7 @@ __all__ = ["LocalReviewCapture", "LocalReviewReader", "LocalReviewRepository"]
 
 _LOG = logging.getLogger("lemoncrow.server.local_reviews")
 
+_USER_STORE_KEY = ".user"
 _REVIEW_PATH = re.compile(r"^/api/reviews/(?P<id>[A-Za-z0-9_.:-]+)(?:/|$)")
 _REVISION_PATH = re.compile(r"^/api/revisions/(?P<id>[A-Za-z0-9_.:-]+)(?:/|$)")
 _ANNOTATION_PATH = re.compile(r"^/api/annotations/(?P<id>[A-Za-z0-9_.:-]+)(?:/|$)")
@@ -158,6 +168,18 @@ class LocalReviewRepository:
                 return cached
             store = ReviewStore(root, source_content_reader=self._source_content_reader)
             self._stores[repo_id] = store
+            return store
+
+    def user_store(self) -> ReviewStore:
+        """The store for this principal's own settings (SPEC 4.11): not a repository, so it sits in a dot directory
+        that ``list_repository_ids`` never lists."""
+
+        with self._stores_lock:
+            cached = self._stores.get(_USER_STORE_KEY)
+            if cached is not None and cached.db_path.exists():
+                return cached
+            store = ReviewStore(self._root / _USER_STORE_KEY, source_content_reader=self._source_content_reader)
+            self._stores[_USER_STORE_KEY] = store
             return store
 
     def referenced_digests(self, org_id: str) -> dict[tuple[str, str], frozenset[str]]:
@@ -524,6 +546,30 @@ class LocalReviewRepository:
                 details={"review_id": review_id, "revision_id": revision.id},
             ) from exc
 
+    def attach_workspace_impact(
+        self,
+        *,
+        repo_id: str,
+        review_id: str,
+        revision_id: str,
+        found: tuple[Mapping[str, Any], Sequence[str]],
+    ) -> None:
+        """Set one visible revision's ``workspace_impact`` slice on what it has stored; unchanged writes nothing."""
+
+        store, _session = self.require_review(repo_id, review_id)
+        revision = store.get_revision(validate_opaque_id(revision_id, "revision_id"))
+        stored = read_packet_json(store, revision) if revision is not None else None
+        if not isinstance(stored, dict):
+            raise ServerError(
+                ErrorCode.REVIEW_STATE_CONFLICT,
+                "the Review revision has no stored packet",
+                details={"review_id": review_id, "revision_id": revision_id},
+            )
+        current = review_packet_from_dict(stored)
+        packet = attach_workspace_impact(PacketBuild(current, BlobPair(old={}, new={}, degraded=())), found).packet
+        if packet.workspace_impact != current.workspace_impact or set(packet.degraded) != set(current.degraded):
+            self.enrich_projection(repo_id=repo_id, review_id=review_id, revision_id=revision_id, packet=packet)
+
     def update_preparation(
         self,
         *,
@@ -673,14 +719,24 @@ class LocalReviewRepository:
         captured_old_blobs = dict(old_blobs or {})
         watch_fingerprint = source_state_fingerprint or source_fingerprint
         legacy_watch = legacy_source_fingerprint if source_state_fingerprint else ""
-        if checkout_root is not None and not source_state_fingerprint:
+        if checkout_root is not None and not captured_old_blobs:
             try:
                 # A local live-View can publish the current Snapshot before its
                 # base View is attached. The range still names an immutable Git
                 # base, so read only the changed old sides needed by semantic
-                # Review units when the request did not carry them.
-                if not captured_old_blobs:
-                    captured_old_blobs = dict(load_blobs(checkout_root, rng, parsed.files).old)
+                # Review units when the request did not carry them. A live
+                # capture that already has its source-state identity reads
+                # only the base text a deleted row is anchored to, not every
+                # changed file, and never the new side.
+                captured_old_blobs = (
+                    load_old_blobs(checkout_root, rng, parsed.files)
+                    if source_state_fingerprint
+                    else dict(load_blobs(checkout_root, rng, parsed.files).old)
+                )
+            except (OSError, RuntimeError, ValueError):
+                captured_old_blobs = {}
+        if checkout_root is not None and not source_state_fingerprint:
+            try:
                 state = source_state(checkout_root, rng)
                 watch_fingerprint, legacy_watch = state.fingerprint, state.legacy_fingerprint
             except (OSError, RuntimeError, ValueError):
@@ -793,6 +849,9 @@ class LocalReviewRepository:
             store.write_source_tree_artifact(session.id, first.revision.id, source_tree, side="new")
         if old_source_tree is not None:
             store.write_source_tree_artifact(session.id, first.revision.id, old_source_tree, side="old")
+        if source_tree is not None or old_source_tree is not None:
+            # The revision was readable since record_revision: a read cached meanwhile saw no source trees.
+            note_artifact_write(store)
         return LocalReviewCapture(
             session=store.get_session(session.id) or session,
             revision=first.revision,
@@ -879,6 +938,8 @@ class LocalReviewReader:
         "_ask_enabled",
         "_code_intelligence_factory",
         "_discussion_summaries",
+        "_flow_send_stop",
+        "_flow_send_worker",
         "_inflight",
         "_listen_port",
         "_repository",
@@ -912,6 +973,8 @@ class LocalReviewReader:
         self._discussion_summaries = local_discussion_summary_host()
         self._apps: dict[str, Any] = {}
         self._apps_lock = threading.Lock()
+        self._flow_send_worker: asyncio.Task[None] | None = None
+        self._flow_send_stop: asyncio.Event | None = None
         # Review reference -> repository it resolved in, so the Reader's polling
         # does not search every repository per request. Only references that
         # resolved are kept, and each hit is re-checked in its repository.
@@ -941,11 +1004,105 @@ class LocalReviewReader:
         app = self._app(_ResolvedReader(repo_id, self._repository.store(repo_id), review_id))
         return app.state.review_landing_revalidator(review_id, origin="watch")
 
+    def reader_targets(
+        self,
+        session: Any,
+        revision: Any,
+        units: Sequence[Any],
+        frontier_entries: Sequence[Any],
+        annotations: Sequence[Any],
+    ) -> Sequence[Any] | None:
+        """The Reader's targets for one Review (``inbox_progress.ReaderTargets``), so Home counts what it shows.
+
+        ``None`` for a session outside this server's local repositories.
+        """
+
+        identity = str(getattr(session, "repo_root", "") or "")
+        if not identity.startswith("local:"):
+            return None
+        repo_id = identity.removeprefix("local:")
+        app = self._app(_ResolvedReader(repo_id, self._repository.store(repo_id), str(session.id)))
+        return cast(
+            Sequence[Any], app.state.review_reader_targets(session, revision, units, frontier_entries, annotations)
+        )
+
     def record_merge(self, repo_id: str, review_id: str) -> Mapping[str, Any]:
         """Emit the review record of a provider-observed merge (signed, or the absence noted)."""
 
         app = self._app(_ResolvedReader(repo_id, self._repository.store(repo_id), review_id))
         return cast(Mapping[str, Any], app.state.review_record_on_merge(review_id))
+
+    async def start_flow_send_worker(self) -> None:
+        """Dispatch after the durable undo hold on the aiohttp persistent loop.
+
+        The ordinary Review ASGI request loops are short lived. Starting a
+        worker there would cancel it before Undo expires. At service startup
+        this worker scans repository-partitioned stores, including after restart.
+        """
+        if self._flow_send_worker is None or self._flow_send_worker.done():
+            self._flow_send_stop = asyncio.Event()
+            self._flow_send_worker = asyncio.create_task(self._run_flow_send_worker(self._flow_send_stop))
+
+    async def stop_flow_send_worker(self) -> None:
+        """Let an in-flight dispatch finish; cancelling would leave its thread running unobserved."""
+        task, stop = self._flow_send_worker, self._flow_send_stop
+        self._flow_send_worker = None
+        self._flow_send_stop = None
+        if task is None:
+            return
+        if stop is not None:
+            stop.set()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=30.0)
+        except TimeoutError:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
+    @staticmethod
+    def _dispatch_flow_send_sync(app: Any) -> None:
+        asyncio.run(app.state.review_flow_dispatch_due())
+
+    async def _run_flow_send_worker(self, stop: asyncio.Event) -> None:
+        # Rows still 'dispatching' belong to a worker that died: make them honest.
+        started = datetime.now(UTC).isoformat()
+        try:
+            for repo_id in await asyncio.to_thread(self._repository.list_repository_ids):
+                try:
+                    store = await asyncio.to_thread(self._repository.store, repo_id)
+                    await asyncio.to_thread(store.recover_stale_review_flow_sends, before=started)
+                except Exception:
+                    _LOG.exception("local Review send recovery failed for %s", repo_id)
+        except Exception:
+            _LOG.exception("local Review send recovery failed")
+        while not stop.is_set():
+            try:
+                now = datetime.now(UTC).isoformat()
+                repo_ids = await asyncio.to_thread(self._repository.list_repository_ids)
+            except Exception:
+                _LOG.exception("local Review deferred-send iteration failed")
+                repo_ids = []
+                now = ""
+            for repo_id in repo_ids:
+                if stop.is_set():
+                    break
+                try:
+                    store = await asyncio.to_thread(self._repository.store, repo_id)
+                    review_ids = await asyncio.to_thread(store.list_due_review_flow_ids, now=now)
+                    for review_id in review_ids:
+                        resolved = _ResolvedReader(repo_id, store, review_id)
+                        app = await asyncio.to_thread(self._app, resolved)
+                        # Outcomes and delivery run through several blocking
+                        # SQLite/agent interfaces. Do not stall the one aiohttp
+                        # event loop while this background worker dispatches.
+                        await asyncio.to_thread(self._dispatch_flow_send_sync, app)
+                except Exception:
+                    _LOG.exception("local Review deferred-send failed for %s", repo_id)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=1.0)
 
     @property
     def ask_enabled(self) -> bool:
@@ -1099,27 +1256,29 @@ class LocalReviewReader:
         def _landed_project_history(_session: ReviewSession) -> Any | None:
             # PK0 is synced into the *global* local Review store by
             # `lc knowledge project sync`, not this repository's ReviewStore.
-            # Resolve only the explicitly recorded checkout identity; never
+            # Resolve only the recorded Git repository of this checkout; never
             # select another repository's knowledge by a name or a partial
             # path match. An unsynced installation stays completely inert.
             if checkout_root is None:
                 return None
             from lemoncrow.pro.capabilities.review.project_context import ProjectKnowledgeBinding
             from lemoncrow.pro.capabilities.review.project_knowledge import ProjectKnowledgeStore
+            from lemoncrow.pro.capabilities.review.project_knowledge_source import CanonicalGitKnowledge
             from lemoncrow.pro.capabilities.review.project_knowledge_surface import LocalKnowledgeSources
 
             global_root = default_store_root()
             if not (global_root / DB_NAME).is_file():
                 return None
-            attached = [
-                item.repository
-                for item in LocalKnowledgeSources(global_root).all().values()
-                if Path(item.repo_root).expanduser().resolve() == checkout_root.resolve()
-            ]
-            if len(attached) != 1:
+            source = LocalKnowledgeSources(global_root).for_checkout(checkout_root)
+            if source is None:
                 return None
-            knowledge = ProjectKnowledgeStore(ReviewStore(global_root))
-            return ProjectKnowledgeBinding(knowledge, attached[0])
+            return ProjectKnowledgeBinding(
+                ProjectKnowledgeStore(ReviewStore(global_root)),
+                source.repository,
+                generation_order=CanonicalGitKnowledge(
+                    checkout_root, source.repository, source.canonical_ref
+                ).generation_order,
+            )
 
         register_review_api(
             app,
@@ -1128,6 +1287,7 @@ class LocalReviewReader:
             repo_root=self._repository.scratch_root(resolved.repo_id),
             port=self._listen_port,
             session_repo_identity=f"local:{resolved.repo_id}",
+            flow_send_scope_review_id=resolved.review_id,
             enforce_origin_guard=False,
             surface_workspace_root=self._repository.scratch_root(resolved.repo_id),
             dependency_repo_root=checkout_root,
@@ -1164,12 +1324,24 @@ class LocalReviewReader:
             resolved = self.resolve(path)
         return self._app(resolved)
 
-    # What the Reader's first paint waits on (overview + targets), plus the
-    # proofs/readiness and projection it asks for next. Each fills a per-Snapshot
-    # cache in this process, so the reviewer's first request is a hit. History
-    # goes first: it stores the new Snapshot's row (a store write), which must
-    # land before the reads cached against the store's write generation.
-    _WARM_PATHS = ("/revisions", "", "/targets", "/readiness", "/projection")
+    # What the Reader's first paint waits on (startup overview + targets, with the
+    # exact query strings it sends: the response cache is keyed by them), the full
+    # reads it and `lc review status` make next, readiness and the Brief's
+    # projection. Each fills a per-Snapshot cache in this process, so the
+    # reviewer's first request is a hit, or joins the warm-up's read in flight.
+    # History goes first: it stores the new Snapshot's row (a store write), which
+    # must land before the reads cached against the store's write generation.
+    _WARM_FIRST = (("/revisions", ""), ("", "startup=true"), ("/targets", "order=recommended&startup=true"))
+    _WARM_NEXT = (("", ""), ("/targets", "order=recommended"), ("/readiness", ""), ("/projection", ""))
+
+    async def _warm_read(self, app: Any, store: ReviewStore | None, review_id: str, suffix: str, query: str) -> None:
+        path = f"/api/reviews/{review_id}{suffix}"
+        try:
+            # On the Reader pool, never on this loop (seconds of blocking work),
+            # and through the response cache the Reader's own reads hit.
+            await self._cached_get(app, store, path, query, functools.partial(run_asgi_get_isolated, app, path, query))
+        except Exception:
+            _LOG.exception("Review warm-up read failed review=%s path=%s?%s", review_id, suffix, query)
 
     # lc-debt: shutdown does not cancel a running warm-up, so a read that outlives the
     # core logs CoreUnavailable (exit stays 0); cancel warm tasks before the core stops.
@@ -1180,14 +1352,28 @@ class LocalReviewReader:
             app, store = await asyncio.to_thread(self._resolved_pair, f"/api/reviews/{review_id}", {})
         except ServerError:
             return
-        for suffix in self._WARM_PATHS:
-            path = f"/api/reviews/{review_id}{suffix}"
+        stamp: tuple[Any, ...] | None = None
+        for index, (suffix, query) in enumerate(self._WARM_FIRST):
+            await self._warm_read(app, store, review_id, suffix, query)
+            if index == 0 and store is not None:
+                # The generation the warmed reads are cached against (history's write has landed).
+                stamp = await asyncio.to_thread(self._read_stamp, store)
+        # Every card's frozen code next, beside the remaining reads (its own thread, not a Reader
+        # pool slot, so the reviewer's own requests still find one free).
+        frozen = getattr(getattr(app, "state", None), "review_frozen_contents_warmer", None)
+        frozen_task = asyncio.create_task(asyncio.to_thread(frozen, review_id)) if callable(frozen) else None
+        for suffix, query in self._WARM_NEXT:
+            await self._warm_read(app, store, review_id, suffix, query)
+        if store is not None and stamp is not None and await asyncio.to_thread(self._read_stamp, store) != stamp:
+            # A write landed meanwhile (the CLI publishes the Revision right after capture), so the
+            # cached first-screen reads were dropped: read them once more, now over warm lower caches.
+            for suffix, query in (*self._WARM_FIRST[1:], *self._WARM_NEXT[:2]):
+                await self._warm_read(app, store, review_id, suffix, query)
+        if frozen_task is not None:
             try:
-                # On the Reader pool, never on this loop (seconds of blocking work),
-                # and through the response cache the Reader's own reads hit.
-                await self._cached_get(app, store, path, "", functools.partial(run_asgi_get_isolated, app, path))
+                await frozen_task
             except Exception:
-                _LOG.exception("Review warm-up read failed review=%s path=%s", review_id, suffix)
+                _LOG.exception("Review frozen-contents warm-up failed review=%s", review_id)
         # A capture is the durable event that originates the run plan's planned
         # pre-merge checks (never a browser read); the scheduler is plan-gated.
         scheduler = getattr(getattr(app, "state", None), "review_premerge_scheduler", None)
@@ -1196,6 +1382,14 @@ class LocalReviewReader:
                 await asyncio.to_thread(scheduler, review_id)
             except Exception:
                 _LOG.exception("Review pre-merge scheduling failed review=%s", review_id)
+        # The same durable event starts the automatic per-part proof: sandboxed, bounded and in the
+        # background (the scheduler only queues it), so the capture's latency is unchanged.
+        part_proof = getattr(getattr(app, "state", None), "review_part_proof_scheduler", None)
+        if callable(part_proof):
+            try:
+                await asyncio.to_thread(part_proof, review_id)
+            except Exception:
+                _LOG.exception("Review part-proof scheduling failed review=%s", review_id)
 
     def _resolved_pair(self, path: str, query: Mapping[str, str]) -> tuple[Any, ReviewStore | None]:
         if path == "/api/compare":
@@ -1208,7 +1402,7 @@ class LocalReviewReader:
         # event loop that also answers every other request.
         app, store = await asyncio.to_thread(self._resolved_pair, request.path, dict(request.query))
         match = _CACHEABLE_READ.match(request.path) if request.method == "GET" else None
-        if store is None or match is None or match.group("suffix") not in _CACHEABLE_SUFFIXES:
+        if store is None or match is None or match.group("suffix") not in _SHARED_SUFFIXES:
             return await _dispatch_asgi(app, request)
         return await self._cached_get(
             app, store, request.path, request.query_string, lambda: _dispatch_asgi(app, request)
@@ -1223,13 +1417,14 @@ class LocalReviewReader:
         compute: Callable[[], Awaitable[web.StreamResponse]],
     ) -> web.StreamResponse:
         match = _CACHEABLE_READ.match(path)
-        if store is None or match is None or match.group("suffix") not in _CACHEABLE_SUFFIXES:
+        if store is None or match is None or match.group("suffix") not in _SHARED_SUFFIXES:
             return await compute()
+        cacheable = match.group("suffix") in _CACHEABLE_SUFFIXES
         stamp = await asyncio.to_thread(self._read_stamp, store)
         if stamp is None:
             return await compute()
         key = (id(app), path, query_string, stamp)
-        hit = self._responses.get(key)
+        hit = self._responses.get(key) if cacheable else None
         if hit is not None:
             self._responses.move_to_end(key)
             return _cached_response(hit)
@@ -1258,7 +1453,8 @@ class LocalReviewReader:
         body = response.body if isinstance(response, web.Response) else None
         # Remembered only when nothing was written while it was computed.
         if (
-            response.status == 200
+            cacheable
+            and response.status == 200
             and isinstance(body, bytes)
             and await asyncio.to_thread(self._read_stamp, store) == stamp
         ):
@@ -1295,6 +1491,10 @@ class LocalReviewReader:
 # (source-state, journal, live-state, projection's synthesis expiry) is excluded.
 _CACHEABLE_READ = re.compile(r"^/api/reviews/(?P<id>[A-Za-z0-9_.:-]+)(?P<suffix>/[a-z-]+)?$")
 _CACHEABLE_SUFFIXES = frozenset({None, "/targets", "/frontier", "/readiness"})
+# Reads not cached (the projection reads the clock for synthesis expiry) whose concurrent
+# copies still share one computation: a Reader or `lc review status` arriving while the
+# capture warm-up builds the Brief joins that build instead of starting another.
+_SHARED_SUFFIXES = _CACHEABLE_SUFFIXES | {"/projection"}
 _RESPONSE_CACHE_MAX = 24  # a few Reviews' first-load reads; each is up to a few MB
 
 
@@ -1352,6 +1552,31 @@ def _ensure_generation(db_path: str) -> bool:
         return False
     finally:
         conn.close()
+
+
+def note_artifact_write(store: ReviewStore) -> None:
+    """Count a write the Reader cache cannot see: an artifact file a cached read depends on (no SQLite row changed).
+
+    Without it a read cached before the write (the capture warm-up's) would be served after it.
+    """
+
+    db_path = str(store.db_path)
+    with _generation_lock:
+        installed = _generation_ready.get(db_path)
+    if not installed:
+        return  # nothing cached against this store yet: the next read installs the counter
+    try:
+        conn = sqlite3.connect(db_path, timeout=10)
+        try:
+            conn.execute("PRAGMA busy_timeout = 10000")
+            with conn:
+                conn.execute(f"UPDATE {_GENERATION_TABLE} SET n = n + 1 WHERE id = 1")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        # lc-debt: a failed bump leaves earlier cached reads in place until the next row write; evict the Reader's
+        # response cache for this store here if that ever shows.
+        _LOG.warning("Reader cache not advanced for %s after an artifact write", db_path, exc_info=True)
 
 
 def _read_generation(db_path: str) -> tuple[int, int] | None:

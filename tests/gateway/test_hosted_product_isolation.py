@@ -34,7 +34,7 @@ def test_review_install_is_runtime_neutral_by_default(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Product: LemonCrow Review" in result.stdout
     assert "lemoncrow-review-client.tar.gz" in result.stdout
-    assert "Runtime/agent configuration: none" in result.stdout
+    assert "Workspaces/agent configuration: none" in result.stdout
     assert "/review/client" in result.stdout
 
 
@@ -42,20 +42,20 @@ def test_review_install_rejects_runtime_agent_configuration(tmp_path: Path) -> N
     for option in ("--runtime-agent", "--agent"):
         result = _dry_run(tmp_path, REVIEW_INSTALLER, option, "claude")
         assert result.returncode == 2
-        assert "Runtime is a separate product" in result.stderr
+        assert "Workspaces is a separate product" in result.stderr
         assert "runtime.sh" in result.stderr
 
 
 def test_legacy_no_hosts_is_a_review_compatibility_noop(tmp_path: Path) -> None:
     result = _dry_run(tmp_path, REVIEW_INSTALLER, "--no-hosts")
     assert result.returncode == 0, result.stderr
-    assert "Runtime/agent configuration: none" in result.stdout
+    assert "Workspaces/agent configuration: none" in result.stdout
 
 
 def test_runtime_install_changes_no_host_configuration_by_default(tmp_path: Path) -> None:
     result = _dry_run(tmp_path, RUNTIME_INSTALLER)
     assert result.returncode == 0, result.stderr
-    assert "Product: LemonCrow Runtime" in result.stdout
+    assert "Product: LemonCrow Workspaces" in result.stdout
     assert "lemoncrow-runtime-client.tar.gz" in result.stdout
     assert "Agent registration: none" in result.stdout
     assert "/runtime/client" in result.stdout
@@ -64,9 +64,9 @@ def test_runtime_install_changes_no_host_configuration_by_default(tmp_path: Path
 def test_runtime_lite_dry_run_has_no_server_or_endpoint(tmp_path: Path) -> None:
     result = _dry_run(tmp_path, RUNTIME_INSTALLER, "--lite")
     assert result.returncode == 0, result.stderr
-    assert "Runtime mode: lite" in result.stdout
-    assert "Runtime server: none (session-scoped stdio only)" in result.stdout
-    assert "Runtime endpoint:" not in result.stdout
+    assert "Workspaces mode: lite" in result.stdout
+    assert "Workspaces server: none (session-scoped stdio only)" in result.stdout
+    assert "Workspaces endpoint:" not in result.stdout
 
 
 def test_runtime_install_requires_explicit_agent_opt_in(tmp_path: Path) -> None:
@@ -96,13 +96,13 @@ def test_runtime_loopback_endpoint_installs_runtime_lite(tmp_path: Path) -> None
     # endpoint is the pre-Lite way of asking for local Runtime.
     result = _dry_run(tmp_path, RUNTIME_INSTALLER, "--url", "http://127.0.0.1:7420")
     assert result.returncode == 0, result.stderr
-    assert "Runtime mode: lite" in result.stdout
+    assert "Workspaces mode: lite" in result.stdout
 
 
 def test_runtime_https_endpoint_resolves_hosted_mode(tmp_path: Path) -> None:
     result = _dry_run(tmp_path, RUNTIME_INSTALLER, "--url", "https://runtime.example")
     assert result.returncode == 0, result.stderr
-    assert "Runtime mode: hosted" in result.stdout
+    assert "Workspaces mode: hosted" in result.stdout
 
 
 def test_review_loopback_endpoint_resolves_local_mode(tmp_path: Path) -> None:

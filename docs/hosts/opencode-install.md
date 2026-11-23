@@ -2,7 +2,7 @@
 
 LemonCrow integrates with **OpenCode V1 and V2** while OpenCode keeps its own model, provider account, and normal UI. V2 changes the plugin and MCP configuration API; the installer selects a compatible plugin by `opencode --version` without rewriting unrelated model/provider settings.
 
-V2 uses `mcp.servers.lc` and `permissions` in `opencode.json`, a native `setup(ctx)` plugin, and the `@opencode/plugin/tui` sidebar registered in global `cli.json`. V1 and LemonCode keep their legacy adapter. Manual V2 settings are in `integrations/opencode/opencode.lemoncrow-v2.template.json` (replace `<WORKSPACE_ROOT>`). The installed OpenCode version (not the presence of a config file) chooses the variant.
+V2 uses `mcp.servers.lc` and `permissions` in `opencode.json`, a native `setup(ctx)` plugin, and the `@opencode/plugin/tui` sidebar registered in global `cli.json`. V1 keeps its legacy adapter. Manual V2 settings are in `integrations/opencode/opencode.lemoncrow-v2.template.json` (replace `<WORKSPACE_ROOT>`). The installed OpenCode version (not the presence of a config file) chooses the variant.
 
 ## Try it in the current repository
 
@@ -59,7 +59,7 @@ lc rt status
 From a source checkout:
 
 ```bash
-make verify
+make verify-full
 # Also test the native MCP handshake and required tool names:
 bash scripts/verify_opencode.sh
 ```

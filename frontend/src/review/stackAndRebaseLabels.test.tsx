@@ -17,19 +17,8 @@ import ReviewReadinessSheet, {
   scmRequirementBlockers,
 } from "./ReviewReadinessSheet";
 import ReviewTargetHeader from "./ReviewTargetHeader";
-import RevisionDeltaBar from "./RevisionDeltaBar";
 import { baseOnlyNote } from "./movementLabels";
-import type {
-  Annotation,
-  RefreshInfo,
-  ReviewMovementSummary,
-  ReviewOverview,
-  ReviewProgress,
-  ReviewRelationshipInfo,
-  ReviewStackInfo,
-  ReviewStackMember,
-  ReviewTarget,
-} from "./types";
+import type { Annotation, ReviewMovementSummary, ReviewOverview, ReviewProgress, ReviewRelationshipInfo, ReviewStackInfo, ReviewStackMember, ReviewTarget } from "./types";
 
 function member(overrides: Partial<ReviewStackMember> = {}): ReviewStackMember {
   return {
@@ -255,7 +244,7 @@ describe("stack position in the Review header (item 24)", () => {
 });
 
 describe("base-only movement labels (item 34)", () => {
-  it("labels a base-only target row without calling it changed", () => {
+  it("labels a base-only part row without calling it changed", () => {
     header({ ...TARGET, movement: "base_only" });
     expect(screen.getByTestId("target-base-only").textContent).toBe(
       "Base moved"
@@ -345,43 +334,6 @@ describe("base-only movement labels (item 34)", () => {
     expect(model.ready).toBe(false);
     expect(model.changedSinceReview).toBe(0);
     expect(model.targetPending).toBe(0);
-  });
-
-  it("counts base-only kept judgments in the refresh summary", () => {
-    const info: RefreshInfo = {
-      created: true,
-      revision_number: 2,
-      previous_revision_number: 1,
-      reopened: 0,
-      carried: 3,
-      rebased: 2,
-      added: 0,
-      removed: [],
-      discarded: [],
-      notes: [],
-      target_delta: {
-        preserved: [],
-        reopened: [],
-        added: [],
-        removed: [],
-        active: [],
-      },
-    };
-    render(
-      <RevisionDeltaBar
-        info={info}
-        discarded={[]}
-        focused
-        onShowAll={vi.fn()}
-        onSelectTarget={vi.fn()}
-        onDismiss={vi.fn()}
-      />
-    );
-    expect(screen.getByTestId("revision-delta-base-only").textContent).toBe(
-      "2 base-only, kept"
-    );
-    expect(screen.getByText("No work returned")).toBeTruthy();
-    expect(screen.queryByText(/changed/)).toBeNull();
   });
 });
 

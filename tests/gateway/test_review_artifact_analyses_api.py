@@ -893,8 +893,8 @@ class _Scripted:
         return ()
 
     def run(self, context: Any, runtime: Any, surface: Any, *, side: str) -> Any:
-        from lemoncrow.pro.capabilities.review.execution import ExecutionSubject, StageOutcome
-        from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
+        from lemoncrow.pro.environment.execution import ExecutionSubject, StageOutcome
+        from lemoncrow.pro.environment.runners import SurfaceRunResult
         from tests.gateway.test_review_execution_contract import _result
 
         self.calls.append((runtime.id, side))
@@ -928,7 +928,7 @@ def _render_script(runtime: Any, side: str, _count: int) -> tuple[int, dict[str,
 def _scripted_review(
     tmp_path: Path, script: Any = _render_script, *, config: str = DEEP, head: dict[str, str | None] | None = None
 ) -> tuple[SimpleNamespace, _Scripted]:
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+    from lemoncrow.pro.environment.runners import RunnerRegistry
 
     runner = _Scripted(script)
     review = _review(

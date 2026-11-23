@@ -4,8 +4,11 @@ A check recipe is one deterministic command -- test, lint, format, typecheck,
 build or pre-commit -- that LemonCrow may execute on both sides of a Snapshot
 in the hermetic sandbox. Recipes come only from the trusted base:
 
-* ``.lemoncrow/review.yaml`` ``check_recipes`` rows (explicit configuration
-  wins, per recipe id and per kind);
+* ``.lemoncrow/environment.toml`` ``[[checks]]`` when it defines any: they are
+  then the whole set, each run only when the change touches its ``paths``
+  (:func:`environment_recipes`);
+* otherwise ``.lemoncrow/review.yaml`` ``check_recipes`` rows (explicit
+  configuration wins, per recipe id and per kind);
 * otherwise discovery over base manifests: pre-commit config, package.json
   scripts, Makefile targets, pyproject/pytest/tox config, Cargo and Go.
 
@@ -42,16 +45,28 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import shlex
+import subprocess
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import Any, Final, Literal, cast
 
 import yaml
+from lemoncrow_client.environment import (
+    ENVIRONMENT_FILE,
+    Check,
+    DefinitionError,
+    Environment,
+    Fingerprint,
+    is_attr_pathspec,
+    parse_environment,
+)
 
-from lemoncrow.pro.capabilities.review.execution import REPORT_DIR, REPORT_ENV
+from lemoncrow.pro.environment.execution import REPORT_DIR, REPORT_ENV
 
 RecipeKind = Literal["test", "lint", "format", "typecheck", "build", "precommit"]
 RECIPE_KINDS: Final[tuple[str, ...]] = ("test", "lint", "format", "typecheck", "build", "precommit")
@@ -89,6 +104,12 @@ REPORT_PLACEHOLDER: Final[str] = "{report}"
 TESTS_PLACEHOLDER: Final[str] = "{tests}"
 #: More selected test files than this run the full suite (never a silent subset).
 MAX_SELECTED_TEST_ARGS: Final[int] = 512
+#: A standalone ``command`` argument of an environment.toml check that receives the
+#: Change's paths, from which the command writes the ``$LC_CHANGED`` file.
+CHANGED_PLACEHOLDER: Final[str] = "{changed}"
+#: More changed-path bytes than this cannot be passed to an environment.toml check;
+#: it is not run (never a silent subset).
+MAX_CHANGED_BYTES: Final[int] = 256 * 1024
 RECIPE_DIGEST_VERSION: Final[int] = 1
 REVIEW_CONFIG_PATH: Final[str] = ".lemoncrow/review.yaml"
 
@@ -97,6 +118,12 @@ _MAX_RECIPES: Final[int] = 64
 _MAX_ARGS: Final[int] = 64
 _MAX_ARG_CHARS: Final[int] = 4000
 _DEFAULT_TIMEOUT: Final[int] = 300
+#: An environment.toml check without ``timeout``: the time limit Review gives it.
+_ENVIRONMENT_TIMEOUT: Final[int] = 900
+#: Bounds on the trusted base's ``.gitattributes`` files ``attr:`` pathspecs are matched with.
+MAX_ATTRIBUTE_FILES: Final[int] = 256
+MAX_ATTRIBUTE_BYTES: Final[int] = 256 * 1024
+GITATTRIBUTES: Final[str] = ".gitattributes"
 _MAX_MANIFESTS: Final[int] = 8
 
 
@@ -121,6 +148,12 @@ class CheckRecipe:
     pass only when the command leaves the tree unchanged (formatters run in
     write mode, pre-commit). ``fix_command`` (format/lint/pre-commit) produces
     an autofix *proposal*; it never mutates source.
+
+    ``paths`` (environment.toml checks only) are the Git pathspecs the change
+    must touch for the recipe to run; such a recipe's command takes the
+    changed paths for ``$LC_CHANGED`` (:data:`CHANGED_PLACEHOLDER`).
+    ``environment`` and ``check`` are the parsed trusted-base definition it
+    came from (its services, dependencies, toolchain and fingerprint).
     """
 
     id: str
@@ -138,6 +171,24 @@ class CheckRecipe:
     source: str = ""
     input_digests: tuple[tuple[str, str | None], ...] = ()
     """``(path, sha256 of trusted-base bytes | None)`` -- filled by :func:`with_inputs`."""
+    paths: tuple[str, ...] = ()
+    environment: Environment | None = field(default=None, compare=False, repr=False)
+    check: Check | None = field(default=None, compare=False, repr=False)
+    part_targets: tuple[tuple[str, str], ...] = ()
+    """Explicit (path, exact symbol) mapping from trusted-base config; not coverage proof."""
+
+    @property
+    def needs(self) -> tuple[str, ...]:
+        """The declared services this check needs up while it runs."""
+
+        return self.check.needs if self.check is not None else ()
+
+    def definition_fingerprint(self, read_lockfile: Callable[[str], bytes | None]) -> Fingerprint | None:
+        """The environment fingerprint ``lc verify`` records for this check (``None``: not defined there)."""
+
+        if self.environment is None or self.check is None:
+            return None
+        return self.environment.fingerprint(self.check, read_lockfile)
 
     @property
     def entry_id(self) -> str:
@@ -149,11 +200,14 @@ class CheckRecipe:
 
         return self.kind == "test" and TESTS_PLACEHOLDER in self.command
 
-    def argv(self, tests: Sequence[str] | None = None) -> tuple[str, ...]:
+    def argv(self, tests: Sequence[str] | None = None, changed: Sequence[str] = ()) -> tuple[str, ...]:
         """The argv executed: ``{tests}`` becomes *tests* (cwd-relative), or nothing for a full run.
 
         ``command`` stays the template (it is what the recipe digest covers);
-        more than :data:`MAX_SELECTED_TEST_ARGS` files run the full suite.
+        more than :data:`MAX_SELECTED_TEST_ARGS` files run the full suite. An
+        environment.toml check's ``{changed}`` becomes *changed*
+        (:func:`changed_listing`), one bracketed argument per path, because the
+        runner strips whitespace from each argument.
         """
 
         chosen = list(tests or ()) if tests is not None and len(tests) <= MAX_SELECTED_TEST_ARGS else []
@@ -161,6 +215,8 @@ class CheckRecipe:
         for part in self.command:
             if part == TESTS_PLACEHOLDER:
                 out.extend(chosen)
+            elif part == CHANGED_PLACEHOLDER and self.paths:
+                out.extend(f"[{path}]" for path in changed)
             else:
                 out.append(part)
         return tuple(out)
@@ -183,6 +239,8 @@ class CheckRecipe:
             "detect_changes": self.detect_changes if variant == "check" else True,
             "inputs": {path: value for path, value in self.input_digests},
         }
+        if self.part_targets:
+            document["part_targets"] = [list(row) for row in self.part_targets]
         if variant == "fix":
             document["variant"] = "fix"
         return document
@@ -215,6 +273,7 @@ class CheckRecipe:
             "timeout": self.timeout,
             "origin": self.origin,
             "source": self.source,
+            "part_targets": [{"path": path, "symbol": symbol} for path, symbol in self.part_targets],
             "digest": self.digest,
             "fix_digest": self.fix_digest,
         }
@@ -246,6 +305,8 @@ class CheckPolicy:
     quarantine: tuple[QuarantineRule, ...] = ()
     adequacy: bool = True
     autofix: bool = True
+    #: Per-part proof on capture and in the reviewer's views (``check_policy.part_proof``); off stops it.
+    part_proof: bool = True
 
     def quarantined(self, recipe_id: str, test_id: str) -> QuarantineRule | None:
         return next((rule for rule in self.quarantine if rule.matches(recipe_id, test_id)), None)
@@ -257,6 +318,7 @@ class CheckPolicy:
             "quarantine": [rule.to_wire() for rule in self.quarantine],
             "adequacy": self.adequacy,
             "autofix": self.autofix,
+            "part_proof": self.part_proof,
         }
 
 
@@ -268,6 +330,13 @@ class RecipeCatalog:
     policy: CheckPolicy = field(default_factory=CheckPolicy)
     errors: tuple[str, ...] = ()
     base_state: Literal["present", "absent", "provisional"] = "present"
+    #: ``(recipe id, why)`` for environment.toml checks whose paths the change does not touch.
+    untouched: tuple[tuple[str, str], ...] = ()
+
+    def skipped(self, recipe_id: str) -> str:
+        """Why the change does not run *recipe_id* (its paths are untouched), or ``""``."""
+
+        return next((why for found, why in self.untouched if found == recipe_id), "")
 
     def get(self, recipe_id: str) -> CheckRecipe | None:
         return next((recipe for recipe in self.recipes if recipe.id == recipe_id), None)
@@ -294,6 +363,7 @@ class RecipeCatalog:
             "policy": self.policy.to_wire(),
             "errors": list(self.errors),
             "base_state": self.base_state,
+            "untouched": [{"id": recipe_id, "reason": why} for recipe_id, why in self.untouched],
         }
 
 
@@ -365,7 +435,7 @@ def parse_check_policy(content: str) -> tuple[CheckPolicy, tuple[str, ...]]:
         errors.append("check_policy.reruns must be an integer from 0 to 5")
         reruns_raw = 2
     flags: dict[str, bool] = {}
-    for name in ("adequacy", "autofix"):
+    for name in ("adequacy", "autofix", "part_proof"):
         value = raw.get(name, True)
         if not isinstance(value, bool):
             errors.append(f"check_policy.{name} must be true or false")
@@ -396,6 +466,7 @@ def parse_check_policy(content: str) -> tuple[CheckPolicy, tuple[str, ...]]:
             quarantine=tuple(rules),
             adequacy=flags["adequacy"],
             autofix=flags["autofix"],
+            part_proof=flags["part_proof"],
         ),
         tuple(errors),
     )
@@ -488,6 +559,32 @@ def parse_config_recipes(content: str) -> tuple[tuple[CheckRecipe, ...], tuple[s
         if not isinstance(detect, bool):
             errors.append(f"{where}.detect_changes must be true or false")
             continue
+        target_rows = row.get("part_targets") or []
+        part_targets: list[tuple[str, str]] = []
+        if target_rows:
+            if kind != "test" or not isinstance(target_rows, list) or len(target_rows) > 16:
+                errors.append(f"{where}.part_targets must be a list of up to 16 entries on a test recipe")
+                continue
+            invalid_target = False
+            for candidate in target_rows:
+                if not isinstance(candidate, Mapping):
+                    invalid_target = True
+                    break
+                path = _relative(candidate.get("path"))
+                symbol_raw = candidate.get("symbol")
+                symbol = symbol_raw.strip() if isinstance(symbol_raw, str) else ""
+                if (
+                    path in (None, ".")
+                    or not symbol
+                    or len(symbol) > 200
+                    or any(ord(char) < 32 or char in "*?" for char in symbol)
+                ):
+                    invalid_target = True
+                    break
+                part_targets.append((path, symbol))
+            if invalid_target:
+                errors.append(f"{where}.part_targets requires exact repo-relative paths and symbol names")
+                continue
         definition = _command_definition(command, cwd)
         recipes.append(
             CheckRecipe(
@@ -504,6 +601,7 @@ def parse_config_recipes(content: str) -> tuple[tuple[CheckRecipe, ...], tuple[s
                 timeout=timeout_raw,
                 origin="config",
                 source=f"{REVIEW_CONFIG_PATH} {where}",
+                part_targets=tuple(dict.fromkeys(part_targets)),
             )
         )
     return tuple(recipes), tuple(errors)
@@ -527,6 +625,226 @@ def _command_definition(command: Sequence[str], cwd: str) -> str:
     if head in _SCRIPT_RUNNERS:
         return _join(cwd, "package.json")
     return ""
+
+
+# --------------------------------------------------------------------------- #
+# environment.toml checks (trusted base only)
+# --------------------------------------------------------------------------- #
+
+#: Runs in the same ``sh`` before an environment.toml check's ``run``. As in ``lc verify``,
+#: ``$LC_CHANGED`` names a file listing the changed paths that exist in this tree, one per
+#: line, and the check sees no arguments. Each argument is ``[path]`` (:meth:`CheckRecipe.argv`).
+_CHANGED_PRELUDE: Final[str] = (
+    'LC_CHANGED="${TMPDIR:-/tmp}/lc-changed.$$"\n'
+    'for lc_arg in "$@"; do\n'
+    "  lc_path=${lc_arg#?}\n"
+    "  lc_path=${lc_path%?}\n"
+    '  if [ -e "$lc_path" ]; then printf \'%s\\n\' "$lc_path"; fi\n'
+    'done >"$LC_CHANGED" || exit 125\n'
+    "unset lc_arg lc_path\n"
+    "export LC_CHANGED\n"
+    "set --\n"
+)
+#: Git's id of the empty blob: the pathspec index needs an object id, never the object.
+_EMPTY_BLOB: Final[bytes] = b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
+
+def environment_recipes(content: str) -> tuple[tuple[CheckRecipe, ...], tuple[str, ...]]:
+    """The ``[[checks]]`` of a trusted-base ``environment.toml`` as recipes, or the errors.
+
+    The file is parsed by ``lemoncrow_client.environment``, the parser ``lc verify`` uses.
+    Each check runs ``sh -c <run>`` from the repository root with ``$LC_CHANGED``, and only
+    when the change touches its ``paths`` (:func:`touched_checks`). Its ``kind`` places it
+    in that kind's entry (``checks.test`` ...); without one it is a ``build`` recipe,
+    addressable only as ``checks.recipe:<id>``. Its ``timeout`` (default 900 s) bounds
+    each run. A file Review cannot honor whole (invalid, or past a recipe bound) gives no
+    recipe, so nothing stands in for it.
+    """
+
+    try:
+        environment = parse_environment(content, source=ENVIRONMENT_FILE)
+    except DefinitionError as exc:
+        return (), (str(exc),)
+    checks = environment.checks
+    if len(checks) > _MAX_RECIPES:
+        return (), (f"{ENVIRONMENT_FILE}: {len(checks)} checks; Review runs at most {_MAX_RECIPES}",)
+    recipes: list[CheckRecipe] = []
+    for index, check in enumerate(checks):
+        where = f"{ENVIRONMENT_FILE}: checks[{index}] ({check.id})"
+        if not _ID.fullmatch(check.id):
+            return (), (f"{where}: Review needs an id of at most 64 characters",)
+        script = _CHANGED_PRELUDE + check.run
+        if len(script) > _MAX_ARG_CHARS or "\0" in script:
+            limit = _MAX_ARG_CHARS - len(_CHANGED_PRELUDE)
+            return (), (f"{where}: Review needs a run command of at most {limit} characters, without NUL",)
+        try:
+            definition = _command_definition(shlex.split(check.run), ".")
+        except ValueError:
+            definition = ""
+        recipes.append(
+            CheckRecipe(
+                id=check.id,
+                # Without a kind, a build recipe: it has no kind entry, so it runs only as checks.recipe:<id>.
+                kind=cast(RecipeKind, check.kind or "build"),
+                command=("sh", "-c", script, "sh", CHANGED_PLACEHOLDER),
+                title=check.id,
+                inputs=(ENVIRONMENT_FILE, *((definition,) if definition else ())),
+                definition=definition,
+                timeout=check.timeout or _ENVIRONMENT_TIMEOUT,
+                origin="config",
+                source=f"{ENVIRONMENT_FILE} checks[{index}]",
+                paths=check.paths,
+                environment=environment,
+                check=check,
+            )
+        )
+    return tuple(recipes), ()
+
+
+def environment_definition(content: str | None) -> Environment | None:
+    """The parsed trusted-base ``environment.toml``; ``None`` when absent or invalid."""
+
+    if not content:
+        return None
+    try:
+        return parse_environment(content, source=ENVIRONMENT_FILE)
+    except DefinitionError:
+        return None
+
+
+def changed_listing(paths: Iterable[str]) -> tuple[str, ...]:
+    """The Change's paths as an environment.toml check gets them: each once, sorted (as ``lc verify``)."""
+
+    return tuple(sorted({path for path in paths if path}))
+
+
+def changed_listing_refusal(paths: Sequence[str]) -> str:
+    """Why *paths* (:func:`changed_listing`) cannot be passed to an environment.toml check, or ``""``."""
+
+    size = sum(len(path.encode("utf-8", "surrogatepass")) + 3 for path in paths)
+    if size <= MAX_CHANGED_BYTES:
+        return ""
+    return (
+        f"the change lists {len(paths)} paths ({size} bytes as arguments); more than {MAX_CHANGED_BYTES} "
+        "bytes cannot be passed for $LC_CHANGED, so the check is not run"
+    )
+
+
+def uses_attributes(recipe: CheckRecipe) -> bool:
+    """Whether any of the recipe's pathspecs selects by Git attributes (``:(attr:...)``)."""
+
+    return any(is_attr_pathspec(spec) for spec in recipe.paths)
+
+
+def attribute_files(paths: Iterable[str] | None, read: Callable[[str], str | None]) -> dict[str, str] | None:
+    """The trusted base's ``.gitattributes`` files (path -> text); ``None`` when they cannot all be read."""
+
+    if paths is None:
+        return None
+    names = sorted(path for path in paths if path == GITATTRIBUTES or path.endswith("/" + GITATTRIBUTES))
+    if len(names) > MAX_ATTRIBUTE_FILES:
+        return None
+    out: dict[str, str] = {}
+    for name in names:
+        text = read(name)
+        if text is None or len(text.encode("utf-8", "surrogatepass")) > MAX_ATTRIBUTE_BYTES:
+            return None
+        out[name] = text
+    return out
+
+
+def _write_attributes(scratch: str, attributes: Mapping[str, str]) -> None:
+    root = os.path.realpath(scratch)
+    for name, text in attributes.items():
+        parts = name.split("/")
+        if parts[-1] != GITATTRIBUTES or any(part in {"", ".", "..", ".git"} for part in parts):
+            raise ValueError(f"unusable attributes path {name[:120]!r}")
+        target = os.path.join(root, *parts)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if os.path.commonpath([root, os.path.realpath(os.path.dirname(target))]) != root:
+            raise ValueError(f"unusable attributes path {name[:120]!r}")
+        with open(target, "x", encoding="utf-8", errors="surrogateescape") as handle:
+            handle.write(text)
+
+
+def touched_checks(
+    recipes: Sequence[CheckRecipe], changed: Iterable[str], attributes: Mapping[str, str] | None = None
+) -> tuple[dict[str, bool], str]:
+    """Recipe id -> whether the changed paths touch its ``paths``, and ``""``; ``({}, why)`` if Git cannot say.
+
+    Git matches each recipe's pathspecs against an index listing only the changed paths
+    (an index needs no objects), so ``:!`` exclusions and every other pathspec form mean
+    what they mean to ``lc verify``'s ``git diff --name-only``. Deleted paths are listed,
+    so a deletion counts as a touch.
+
+    An ``attr:`` pathspec reads the trusted base's ``.gitattributes`` files
+    (*attributes*, see :func:`attribute_files`); never host or global attributes. When
+    they are unknown, or the change edits a ``.gitattributes`` file, Git cannot say what
+    such a recipe matches: it is left out of the map and *why* says so, so it runs.
+    """
+
+    wanted = [recipe for recipe in recipes if recipe.paths]
+    names = changed_listing(changed)
+    if not wanted or not names:
+        return {recipe.id: False for recipe in wanted}, ""
+    unknown = ""
+    if any(uses_attributes(recipe) for recipe in wanted):
+        if attributes is None:
+            unknown = "the trusted base's .gitattributes could not be read, so its attr: pathspecs cannot be matched"
+        elif any(name == GITATTRIBUTES or name.endswith("/" + GITATTRIBUTES) for name in names):
+            unknown = "the change edits .gitattributes, so its attr: pathspecs cannot be matched on the trusted base"
+    if unknown:
+        wanted = [recipe for recipe in wanted if not uses_attributes(recipe)]
+    # One index cannot hold both `a` and `a/b` (a file replaced by a directory). Group by how
+    # many other changed paths are parent directories of a path: a group then has no such pair.
+    present = set(names)
+    groups: dict[int, list[str]] = {}
+    for name in names:
+        parts = name.split("/")
+        depth = sum("/".join(parts[:end]) in present for end in range(1, len(parts)))
+        groups.setdefault(depth, []).append(name)
+    # Neither host Git settings nor a calling hook's GIT_DIR or GIT_INDEX_FILE steer the match.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    touched = {recipe.id: False for recipe in wanted}
+    try:
+        with tempfile.TemporaryDirectory(prefix="lc-pathspec-") as scratch:
+            # The trusted base's attributes only: core.attributesFile would otherwise default
+            # to the host's ~/.config/git/attributes.
+            base = ["git", "-C", scratch, "-c", f"core.attributesFile={os.devnull}"]
+            if attributes and not unknown:
+                _write_attributes(scratch, attributes)
+
+            def git(*args: str, stdin: bytes | None = None) -> bytes:
+                done = subprocess.run(
+                    [*base, *args], input=stdin, capture_output=True, env=env, timeout=60, check=False
+                )
+                if done.returncode != 0:
+                    detail = done.stderr.decode("utf-8", "replace").strip()[:200]
+                    raise RuntimeError(detail or f"git {args[0]} exited {done.returncode}")
+                return done.stdout
+
+            git("init", "-q")
+            for group in groups.values():
+                encoded = [name.encode("utf-8", "surrogateescape") for name in group]
+                git("read-tree", "--empty")
+                git(
+                    "update-index",
+                    "-z",
+                    "--index-info",
+                    stdin=b"".join(b"100644 %s\t%s\0" % (_EMPTY_BLOB, n) for n in encoded),
+                )
+                # Git skips a path it will not store (`..`, `.git`); unmatched, it would read as untouched.
+                listed = set(git("ls-files", "-z").split(b"\0")) - {b""}
+                if listed != set(encoded):
+                    missing = sorted(set(encoded) - listed)[0].decode("utf-8", "replace")
+                    raise ValueError(f"Git will not index the changed path {missing[:120]!r}")
+                for recipe in wanted:
+                    if not touched[recipe.id]:
+                        touched[recipe.id] = bool(git("ls-files", "-z", "--", *recipe.paths))
+            return touched, unknown
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {}, f"Git could not match the paths: {exc}"[:300]
 
 
 # --------------------------------------------------------------------------- #
@@ -965,6 +1283,7 @@ def build_recipe_catalog(
     read_base: Callable[[str], str | None],
     *,
     base_state: Literal["present", "absent", "provisional"] = "present",
+    environment: str | None = None,
 ) -> RecipeCatalog:
     """Every recipe of the trusted base: explicit configuration wins over discovery.
 
@@ -972,10 +1291,24 @@ def build_recipe_catalog(
     recipe of a kind, discovered recipes of that kind are dropped. A base tree
     that cannot be read (``None``) discovers nothing (provisional), so no
     recipe is implied.
+
+    *environment* is the trusted base's ``environment.toml`` text (``None``
+    when absent). When it defines checks they are the only recipes: neither
+    ``check_recipes`` nor discovery adds any. When it is invalid there are no
+    recipes and its error is reported. ``check_policy`` applies either way.
     """
 
-    configured, config_errors = parse_config_recipes(config_content)
     policy, policy_errors = parse_check_policy(config_content)
+    if environment:
+        defined, environment_errors = environment_recipes(environment)
+        if defined or environment_errors:
+            return RecipeCatalog(
+                recipes=tuple(with_inputs(recipe, read_base) for recipe in defined),
+                policy=policy,
+                errors=(*environment_errors, *policy_errors),
+                base_state="provisional" if base_paths is None else base_state,
+            )
+    configured, config_errors = parse_config_recipes(config_content)
     discovered: tuple[CheckRecipe, ...] = ()
     state = base_state
     if base_paths is None:
@@ -1063,8 +1396,12 @@ def future_recipe_policy(base: RecipeCatalog, head: RecipeCatalog) -> dict[str, 
 
 
 __all__ = [
+    "CHANGED_PLACEHOLDER",
+    "ENVIRONMENT_FILE",
+    "GITATTRIBUTES",
     "KIND_ENTRY",
     "KIND_FACT",
+    "MAX_CHANGED_BYTES",
     "RECIPE_ENTRY_PREFIX",
     "RECIPE_KINDS",
     "REPORT_DIR",
@@ -1076,14 +1413,21 @@ __all__ = [
     "CheckRecipe",
     "QuarantineRule",
     "RecipeCatalog",
+    "attribute_files",
     "build_recipe_catalog",
+    "changed_listing",
+    "changed_listing_refusal",
     "discover_recipes",
     "entry_recipe_digest",
     "entry_recipe_digests",
+    "environment_definition",
+    "environment_recipes",
     "future_recipe_policy",
     "head_definition_guard",
     "parse_check_policy",
     "parse_config_recipes",
     "recipe_digest",
+    "touched_checks",
+    "uses_attributes",
     "with_inputs",
 ]

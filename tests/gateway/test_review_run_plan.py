@@ -50,7 +50,7 @@ from lemoncrow.pro.capabilities.review.store import ReviewStore, new_revision_id
 from lemoncrow.pro.capabilities.review.test_impact import RecipeSelection
 
 ORG = SettingOrigin("organization", "organization policy")
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 SEED_IDS = {
     "checks.test",
     "checks.lint",
@@ -71,6 +71,7 @@ SEED_IDS = {
     "infra.render",
     "compat.mixed_version",
     "behavior.flag_matrix",
+    "data_path.diff",
     "ai.brief_synthesis",
     "ai.hypotheses",
     "ai.investigators",
@@ -175,6 +176,11 @@ def test_run_plan_detection_contract() -> None:
     assert {"test_command", "typecheck", "web_app", "migrations"} <= detected.facts
     assert "infrastructure" not in detected.facts
     assert detect_capabilities(None).base_state == "provisional"
+    # A static site the trusted review config declares is a web app wherever it lives.
+    declared = {".lemoncrow/review.yaml": "render:\n  static_root: site\n"}
+    assert "web_app" in detect_capabilities([*declared, "site/home.html"], declared.get).facts
+    undeclared = {".lemoncrow/review.yaml": "# static_root: site\nrender: {}\n"}
+    assert "web_app" not in detect_capabilities([*undeclared, "site/home.html"], undeclared.get).facts
     "case: test_identical_selections_yield_identical_plans"
     settings = _settings(org={"effort": "thorough"}, repo={"capabilities": {"visual": "off"}})
     first = _plan(settings, ai_candidates=1)

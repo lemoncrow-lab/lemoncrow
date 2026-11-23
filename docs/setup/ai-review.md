@@ -12,6 +12,10 @@ cd your-project && lc review --ai                           # 3. the review
 
 Open a new terminal after the install, or run the `source` line the installer prints. A plain `lc review` (no `--ai`) never calls a model, even when a key is exported: a key you set for other tools is not permission to spend it.
 
+## What to expect
+
+The review is built to find real bugs with little noise, so its findings are worth reading. It will miss bugs: a clean result does not mean the change is correct.
+
 ## No key? Use an agent you are signed in to
 
 If you already use Claude Code, Codex or OpenCode, let it do the review on its own plan. You name it, so nothing is ever spent through it by surprise:
@@ -20,6 +24,8 @@ If you already use Claude Code, Codex or OpenCode, let it do the review on its o
 lc review --ai --agent claude        # or: codex, opencode
 lc review --ai --agent claude --remember   # once; after that `lc review --ai` uses it whenever no key is set
 ```
+
+On `claude` the review runs on Sonnet unless you choose another model (`LEMONCROW_REVIEW_MODEL=haiku`, or `intelligence.driver` and `intelligence.model` in `lc settings`). Each local review stops at $3.00 by default; `--max-usd-per-pr USD` sets another amount and `--max-usd-per-pr none` removes the cap.
 
 With no key set, `lc review --ai` tells you which of the three it found on your machine and shows the command, but never starts one on its own. An exported `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` wins over a remembered agent. To stop using it: `lc settings reset review.agent`.
 
@@ -94,4 +100,4 @@ lc review init-action       # the GitHub Action workflow for pull requests
 lc uninstall all --dry-run  # what removing LemonCrow would delete, without deleting anything
 ```
 
-The installed `lc` sends no telemetry. The full engine from a source checkout does, and prints a one-line notice on its first run: [Privacy & network behavior](./privacy.md).
+The installed `lc` sends anonymous feature counts, never code, prompts, findings or paths. It says so once on first run, and `lc rt telemetry remote off` stops them: [Privacy & network behavior](./privacy.md).

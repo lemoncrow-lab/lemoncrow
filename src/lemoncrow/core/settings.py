@@ -39,6 +39,7 @@ __all__ = [
     "coerce",
     "env_override",
     "find_by_key",
+    "forget_retired_setting",
     "is_secret",
     "load_raw",
     "load_settings",
@@ -167,6 +168,12 @@ def write_setting(root: str | Path, key: str, raw_value: Any) -> Any:
         low, high = spec.int_range
         if not low <= int(value) <= high:
             raise ValueError(f"invalid value for {key}: {raw_value!r} (must be between {low} and {high})")
+    if spec.float_range is not None:
+        flow, fhigh = spec.float_range
+        number = float(value)
+        if not (number == spec.float_unset or flow <= number <= fhigh):  # NaN fails both
+            unset = "" if spec.float_unset is None else f", or {spec.float_unset:g} for none"
+            raise ValueError(f"invalid value for {key}: {raw_value!r} (must be between {flow:g} and {fhigh:g}{unset})")
     raw = load_raw(root)
     raw[key] = value
     _write_json(settings_path(root), raw)
@@ -176,6 +183,14 @@ def write_setting(root: str | Path, key: str, raw_value: Any) -> Any:
 def unset_setting(root: str | Path, key: str) -> None:
     if key not in _BY_KEY:
         raise ValueError(f"unknown setting: {key}")
+    raw = load_raw(root)
+    if key in raw:
+        del raw[key]
+        _write_json(settings_path(root), raw)
+
+
+def forget_retired_setting(root: str | Path, key: str) -> None:
+    """Drop a key the registry no longer knows from the settings file (a retired setting's leftover)."""
     raw = load_raw(root)
     if key in raw:
         del raw[key]

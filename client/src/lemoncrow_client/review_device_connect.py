@@ -170,7 +170,7 @@ def connect_main(
         sink.write(
             "Usage: lcr connect [--status]\n"
             "Obtain a one-time pairing code through Hosted Review and paste it via stdin.\n"
-            "This does not reuse the Authward user login or start a Runtime session.\n"
+            "This does not reuse the Authward user login or start a Workspaces session.\n"
         )
         return 0
     if arguments not in ([], ["--status"]):

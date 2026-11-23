@@ -1,60 +1,56 @@
-/* Same font/color language as landing (lemoncrow.com): JetBrains Mono for UI
-   chrome/labels, system sans for body copy, warm cream light theme, brand
-   purple accent. See landing/tailwind.config.mjs + landing/src/styles/global.css. */
+/* Colours come from the LemonCrow design tokens (canonical: design/lc-tokens.css;
+   imported here from the Review app's byte-identical vendored copy, which the
+   public mirror also ships). Tokens are RGB triplets: use rgb(var(--token)).
+   The dark tokens are scoped to `.dark`, which docusaurus.config.ts mirrors from
+   Docusaurus's `data-theme`. Fonts: JetBrains Mono for UI chrome/labels,
+   system sans for body copy. */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import '../../../frontend/src/design/lc-tokens.css';
+
+/* Same mapping in both themes: the token values switch with `.dark`. */
+:root,
+html[data-theme='dark'] {
+  --ifm-color-primary: rgb(var(--primary));
+  --ifm-color-primary-dark: rgb(var(--primary));
+  --ifm-color-primary-darker: rgb(var(--primary));
+  --ifm-color-primary-darkest: rgb(var(--primary));
+  --ifm-color-primary-light: rgb(var(--subtle-foreground));
+  --ifm-color-primary-lighter: rgb(var(--subtle-foreground));
+  --ifm-color-primary-lightest: rgb(var(--subtle-foreground));
+
+  --ifm-background-color: rgb(var(--background));
+  --ifm-background-surface-color: rgb(var(--card));
+  --ifm-navbar-background-color: rgb(var(--background) / 0.9);
+  --ifm-footer-background-color: rgb(var(--background));
+  --ifm-font-color-base: rgb(var(--foreground));
+  --ifm-heading-color: rgb(var(--foreground));
+  --ifm-toc-border-color: rgb(var(--border));
+  --ifm-hr-background-color: rgb(var(--border));
+  --ifm-menu-color-background-active: rgb(var(--accent));
+  --ifm-menu-color-background-hover: rgb(var(--muted));
+
+  /* Homepage hero */
+  --hero-bg: rgb(var(--background));
+  --hero-text: rgb(var(--foreground));
+  --hero-subtext: rgb(var(--muted-foreground));
+  /* Feature cards */
+  --card-bg: rgb(var(--card));
+  --card-border: rgb(var(--border));
+  --card-title: rgb(var(--card-foreground));
+  --card-text: rgb(var(--muted-foreground));
+}
 
 :root {
-  --ifm-color-primary: #6a39b3;
-  --ifm-color-primary-dark: #5a3196;
-  --ifm-color-primary-darker: #55308c;
-  --ifm-color-primary-darkest: #49287a;
-  --ifm-color-primary-light: #7b46cb;
-  --ifm-color-primary-lighter: #865ed2;
-  --ifm-color-primary-lightest: #9b75d9;
-
-  --ifm-background-color: #f8f6f1;
-  --ifm-background-surface-color: #ffffff;
-  --ifm-navbar-background-color: rgba(248, 246, 241, 0.9);
-  --ifm-footer-background-color: #f8f6f1;
-  --ifm-font-color-base: #262626;
-  --ifm-heading-color: #0a0a0a;
   --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', Roboto,
     Helvetica, Arial, sans-serif;
   --ifm-font-family-monospace: 'JetBrains Mono', 'Hack Nerd Font Mono',
     'Droid Sans Mono', monospace;
   --ifm-code-font-size: 95%;
-  --ifm-menu-color-background-active: #ebe5fb;
-  --ifm-menu-color-background-hover: #f5f2fd;
-
-  /* Homepage hero */
-  --hero-bg: #ffffff;
-  --hero-text: #1a1a1a;
-  --hero-subtext: #666666;
-  /* Feature cards */
-  --card-bg: #f9f9f9;
-  --card-border: #e5e5e5;
-  --card-title: #1a1a1a;
-  --card-text: #666666;
 }
 
-html[data-theme='dark'] {
-  --ifm-background-color: #0a0a0a;
-  --ifm-background-surface-color: #171717;
-  --ifm-navbar-background-color: rgba(10, 10, 10, 0.9);
-  --ifm-footer-background-color: #0a0a0a;
-  --ifm-font-color-base: #d4d4d4;
-  --ifm-heading-color: #fafafa;
-  --ifm-color-primary: #9b75d9;
-  --ifm-menu-color-background-active: rgba(106, 57, 179, 0.25);
-  --ifm-menu-color-background-hover: rgba(106, 57, 179, 0.12);
-
-  --hero-bg: #0a0a0a;
-  --hero-text: #fafafa;
-  --hero-subtext: #a1a1aa;
-  --card-bg: #18181b;
-  --card-border: #27272a;
-  --card-title: #fafafa;
-  --card-text: #a1a1aa;
+/* Links are ink, not a hue: underline them in prose so they stay distinguishable. */
+.markdown a {
+  text-decoration: underline;
 }
 
 body {
@@ -67,13 +63,28 @@ body {
    landing/src/components/Nav.tsx)
 --------------------------------------------------------------------------- */
 .navbar {
-  border-bottom: 1px solid #e5e5e5;
-  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgb(var(--border));
   box-shadow: none;
 }
 
-html[data-theme='dark'] .navbar {
-  border-bottom: 1px solid #27272a;
+/* The blur sits on a pseudo-element: `backdrop-filter` on .navbar itself would
+   make it the containing block of the fixed mobile drawer, which then shrinks
+   to the navbar's height. */
+.navbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+/* Phones: wrap long commands instead of cutting them off at the edge. */
+@media (max-width: 996px) {
+  .markdown pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 
 .navbar__link {
@@ -82,7 +93,7 @@ html[data-theme='dark'] .navbar {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: #737373;
+  color: rgb(var(--muted-foreground));
 }
 
 .navbar__link:hover,
@@ -98,22 +109,23 @@ html[data-theme='dark'] .navbar {
   gap: 0.7rem;
 }
 
+/* The one primary CTA: lemon fill, near-black text in both themes. */
 .navbar-cta {
-  border: 1px solid #0a0a0a !important;
-  background: #0a0a0a !important;
-  color: #fff !important;
+  border: 1px solid rgb(var(--brand-border)) !important;
+  background: rgb(var(--brand)) !important;
+  color: rgb(var(--brand-foreground)) !important;
   padding: 0.4rem 0.75rem !important;
   font-weight: 600 !important;
 }
 
 .navbar-cta:hover {
-  background: #262626 !important;
-  color: #fff !important;
+  background: rgb(var(--brand-hover)) !important;
+  color: rgb(var(--brand-foreground)) !important;
   opacity: 1;
 }
 
 .navbar-cta :global(svg) {
-  fill: #fff !important;
+  fill: rgb(var(--brand-foreground)) !important;
 }
 
 .header-github-link {
@@ -146,26 +158,20 @@ html[data-theme='dark'] .navbar {
    Footer -- cream, mono uppercase column headers (matches
    landing/src/components/Footer.tsx)
 --------------------------------------------------------------------------- */
-.footer {
-  --ifm-footer-color: #525252;
-  --ifm-footer-link-color: #525252;
-  --ifm-footer-link-hover-color: #0a0a0a;
-  --ifm-footer-title-color: #a3a3a3;
-}
-
+.footer,
 html[data-theme='dark'] .footer {
-  --ifm-footer-color: #a1a1aa;
-  --ifm-footer-link-color: #a1a1aa;
-  --ifm-footer-link-hover-color: #fafafa;
-  --ifm-footer-title-color: #71717a;
+  --ifm-footer-color: rgb(var(--muted-foreground));
+  --ifm-footer-link-color: rgb(var(--muted-foreground));
+  --ifm-footer-link-hover-color: rgb(var(--foreground));
+  --ifm-footer-title-color: rgb(var(--subtle-foreground));
 }
 
 .footer__title {
   font-family: var(--ifm-font-family-monospace);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.14em;
 }
 
 .footer__link-item {

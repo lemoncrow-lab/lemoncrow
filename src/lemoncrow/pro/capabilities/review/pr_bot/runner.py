@@ -112,11 +112,12 @@ if TYPE_CHECKING:
 class PrReviewError(RuntimeError):
     """The review could not run, for a reason the person running it can act on.
 
-    ``posted`` is set once a ``LemonCrow Review`` status has been tried for it, so the outermost handler does not post a
-    second one (:func:`run_pr_review`).
+    ``posted`` is set once a ``LemonCrow Review`` status has been tried for it, and ``announced`` once its annotation was
+    printed, so the outermost handler does neither twice (:func:`run_pr_review`).
     """
 
     posted: bool = False
+    announced: bool = False
 
 
 #: The permissions block the sample workflow uses: the one line that fixes every missing-permission message below.
@@ -350,6 +351,9 @@ def run_pr_review(
             gitlab_transport=gitlab_transport,
         )
     except PrReviewError as exc:
+        if not exc.announced:
+            exc.announced = True
+            announce("error", str(exc), environ)
         if not exc.posted:
             exc.posted = True
             if is_gitlab(environ):
@@ -546,6 +550,7 @@ def _run_pr_review(
         try:
             answered = _chat(options, chat, ref, github, facts, run, structured_executor, environ, say)
         except PrReviewError as exc:
+            exc.announced = True
             announce("error", str(exc), environ)
             raise
         for level, message in answered.annotations:
@@ -571,7 +576,7 @@ def _run_pr_review(
 
     problem, why = _model_route(options, environ)
     if problem == "disabled":
-        return skipped(f"AI review is turned off ({why}); nothing was reviewed.", "AI review is turned off")
+        return skipped(f"AI review did not run ({why}); nothing was reviewed.", "AI review did not run")
     if problem and on_gitlab:
         raise PrReviewError(
             f"no model route is configured. {GITLAB_NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider "
@@ -638,6 +643,7 @@ def _run_pr_review(
         if failed is None:
             raise
         failed.posted = writes
+        failed.announced = True
         announce("error", str(failed), environ)
         if failed is exc:
             raise
@@ -728,7 +734,7 @@ def _model_route(options: RunOptions, environ: Mapping[str, str]) -> tuple[str, 
     if route is not None:
         # The drivers read the process environment, whatever environment the gate was decided from.
         ci_env.apply_model_route(route, os.environ)
-    return engine.route_problem()
+    return engine.run_problem()
 
 
 def _chat(
@@ -748,7 +754,7 @@ def _chat(
 
     problem, why = _model_route(options, environ)
     if problem == "disabled":
-        return _skip(f"{ref.slug}#{ref.number}", f"AI review is turned off ({why}); nothing was answered.")
+        return _skip(f"{ref.slug}#{ref.number}", f"AI review did not run ({why}); nothing was answered.")
     if problem:
         raise PrReviewError(
             "no model route is configured: pass `anthropic-api-key` or `openai-api-key` to the Action, or set "
@@ -1100,6 +1106,9 @@ def _review(
     authors, commits = _declared_authors(github, run, ref.slug, head)
     report.independence = authorship.assess(ai.model, authors, commits=commits)
     report.ci = ci
+    # The Risk line: the Reader's rule over the Snapshot's facts and the checks CI finished on this head (no model).
+    recorded, checks_unmeasured = proof_of_work.recorded_checks(ci)
+    risk = ai.risk_basis.assess(recorded, checks_unmeasured=checks_unmeasured) if ai.risk_basis is not None else None
     # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
     # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
     below = noise.held_back(tracked)
@@ -1159,6 +1168,7 @@ def _review(
         ci=ci,
         tests_claimed=proof_of_work.claims_tests_pass(facts.body) if facts is not None else False,
         independence=report.independence,
+        risk=risk,
         stale=stale_line(head, tracked, github.approvals()),
         incomplete_reason=reason,
         model_label=ai.model,

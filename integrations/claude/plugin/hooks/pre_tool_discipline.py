@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""PreToolUse read-after-edit and source-search discipline.
+"""PreToolUse read-after-edit discipline only.
 
-Prevents expensive whole-file re-reads after edits and redirects source code
-search through Bash toward the indexed code_search tool. The search guard is
-shared across parent sessions and Claude subagents, while real shell filters
-remain available. Both guards fail open on malformed input and dormancy.
+Prevents expensive whole-file re-reads after edits. Source searches with
+Bash grep/rg are never denied by this hook.
 """
 
 from __future__ import annotations
@@ -183,27 +181,8 @@ def main() -> int:
     ti = payload.get("tool_input") or {}
     if not isinstance(ti, dict):
         return 0
-    # Source-search discipline applies independently of read-after-edit settings.
-    # Import the sibling guard in this existing PreToolUse process: no additional
-    # Python startup per bash/code_search call.
-    if os.environ.get("LEMONCROW_SEARCH_FIRST", "1") != "0":
-        try:
-            from search_first import _record, classify
-
-            choice = classify(payload)
-            if choice is not None:
-                decision, reason = choice
-                _record(payload, decision, reason)
-                if decision == "deny":
-                    _deny(
-                        "Use mcp__lc__code_search for source discovery and mcp__lc__read for exact ranges; "
-                        "do not use Bash grep/rg, including cd-prefixed and piped forms. "
-                        "For required exact shell behavior add '# lc:allow-shell-search' to the command."
-                    )
-                    return 0
-        except Exception:
-            pass
-
+    # Never block Bash grep/rg searches: a refusal followed by a tool retry
+    # increases agent turns and cost. Search selection is advisory only.
     # Read-after-edit guard.
     if os.environ.get("LEMONCROW_READ_AFTER_EDIT_GUARD", "1") == "0":
         return 0

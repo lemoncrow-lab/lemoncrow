@@ -539,7 +539,7 @@ def run_post_merge_action(
     revision = store.get_revision(merge.revision_id) if merge.revision_id else None
     revision_id = merge.revision_id or str(getattr(store.latest_revision(session.id), "id", "") or "")
     if not revision_id:
-        raise PostMergeRefused("this Review has no Snapshot to record the post-merge action under")
+        raise PostMergeRefused("this Review has no revision to record the post-merge action under")
     ledger = PostMergeLedger(store)
     record_id = record_id_for(session.id, kind, merge.ref, initiated_by, rule_id)
     now = now_iso()
@@ -766,7 +766,7 @@ def automation_facts(
         "merge.observed": merge.source if merge is not None else "no provider-observed merge",
         "merge.reviewed_head": merge.source if merge is not None else "unknown",
         "readiness.ready": "readiness core" if readiness_ready is not None else "not evaluated",
-        "change.paths": "current Snapshot packet" if paths is not None else "unreadable",
+        "change.paths": "current revision packet" if paths is not None else "unreadable",
     }
     return AutomationFacts(
         review_id=session.id,

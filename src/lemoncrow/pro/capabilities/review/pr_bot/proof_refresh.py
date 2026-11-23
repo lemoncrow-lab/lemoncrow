@@ -9,8 +9,10 @@ runs this Action again; the gate sees the event and this module runs instead of 
 * the summary is touched only when the head its state names is exactly the ``head_sha`` CI finished on. A summary of
   another head is left alone: the review of the newer head will read CI itself;
 * only the block between ``**Proof of work**`` and its last ``- `` bullet is replaced, with :func:`render.proof_lines`
-  for what CI reports now (the review's own job left out, as the review left it out). Nothing else in the comment, and
-  not the state block, changes, and an unchanged block is not written.
+  for what CI reports now (the review's own job left out, as the review left it out), or added at the end of the first
+  screen when CI reported nothing at review time; with it the ``Tests:`` item of ``What was not checked``
+  (:func:`render.tests_gap`) is rewritten or dropped, so the gap is never said next to checks that now report. Nothing
+  else in the comment, and not the state block, changes, and an unchanged body is not written.
 
 A ``pull_request_review`` run (``submitted`` or ``dismissed``; the setup guide, "The check to require") re-sets the
 ``LemonCrow / human review`` status on the pull request's head instead: ``success`` once an owner, member or
@@ -31,10 +33,14 @@ from lemoncrow.pro.capabilities.review.pr_bot import ci_env, impact
 from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, with_backoff
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     HUMAN_REVIEW_CONTEXT,
+    NOT_CHECKED_HEADING,
+    PROOF_RESULT_PREFIX,
+    TESTS_GAP_PREFIX,
     approved_on,
     human_review_status,
     proof_lines,
     short,
+    tests_gap,
 )
 from lemoncrow.pro.capabilities.review.sources.github import GhRunner, GitHubCliError, PullRequestRef, run_gh
 
@@ -78,18 +84,40 @@ def event_pulls(event: Mapping[str, object], repository: str) -> tuple[str, list
 
 
 def replace_proof(body: str, block: Sequence[str]) -> str | None:
-    """*body* with its proof-of-work block replaced by *block*; ``None`` when the body has no such block."""
+    """*body* with its proof-of-work block replaced by *block*, or added where the review puts it (last in the first
+    screen, before the ``Proof`` line) when CI had reported nothing at review time; ``None`` when *block* is empty or
+    the body has no first screen (a cut comment)."""
 
     lines = body.split("\n")
-    start = next((index for index, line in enumerate(lines) if line.startswith(PROOF_HEADER)), -1)
-    if start < 0 or not block:
+    if not block:
         return None
+    start = next((index for index, line in enumerate(lines) if line.startswith(PROOF_HEADER)), -1)
+    if start < 0:
+        rule = next((index for index, line in enumerate(lines) if line == "---"), -1)
+        if rule < 1:
+            return None
+        # Before the blank line that precedes the ``Proof`` line, else the rule.
+        at = next((i for i in range(1, rule) if lines[i].startswith(PROOF_RESULT_PREFIX)), rule) - 1
+        return "\n".join([*lines[:at], "", *block, *lines[at:]])
     end = start + 1
     while end < len(lines) and not lines[end].strip():
         end += 1
     while end < len(lines) and lines[end].startswith("- "):
         end += 1
     return "\n".join([*lines[:start], *block, *lines[end:]])
+
+
+def replace_tests_gap(body: str, gap: str) -> str:
+    """*body* with its ``What was not checked`` item about the tests replaced by *gap*, or dropped when *gap* is ``""``."""
+
+    lines = body.split("\n")
+    item = f"- {TESTS_GAP_PREFIX}"
+    section = next((index for index, line in enumerate(lines) if line == NOT_CHECKED_HEADING), -1)
+    at = next((index for index in range(section + 1, len(lines)) if lines[index].startswith(item)), -1)
+    if section < 0 or at < 0:
+        return body
+    lines[at : at + 1] = [f"- {gap}"] if gap else []
+    return "\n".join(lines)
 
 
 def refresh(repository: str, number: int, sha: str, runner: GhRunner) -> Refreshed:
@@ -111,7 +139,8 @@ def refresh(repository: str, number: int, sha: str, runner: GhRunner) -> Refresh
         ci = github.ci_results(sha, exclude_run=state.review_run)
         body = replace_proof(existing.body, proof_lines(ci, claimed=claimed))
         if body is None:
-            return Refreshed(number, False, "the summary has no proof-of-work block to refresh")
+            return Refreshed(number, False, "CI reports nothing new for the summary's proof of work")
+        body = replace_tests_gap(body, tests_gap(ci))
         if body == existing.body:
             return Refreshed(number, False, f"the proof of work for {short(sha)} is already current")
         github.write_summary(body, existing)

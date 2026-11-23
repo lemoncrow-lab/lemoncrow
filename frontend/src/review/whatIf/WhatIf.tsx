@@ -27,7 +27,7 @@ export interface WhatIfProps {
 /** Rows shown before an explicit "Show all". */
 const ROW_LIMIT = 25;
 
-const EXACTNESS: Record<string, string> = { snapshot: "Snapshot", current_index: "Working index" };
+const EXACTNESS: Record<string, string> = { snapshot: "Revision", current_index: "Working index" };
 
 function targetName(target: ReviewTarget): string {
   return target.symbol ? `${target.path} · ${target.symbol}` : target.path;
@@ -84,7 +84,7 @@ function Overlay({ model, target, props, onClear }: { model: WhatIfModel; target
         {model.rows.length > 0
           ? `${model.rows.length} reachable, ${unchanged} unchanged by this PR${model.omitted > 0 ? `, ${model.omitted} more not listed` : ""}. Not a fact about the current code.`
           : model.complete
-            ? "No callers or consumers are recorded for it in this Snapshot's impact pass."
+            ? "No callers or consumers are recorded for it in this revision's impact pass."
             : "No known callers. That is not the same as no callers: see what is unknown below."}
       </p>
       {shown.length > 0 && (
@@ -147,13 +147,13 @@ export default function WhatIf(props: WhatIfProps) {
   return (
     <div className="wi-root" data-testid="what-if" data-snapshot={identity}>
       <p className="wi-note">
-        How far could a change to one changed target reach? A read-only hypothetical over this Snapshot's impact data: nothing is edited, and simulated rows are not facts about the current code.
+        How far could a further change to one part reach? Simulated from this revision's impact data; nothing is edited.
       </p>
       <div className="wi-controls">
         <Select
           uiSize="xs"
-          aria-label="Changed target"
-          placeholder="Choose a changed target"
+          aria-label="Part"
+          placeholder="Choose a part"
           searchable={candidates.length > 8}
           value={choice.targetId}
           onValueChange={(targetId) => setChoice({ identity, targetId, scenario: "" })}

@@ -22,8 +22,8 @@ const list = (
     progress: { target_count: 1203 },
   }) as unknown as ReviewTargetList;
 
-describe("same-Snapshot target hydration", () => {
-  it("retains a full 401-file target model when a late compact startup load finishes", () => {
+describe("same-revision part hydration", () => {
+  it("retains a full 401-file part model when a late compact startup load finishes", () => {
     const full = list("snapshot-0", [target("first"), target("last")], true);
     const startup = list("snapshot-0", [target("first", "reviewed")], false);
     const result = retainTargetsOnSameRevision(full, startup);
@@ -38,7 +38,7 @@ describe("same-Snapshot target hydration", () => {
     expect(result.progress).toBe(full.progress);
   });
 
-  it("retains an explicitly opened distant target across a compact reload", () => {
+  it("retains an explicitly opened distant part across a compact reload", () => {
     const previous = list(
       "snapshot-0",
       [target("first"), target("distant")],
@@ -52,7 +52,7 @@ describe("same-Snapshot target hydration", () => {
     ).toEqual(["first", "distant"]);
   });
 
-  it("never carries targets forward to a different Snapshot", () => {
+  it("never carries parts forward to a different revision", () => {
     const previous = list(
       "snapshot-0",
       [target("first"), target("distant")],

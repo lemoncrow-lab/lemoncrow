@@ -60,7 +60,7 @@ describe("Sheet", () => {
 });
 
 describe("Sheet header strip", () => {
-  it("draws the title as a Hunk `@@ LABEL @@` strip without changing the dialog's name or description", () => {
+  it("draws the title plainly in a Hunk header strip, with no `@@` markers, and keeps the dialog's name and description", () => {
     render(
       <Sheet open>
         <SheetContent>
@@ -70,16 +70,16 @@ describe("Sheet header strip", () => {
               <Button aria-label="Close review outcome">x</Button>
             </SheetClose>
           </SheetHeader>
-          <SheetLede>Record your verdict for this Snapshot.</SheetLede>
+          <SheetLede>Record your verdict for this revision.</SheetLede>
         </SheetContent>
       </Sheet>,
     );
-    // The accessible name and description are the plain text: the `@@` markers are CSS, not content.
-    const dialog = screen.getByRole("dialog", { name: "Finish review", description: "Record your verdict for this Snapshot." });
-    expect(dialog).toHaveTextContent(/^Finish reviewxRecord your verdict for this Snapshot\.$/);
+    // The accessible name and description are the plain text; `@@` belongs only to real diff hunks (review-23.4).
+    const dialog = screen.getByRole("dialog", { name: "Finish review", description: "Record your verdict for this revision." });
+    expect(dialog).toHaveTextContent(/^Finish reviewxRecord your verdict for this revision\.$/);
     expect(screen.getByTestId("strip").className).toContain("hunk-head");
     const title = screen.getByRole("heading", { name: "Finish review" });
-    expect(title.className).toContain("hunk-label");
+    expect(title.className).not.toContain("hunk-label");
     expect(screen.getByRole("button", { name: "Close review outcome" })).toBeInTheDocument();
   });
 

@@ -97,7 +97,7 @@ function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
         {change.resolved_target && change.resolved_target !== change.new_target && (
           <div className="text-muted-foreground">Resolves to <span className="font-mono">{change.resolved_target}</span></div>
         )}
-        {!change.target_recorded && <div className="text-amber-300/90">This Snapshot did not record the link target text.</div>}
+        {!change.target_recorded && <div className="text-amber-300/90">This revision did not record the link target text.</div>}
         {change.warnings.length > 0 && (
           <ul role="alert" className="mt-1 space-y-0.5 rounded border border-amber-800/60 bg-amber-950/30 px-2 py-1 text-amber-200" data-testid="special-change-warning">
             {change.warnings.map((warning) => (
@@ -134,7 +134,7 @@ function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
       <div className="text-muted-foreground">
         {change.modes_recorded
           ? <>Mode <Arrow before={change.old_mode} after={change.new_mode} /></>
-          : "Git recorded this path as changed with no content lines. This Snapshot did not record per-file modes, so whether permissions changed is unknown."}
+          : "Git recorded this path as changed with no content lines. This revision did not record per-file modes, so whether permissions changed is unknown."}
       </div>
     </>
   );
@@ -229,7 +229,7 @@ function DependencyRow({ change, onOpenTarget }: { change: ReviewDependencyChang
 
 function supplyChainLine(review: ReviewDependencyProjection): string {
   const { sboms, provenance, vulnerability_scans: scans } = review.supply_chain;
-  if (sboms.length + provenance.length + scans.length === 0) return "No SBOM, provenance or vulnerability-scan evidence is attached to this Snapshot.";
+  if (sboms.length + provenance.length + scans.length === 0) return "No SBOM, provenance or vulnerability-scan evidence is attached to this revision.";
   return `${sboms.length} SBOM · ${provenance.length} provenance · ${scans.length} vulnerability scan`;
 }
 

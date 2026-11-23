@@ -423,7 +423,7 @@ class SessionCommentIngestor:
                 "unresolved",
                 "unresolved",
                 annotation.anchor,
-                "Snapshot content unavailable for location verification",
+                "Revision content unavailable for location verification",
             )
             if packet:
                 later_blobs = self.store.read_blob_artifact(session.id, later.id) or {}
@@ -506,13 +506,21 @@ class SessionCommentIngestor:
                     continue
                 context = payload.get("review_context") or {}
                 captured_at = datetime.fromisoformat(str(context.get("captured_at") or at).replace("Z", "+00:00"))
-                # A native session has no frozen Review target. Its output belongs
-                # to the working draft until the first subsequent Snapshot.
+                reported = payload.get("event") == "ReportedFindings"
+                pinned = str(context.get("revision_id") or "")
+                # A reported review names the Snapshot it reviewed (possibly an
+                # older one an unchanged tree reused). A native session has no
+                # frozen Review target: its output belongs to the working draft
+                # until the first subsequent Snapshot.
                 revision = next(
                     (
                         item
                         for item in revisions
-                        if datetime.fromisoformat(item.created_at.replace("Z", "+00:00")) >= captured_at
+                        if (
+                            item.id == pinned
+                            if pinned
+                            else datetime.fromisoformat(item.created_at.replace("Z", "+00:00")) >= captured_at
+                        )
                     ),
                     None,
                 )
@@ -537,7 +545,7 @@ class SessionCommentIngestor:
                     created_at=at,
                     updated_at=at,
                     anchor_method="unresolved",
-                    anchor_detail="Draft discussion; awaiting Snapshot",
+                    anchor_detail="Draft discussion; awaiting revision",
                     agent_role=role,
                     agent_host=host,
                     agent_model=producer_agent_model,
@@ -560,8 +568,12 @@ class SessionCommentIngestor:
                         state="obsolete",
                         anchor_detail="Guessed file association retired; source message reimported with its own edit scope",
                     )
-                findings = message_locations(body)
-                if not findings:
+                findings = (
+                    [item for item in payload.get("findings") or [] if isinstance(item, dict)]
+                    if reported
+                    else message_locations(body)
+                )
+                if not findings and not reported:
                     # Retained ledgers can predate edited_paths. Both routes use
                     # this output's interval, including boundaries with no edits.
                     edited_paths = context.get("edited_paths", edit_scopes.get(i, ()))
@@ -595,8 +607,16 @@ class SessionCommentIngestor:
                     if not text:
                         continue
                     title = str(finding.get("title") or "")
-                    finding_id = "ann-" + hashlib.sha256(f"{base.id}\0{role}\0{number}".encode()).hexdigest()[:32]
-                    if self.store.get_annotation(finding_id):
+                    key = str(finding.get("key") or "") if reported else ""
+                    finding_id = "ann-" + (
+                        hashlib.sha256(f"{session.id}\0{host}\0{sid}\0reported\0{key}".encode()).hexdigest()[:32]
+                        if key
+                        else hashlib.sha256(f"{base.id}\0{role}\0{number}".encode()).hexdigest()[:32]
+                    )
+                    if self.store.get_annotation(finding_id) or (reported and finding.get("outcome") == "fixed"):
+                        # A re-report (``--fix`` outcomes) never duplicates its finding
+                        # and never judges it: only the person marks an AI finding
+                        # fixed, with evidence. The outcome is in the summary.
                         if finding.get("_message_reference"):
                             self.store.delete_discussion_comment(session.id, base.id)
                         continue
@@ -671,7 +691,7 @@ class SessionCommentIngestor:
                                 "unresolved",
                                 "unresolved",
                                 annotation.anchor,
-                                "Snapshot content unavailable for location verification",
+                                "Revision content unavailable for location verification",
                             )
                             if packet:
                                 later_blobs = self.store.read_blob_artifact(session.id, later.id) or {}
@@ -729,7 +749,7 @@ class SessionCommentIngestor:
                                     body=text,
                                     title=title,
                                     revision_id=revision.id,
-                                    anchor_detail="Finding location could not be proven against this Snapshot",
+                                    anchor_detail="Finding location could not be proven against this revision",
                                 )
                             )
                     if finding.get("_message_reference") and self.store.get_annotation(finding_id):

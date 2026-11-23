@@ -1,0 +1,406 @@
+{
+ "candidates_examined": 1674,
+ "collected_on": "2026-11-15",
+ "collector": "scripts/collect_read_burden_corpus.py",
+ "limits": {
+  "max_files": 60,
+  "max_revisions": 20,
+  "max_text_bytes": 600000
+ },
+ "pull_requests": [
+  {
+   "agent": "Jules",
+   "id": "5L-Labs/recruiter-rankings.com#10",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/5L-Labs/recruiter-rankings.com/pull/10"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "AlfGoto/Rune#118",
+   "license": "MIT",
+   "revisions": 7,
+   "url": "https://github.com/AlfGoto/Rune/pull/118"
+  },
+  {
+   "agent": "Jules",
+   "id": "AthanasiusOfAlex/QtiEditor#13",
+   "license": "MIT",
+   "revisions": 4,
+   "url": "https://github.com/AthanasiusOfAlex/QtiEditor/pull/13"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "MesilimLLC/Trackdub#353",
+   "license": "Apache-2.0",
+   "revisions": 4,
+   "url": "https://github.com/MesilimLLC/Trackdub/pull/353"
+  },
+  {
+   "agent": "Devin",
+   "id": "NKPR0d/nvgt_wx#1",
+   "license": "MIT",
+   "revisions": 7,
+   "url": "https://github.com/NKPR0d/nvgt_wx/pull/1"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "abhimehro/repoprompt-ce#335",
+   "license": "Apache-2.0",
+   "revisions": 3,
+   "url": "https://github.com/abhimehro/repoprompt-ce/pull/335"
+  },
+  {
+   "agent": "Devin",
+   "id": "anokye-labs/watchtower#29",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/anokye-labs/watchtower/pull/29"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "appwrite/appwrite#14068",
+   "license": "BSD-3-Clause",
+   "revisions": 2,
+   "url": "https://github.com/appwrite/appwrite/pull/14068"
+  },
+  {
+   "agent": "GitHub Copilot coding agent",
+   "id": "ayaiayorg/agentic-devtools#1953",
+   "license": "MIT",
+   "revisions": 7,
+   "url": "https://github.com/ayaiayorg/agentic-devtools/pull/1953"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "base2Services/cfn-guardian#149",
+   "license": "MIT",
+   "revisions": 6,
+   "url": "https://github.com/base2Services/cfn-guardian/pull/149"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "base2Services/cfn-guardian#151",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/base2Services/cfn-guardian/pull/151"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "camunda/orchestration-cluster-api-php#115",
+   "license": "Apache-2.0",
+   "revisions": 4,
+   "url": "https://github.com/camunda/orchestration-cluster-api-php/pull/115"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "camunda/orchestration-cluster-api-php#117",
+   "license": "Apache-2.0",
+   "revisions": 4,
+   "url": "https://github.com/camunda/orchestration-cluster-api-php/pull/117"
+  },
+  {
+   "agent": "Jules",
+   "id": "dictav/container#6",
+   "license": "Apache-2.0",
+   "revisions": 10,
+   "url": "https://github.com/dictav/container/pull/6"
+  },
+  {
+   "agent": "Jules",
+   "id": "fagnerpereira/kanjika_gem#3",
+   "license": "MIT",
+   "revisions": 4,
+   "url": "https://github.com/fagnerpereira/kanjika_gem/pull/3"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "frankbria/podcaststudiohub#170",
+   "license": "Apache-2.0",
+   "revisions": 2,
+   "url": "https://github.com/frankbria/podcaststudiohub/pull/170"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "gamezj/spring-boot-realworld-example-app#3",
+   "license": "MIT",
+   "revisions": 9,
+   "url": "https://github.com/gamezj/spring-boot-realworld-example-app/pull/3"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "j23n/caniretireyet#64",
+   "license": "MIT",
+   "revisions": 9,
+   "url": "https://github.com/j23n/caniretireyet/pull/64"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "jonathanKingston/voicey#102",
+   "license": "MIT",
+   "revisions": 8,
+   "url": "https://github.com/jonathanKingston/voicey/pull/102"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "jonathanKingston/voicey#138",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/jonathanKingston/voicey/pull/138"
+  },
+  {
+   "agent": "Jules",
+   "id": "labsai/EDDI#387",
+   "license": "Apache-2.0",
+   "revisions": 7,
+   "url": "https://github.com/labsai/EDDI/pull/387"
+  },
+  {
+   "agent": "Jules",
+   "id": "liminal-hq/threshold#31",
+   "license": "MIT",
+   "revisions": 7,
+   "url": "https://github.com/liminal-hq/threshold/pull/31"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "lsa-mis/art_survey#165",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/lsa-mis/art_survey/pull/165"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "lsa-mis/lsa_evaluate#280",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/lsa-mis/lsa_evaluate/pull/280"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "lsa-mis/lsa_evaluate#287",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/lsa-mis/lsa_evaluate/pull/287"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "lsa-mis/student_visit#324",
+   "license": "MIT",
+   "revisions": 4,
+   "url": "https://github.com/lsa-mis/student_visit/pull/324"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "mattermost/mattermost-plugin-agents#759",
+   "license": "Apache-2.0",
+   "revisions": 9,
+   "url": "https://github.com/mattermost/mattermost-plugin-agents/pull/759"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "mattermost/mattermost-plugin-agents#876",
+   "license": "Apache-2.0",
+   "revisions": 8,
+   "url": "https://github.com/mattermost/mattermost-plugin-agents/pull/876"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "maxmind/MaxMind-DB-Reader-php#265",
+   "license": "Apache-2.0",
+   "revisions": 10,
+   "url": "https://github.com/maxmind/MaxMind-DB-Reader-php/pull/265"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "maxmind/MaxMind-DB-Reader-php#266",
+   "license": "Apache-2.0",
+   "revisions": 3,
+   "url": "https://github.com/maxmind/MaxMind-DB-Reader-php/pull/266"
+  },
+  {
+   "agent": "Jules",
+   "id": "mcpany/core#2546",
+   "license": "Apache-2.0",
+   "revisions": 2,
+   "url": "https://github.com/mcpany/core/pull/2546"
+  },
+  {
+   "agent": "Jules",
+   "id": "mcpany/core#2586",
+   "license": "Apache-2.0",
+   "revisions": 3,
+   "url": "https://github.com/mcpany/core/pull/2586"
+  },
+  {
+   "agent": "Jules",
+   "id": "mcpany/core#2815",
+   "license": "Apache-2.0",
+   "revisions": 4,
+   "url": "https://github.com/mcpany/core/pull/2815"
+  },
+  {
+   "agent": "GitHub Copilot coding agent",
+   "id": "netreconlab/Parse-Swift#256",
+   "license": "Apache-2.0",
+   "revisions": 15,
+   "url": "https://github.com/netreconlab/Parse-Swift/pull/256"
+  },
+  {
+   "agent": "GitHub Copilot coding agent",
+   "id": "nmstate/kubernetes-nmstate#1547",
+   "license": "Apache-2.0",
+   "revisions": 16,
+   "url": "https://github.com/nmstate/kubernetes-nmstate/pull/1547"
+  },
+  {
+   "agent": "Jules",
+   "id": "nntile/nntile#253",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/nntile/nntile/pull/253"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "oOBoomberOo/precast-structure#10",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/oOBoomberOo/precast-structure/pull/10"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "oOBoomberOo/precast-structure#12",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/oOBoomberOo/precast-structure/pull/12"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "oOBoomberOo/precast-structure#8",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/oOBoomberOo/precast-structure/pull/8"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "ozgliderpilot/plant-scanner#57",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/ozgliderpilot/plant-scanner/pull/57"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "ozgliderpilot/plant-scanner#71",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/ozgliderpilot/plant-scanner/pull/71"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "ozgliderpilot/plant-scanner#75",
+   "license": "MIT",
+   "revisions": 2,
+   "url": "https://github.com/ozgliderpilot/plant-scanner/pull/75"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "ozgliderpilot/plant-scanner#78",
+   "license": "MIT",
+   "revisions": 6,
+   "url": "https://github.com/ozgliderpilot/plant-scanner/pull/78"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "pixelbadger/Pixelbadger.Toolkit#45",
+   "license": "MIT",
+   "revisions": 14,
+   "url": "https://github.com/pixelbadger/Pixelbadger.Toolkit/pull/45"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "proxymesh/ruby-proxy-headers#17",
+   "license": "MIT",
+   "revisions": 7,
+   "url": "https://github.com/proxymesh/ruby-proxy-headers/pull/17"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "rryam/MeshingKit#11",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/rryam/MeshingKit/pull/11"
+  },
+  {
+   "agent": "Jules",
+   "id": "sator-imaging/MeticulousAnalyzer#473",
+   "license": "MIT",
+   "revisions": 16,
+   "url": "https://github.com/sator-imaging/MeticulousAnalyzer/pull/473"
+  },
+  {
+   "agent": "Jules",
+   "id": "sghill/java-flight-recorder-plugin#5",
+   "license": "Apache-2.0",
+   "revisions": 14,
+   "url": "https://github.com/sghill/java-flight-recorder-plugin/pull/5"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "speakeasy-api/mcp-setup-docs#236",
+   "license": "Apache-2.0",
+   "revisions": 8,
+   "url": "https://github.com/speakeasy-api/mcp-setup-docs/pull/236"
+  },
+  {
+   "agent": "Claude Code (claude[bot])",
+   "id": "theonestack/cfhighlander#208",
+   "license": "MIT",
+   "revisions": 3,
+   "url": "https://github.com/theonestack/cfhighlander/pull/208"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "tylerreckart/arbiter#194",
+   "license": "Apache-2.0",
+   "revisions": 2,
+   "url": "https://github.com/tylerreckart/arbiter/pull/194"
+  },
+  {
+   "agent": "Cursor background agent",
+   "id": "tylerreckart/arbiter#241",
+   "license": "Apache-2.0",
+   "revisions": 4,
+   "url": "https://github.com/tylerreckart/arbiter/pull/241"
+  },
+  {
+   "agent": "Devin",
+   "id": "uzulla/enhanced-redis-session-handler.php#74",
+   "license": "MIT",
+   "revisions": 4,
+   "url": "https://github.com/uzulla/enhanced-redis-session-handler.php/pull/74"
+  }
+ ],
+ "rejected": {
+  "compare unavailable for f3c42dcd7": 1,
+  "diff identical across observed revisions": 3,
+  "final compare disagrees with the pull request's file count": 2,
+  "licence 0BSD": 1,
+  "licence AGPL-3.0": 24,
+  "licence CC-BY-4.0": 1,
+  "licence CC0-1.0": 1,
+  "licence EPL-1.0": 1,
+  "licence GPL-2.0": 2,
+  "licence GPL-3.0": 23,
+  "licence LGPL-2.1": 2,
+  "licence LGPL-3.0": 8,
+  "licence MPL-2.0": 2,
+  "licence NOASSERTION": 37,
+  "licence none": 151,
+  "more than 100 commits": 13,
+  "more than 20 observed revisions": 73,
+  "more than 60 changed files": 12,
+  "more than 600000 bytes of text": 51,
+  "no licence file at the collected commit": 7,
+  "one observed revision": 10
+ }
+}

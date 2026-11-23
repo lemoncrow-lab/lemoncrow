@@ -251,7 +251,7 @@ function paymentRetry(): InvestigationFixture {
   ];
   return {
     name: "payment-retry",
-    description: "Changed payment retry and idempotency key; the unchanged checkout caller is not a Review target.",
+    description: "Changed payment retry and idempotency key; the unchanged checkout caller is not a part.",
     revision: { id: rev, base_sha: SHA("a1"), head_sha: SHA("b2") },
     targets,
     checks: [{ name: "pytest tests/payments", status: "PASS", detail: "12 passed", source: "agent", scope: "review" }],
@@ -380,7 +380,7 @@ function crossServicePartialIndex(): InvestigationFixture {
   ];
   return {
     name: "cross-service-partial-index",
-    description: "API route calling a storage service; only 3 of 6 targets are loaded and the static register covers changed files only.",
+    description: "API route calling a storage service; only 3 of 6 parts are loaded and the static register covers changed files only.",
     revision: { id: rev, base_sha: SHA("e5"), head_sha: SHA("f6") },
     targets: loaded,
     checks: [{ name: "pytest services/api", status: "PASS", detail: "", source: "ci", scope: "review" }],
@@ -426,7 +426,7 @@ function cleanNoGraph(): InvestigationFixture {
   ];
   return {
     name: "clean-no-graph",
-    description: "One reviewed function, an observed passing check, every changed target exercised, no decisions, first Snapshot.",
+    description: "One reviewed function, an observed passing check, every part exercised, no decisions, first revision.",
     revision: { id: rev, base_sha: SHA("07"), head_sha: SHA("18") },
     targets,
     checks: [{ name: "pytest tests/util", status: "PASS", detail: "4 passed", source: "ci", scope: "review" }],
@@ -465,7 +465,7 @@ function largeReview(): InvestigationFixture {
   });
   return {
     name: "large-420",
-    description: "420 targets over 30 files; six files are review-first.",
+    description: "420 parts over 30 files; six files are review-first.",
     revision: { id: rev, base_sha: SHA("29"), head_sha: SHA("3a") },
     targets,
     checks: [{ name: "pytest", status: "PASS", detail: "", source: "ci", scope: "review" }],
@@ -508,7 +508,7 @@ function billingProjection(rev: string, snapshot: number, superseded: boolean): 
       statement: "Totals round half-even.",
       target_ids: ["bill-round"],
       summary: superseded ? "partial" : "observed",
-      summary_text: superseded ? "Evidence is from an earlier Snapshot" : "Observed in a recorded run",
+      summary_text: superseded ? "Evidence is from an earlier revision" : "Observed in a recorded run",
       evidence: [{
         key: "pytest tests/billing",
         title: "pytest tests/billing",
@@ -536,7 +536,7 @@ function billingProjection(rev: string, snapshot: number, superseded: boolean): 
       }),
     ],
     delta: superseded
-      ? { since_snapshot: 0, added: [], changed: ["bill-round"], removed: 0, stale_evidence: ["pytest tests/billing"], reopened_decisions: ["rounding-mode"] }
+      ? { since_snapshot: 0, added: [], changed: ["bill-round"], removed: 0, stale_evidence: ["pytest tests/billing"], reopened_decisions: ["rounding-mode"], comments: { carried: 0, resolved: 0 } }
       : null,
     coverage: coverageFor(BILLING_TARGETS(rev, superseded)),
     counts: { review_first: superseded ? 1 : 0, understand: 0, routine: 0, done: superseded ? 1 : 2, decisions: 2 },
@@ -549,7 +549,7 @@ function billingBefore(): InvestigationFixture {
   const rev = "rev-bill-1";
   return {
     name: "billing-snapshot-0",
-    description: "Snapshot 0 of the billing change, fully judged.",
+    description: "Revision 1 of the billing change, fully judged.",
     revision: { id: rev, base_sha: SHA("4b"), head_sha: SHA("5c") },
     targets: BILLING_TARGETS(rev, false),
     checks: [{ name: "pytest tests/billing", status: "PASS", detail: "", source: "ci", scope: "review" }],
@@ -562,7 +562,7 @@ function billingSuperseded(): InvestigationFixture {
   const rev = "rev-bill-2";
   return {
     name: "billing-snapshot-1",
-    description: "Snapshot 1 changes round_total: its decision and evidence reopen; the currency decision stays accepted.",
+    description: "Revision 2 changes round_total: its decision and evidence reopen; the currency decision stays accepted.",
     revision: { id: rev, base_sha: SHA("4b"), head_sha: SHA("6d") },
     targets: BILLING_TARGETS(rev, true),
     checks: [{ name: "pytest tests/billing", status: "PASS", detail: "", source: "ci", scope: "review" }],

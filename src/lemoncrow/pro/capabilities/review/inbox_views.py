@@ -74,6 +74,9 @@ _BLOCKED_STATES: Final[frozenset[str]] = frozenset(
 
 INBOX_DEFAULT_LIMIT: Final[int] = 30
 INBOX_MAX_LIMIT: Final[int] = 100
+#: What Home reads in one request (``read=home``), instead of five pages that each score every Review again (P9-6).
+INBOX_HOME_LIMIT: Final[int] = 500
+INBOX_READS: Final[tuple[str, ...]] = ("page", "home")
 INBOX_MAX_QUERY: Final[int] = 256
 INBOX_MAX_CURSOR: Final[int] = 1024
 CURSOR_VERSION: Final[int] = 2  # v1 used attention ranking and cannot page updated-first rows
@@ -166,17 +169,27 @@ def parse_query(raw: str) -> str:
     return value
 
 
-def parse_limit(raw: str | None, *, default: int = INBOX_DEFAULT_LIMIT) -> int:
-    """``1..INBOX_MAX_LIMIT``; anything else is an error, never a silent clamp."""
+def parse_read(raw: str | None) -> str:
+    """``page`` (the default) or ``home``: how much one request may return."""
 
+    value = (raw or "page").strip() or "page"
+    if value not in INBOX_READS:
+        raise InboxQueryError("read", "read must be page or home")
+    return value
+
+
+def parse_limit(raw: str | None, *, default: int = INBOX_DEFAULT_LIMIT, read: str = "page") -> int:
+    """``1..INBOX_MAX_LIMIT`` (``1..INBOX_HOME_LIMIT`` for a Home read); anything else is an error, never a silent clamp."""
+
+    maximum = INBOX_HOME_LIMIT if read == "home" else INBOX_MAX_LIMIT
     if raw is None or str(raw).strip() == "":
-        return default
+        return INBOX_HOME_LIMIT if read == "home" else default
     try:
         value = int(str(raw).strip())
     except ValueError as exc:
         raise InboxQueryError("limit", "limit must be an integer") from exc
-    if value < 1 or value > INBOX_MAX_LIMIT:
-        raise InboxQueryError("limit", f"limit must be between 1 and {INBOX_MAX_LIMIT}", limit=INBOX_MAX_LIMIT)
+    if value < 1 or value > maximum:
+        raise InboxQueryError("limit", f"limit must be between 1 and {maximum}", limit=maximum)
     return value
 
 
@@ -330,9 +343,11 @@ def inbox_as_of(cursor: InboxCursor | None, now: datetime) -> datetime:
 __all__ = [
     "CURSOR_VERSION",
     "INBOX_DEFAULT_LIMIT",
+    "INBOX_HOME_LIMIT",
     "INBOX_MAX_CURSOR",
     "INBOX_MAX_LIMIT",
     "INBOX_MAX_QUERY",
+    "INBOX_READS",
     "INBOX_STATUSES",
     "INBOX_VIEWS",
     "VIEW_LABELS",
@@ -350,6 +365,7 @@ __all__ = [
     "narrow",
     "parse_limit",
     "parse_query",
+    "parse_read",
     "parse_status",
     "parse_view",
     "select_page",

@@ -6,6 +6,7 @@ import contextlib
 import glob as _glob
 import os
 import re
+import stat
 import threading
 from collections.abc import Iterator, MutableMapping
 from contextvars import ContextVar
@@ -269,7 +270,7 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     3. Derive from the *root* path itself (e.g. parent of ``.lemoncrow``)
     4. Git repository root of the current directory (auto-detect)
     5. A directory explicitly registered via ``lc rt init`` (marker: ``.lemoncrow/``)
-    6. Otherwise: raises ``WorkspaceNotRegisteredError``
+    5. Otherwise: raises ``WorkspaceNotRegisteredError``
 
     Raises:
         WorkspaceNotRegisteredError: cwd is neither inside a git repository nor
@@ -349,15 +350,12 @@ def detect_host() -> str:
     2. CLAUDE_CODE, CLAUDECODE or CLAUDE_CODE_SESSION_ID -> "claude"
     3. ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID -> "antigravity"
     4. CODEX_SESSION_ID -> "codex"
-    5. LEMONCODE_SESSION_ID or LEMONCODE_CLI -> "lemoncode"
-    6. OPENCODE_SESSION_ID -> "opencode"
-    7. CURSOR_SESSION_ID or CURSOR_TRACE_ID -> "cursor"
-    8. HERMES_* -> "hermes"
-    9. COPILOT_CLI or GITHUB_COPILOT_SESSION_ID -> "copilot"
-    10. Falls back to "claude" (the MCP wrapper ships with the Claude plugin)
+    5. OPENCODE_SESSION_ID -> "opencode"
+    6. CURSOR_SESSION_ID or CURSOR_TRACE_ID -> "cursor"
+    7. HERMES_* -> "hermes"
+    8. COPILOT_CLI or GITHUB_COPILOT_SESSION_ID -> "copilot"
+    9. Falls back to "claude" (the MCP wrapper ships with the Claude plugin)
 
-    LemonCode is checked before OpenCode: it is a fork that keeps upstream's
-    on-disk layout, so a LemonCode session must not be mistaken for one.
     """
     explicit = os.environ.get("LEMONCROW_AGENT", "").strip()
     if explicit:
@@ -379,8 +377,6 @@ def detect_host() -> str:
         return "antigravity"
     if os.environ.get("CODEX_SESSION_ID") or os.environ.get("CODEX_CLI"):
         return "codex"
-    if os.environ.get("LEMONCODE_SESSION_ID") or os.environ.get("LEMONCODE_CLI"):
-        return "lemoncode"
     if os.environ.get("OPENCODE_SESSION_ID") or os.environ.get("OPENCODE_CLI"):
         return "opencode"
     if os.environ.get("CURSOR_SESSION_ID") or os.environ.get("CURSOR_TRACE_ID"):
@@ -402,7 +398,6 @@ AGENT_SESSION_ENVS: tuple[tuple[str, str], ...] = (
     ("CLAUDE_CODE_SESSION_ID", "claude"),
     ("CODEX_SESSION_ID", "codex"),
     ("OPENCODE_SESSION_ID", "opencode"),
-    ("LEMONCODE_SESSION_ID", "lemoncode"),
     ("GITHUB_COPILOT_SESSION_ID", "copilot"),
     ("CURSOR_SESSION_ID", "cursor"),
     ("HERMES_SESSION_ID", "hermes"),
@@ -442,11 +437,14 @@ def session_dir(root: Path | str, host: str, session_id: str, *, search_days: in
     (see :func:`detect_host`).
 
     The date is resolved, not blindly recomputed as "today": a session that
-    already has a directory within the last *search_days* days keeps it, so a
-    session spanning midnight does not silently start writing into a new
-    day's folder and orphan its own earlier state. Only a session with no
-    existing directory in that window mints today's date (first writer for a
-    session pins its folder for every later caller, in-process or not).
+    already has a directory keeps it, so a session spanning midnight -- or
+    resumed days later -- does not silently start writing into a new day's
+    folder and orphan its own earlier state (a second partition re-credits the
+    stop hook's cumulative turn_cut/input_style rows from zero and hides the
+    live ledger from readers). The last *search_days* days are probed directly;
+    older partitions come from :func:`find_session_dir`'s cached index. Only a
+    session with no directory for *host* mints today's date (first writer for
+    a session pins its folder for every later caller, in-process or not).
 
     For read-side lookups where the host is not known up front (e.g. a CLI
     command given a bare session id), use :func:`find_session_dir` instead.
@@ -460,6 +458,9 @@ def session_dir(root: Path | str, host: str, session_id: str, *, search_days: in
         candidate = root / "sessions" / d.strftime("%Y") / d.strftime("%m") / d.strftime("%d") / host / session_id
         if candidate.exists():
             return candidate
+    existing = find_session_dir(root, session_id)
+    if existing is not None and existing.parent.name == host:
+        return existing
     return root / "sessions" / today.strftime("%Y") / today.strftime("%m") / today.strftime("%d") / host / session_id
 
 
@@ -470,7 +471,10 @@ def find_session_dir(root: Path | str, session_id: str) -> Path | None:
     high-entropy id (a host-issued UUID in practice), so a glob match is safe
     and this stays a read-only lookup -- callers that are writing must go
     through :func:`session_dir` with an explicit host instead. Returns the
-    first match (there should only ever be one) or ``None``.
+    NEWEST match: :func:`session_dir` keeps writing into a session's newest
+    partition, so a session resumed after older releases minted a second
+    dated folder reads the folder that is still being written. ``None`` when
+    there is no match.
     """
     try:
         session_id = safe_segment(session_id, field="session_id")
@@ -494,7 +498,7 @@ def find_session_dir(root: Path | str, session_id: str) -> Path | None:
     if hit is not None and os.path.lexists(hit):
         return hit
     matches = sorted(sessions_root.glob(f"*/*/*/*/{session_id}"))
-    found = matches[0] if matches else None
+    found = matches[-1] if matches else None
     with _session_dir_index_lock:
         if found is None:
             index.pop(session_id, None)
@@ -505,7 +509,7 @@ def find_session_dir(root: Path | str, session_id: str) -> Path | None:
 
 # The glob above stats every sessions/Y/M/D/<host> directory (~300 on a busy
 # store, ~2.7 ms) per lookup, and hot paths look up hundreds of sessions per
-# request. The index maps id -> the glob's first sorted match from one scan.
+# request. The index maps id -> the glob's last (newest) sorted match from one scan.
 # A hit is re-checked on disk and a miss re-runs the exact glob, so a
 # created or deleted session never reads stale; it holds one entry per session
 # directory, dropped when that directory disappears.
@@ -535,15 +539,15 @@ def session_dir_snapshot() -> Iterator[None]:
 
 
 def _scan_session_dirs(sessions_root: Path) -> dict[str, Path]:
-    # First sorted match per id: the same answer as find_session_dir's glob.
-    # String glob plus a tuple minimum per name is ~2.5x faster than building
+    # Last sorted match per id: the same answer as find_session_dir's glob.
+    # String glob plus a tuple maximum per name is ~2.5x faster than building
     # and sorting a Path per entry; include_hidden matches pathlib's "*".
     base = str(sessions_root)
     best: dict[str, tuple[str, ...]] = {}
     for match in _glob.glob(os.path.join(_glob.escape(base), "*", "*", "*", "*", "*"), include_hidden=True):
         parts = tuple(match[len(base) + 1 :].split(os.sep))
         current = best.get(parts[-1])
-        if current is None or parts < current:
+        if current is None or parts > current:
             best[parts[-1]] = parts
     return {name: sessions_root.joinpath(*parts) for name, parts in best.items()}
 
@@ -610,17 +614,60 @@ def confine_to_root(candidate: str | Path, root: str | Path) -> Path:
     return resolved_candidate
 
 
+def confine_relative_to_root(root: str | Path, relative: str) -> None:
+    """``confine_to_root(Path(root) / relative, root)``, with far fewer syscalls.
+
+    Same verdict, same ``ValueError``. ``confine_to_root`` resolves the root and
+    the candidate from ``/`` on every call, one ``lstat`` per path component, and
+    each ``lstat`` releases the GIL and has to win it back. On a busy server that
+    costs tens of milliseconds for a request that otherwise runs in a few. A
+    relative path with no ``..``, ``.`` or empty segment resolves to ``root`` plus
+    that path unless a component under it is a symlink, so those components are
+    checked, and only a symlink (or any other surprise) falls back to the full
+    resolution. The caller passes a root it already resolved; any other root
+    (relative, or one ``expanduser()`` would change) takes the full resolution.
+    """
+    # A NUL byte is not a path: the full resolution refuses it with ValueError, so it never takes the fast path.
+    current = os.fspath(root)
+    if (
+        os.sep == "/"
+        and os.path.isabs(current)
+        and relative
+        and "\x00" not in relative
+        and not any(part in ("", ".", "..") for part in relative.split("/"))
+    ):
+        try:
+            # A name the file system cannot encode is refused by the full resolution (UnicodeEncodeError is a
+            # ValueError), even below a missing component the walk would stop at.
+            os.fsencode(relative)
+            for part in relative.split("/"):
+                current = os.path.join(current, part)
+                if stat.S_ISLNK(os.lstat(current).st_mode):
+                    break
+            else:
+                return
+        except (FileNotFoundError, NotADirectoryError):
+            # Nothing exists from here down, so nothing below can be a symlink:
+            # the resolved path is the lexical one, which is inside the root.
+            return
+        except (OSError, ValueError):
+            pass
+    confine_to_root(Path(root) / relative, root)
+
+
 _SELF_IGNORE_CONTENT = "# LemonCrow runtime data — keep the directory, ignore its contents\n*\n"
 
-# A project's ``.lemoncrow/`` also holds the team's review config, which is committed:
-# a review reads it from the merge base. Ignoring it too made ``git add -A`` skip it.
+# A project's ``.lemoncrow/`` also holds the team's committed config (review config, the
+# environment definition): a review reads it from the merge base. Ignoring it too made
+# ``git add -A`` skip it. Keep in step with ``lemoncrow_client.kit.edit.COMMITTED_CONFIG``.
 _STORE_IGNORE_CONTENT = (
     "# LemonCrow runtime data — keep the directory, ignore its contents\n"
-    "# except the team review config, which is committed (a review reads it from the merge base).\n"
+    "# except the team config, which is committed (a review reads it from the merge base).\n"
     "*\n"
     "!review.yaml\n"
     "!review-instructions.md\n"
     "!review.json\n"
+    "!environment.toml\n"
     "!rules/\n"
     "!rules/**\n"
 )
@@ -767,6 +814,7 @@ __all__ = [
     "DEFAULT_LESSONS_DIRNAME",
     "DEFAULT_STORE_DIRNAME",
     "WorkspaceNotRegisteredError",
+    "confine_relative_to_root",
     "confine_to_root",
     "default_store_root",
     "detect_git_root",

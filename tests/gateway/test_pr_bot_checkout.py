@@ -354,3 +354,4 @@ def test_the_script_fails_with_an_annotation_and_sets_the_check_to_error(
     assert checkout.main([]) == 1
     assert posted and posted[0][0] == "error" and posted[0][1].startswith("Could not check out the pull request:")
     assert len(posted[0][1]) <= 140
+    assert posted[0][1].endswith("see the workflow log, then re-run"), "git's error must not push the next step out"

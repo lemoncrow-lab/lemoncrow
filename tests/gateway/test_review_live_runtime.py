@@ -30,7 +30,7 @@ def _draft_only(monkeypatch, prepare: Any) -> None:
     from lemoncrow.pro.capabilities.review import hosted
 
     def forbidden_publish(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("background prewarm must draft locally, never publish a Review Snapshot")
+        raise AssertionError("background prewarm must draft locally, never publish a Review revision")
 
     monkeypatch.setattr(hosted, "capture_server_review", forbidden_publish)
     monkeypatch.setattr(hosted, "prepare_local_source_build", prepare)
@@ -273,7 +273,7 @@ def test_unchanged_heartbeat_reuses_binding_without_new_revision(tmp_path: Path,
     live_runtime._write_request(root, repo, host="claude", session_id="session-new")
 
     def forbidden_prepare(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("an unchanged watcher heartbeat must not draft another Snapshot")
+        raise AssertionError("an unchanged watcher heartbeat must not draft another revision")
 
     _draft_only(monkeypatch, forbidden_prepare)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0, watch_idle_s=0) == 0

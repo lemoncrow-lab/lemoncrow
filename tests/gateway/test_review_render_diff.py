@@ -17,6 +17,7 @@ import pytest
 from lemoncrow.pro.capabilities.review.render_diff import (
     ProtectedPage,
     RenderConfig,
+    RenderUnavailable,
     ax_changes,
     page_changes,
     parse_render_config,
@@ -25,11 +26,15 @@ from lemoncrow.pro.capabilities.review.render_diff import (
     select_routes,
 )
 from lemoncrow.pro.capabilities.review.render_driver import (
+    ChromeCdpDriver,
     DeterminismControls,
+    InteractionStep,
     PageCapture,
     RenderCell,
     RenderEnvironment,
     Viewport,
+    capture_from_wire,
+    capture_to_wire,
     chrome_executable,
     screenshot_identity,
 )
@@ -397,6 +402,104 @@ def test_a_fingerprint_mismatch_is_not_comparable_and_never_a_regression(
     assert "toolchain" in " ".join(result["differences"])
     assert any("not comparable (never a regression)" in reason for reason in result["reasons"])
     assert _visual_targets(review) == []
+
+
+def test_the_render_sandbox_finds_a_local_python_and_the_debian_chromium_launcher_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: str(self).startswith("/etc/chromium") or real_exists(self))
+    args = ChromeCdpDriver(chrome="/usr/bin/chromium", bwrap="/usr/bin/bwrap")._sandbox(tmp_path, tmp_path)
+    assert "/usr/local/bin" in args[args.index("PATH") + 1].split(":")
+    for path in ("/etc/chromium", "/etc/chromium.d"):
+        assert args[args.index(path) - 1 : args.index(path) + 2] == ["--ro-bind", path, path]
+
+
+def test_a_host_that_cannot_render_reports_not_run_and_never_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import runtime_observation_api
+
+    class NoBrowser(FakeDriver):
+        def environment(self) -> RenderEnvironment:
+            return RenderEnvironment(False, reason="rendering diffs need bubblewrap")
+
+        def capture(self, *_args: Any, **_kwargs: Any) -> list[PageCapture]:
+            raise RenderUnavailable("rendering diffs need bubblewrap")
+
+    monkeypatch.setattr(runtime_observation_api, "default_render_driver", NoBrowser)
+    review = _review(tmp_path, base=_site(), head={"public/index.html": INDEX.replace("Save", "Submit")})
+    response = _render(review)
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert {side["status"] for side in result["sides"].values()} == {"NOT_RUN"}
+    assert result["comparable"] is False and result["unchanged"] == 0 and result["pages"] == []
+    assert any("head was not rendered" in reason for reason in result["reasons"])
+    assert not any("fingerprints differ" in reason for reason in result["reasons"])
+    assert _visual_targets(review) == []
+
+
+def test_a_page_neither_side_captured_is_not_counted_as_unchanged(tmp_path: Path, driver: FakeDriver) -> None:
+    # /about.html is absent on both sides, so both captures of it fail.
+    base = {name: text for name, text in _site().items() if name != "public/about.html"}
+    review = _review(tmp_path, base=base, head={"public/style.css": "body { margin: 1px }\n"})
+    response = _render(review)
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result["unchanged"] == 1 and result["not_rendered"] == 1 and result["pages"] == []
+
+
+def test_a_side_that_did_not_render_is_not_comparable_and_counts_nothing_as_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review import runtime_observation_api
+
+    class HeadCannotRender(FakeDriver):
+        def capture(self, site: Path, cells: Sequence[RenderCell], *args: Any, **kwargs: Any) -> list[PageCapture]:
+            if self.captures:
+                raise RenderUnavailable("the app build failed (exit 2)")
+            return super().capture(site, cells, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_observation_api, "default_render_driver", HeadCannotRender)
+    review = _review(tmp_path, base=_site(), head={"public/index.html": INDEX.replace("Save", "Submit")})
+
+    result = _render(review).json()["result"]
+
+    assert result["sides"]["base"]["status"] == "PASS" and result["sides"]["head"]["status"] == "NOT_RUN"
+    assert result["comparable"] is False and result["pages"] == [] and result["unchanged"] == 0
+    assert any("head was not rendered: the app build failed (exit 2)" in row for row in result["reasons"])
+    assert _visual_targets(review) == []
+
+
+def test_render_cells_and_controls_survive_the_executor_boundary() -> None:
+    step = InteractionStep("click", "#go")
+    cell = RenderCell("/a", Viewport("mobile", 390, 844), "dark", "checkout", (step,))
+    assert RenderCell.from_wire(cell.to_wire()) == cell
+    controls = DeterminismControls(mask_selectors=(".clock",))
+    assert DeterminismControls.from_wire(controls.to_wire()) == controls
+    for broken in ({**cell.to_wire(), "id": "/b"}, {**cell.to_wire(), "route": "a"}, {**cell.to_wire(), "steps": "x"}):
+        with pytest.raises(ValueError):
+            RenderCell.from_wire(broken)
+
+
+def test_a_capture_round_trips_and_a_foreign_row_is_a_failed_cell() -> None:
+    capture = PageCapture(
+        "c",
+        "captured",
+        screenshot=b"\x89PNG-bytes",
+        mask_regions=((1, 2, 3, 4),),
+        dom_lines=("<p>",),
+        ax_lines=('button "Go"',),
+        network=("GET /",),
+        console=("hi",),
+        cls=0.5,
+        lcp_ms=12.0,
+        metrics={"TaskDuration": 0.1},
+    )
+    assert capture_from_wire("c", capture_to_wire(capture)) == capture
+    assert capture_from_wire("other", capture_to_wire(capture)).status == "failed"
+    failed = capture_from_wire("c", capture_to_wire(PageCapture("c", "failed", "404")))
+    assert (failed.status, failed.reason) == ("failed", "404")
 
 
 def test_the_matrix_is_limited_by_depth_and_by_budget_and_says_so(tmp_path: Path, driver: FakeDriver) -> None:

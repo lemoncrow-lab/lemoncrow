@@ -426,18 +426,31 @@ def test_quick_tunnel_url_ignores_the_control_plane() -> None:
     assert tunnel.extract_tunnel_url("see https://developers.cloudflare.com/") is None
 
 
+def test_default_tunnel_name_derives_from_hostname() -> None:
+    assert tunnel.default_tunnel_name(hostname="My-MacBook-Pro.local") == "lemoncrow-mcp-my-macbook-pro-local"
+    assert tunnel.default_tunnel_name(hostname="pankaj_rog") == "lemoncrow-mcp-pankaj-rog"
+    assert tunnel.default_tunnel_name(hostname="") == "lemoncrow-mcp"
+
+
+def test_default_tunnel_name_respects_environment() -> None:
+    env = {"LEMONCROW_MCP_TUNNEL_NAME": "custom-tunnel-name"}
+    assert tunnel.default_tunnel_name(environment=env) == "custom-tunnel-name"
+
+
 def test_shared_tunnel_is_created_once_and_every_hostname_is_routed(store_root: Path, home: Path) -> None:
     (home / ".cloudflared").mkdir()
     (home / ".cloudflared" / "cert.pem").write_text("cert", encoding="utf-8")
     calls = home / "calls.log"
     fake = home / "cloudflared"
+    expected_name = tunnel.default_tunnel_name()
     fake.write_text(
         "#!/bin/sh\n"
         f'echo "$*" >> "{calls}"\n'
         'case "$2" in\n'
         "  list) echo '[]' ;;\n"
-        "  create) echo 'Created tunnel lemoncrow-mcp with id abc-123'; "
-        f"echo 'Tunnel credentials written to {home}/.cloudflared/abc-123.json.' ;;\n"
+        f"  create) echo 'Created tunnel {expected_name} with id abc-123'; "
+        f"echo 'Tunnel credentials written to {home}/.cloudflared/abc-123.json.'; "
+        f"touch '{home}/.cloudflared/abc-123.json' ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -453,12 +466,52 @@ def test_shared_tunnel_is_created_once_and_every_hostname_is_routed(store_root: 
     assert first == second == tunnel.load_tunnel_state(tunnel.tunnel_state_path(store_root))
     assert first.tunnel_id == "abc-123"
     assert calls.read_text().splitlines() == [
-        "tunnel list --name lemoncrow-mcp -o json",
-        "tunnel create lemoncrow-mcp",
+        f"tunnel list --name {expected_name} -o json",
+        f"tunnel create {expected_name}",
         "tunnel route dns --overwrite-dns abc-123 a.example.com",
         "tunnel route dns --overwrite-dns abc-123 b.example.com",
     ]
     assert oct(tunnel.tunnel_state_path(store_root).stat().st_mode & 0o777) == "0o600"
+
+
+def test_dns_route_rejects_wrong_cloudflare_zone_without_rewriting_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tunnel, "_certificate_dns_zone", lambda: None)
+    commands: list[tuple[str, ...]] = []
+
+    def cloudflared(binary: str, *args: str) -> subprocess.CompletedProcess[str]:
+        commands.append(args)
+        return subprocess.CompletedProcess(
+            [binary, *args],
+            0,
+            "",
+            "2026-11-04T01:40:27Z INF lc.olaryn.com.beseam.com is already configured to route to your tunnel",
+        )
+
+    monkeypatch.setattr(tunnel, "_cloudflared", cloudflared)
+    with pytest.raises(tunnel.TunnelSetupError, match="instead of"):
+        tunnel.route_dns("cloudflared", "tunnel-123", "lc.olaryn.com")
+    assert commands == [("tunnel", "route", "dns", "--overwrite-dns", "tunnel-123", "lc.olaryn.com")]
+
+
+def test_dns_route_refuses_wrong_certificate_zone_before_creating_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tunnel, "_certificate_dns_zone", lambda: "beseam.com")
+    called = []
+    monkeypatch.setattr(tunnel, "_cloudflared", lambda *args: called.append(args))
+    with pytest.raises(tunnel.TunnelSetupError, match="no DNS record was created"):
+        tunnel.route_dns("cloudflared", "tunnel-123", "lc.olaryn.com")
+    assert not called
+
+
+def test_dns_route_accepts_exact_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tunnel, "_certificate_dns_zone", lambda: None)
+    monkeypatch.setattr(
+        tunnel,
+        "_cloudflared",
+        lambda binary, *args: subprocess.CompletedProcess(
+            [binary, *args], 0, "", "INF lc.olaryn.com is already configured to route to your tunnel"
+        ),
+    )
+    tunnel.route_dns("cloudflared", "tunnel-123", "lc.olaryn.com")
 
 
 def test_gateway_command_refuses_a_public_bind(store_root: Path) -> None:
@@ -476,3 +529,87 @@ def test_systemd_units_escape_specifiers_and_variables() -> None:
     assert 'ExecStart="/opt/100%%/python" -m lemoncrow_client --label "$$HOME and spaces"\n' in gateway_unit
     assert 'Environment="LEMONCROW_HOME=/data/50%%/state"\n' in gateway_unit
     assert 'ExecStart=/opt/cloudflared tunnel run "50%%"\n' in units[service.TUNNEL_UNIT]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("logged_in", [False, True])
+def test_shared_tunnel_recovers_missing_credentials(store_root, home, monkeypatch, cached, logged_in):
+    cert = home / ".cloudflared/cert.pem"
+    cert.parent.mkdir()
+    cert.write_text("cert")
+    credentials = cert.parent / "abc-123.json"
+    tunnel_name = "lemoncrow-mcp" if cached else tunnel.default_tunnel_name()
+    state = tunnel.TunnelState(tunnel_name, "abc-123", "*", str(credentials))
+    if cached:
+        tunnel.save_tunnel_state(tunnel.tunnel_state_path(store_root), state)
+    login_calls = []
+    if not logged_in:
+        cert.unlink()
+
+    def login(command, **kwargs):
+        login_calls.append(command)
+        cert.write_text("cert")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(tunnel.subprocess, "run", login)
+    calls = []
+    secret = {"AccountTag": "account", "TunnelID": "abc-123", "TunnelSecret": "private-secret"}
+
+    def cloudflared(binary, *args):
+        calls.append(args)
+        if args[1] == "list":
+            return subprocess.CompletedProcess([], 0, '[{"id":"abc-123"}]', "")
+        assert args[:3] == ("tunnel", "token", "--cred-file")
+        Path(args[3]).write_text(json.dumps(secret))
+        return subprocess.CompletedProcess([], 0, "private-secret", "")
+
+    monkeypatch.setattr(tunnel, "_cloudflared", cloudflared)
+    routed = []
+    monkeypatch.setattr(tunnel, "route_dns", lambda *args: routed.append(args))
+    messages = []
+    for _ in range(2):
+        assert (
+            tunnel.provision_shared_tunnel(
+                store_root=store_root, hostname="lc.example.com", binary="cloudflared", narrate=messages.append
+            )
+            == state
+        )
+    assert login_calls == ([] if logged_in else [["cloudflared", "tunnel", "login"]])
+    assert json.loads(credentials.read_text()) == secret
+    assert credentials.stat().st_mode & 0o777 == 0o600
+    assert sum(args[1] == "token" for args in calls) == 1
+    assert len(routed) == 2
+    assert "private-secret" not in "".join(messages)
+    assert sorted(p.name for p in cert.parent.iterdir()) == ["abc-123.json", "cert.pem"]
+
+
+@pytest.mark.parametrize("failure", ["exit", "missing", "invalid", "wrong-tunnel"])
+def test_credential_recovery_failure_preserves_tunnel(store_root, home, monkeypatch, failure):
+    cert = home / ".cloudflared/cert.pem"
+    cert.parent.mkdir()
+    cert.write_text("cert")
+    credentials = cert.parent / "abc-123.json"
+    state = tunnel.TunnelState("lemoncrow-mcp", "abc-123", "*", str(credentials))
+    path = tunnel.tunnel_state_path(store_root)
+    tunnel.save_tunnel_state(path, state)
+
+    def cloudflared(binary, *args):
+        assert args[:3] == ("tunnel", "token", "--cred-file")
+        if failure == "invalid":
+            Path(args[3]).write_text("private-secret")
+        elif failure == "wrong-tunnel":
+            Path(args[3]).write_text(
+                json.dumps({"AccountTag": "account", "TunnelID": "different", "TunnelSecret": "private-secret"})
+            )
+        return subprocess.CompletedProcess([], 1 if failure == "exit" else 0, "private-secret", "private-secret")
+
+    monkeypatch.setattr(tunnel, "_cloudflared", cloudflared)
+    monkeypatch.setattr(tunnel, "route_dns", lambda *args: pytest.fail("must not route DNS after failed recovery"))
+    with pytest.raises(tunnel.TunnelSetupError, match="existing tunnel was preserved") as error:
+        tunnel.provision_shared_tunnel(
+            store_root=store_root, hostname="lc.example.com", binary="cloudflared", narrate=lambda _: None
+        )
+    assert "private-secret" not in str(error.value)
+    assert not credentials.exists()
+    assert tunnel.load_tunnel_state(path) == state
+    assert [p.name for p in cert.parent.iterdir()] == ["cert.pem"]

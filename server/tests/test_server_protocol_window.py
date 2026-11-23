@@ -198,6 +198,8 @@ REQUESTED_OPTIONS: dict[str, object] = {
     "reuse_closed_review": True,
     "review_scope": "agent-1",
     "workspace_branch": "main",
+    "with_workspace": True,
+    "workspace_root": "/projects",
 }
 
 #: What counts as requesting an option. Client and server must agree on every row.

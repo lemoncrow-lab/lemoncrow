@@ -87,7 +87,7 @@ usage() {
     cat <<'USAGE'
 usage: local_review.sh [OPTIONS]
 
-Install local LemonCrow Review without installing or enabling coding-agent Runtime.
+Install local LemonCrow Review without installing Workspaces or enabling coding agents.
 
   --from-build             use local Review engine + client artifacts from dist/
   --engine-artifact PATH   use a local lemoncrow-review-engine.tar.gz
@@ -95,7 +95,7 @@ Install local LemonCrow Review without installing or enabling coding-agent Runti
   --port PORT              loopback server port (default 7420)
   --dry-run                print the install plan without changing anything
 
-Runtime can be added independently later with local_runtime.sh / runtime.sh.
+Workspaces can be added independently later with local_runtime.sh / runtime.sh.
 USAGE
 }
 
@@ -186,8 +186,9 @@ lc_ui_printf progress 'Installing Review engine...\n'
 engine_args=()
 [[ "$FROM_BUILD" == "1" ]] && engine_args+=(--from-build "$ENGINE_ARCHIVE")
 [[ "$DRY_RUN" == "1" ]] && engine_args+=(--dry-run)
+# Bash 3.2 treats empty arrays as unset under nounset. Preserve zero arguments.
 env LEMONCROW_INSTALL_NESTED=1 LEMONCROW_HOME="$STATE_DIR" LEMONCROW_RELEASE_TAG="$RELEASE_TAG" \
-    bash "$ENGINE_HELPER" "${engine_args[@]}"
+    bash "$ENGINE_HELPER" ${engine_args[@]+"${engine_args[@]}"}
 
 lc_ui_printf progress 'Installing Review client...\n'
 review_args=(--url "$LOCAL_URL")
@@ -240,4 +241,4 @@ lc_ui_printf '36' '  endpoint: %s\n' "$LOCAL_URL"
 lc_ui_printf '1;36' '\nNext:\n'
 lc_ui_printf command '  Open Review:' 'lcr'
 lc_ui_printf '1;36' '\nOptional:\n'
-lc_ui_printf command '  add Runtime:' 'lc runtime enable codex' '   # or claude / opencode / auto'
+lc_ui_printf command '  add Workspaces:' 'lc runtime enable codex' '   # or claude / opencode / auto'

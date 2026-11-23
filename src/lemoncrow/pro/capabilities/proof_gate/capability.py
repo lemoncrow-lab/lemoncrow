@@ -42,7 +42,7 @@ from lemoncrow.core.capabilities.proof_gate_contract import (
     TraceConfidenceLevel as TraceConfidenceLevel,
 )
 
-_HOSTS = ("claude", "codex", "copilot", "opencode", "lemoncode", "antigravity")
+_HOSTS = ("claude", "codex", "copilot", "opencode", "antigravity")
 
 # Per-host trace confidence from WP-30 host-capability-matrix
 _HOST_TRACE_CONFIDENCE: dict[str, TraceConfidenceLevel] = {
@@ -50,7 +50,6 @@ _HOST_TRACE_CONFIDENCE: dict[str, TraceConfidenceLevel] = {
     "codex": "wrapper_live",
     "copilot": "mcp_live",
     "opencode": "wrapper_live",
-    "lemoncode": "wrapper_live",
     "antigravity": "mcp_live",
 }
 

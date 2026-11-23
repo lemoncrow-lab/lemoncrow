@@ -122,10 +122,9 @@ _ROLE_ACTIVITY = {
     "investigator": "contributed supporting findings",
 }
 _HOST_LABELS = {
-    "claude": "Claude",
+    "claude": "Claude Code",
     "codex": "Codex",
     "opencode": "OpenCode",
-    "lemoncode": "LemonCode",
     "cursor": "Cursor",
     "copilot": "Copilot",
     "gemini": "Gemini",
@@ -701,7 +700,7 @@ def _narrative(
     """
 
     lines: list[str] = []
-    lead = "Since this Snapshot, " if scope == "since" else ""
+    lead = "Since this revision, " if scope == "since" else ""
     authors = [item for item in contributors if item.get("role") == "author"]
     if authors:
         labels = _labels(authors)
@@ -1748,7 +1747,8 @@ class DevelopmentStore:
                     if isinstance(loaded, dict) and loaded.get("v") == PROJECTION_VERSION:
                         return loaded, watermark
             state = self._fold(conn, change_id, upto=watermark)
-        with contextlib.suppress(DevelopmentUnavailable):
+        # A memoized projection of frozen events: recomputable, so not a fact a request's reads depend on.
+        with contextlib.suppress(DevelopmentUnavailable), self._store.cache_write():
             with self._tx(write=True) as conn:
                 conn.execute(
                     "UPDATE development_snapshots SET projection_json = ? "
@@ -2201,7 +2201,7 @@ def development_view(
         since["active"] = any(item["active"] for item in since["contributors"])
     if not snapshot["available"] and not reason:
         reason = (
-            "No exact development evidence is attached to this Snapshot yet."
+            "No exact development evidence is attached to this revision yet."
             if live_enabled
             else "Live development evidence is not available in this deployment."
         )

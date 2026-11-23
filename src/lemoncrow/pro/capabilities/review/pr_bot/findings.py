@@ -22,7 +22,8 @@ Severity is the product's own, one rule for every surface (:func:`severity_for`)
   static finding, or an excerpt of a *different* file (a caller, a test, a definition). The
   exact source of the finding's own target does not count -- every target has it and the
   model is shown those bytes anyway. A carried finding whose re-check failed is no longer verified.
-* **P1, should fix**: every other ``high`` finding, and ``medium`` findings that are verified.
+* **P1, should fix**: every other ``high`` finding, and ``medium`` findings that are verified or in
+  the correctness, security or persistence categories.
   A finding with no rating keeps its category's own severity (P1, or P2 for performance and
   verification), because unrated is not low.
 * **P2, optional**: everything else, including every ``low`` finding.

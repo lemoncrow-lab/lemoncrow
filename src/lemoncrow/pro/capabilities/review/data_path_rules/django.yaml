@@ -1,0 +1,331 @@
+# LemonCrow data path rules: Django and Django REST framework.
+#
+# SPDX-License-Identifier: Apache-2.0
+# Written for LemonCrow (see README.md in this directory). Not copied or adapted from the Semgrep registry, the
+# semgrep-rules repository or opengrep-rules, whose licences do not allow redistribution inside a product.
+#
+# One taint rule per kind of sink (db, http, file, log). The four rules share the same sources, propagators and
+# sanitizers, written out in each rule because Opengrep rejects YAML anchors and unknown top-level keys;
+# tests/gateway/test_review_data_path.py fails when they drift apart. `options.interfile` turns on cross-file
+# taint (`--enable-interfile`, Opengrep v2.0.0 and later).
+rules:
+- id: lemoncrow.data-path.django.db
+  mode: taint
+  languages:
+  - python
+  severity: INFO
+  message: Request data reaches a database write or query.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: django
+    sink_kind: db
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: request.$ATTR
+      - pattern: self.request.$ATTR
+    - metavariable-regex:
+        metavariable: $ATTR
+        regex: ^(data|query_params|GET|POST|FILES|body|headers|COOKIES|META)$
+  - pattern: self.kwargs
+  - pattern: self.get_object()
+  - patterns:
+    - pattern-either:
+      - patterns:
+        - pattern-inside: |
+            def $H(self, request, ..., $P, ...):
+              ...
+        - metavariable-regex:
+            metavariable: $H
+            regex: ^(get|post|put|patch|delete|create|update|partial_update|destroy|list|retrieve)$
+      - pattern-inside: |
+          @action(...)
+          def $H(self, request, ..., $P, ...):
+            ...
+      - pattern-inside: |
+          @api_view(...)
+          def $H(request, ..., $P, ...):
+            ...
+    - pattern: $P
+    - metavariable-regex:
+        metavariable: $P
+        regex: ^(?!self$|request$)\w+$
+  - patterns:
+    - pattern-inside: |
+        def $H(self, $S):
+          ...
+    - metavariable-regex:
+        metavariable: $H
+        regex: ^perform_(create|update|destroy)$
+    - pattern: $S
+  pattern-propagators:
+  - pattern: $TO = $M.objects.get(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $M.objects.get(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: len(...)
+  - pattern: bool(...)
+  - pattern: isinstance(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:.*\.(save|delete|bulk_create|bulk_update|update_or_create|get_or_create)))|(?:(?s:.*\.objects\.(create|update|delete)))|(?:(?s:.*\.(filter|exclude|all|select_for_update)\(.*\)\.(update|delete)))|(?:(?si:.*cursor.*\.(execute|executemany))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:.*\.(save|delete|bulk_create|bulk_update|update_or_create|get_or_create)))|(?:(?s:.*\.objects\.(create|update|delete)))|(?:(?s:.*\.(filter|exclude|all|select_for_update)\(.*\)\.(update|delete)))|(?:(?si:.*cursor.*\.(execute|executemany))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.django.http
+  mode: taint
+  languages:
+  - python
+  severity: INFO
+  message: Request data reaches an outgoing HTTP request.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: django
+    sink_kind: http
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: request.$ATTR
+      - pattern: self.request.$ATTR
+    - metavariable-regex:
+        metavariable: $ATTR
+        regex: ^(data|query_params|GET|POST|FILES|body|headers|COOKIES|META)$
+  - pattern: self.kwargs
+  - pattern: self.get_object()
+  - patterns:
+    - pattern-either:
+      - patterns:
+        - pattern-inside: |
+            def $H(self, request, ..., $P, ...):
+              ...
+        - metavariable-regex:
+            metavariable: $H
+            regex: ^(get|post|put|patch|delete|create|update|partial_update|destroy|list|retrieve)$
+      - pattern-inside: |
+          @action(...)
+          def $H(self, request, ..., $P, ...):
+            ...
+      - pattern-inside: |
+          @api_view(...)
+          def $H(request, ..., $P, ...):
+            ...
+    - pattern: $P
+    - metavariable-regex:
+        metavariable: $P
+        regex: ^(?!self$|request$)\w+$
+  - patterns:
+    - pattern-inside: |
+        def $H(self, $S):
+          ...
+    - metavariable-regex:
+        metavariable: $H
+        regex: ^perform_(create|update|destroy)$
+    - pattern: $S
+  pattern-propagators:
+  - pattern: $TO = $M.objects.get(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $M.objects.get(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: len(...)
+  - pattern: bool(...)
+  - pattern: isinstance(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(requests|httpx)\.(get|post|put|patch|delete|head|request))|(?:(?si:.*(session|client)\.(get|post|put|patch|delete|request)))|(?:(?s:(.*\.)?urlopen)))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(requests|httpx)\.(get|post|put|patch|delete|head|request))|(?:(?si:.*(session|client)\.(get|post|put|patch|delete|request)))|(?:(?s:(.*\.)?urlopen)))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.django.file
+  mode: taint
+  languages:
+  - python
+  severity: INFO
+  message: Request data reaches a file write.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: django
+    sink_kind: file
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: request.$ATTR
+      - pattern: self.request.$ATTR
+    - metavariable-regex:
+        metavariable: $ATTR
+        regex: ^(data|query_params|GET|POST|FILES|body|headers|COOKIES|META)$
+  - pattern: self.kwargs
+  - pattern: self.get_object()
+  - patterns:
+    - pattern-either:
+      - patterns:
+        - pattern-inside: |
+            def $H(self, request, ..., $P, ...):
+              ...
+        - metavariable-regex:
+            metavariable: $H
+            regex: ^(get|post|put|patch|delete|create|update|partial_update|destroy|list|retrieve)$
+      - pattern-inside: |
+          @action(...)
+          def $H(self, request, ..., $P, ...):
+            ...
+      - pattern-inside: |
+          @api_view(...)
+          def $H(request, ..., $P, ...):
+            ...
+    - pattern: $P
+    - metavariable-regex:
+        metavariable: $P
+        regex: ^(?!self$|request$)\w+$
+  - patterns:
+    - pattern-inside: |
+        def $H(self, $S):
+          ...
+    - metavariable-regex:
+        metavariable: $H
+        regex: ^perform_(create|update|destroy)$
+    - pattern: $S
+  pattern-propagators:
+  - pattern: $TO = $M.objects.get(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $M.objects.get(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: len(...)
+  - pattern: bool(...)
+  - pattern: isinstance(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:.*\.(write|writelines)))|(?:(shutil\.(copy|copy2|copyfile|move)|os\.(rename|replace|remove|unlink))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:.*\.(write|writelines)))|(?:(shutil\.(copy|copy2|copyfile|move)|os\.(rename|replace|remove|unlink))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.django.log
+  mode: taint
+  languages:
+  - python
+  severity: INFO
+  message: Request data reaches a log line.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: django
+    sink_kind: log
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern: request.$ATTR
+      - pattern: self.request.$ATTR
+    - metavariable-regex:
+        metavariable: $ATTR
+        regex: ^(data|query_params|GET|POST|FILES|body|headers|COOKIES|META)$
+  - pattern: self.kwargs
+  - pattern: self.get_object()
+  - patterns:
+    - pattern-either:
+      - patterns:
+        - pattern-inside: |
+            def $H(self, request, ..., $P, ...):
+              ...
+        - metavariable-regex:
+            metavariable: $H
+            regex: ^(get|post|put|patch|delete|create|update|partial_update|destroy|list|retrieve)$
+      - pattern-inside: |
+          @action(...)
+          def $H(self, request, ..., $P, ...):
+            ...
+      - pattern-inside: |
+          @api_view(...)
+          def $H(request, ..., $P, ...):
+            ...
+    - pattern: $P
+    - metavariable-regex:
+        metavariable: $P
+        regex: ^(?!self$|request$)\w+$
+  - patterns:
+    - pattern-inside: |
+        def $H(self, $S):
+          ...
+    - metavariable-regex:
+        metavariable: $H
+        regex: ^perform_(create|update|destroy)$
+    - pattern: $S
+  pattern-propagators:
+  - pattern: $TO = $M.objects.get(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $M.objects.get(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $K=$FROM, ...)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = get_object_or_404(..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: len(...)
+  - pattern: bool(...)
+  - pattern: isinstance(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?si:(.*\.)?\w*log\w*\.(debug|info|warning|warn|error|exception|critical|log))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?si:(.*\.)?\w*log\w*\.(debug|info|warning|warn|error|exception|critical|log))))$
+    - focus-metavariable: $F

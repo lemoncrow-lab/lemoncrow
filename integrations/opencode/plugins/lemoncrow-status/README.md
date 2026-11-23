@@ -4,8 +4,7 @@ Sidebar panel for OpenCode showing measured usage plus LemonCrow-priced cost and
 the current run: tokens in / cached / out, context size, cache efficiency,
 cost, savings, and tool + MCP call counts.
 
-Works with stock OpenCode -- no fork required. The LemonCode fork ships the
-same panel as a builtin (`packages/tui/src/feature-plugins/sidebar/lemoncrow.tsx`).
+Works with stock OpenCode -- no fork required.
 
 ## Install
 

@@ -355,3 +355,6 @@ requirements-audit.txt
 
 # Terraform working directories
 **/.terraform/
+
+# Local agent worktrees
+/.worktrees/

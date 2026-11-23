@@ -1,3 +1,4 @@
+import { partCount } from "../review/vocabulary";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { BookOpen, Braces, ChevronDown, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CircleHelp, Database, Folder, MessageSquare, ShieldAlert } from "lucide-react";
 
@@ -8,6 +9,7 @@ import {
   LAYOUT,
   baseName,
   changeLetter,
+  focusSymbolNote,
   isChangedStatus,
   isFullyReviewed,
   isTestNode,
@@ -89,7 +91,7 @@ function ReviewMark({ node }: { node: MapNode }) {
   if (isFullyReviewed(node)) {
     return <>{threads}<CircleCheck size={14} className="rm-signal" data-tone="good" aria-label="Reviewed"><title>Reviewed</title></CircleCheck></>;
   }
-  return <>{threads}<span title={`${review.reviewed} of ${review.targets} review targets marked`}>{review.reviewed}/{review.targets}</span></>;
+  return <>{threads}<span title={`${review.reviewed} of ${partCount(review.targets)} marked`}>{review.reviewed}/{review.targets}</span></>;
 }
 
 /** Live overlay: which agent sessions are touching this node right now. */
@@ -106,9 +108,16 @@ function stageY(value: number): number {
   return value - LAYOUT.laneHeader;
 }
 
+/** A short tag on a subject card, such as a changed file no test reaches. */
+export interface CardNote {
+  label: string;
+  title: string;
+}
+
 interface CardProps {
   card: MapCardLayout;
   state: CardState;
+  note?: CardNote;
   activeSymbolId: string | null;
   weight: number;
   onSelect(id: string): void;
@@ -123,6 +132,7 @@ interface CardProps {
 const MapCard = memo(function MapCard({
   card,
   state,
+  note,
   activeSymbolId,
   weight,
   onSelect,
@@ -216,11 +226,7 @@ const MapCard = memo(function MapCard({
           <span className="rm-focus-path">{node.path}</span>
           <span className="rm-card-meta">
             {(node.additions || node.deletions) ? <><span className="rm-add">+{node.additions ?? 0}</span><span className="rm-del">−{node.deletions ?? 0}</span></> : null}
-            <span>
-              {node.status === "subject"
-                ? symbols.length ? plural(node.symbol_count ?? symbols.length, "symbol") : "No indexed symbols"
-                : symbols.length ? plural(node.symbol_count ?? symbols.length, "changed symbol") : isChangedStatus(node) ? "No symbol boundary captured" : node.status === "impacted" ? "Affected by the change" : "Surrounding code"}
-            </span>
+            <span>{focusSymbolNote(node, symbols.map((row) => row.symbol))}</span>
           </span>
         </Button>
         {symbols.map(({ symbol }) => (
@@ -299,6 +305,7 @@ const MapCard = memo(function MapCard({
         ) : null}
         {symbolCount > 0 && <span>{plural(symbolCount, "symbol")}</span>}
         {test && <span>test</span>}
+        {note && <span className="rm-note" title={note.title}>{note.label}</span>}
       </span>
     </Button>
   );
@@ -398,6 +405,8 @@ export interface MapCanvasProps {
   /** Lane titles for this surface; defaults read as a review of a change. */
   laneTitles?: Partial<Record<MapLane, string>>;
   ariaLabel?: string;
+  /** Tags for subject cards, by node id. */
+  notes?: ReadonlyMap<string, CardNote>;
 }
 
 export default function MapCanvas({
@@ -412,6 +421,7 @@ export default function MapCanvas({
   onWidth,
   laneTitles,
   ariaLabel = "Review map canvas",
+  notes,
 }: MapCanvasProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -498,6 +508,10 @@ export default function MapCanvas({
     if (activeId) {
       const touches = edge.from === activeId || edge.to === activeId;
       if (touches) return "active";
+      // On the change overview every link explains a changed file. Picking one
+      // file lights its links; it never fades out how the rest of the change
+      // is used, or a changed file looks unused.
+      if (model.level === "architecture") return edge.resting ? "idle" : "hidden";
       return edge.resting ? "dim" : "hidden";
     }
     return edge.resting ? "idle" : "hidden";
@@ -513,7 +527,9 @@ export default function MapCanvas({
   const cardState = (id: string): CardState => {
     if (id === selectedId && !selectedEdge) return "selected";
     if (!neighborIds) return "idle";
-    return neighborIds.has(id) ? "neighbor" : "dim";
+    if (neighborIds.has(id)) return "neighbor";
+    // The subject (changed files, the focused file or symbol) never fades.
+    return model.cardById.get(id)?.lane === "subject" ? "idle" : "dim";
   };
 
   const moveSelection = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -664,6 +680,7 @@ export default function MapCanvas({
             key={card.id}
             card={card}
             state={cardState(card.id)}
+            note={card.lane === "subject" ? notes?.get(card.id) : undefined}
             activeSymbolId={activeSymbolId}
             weight={weights.get(card.id) ?? 0}
             onSelect={onSelect}

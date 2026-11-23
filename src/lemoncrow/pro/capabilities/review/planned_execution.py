@@ -24,7 +24,6 @@ from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.capability_catalog import DetectedCapabilities, DynamicTarget, valid_entry_id
 from lemoncrow.pro.capabilities.review.compute_ledger import ComputeRecorder
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult
 from lemoncrow.pro.capabilities.review.run_plan import (
     ManualPick,
     PlanEntry,
@@ -32,6 +31,7 @@ from lemoncrow.pro.capabilities.review.run_plan import (
     check_catalog_id,
     load_run_plan,
 )
+from lemoncrow.pro.environment.execution import ExecutionResult
 
 # Wall time outside the contract's stages (Snapshot materialization, dispatch).
 SETUP_STAGE: Final[str] = "setup"
@@ -100,7 +100,7 @@ def admit_planned_execution(plan: RunPlan | None, entry_id: str, *, run_on: str)
     """The plan entry that authorizes this execution; refuses anything else."""
 
     if plan is None:
-        raise PlannedExecutionRefused("the Snapshot has no persisted effective run plan")
+        raise PlannedExecutionRefused("the revision has no persisted effective run plan")
     entry = plan.entry(entry_id)
     if entry is None:
         raise PlannedExecutionRefused("not addressable in the effective run plan")

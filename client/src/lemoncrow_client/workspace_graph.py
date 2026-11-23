@@ -1772,7 +1772,8 @@ def _git_changes(repo: WorkspaceRepo, base: str | None) -> tuple[list[str], str]
     code, untracked, error = _git(repo.root, "ls-files", "--others", "--exclude-standard", "-z")
     if code != 0:
         return sorted(files), error or "git ls-files --others failed"
-    files.update(_split_z(untracked))
+    # An entry ending in ``/`` is a checkout inside this one (a worktree, a clone), not a change to it.
+    files.update(entry for entry in _split_z(untracked) if not entry.endswith("/"))
     return sorted(files), ""
 
 

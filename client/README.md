@@ -1,9 +1,10 @@
 # lemoncrow-client
 
 The public LemonCrow thin client. **Apache-2.0. Python standard library only.
-No dependencies, no daemon, no listening port, no unit, no product telemetry
-on the standard session path. Product traffic uses the configured endpoint;
-explicit `web_fetch` calls reach public pages from the client.**
+No dependencies, no daemon, no listening port, no unit. Product traffic uses the
+configured endpoint; explicit `web_fetch` calls reach public pages from the client;
+anonymous feature counts go to lemoncrow.com once a day unless you run
+`lc rt telemetry remote off`.**
 
 **Product installer runs.** `lc update`, and the first use of a product that is
 not installed yet, run the published LemonCrow `install.sh` for that product.
@@ -24,7 +25,7 @@ documentation.
 
 The separate `lcr` executable and `lc review` product capture immutable Review
 Snapshots through the hosted/local Review API; they do **not** start or require
-Runtime MCP. The opt-in foreground P1 watcher adds capture scheduling while an
+Workspaces MCP. The opt-in foreground P1 watcher adds capture scheduling while an
 agent or editor writes the checkout:
 
 ```sh
@@ -84,11 +85,11 @@ implementations start another MCP/LemonCrow process.
 pip install lemoncrow-client
 export LEMONCROW_URL=https://lemoncrow.corp.example   # or: lemoncrow-client target <url>
 export LEMONCROW_TOKEN=...                            # or: ~/.lemoncrow/token, mode 0600
-lemoncrow-client review --help                        # Review works without Runtime integration
+lemoncrow-client review --help                        # Review works without Workspaces integration
 lemoncrow-client audit                                # prints the resolved claims
 ```
 
-Review installation does not modify coding-agent configuration. Runtime integration is explicit and uses each coding agent's own MCP configuration CLI; LemonCrow never edits those host config files directly:
+Review installation does not modify coding-agent configuration. Workspaces integration is explicit and uses each coding agent's own MCP configuration CLI; LemonCrow never edits those host config files directly:
 
 ```bash
 lemoncrow-client runtime enable claude
@@ -97,7 +98,7 @@ lemoncrow-client runtime enable opencode
 lemoncrow-client runtime enable auto --dry-run
 ```
 
-The older `lemoncrow-client install --agent ...` spelling remains a compatibility path during migration. All Runtime registrations point to the same command: `lemoncrow-client mcp`. Registration is a one-time foreground action; it installs no LemonCrow daemon, listener, SessionStart hook, or second runtime process. During a coding-agent session there is still exactly one LemonCrow process.
+The older `lemoncrow-client install --agent ...` spelling remains a compatibility path during migration. All Workspaces registrations point to the same command: `lemoncrow-client mcp`. Registration is a one-time foreground action; it installs no LemonCrow daemon, listener, SessionStart hook, or second runtime process. During a coding-agent session there is still exactly one LemonCrow process.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -361,7 +362,7 @@ then asserts what the client *did*:
 - no thread or child process survives the session;
 - no unit, plist, `loginctl`, `~/.claude/settings.json` rewrite, tunnel,
   unexpected downloader or background self-update path exists in the source;
-  only explicit `lc update`, missing-product first use and the Runtime-only,
+  only explicit `lc update`, missing-product first use and the Workspaces-only,
   pinned/checksummed Pi host installer may fetch release assets, and the client
   refuses to inherit an `ALLOW_UNVERIFIED` override for product installation;
 - the package imports no network socket API (`socketserver`, `http.server`,
@@ -398,6 +399,12 @@ PYTHONPATH=client/src uv run python -m pytest client/tests -q
 - Hosted interactive authentication is Authward-owned. `lc auth login` first
   discovers the exact Authward issuer/resource advertised by LemonCrow, then
   performs RFC 8628 device authorization directly against Authward. The client
-  stores one private Authward credential pair under `LEMONCROW_HOME`, refreshes
-  directly with Authward, and sends only the Authward access token to LemonCrow.
-  Local machine credentials remain a separate account-free mechanism.
+  stores one private Authward sign-in under `LEMONCROW_HOME`: the newest of its
+  rotating refresh tokens and one access token per resource it named. It refreshes
+  directly with Authward, naming one resource per request, serialized across
+  processes by a lock file beside the credentials, and sends only the API's
+  access token to LemonCrow. `lc auth login --server URL` also names a
+  LemonCrow-hosted Workspaces server by its own `https://` origin (from the URL
+  the client connects to); that server gets a token issued for its origin alone,
+  never the API's. Local machine credentials remain a separate account-free
+  mechanism.

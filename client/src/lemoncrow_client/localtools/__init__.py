@@ -85,6 +85,10 @@ class LocalResult:
     degraded: bool = False
     degraded_reason: str = ""
     structured: Mapping[str, Any] | None = None
+    #: Measured savings of this call against the host's built-in tools, the
+    #: full server's per-call formulas (``lemoncrow_client.lite.savings``).
+    tokens_saved: int = 0
+    calls_saved: int = 0
 
 
 @dataclass(slots=True)

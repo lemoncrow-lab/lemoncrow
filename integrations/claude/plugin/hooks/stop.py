@@ -127,24 +127,29 @@ def _write_token_event(stats: dict[str, Any], session_id: str | None = None) -> 
             events = data.setdefault("events", [])
             if not isinstance(events, list):
                 return
+            # Stop fires after every response, not only session exit.
+            # Repeated identical snapshots must not grow run.json indefinitely.
+            snapshot = {
+                "input_tokens": stats["input_tokens"],
+                "output_tokens": stats["output_tokens"],
+                "total_tokens": stats["total_tokens"],
+                "est_cost_usd": stats["est_cost_usd"],
+                "tool_calls": stats["tool_calls"],
+                "top_tools": dict(sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]),
+                "event": "Stop",
+            }
+            if events and isinstance(events[-1], dict) and events[-1].get("payload") == snapshot:
+                return
             events.append(
                 {
                     "kind": "note",
                     "at": datetime.datetime.now(datetime.UTC).isoformat(),
                     "summary": (
-                        f"session end — {stats['total_tokens']:,} tokens "
+                        f"turn summary — {stats['total_tokens']:,} tokens "
                         f"(+{stats['output_tokens']:,} out), "
                         f"~${stats['est_cost_usd']:.4f}"
                     ),
-                    "payload": {
-                        "input_tokens": stats["input_tokens"],
-                        "output_tokens": stats["output_tokens"],
-                        "total_tokens": stats["total_tokens"],
-                        "est_cost_usd": stats["est_cost_usd"],
-                        "tool_calls": stats["tool_calls"],
-                        "top_tools": dict(sorted(stats["tools_used"].items(), key=lambda x: -x[1])[:8]),
-                        "event": "Stop",
-                    },
+                    "payload": snapshot,
                 }
             )
             atomic_write_json(run_file, data)
@@ -640,8 +645,26 @@ def _write_session_cost(
         "carry_usd": round(carry_usd, 6),
         "carry_tokens": int(carry_tokens or 0),
     }
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+    # The aggregate treats the newest session_end as a cumulative snapshot,
+    # not an additional charge. Preserve the schema but skip identical Stops.
+    from lemoncrow.core.foundation.run_file_io import RunFileLock
+
+    with RunFileLock(path):
+        with path.open("rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 4096))
+            for raw in reversed(fh.read().decode("utf-8", errors="replace").splitlines()):
+                try:
+                    previous = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if previous.get("kind") == "session_end":
+                    fields = ("est_cost_usd", "total_tokens", "carry_usd", "carry_tokens")
+                    if all(previous.get(key) == row.get(key) for key in fields):
+                        return
+                    break
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
 
 
 def _ensure_savings_sidecar(session_id: str, stats: dict[str, Any]) -> None:
@@ -1200,7 +1223,7 @@ def main() -> int:
     # valid here, unlike PreToolUse/PostToolUse/UserPromptSubmit/PostToolBatch.)
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
-        print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{local_savings_suffix}{review_suffix}"}))
+        print(json.dumps({"systemMessage": f"lc turn summary.\n{summary}{local_savings_suffix}{review_suffix}"}))
     return 0
 
 

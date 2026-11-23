@@ -55,7 +55,7 @@ def _no_artifacts(_evidence_id: str) -> ReviewEvidence | None:
 
 
 def _policy() -> BrowserPolicy:
-    policy = parse_browser_policy(_POLICY, source="base Snapshot .lemoncrow/review.yaml")
+    policy = parse_browser_policy(_POLICY, source="base revision .lemoncrow/review.yaml")
     assert policy.error == ""
     return policy
 
@@ -230,7 +230,7 @@ def test_route_and_artifact_identity_are_enforced() -> None:
         content_hash="shot",
         mime_type="image/png",
     )
-    with pytest.raises(ValueError, match="same exact Snapshot"):
+    with pytest.raises(ValueError, match="same exact revision"):
         normalize_browser_run(
             {"scenario": "checkout", "artifacts": {"screenshot": "ev-shot"}},
             policy=_policy(),
@@ -359,7 +359,7 @@ def test_record_round_trips_as_json() -> None:
 def test_a_required_scenario_needs_a_current_result_at_every_configured_viewport() -> None:
     policy = parse_browser_policy(
         _POLICY.replace('viewports: ["1280x800"]', 'viewports: ["1280x800", "390x844"]'),
-        source="base Snapshot .lemoncrow/review.yaml",
+        source="base revision .lemoncrow/review.yaml",
     )
     first = _revision("rr-one", 1)
     second = _revision("rr-two", 2)
@@ -429,7 +429,7 @@ browser_checks:
 
 
 def test_browser_rows_are_keyed_by_scenario_and_attestation_never_by_title() -> None:
-    policy = parse_browser_policy(_SHARED_TITLE_POLICY, source="base Snapshot .lemoncrow/review.yaml")
+    policy = parse_browser_policy(_SHARED_TITLE_POLICY, source="base revision .lemoncrow/review.yaml")
     assert policy.error == ""
     snapshot = _revision("rr-one", 1)
 

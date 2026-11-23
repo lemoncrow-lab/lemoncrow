@@ -62,7 +62,7 @@ def test_auth_login_uses_authward_device_flow_and_persists_managed_tokens(tmp_pa
     monkeypatch.setattr(hosted_auth, "_config", lambda: config)
     monkeypatch.setattr(hosted_auth, "_authward", lambda _config: authward)
     monkeypatch.setattr(hosted_auth.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(hosted_auth.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(hosted_auth, "launch_browser_url", lambda url: opened.append(url) or True)
     monkeypatch.setattr(
         hosted_auth,
         "write_managed_credentials",

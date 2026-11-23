@@ -895,9 +895,36 @@ def test_skills_and_agents_load_integration_catalog(app_no_auth: TestClient) -> 
     assert agents.status_code == 200
     assert {"swarm", "ux-review", "review-setup"} <= {item["name"] for item in skills.json()}
     assert {"code", "review", "explore"} <= {item["id"] for item in agents.json()}
+    # The shipped SKILL.md files quote their descriptions; the catalog serves the YAML value, not the quotes.
+    descriptions = {item["name"]: item["description"] for item in skills.json()}
+    assert descriptions["swarm"] == "Parallel attempts."
+    assert all(text and text[0] not in "\"'" and text[-1] not in "\"'" for text in descriptions.values())
+    assert app_no_auth.get("/skills/swarm").json()["description"] == "Parallel attempts."
+
+
+@pytest.mark.parametrize(
+    ("frontmatter", "expected"),
+    [
+        ('description: "Cost benchmark."', "Cost benchmark."),
+        ("description: 'Session recall.'", "Session recall."),
+        ("description: Plain value.", "Plain value."),
+        ('description: "Says \\"hi\\" once."', 'Says "hi" once.'),
+        ("description: >-\n  Folded over\n  two lines.", "Folded over two lines."),
+        # Not valid YAML (an unclosed flow sequence): the raw line is used, still unquoted.
+        ('argument-hint: [oops\ndescription: "Fallback value."', "Fallback value."),
+        ("name: no-description", ""),
+    ],
+)
+def test_skill_description_reads_the_yaml_value(frontmatter: str, expected: str) -> None:
+    from lemoncrow.core.service.api import _skill_description
+
+    assert _skill_description(f"---\nname: x\n{frontmatter}\n---\n# Body\n") == expected
+    assert _skill_description("# No frontmatter\ndescription: ignored") == ""
 
 
 def test_hosts_endpoint_lists_supported_integrations(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.core.capabilities.session_replay import SUPPORTED_HOSTS
+
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     app = create_app(store_root=store.knowledge.root)
     route = next(route for route in app.routes if getattr(route, "path", "") == "/hosts")
@@ -906,10 +933,16 @@ def test_hosts_endpoint_lists_supported_integrations(store: StoreBundle, monkeyp
 
     labels = {host["host_id"]: host["label"] for host in hosts}
     assert labels["claude"] == "Claude Code"
-    assert labels["codex"] == "Codex CLI"
-    assert labels["copilot"] == "Copilot / VS Code"
-    assert labels["cursor"] == "Cursor IDE"
+    # One display name per host, the same as the Integrations page.
+    assert labels["codex"] == "Codex"
+    assert labels["opencode"] == "OpenCode"
+    assert labels["copilot"] == "VS Code / Copilot"
+    assert labels["cursor"] == "Cursor"
     assert labels["hermes"] == "Hermes Agent (global-only)"
+    # Diagnostics counts these hosts; it must be the same set the Integrations page lists.
+    assert labels["pi"] == "Pi"
+    assert set(labels) == set(SUPPORTED_HOSTS)
+    assert all(host["description"] for host in hosts)
 
 
 # --------------------------------------------------------------------------- #

@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
  * standard control; `ghost` and `link` are quiet. Sizes keep the dense control heights (28/32px).
  */
 export const buttonVariants = cva(
-  "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-semibold transition-colors duration-fast active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 pointer-coarse:min-h-11",
+  "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-semibold transition-colors duration-fast active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50",
   {
     variants: {
       variant: {
@@ -40,10 +40,14 @@ export const buttonVariants = cva(
         sm: "h-8 px-3 text-meta",
         /** Inline row action (Review compact action). */
         compact: "h-7 gap-1 px-1.5 text-meta",
-        icon: "h-7 w-7 p-0 pointer-coarse:min-w-11",
+        icon: "h-7 w-7 p-0",
       },
     },
-    compoundVariants: [{ variant: "link", className: "h-auto p-0" }],
+    compoundVariants: [
+      { variant: "link", className: "h-auto p-0" },
+      // Olaryn: filled and bordered buttons are pills; quiet ghost/link controls keep the control radius.
+      { variant: ["brand", "solid", "default", "outline", "destructive", "warning", "success"], className: "rounded-full" },
+    ],
     defaultVariants: { variant: "outline", size: "sm" },
   }
 );

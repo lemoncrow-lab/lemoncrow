@@ -16,12 +16,12 @@ FORCE_ARG := $(if $(f),--force,)
 RELEASE_IMPACT_ARG = $(if $(filter 1,$(RELEASE_FULL)),,--changed-since-last-release)
 # Messages choose color at recipe execution time, so redirected logs stay plain.
 _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
-.PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-quick release-qualify release-qualify-steps release-stage \
+.PHONY: verify-full verify-all help uninstall build review-client-build review-engine-build runtime-client-build build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-quick release-qualify release-qualify-steps release-stage \
 	oss-dev oss-prod oss-up oss-down oss-status oss-reset oss-ui oss-ui-build oss-test \
 	hosted-dev hosted-prod hosted-up hosted-down hosted-status hosted-reset hosted-ui hosted-ui-build hosted-test review-hosted-test-full \
 	_rehearse-install _verify-hosted-artifact _verify-hosted-e2e \
-	review-demo review-demo-diff review-demo-plugin review-e2e review-e2e-release perf-slo perf-slo-release perf-slo-product perf-product \
-	docs-check status-index benchmark-publish \
+	review-demo review-demo-empty review-demo-diff review-demo-plugin review-e2e review-e2e-release perf-slo perf-slo-release perf-slo-product perf-product \
+	docs-check status-index benchmark-publish review-read-burden-report review-read-burden-bundle \
 	test test-fast test-cov test-full gate-g gate-k release-gate lint format-check format typecheck verify pre-commit \
 	proof-cost-quality import clean \
 	_ensure_hooks
@@ -184,7 +184,7 @@ review-engine-build: ## Build the isolated local Review engine artifact
 runtime-client-build: ## Build the isolated Runtime client artifact
 	@bash scripts/build_runtime_client.sh
 
-mirror: ## Incremental mirror bench → public repo (history-preserving): make mirror [f=1] [ARGS="--resync"]
+mirror: ## Publish to the public repo as one commit: make mirror ARGS="--resync"; a per-commit replay needs ARGS="--per-commit" [f=1]
 	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror $(FORCE_ARG) $(ARGS)
 
 release-version-check: ## Verify root/public/private LemonCrow package versions are synchronized
@@ -247,6 +247,23 @@ release-qualify-steps: release-prepared release-version-check ## All release che
 	@bash scripts/release_canary_env.sh $(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_IMPACT_ARG) $(RELEASE_GATE_ARGS)"
 	uv run python -m scripts.release_record stamp --report "$(RELEASE_REPORT)" --tag "$(tag)"
 
+# The release gate needs Linux (bubblewrap, helm, terraform). This is the open-source-only path for a Mac:
+# it proves the OSS install here, then publishes the public repo and its tag. It stamps nothing and
+# makes no private tag; the Linux `release-qualify` + `release` remain the full, stamped release.
+release-oss: release-prepared release-version-check ## Mac-capable OSS-only release (unstamped): oss-test, push main, mirror, public tag: make release-oss tag=vX.Y.Z
+	@set -e; \
+	TAG=$${tag:-}; [ -n "$$TAG" ] || { echo "Usage: make release-oss tag=vX.Y.Z"; exit 1; }; \
+	$(MAKE) --no-print-directory oss-test; \
+	QUALIFIED=$$(git rev-parse HEAD); \
+	PUBLIC_MESSAGE="$$(git rev-parse --absolute-git-dir)/lemoncrow-release-public-message"; \
+	uv run python scripts/release_notes.py "$${TAG#v}" --commit-message "$$TAG" > "$$PUBLIC_MESSAGE"; \
+	git push -u origin HEAD; \
+	command -v gh >/dev/null 2>&1 && gh auth setup-git >/dev/null 2>&1 || true; \
+	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror --resync --message-file "$$PUBLIC_MESSAGE"; \
+	PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
+	git push https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
+	echo "✓ OSS-released $$TAG (public repo + tag, unstamped; no private tag, run the Linux release to stamp $$QUALIFIED)"
+
 release: release-prepared ## Push, mirror and tag the exact commit release-qualify qualified: make release tag=vX.Y.Z [f=1] [SKIP_MIRROR=1]
 	@# Only a releasable record stamped for this exact HEAD and tag, whose kept candidate archive still
 	@# hashes to the stamped sha256, lets a tag be made; the tag is that commit, never a new one.
@@ -256,7 +273,9 @@ release: release-prepared ## Push, mirror and tag the exact commit release-quali
 	SKIP_MIRROR=$${SKIP_MIRROR:-0}; \
 	QUALIFIED=$$(git rev-parse HEAD); \
 	MESSAGE="$$(git rev-parse --absolute-git-dir)/lemoncrow-release-tag-message"; \
+	PUBLIC_MESSAGE="$$(git rev-parse --absolute-git-dir)/lemoncrow-release-public-message"; \
 	uv run python -m scripts.release_record verify --tag "$$TAG" --tag-message "$$MESSAGE"; \
+	uv run python scripts/release_notes.py "$${TAG#v}" --commit-message "$$TAG" > "$$PUBLIC_MESSAGE"; \
 	git push -u origin HEAD; \
 	PUSH_FLAG=; \
 	[ "$$FORCE" = "1" ] && PUSH_FLAG=--force; \
@@ -276,7 +295,7 @@ release: release-prepared ## Push, mirror and tag the exact commit release-quali
 	echo "Mirroring release commit to public repo..."; \
 	MIRROR_FORCE_ARG=; \
 	[ "$$FORCE" = "1" ] && MIRROR_FORCE_ARG=--force; \
-	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror --resync $$MIRROR_FORCE_ARG; \
+	LEMONCROW_MIRROR_RUNNING=1 uv run python -m scripts.mirror --resync --message-file "$$PUBLIC_MESSAGE" $$MIRROR_FORCE_ARG; \
 	PUB_SHA=$$(git rev-parse refs/mirror/last-pub); \
 	if [ "$$FORCE" = "1" ]; then \
 	  git tag -d "$$TAG" 2>/dev/null || true; \
@@ -366,7 +385,7 @@ _verify-hosted-artifact:
 		"$$tmp/bin/lc" audit >/dev/null; \
 		set +e; runtime_out="$$(LEMONCROW_NO_LAZY_INSTALL=1 "$$tmp/bin/lc" runtime status 2>&1)"; runtime_status=$$?; set -e; \
 		test "$$runtime_status" -eq 2; \
-		printf '%s' "$$runtime_out" | grep -q 'Runtime is not installed'
+		printf '%s' "$$runtime_out" | grep -q 'Workspaces is not installed'
 
 _verify-hosted-e2e:
 	@set -eu; \
@@ -383,17 +402,6 @@ _verify-hosted-e2e:
 			$${LEMONCROW_TEST_JUNIT_DIR:+-o junit_family=xunit1 "--junitxml=$$LEMONCROW_TEST_JUNIT_DIR/hosted-e2e.xml"} \
 			../../client/tests/test_end_to_end_server.py::test_thin_hosted_review_derives_packet_on_the_real_server -q
 
-build-lemoncode-host: ## Provision the LemonCode host binary: builds from the vendored lemoncode/ submodule if bun is available, else downloads a release. Skips if already installed; force rebuild with 'make build-lemoncode-host f=1'
-	@if [ -z "$(f)" ] && [ -x "$(LEMONCROW_STORE)/bin/lemoncode-host" ]; then \
-		:; \
-	elif command -v bun >/dev/null 2>&1 && git submodule update --init lemoncode >/dev/null 2>&1 && [ -f lemoncode/package.json ]; then \
-		echo "Building LemonCode host from source (lemoncode/ submodule)..."; \
-		$(LEMONCROW_CMD) code host build --source lemoncode; \
-	else \
-		echo "bun/lemoncode submodule unavailable -- downloading prebuilt LemonCode host release..."; \
-		$(LEMONCROW_CMD) code host install; \
-	fi
-
 uninstall: ## Remove the LIVE LemonCrow install: all agent-host integrations, hooks, and bin wrappers (ARGS="..." forwards flags)
 	@bash scripts/uninstall.sh $${ARGS:-}
 # --------------------------------------------------------------------------- #
@@ -402,8 +410,14 @@ uninstall: ## Remove the LIVE LemonCrow install: all agent-host integrations, ho
 
 DEMO_DIR ?= /tmp/lemoncrow-review-demo
 
-review-demo: ## Create (or reset) the Review demo repo and open it in the Reader: make review-demo [DEMO_DIR=/path]
-	./demo/review-surfaces/bootstrap.sh "$(DEMO_DIR)"
+SCENARIO ?= standard
+
+review-demo: ## Create (or reset) the Review demo repo and open it: make review-demo [DEMO_DIR=/path] [SCENARIO=standard|empty|orders|orders-revision-2|large|tenant-cache]
+	./examples/demo/bootstrap.sh "$(DEMO_DIR)" --scenario "$(SCENARIO)"
+	uv run lc review --repo-root "$(DEMO_DIR)" --open
+
+review-demo-empty: ## Create the empty Review state (baseline only, nothing to review) and open it: make review-demo-empty [DEMO_DIR=/path]
+	./examples/empty/bootstrap.sh "$(DEMO_DIR)"
 	uv run lc review --repo-root "$(DEMO_DIR)" --open
 
 review-demo-diff: ## Show the demo's prepared change (after make review-demo): make review-demo-diff [DEMO_DIR=/path]
@@ -433,7 +447,7 @@ perf-slo: ## G9-SLO speed gate: Python targets, then Chromium (reader open, 10k-
 perf-slo-release: ## G9 release-critical SLOs only; unchanged approved targets/sample counts; exhaustive target checks remain `make perf-slo`
 	@mkdir -p "$(PERF_SLO_REPORT)" && rm -f "$(PERF_SLO_REPORT)"/*.json
 	@status=0; \
-	uv run python -m benchmarks.review_slo run --no-rerun \
+	uv run python -m benchmarks.review_slo run \
 		--only capture_small --only incremental_delta --only brief_projection \
 		--report "$(PERF_SLO_REPORT)/python.json" || status=1; \
 	(cd frontend && REVIEW_SLO_REPORT_DIR="$(PERF_SLO_REPORT)" REVIEW_SLO_NO_RERUN=1 \
@@ -458,7 +472,11 @@ perf-product: ## RC2 10k product profile on the designated quiet runner; DIAGNOS
 
 review-demo-plugin: ## Install the example CSV preview plugin used by the demo's data/plans.csv
 	uv pip install -e ./demo/review-preview-plugin
-	@tool_python="$${LEMONCROW_SERVER_PYTHON:-$${LEMONCROW_TOOL_DIR:-$$HOME/.lemoncrow/uv-tools}/lemoncrow/bin/python}"; \
+	@tool_python="$${LEMONCROW_SERVER_PYTHON:-}"; \
+		if [ -z "$$tool_python" ]; then \
+			if [ -x "$$HOME/.lemoncrow/review/engine/bin/python" ]; then tool_python="$$HOME/.lemoncrow/review/engine/bin/python"; \
+			else tool_python="$${LEMONCROW_TOOL_DIR:-$$HOME/.lemoncrow/uv-tools}/lemoncrow/bin/python"; fi; \
+		fi; \
 		if [ -x "$$tool_python" ]; then \
 			uv pip install --python "$$tool_python" -e ./demo/review-preview-plugin; \
 		else \
@@ -493,6 +511,17 @@ benchmark-publish: ## Render the code-review benchmark table into the README and
 		$(if $(wildcard $(LANDING)/src/data),--landing "$(LANDING)")
 	@$(if $(wildcard $(LANDING)/src/data),:,echo "landing checkout not found at $(LANDING) (set LANDING=...): only the README was rendered")
 
+# The read-burden report (evals/review/read_burden/report.md), regenerated byte-identically and offline from the stored
+# corpus. WRITE_EXPECTED=1 also rewrites expected.json: a deliberate, explained change of what the gate holds.
+review-read-burden-report: ## Regenerate evals/review/read_burden/report.md from the stored corpus (WRITE_EXPECTED=1 records new expected counts)
+	uv run python -m lemoncrow.pro.capabilities.review.evaluation.read_burden --write-sources $(if $(WRITE_EXPECTED),--write-expected)
+
+# The publishable bundle (OWNER-18): the report, the list of pull requests and revisions, the fetcher and a README.
+# Holds no corpus content and is not committed (build/ is ignored); publishing it is the owner's step.
+BUNDLE_DIR ?= build/read-burden-bundle
+review-read-burden-bundle: ## Write the publishable read-burden bundle (report, manifest, sources, fetcher, README) to BUNDLE_DIR
+	uv run python scripts/build_read_burden_bundle.py --out $(BUNDLE_DIR)
+
 status-index: ## Render docs/status/README.md from docs/status/capabilities.toml (private checkout only)
 	uv run python scripts/render_status_index.py
 
@@ -523,8 +552,8 @@ test-full: ## Run the FULL suite (incl. slow) with measured coverage floor
 
 RELEASE_REPORT ?= $(CURDIR)/reports/release/release-report.json
 
-release-gate: ## G11-RELEASE: bounded confidence suites, risk-selected Gates F/G/K/I, G9 core perf, G2 engine, G8 canary, G1 index, ops drills -> one report (RELEASE_REPORT=path; ONLY=ids is never releasable; RELEASE_GATE_ARGS="--tag vX.Y.Z --jobs N")
-	uv run --locked --extra postgres python -m scripts.release_gate --report "$(RELEASE_REPORT)" $(if $(ONLY),--only "$(ONLY)",) $(RELEASE_GATE_ARGS)
+release-gate: ## G11-RELEASE: bounded confidence and safety suites (latency/load in separate diagnostics) -> one report (RELEASE_REPORT=path; ONLY=ids is never releasable; RELEASE_GATE_ARGS="--tag vX.Y.Z --jobs N")
+	@ulimit -c 0; uv run --locked --extra postgres python -m scripts.release_gate --report "$(RELEASE_REPORT)" $(if $(ONLY),--only "$(ONLY)",) $(RELEASE_GATE_ARGS)
 
 gate-g: ## Replay the Gate G qualification matrix (LEMONCROW_TEST_POSTGRES_DSN for Postgres rows; STRICT=1 fails on skips; GATE_G_REPORT_DIR keeps the JUnit reports)
 	uv run python scripts/gate_g_matrix.py $(if $(STRICT),--strict,) $(if $(ROWS),--rows "$(ROWS)",) $(if $(GATE_G_REPORT_DIR),--report-dir "$(GATE_G_REPORT_DIR)",)
@@ -555,12 +584,20 @@ pre-commit: | _ensure_hooks ## Full pre-commit gate without re-running the docs 
 	@$(MAKE) --no-print-directory typecheck
 	@$(MAKE) --no-print-directory test
 
-verify: | _ensure_hooks ## Verify code, docs, tests, runtime smoke tests, and agent integrations
+verify-full: | _ensure_hooks ## Full gate: code, docs, the whole test suite, runtime smoke tests, agent integrations
 	@$(MAKE) --no-print-directory -j3 lint format-check typecheck
 	@$(MAKE) --no-print-directory test
 	bash scripts/verify_lemoncrow_service.sh
 	bash scripts/verify_lemoncrow_postgres.sh
 	bash scripts/verify_agent_clis.sh
+
+verify: ## Checks affected by HEAD and uncommitted work vs origin/main (the pre-push gate)
+	@git config core.hooksPath .githooks
+	@.githooks/pre-push < /dev/null
+
+verify-all: ## Every check in .lemoncrow/environment.toml
+	@git config core.hooksPath .githooks
+	@PYTHONPATH=client/src uv run --quiet python -m lemoncrow_client verify --all
 
 proof-cost-quality: ## Run the deterministic cost-quality proof gate tests
 	LOCAL=1 uv run pytest tests/core/test_cost_quality_proof_gate.py -v

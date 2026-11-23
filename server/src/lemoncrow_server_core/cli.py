@@ -145,6 +145,10 @@ def main(argv: Sequence[str] | None = None, *, review_only: bool = False) -> int
     if args.command == "service":
         from .service_host import serve_service
 
+        # The same reason as `up`, in every isolated service process (the Review one serves the Reader): its
+        # per-file reads win the GIL back from enrichment requests at every SQLite or file call, and at the
+        # default 5 ms a 10k Review's one-file patch took 80-340 ms beside the open's enrichment.
+        sys.setswitchinterval(_SWITCH_INTERVAL_S)
         state_root = args.state_root.expanduser().resolve()
         try:
             return asyncio.run(

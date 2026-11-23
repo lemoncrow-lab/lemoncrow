@@ -1,7 +1,7 @@
 """Runtime Lite roots with member repositories.
 
-A folder that is not a Git repository has its immediate child repositories as
-members; a repository has itself plus its checked-out submodules, recursively.
+A folder that is not a Git repository discovers repositories up to three
+levels below it; a repository has itself plus checked-out submodules recursively.
 Every member keeps its own index, every path is relative to the root, and an
 answer that could not cover every member says which it left out.
 """
@@ -74,8 +74,9 @@ def workspace(tmp_path: Path) -> Path:
     )
     # A sibling linked worktree of billing: the same repository, never a second member.
     _git(billing, "worktree", "add", "-q", "../billing-feature", "-b", "feature/x")
-    # Not supported: a repository inside a non-Git child folder is never scanned.
-    _repo(root / "services" / "authward", {"authward/tokens.py": "def issue_token():\n    return 'token'\n"})
+    # A plain nested folder is not a member unless it contains a Git checkout.
+    (root / "services" / "authward").mkdir(parents=True)
+    (root / "services" / "authward" / "tokens.py").write_text("def issue_token():\n    return 'token'\n")
     # Never members: hidden and symlinked children.
     _repo(root / ".cache" / "clone", {"x.py": "subscription_plan_code = 1\n"})
     (root / "alias").symlink_to(billing, target_is_directory=True)
@@ -125,13 +126,67 @@ def _paths(result: dict[str, object]) -> list[str]:
 # -- membership --------------------------------------------------------------- #
 
 
-def test_a_folder_root_has_its_immediate_child_repositories_as_members(workspace: Path) -> None:
+def test_a_folder_root_has_its_child_repositories_as_members(workspace: Path) -> None:
     membership = discover_members(workspace)
     assert [member.relpath for member in membership.members] == ["bazaar", "billing"]
     assert membership.other_checkouts == (("billing-feature", "billing"),)
     assert not membership.git_root and membership.multi and not membership.truncated
     assert head_label(workspace / "bazaar") == "feature/plans"
     assert head_label(workspace / "billing-feature") == "feature/x"
+
+
+def test_nested_grouping_folders_discover_repos_without_scanning_into_git_roots(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "Projects" / "Olaryn"
+    root.mkdir(parents=True)
+    data = _repo(
+        root / "Foot-Measure-Artifacts" / "foot-measure-data",
+        {"model.py": "foot_measure_nested_token = 7\n"},
+    )
+    _repo(root / "Foot-Measure-Artifacts" / "foot-measure-model", {"model.py": "model = True\n"})
+    _repo(root / "services" / "teams" / "nested", {"nested.py": "nested = True\n"})
+    _repo(root / "services" / "teams" / "group" / "too-deep", {"deep.py": "ignored = True\n"})
+    _repo(root / "Beseam", {"app.py": "app = True\n"})
+    _repo(root / "Beseam" / "landings" / "nested-clone", {"site.py": "ignored = True\n"})
+    _repo(root / ".worktrees" / "ignored", {"ignored.py": "ignored = True\n"})
+    _repo(root / "archive" / "old-project", {"ignored.py": "ignored = True\n"})
+    (root / "data-alias").symlink_to(data, target_is_directory=True)
+    _git(data, "worktree", "add", "-q", "../foot-measure-data-feature", "-b", "feature/measure")
+
+    membership = discover_members(root)
+    assert [member.relpath for member in membership.members] == [
+        "Beseam",
+        "Foot-Measure-Artifacts/foot-measure-data",
+        "Foot-Measure-Artifacts/foot-measure-model",
+        "services/teams/nested",
+    ]
+    assert membership.other_checkouts == (
+        ("Foot-Measure-Artifacts/foot-measure-data-feature", "Foot-Measure-Artifacts/foot-measure-data"),
+    )
+    assert not membership.git_root and not membership.truncated
+    assert all(member.parent is None for member in membership.members)
+
+    server = LiteMcp(environment=_env(root, tmp_path))
+    try:
+        prepared = server.prepare()
+        assert set(prepared["repositories"]) == {member.relpath for member in membership.members}
+        found = server.call("code_search", {"query": "foot_measure_nested_token"})
+        assert found["isError"] is False
+        assert _paths(found) == ["Foot-Measure-Artifacts/foot-measure-data/model.py"]
+        assert (data / _INDEX).is_file()
+    finally:
+        server.close()
+
+
+def test_nested_discovery_reports_container_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _repo(root / "group" / "data", {"model.py": "x = 1\n"})
+    monkeypatch.setattr(lite_workspace, "_MAX_DISCOVERY_CONTAINERS", 1)
+    membership = discover_members(root)
+    assert not membership.members
+    assert membership.truncated
 
 
 def test_a_stray_git_folder_holding_no_repository_leaves_a_folder_root(workspace: Path, tmp_path: Path) -> None:
@@ -202,7 +257,10 @@ def test_folder_session_lists_members_and_indexes_each_in_place(workspace: Path,
         assert "billing-feature (worktree of billing, feature/x)" in instructions
         assert "authward" not in instructions
         assert "bash cwd=<repository>" in instructions
-        assert "`lc workspace status|branch|commit|push|pr`" in instructions and "kind=impact" in instructions
+        assert "`lc workspace status|branch|commit|push|pr`" in instructions
+        # `graph` answers when routed but is not advertised, so a model cannot be sent to it.
+        assert "`lc workspace graph`" in instructions and "`lc workspace impact [PATH ...]`" in instructions
+        assert "kind=" not in instructions
         prepared = server.prepare()
         assert prepared["mode"] == "workspace"
         assert set(prepared["repositories"]) == {"bazaar", "billing"}  # type: ignore[arg-type]
@@ -214,6 +272,26 @@ def test_folder_session_lists_members_and_indexes_each_in_place(workspace: Path,
         assert not (workspace / ".git").exists()
     finally:
         server.close()
+
+
+def test_a_removed_task_worktree_is_dropped_when_the_next_checkout_opens(workspace: Path, tmp_path: Path) -> None:
+    billing = (workspace / "billing").resolve()
+    first, second = billing / ".worktrees" / "t1", billing / ".worktrees" / "t2"
+    for directory in (first, second):
+        _git(billing, "worktree", "add", "-q", "--no-track", "-b", f"agent/{directory.name}", str(directory), "main")
+    server = LiteMcp(environment=_env(workspace, tmp_path))
+    try:
+        server.prepare()
+        server.call("code_search", {"query": "subscription_response", "paths": "billing/.worktrees/t1"})
+        assert first in server._repos and (first / _INDEX).is_file()  # its overlay, in the worktree
+        shutil.rmtree(first)
+
+        server.call("code_search", {"query": "subscription_response", "paths": "billing/.worktrees/t2"})
+        assert second in server._repos and first not in server._repos
+        assert billing in server._repos  # members stay
+    finally:
+        server.close()
+    assert not first.exists()
 
 
 def test_pathless_search_covers_every_member_once_with_root_relative_paths(workspace: Path, tmp_path: Path) -> None:
@@ -244,6 +322,46 @@ def test_pathless_search_covers_every_member_once_with_root_relative_paths(works
 
         escaped = server.call("code_search", {"query": "x", "paths": "../outside"})
         assert escaped["isError"] is True
+    finally:
+        server.close()
+
+
+def test_workspace_no_match_uses_the_searches_existing_read_connection(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = LiteMcp(environment=_env(workspace, tmp_path))
+    try:
+        server.prepare()
+
+        def redundant_empty_check(*_args: object, **_kwargs: object) -> bool:
+            pytest.fail("a nonempty member's no-match must not reopen its index")
+
+        monkeypatch.setattr(LiteIndex, "is_empty", redundant_empty_check)
+        result = server.call("code_search", {"query": "absent_rare_token_102948"})
+        assert not result["isError"]
+        assert result["structuredContent"]["workspace"]["complete"]
+        assert not result["structuredContent"]["workspace"]["grep_fallback"]
+    finally:
+        server.close()
+
+
+def test_workspace_grep_fallback_is_preserved_for_a_truly_empty_index(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    _repo(root / "filled", {"app.py": "def identifiable_token():\n    return True\n"})
+    empty_root = root / "empty"
+    empty_root.mkdir()
+    _git(empty_root, "init", "-q", "-b", "main")
+    _git(empty_root, "commit", "--allow-empty", "-qm", "base")
+
+    server = LiteMcp(environment=_env(root, tmp_path))
+    try:
+        server.prepare()
+        result = server.call("code_search", {"query": "identifiable_token"})
+        assert not result["isError"]
+        assert result["structuredContent"]["workspace"]["complete"]
+        assert result["structuredContent"]["workspace"]["grep_fallback"] == {"empty": "index_empty"}
+        assert "filled/app.py" in _paths(result)
     finally:
         server.close()
 
@@ -382,10 +500,13 @@ def test_a_slow_member_does_not_hold_back_the_others_and_is_named(
         coverage = partial["structuredContent"]["workspace"]  # type: ignore[index]
         assert coverage["searched"] == ["billing"] and coverage["building"] == ["bazaar"]
         assert coverage["complete"] is False
-        assert "[lc:index_building]" in _text(partial) and "bazaar" in _text(partial)
+        assert "[lc:index_fallback reason=index_building] bazaar" in _text(partial)
+        assert "bazaar/bazaar/client.py" in _text(partial)
+        assert partial["structuredContent"]["workspace"]["grep_fallback"] == {"bazaar": "index_building"}  # type: ignore[index]
         assert _paths(partial) == ["billing/billing/api.py"]
         only_building = server.call("code_search", {"query": "subscription_plan_code", "paths": "bazaar"})
-        assert only_building["isError"] is True
+        assert only_building["isError"] is False
+        assert "bazaar/bazaar/client.py" in _text(only_building)
         release.set()
         complete = server.call("code_search", {"query": "subscription_plan_code"})
         assert complete["structuredContent"]["workspace"]["complete"] is True  # type: ignore[index]
@@ -419,7 +540,7 @@ def test_a_member_a_call_names_is_built_ahead_of_queued_ones(tmp_path: Path, mon
         server.handle({"id": 1, "method": "initialize"})
         assert started.wait(10)
         waiting = server.call("code_search", {"query": "charlie_entry", "paths": "charlie"})
-        assert waiting["isError"] is True and "[lc:index_building]" in _text(waiting)
+        assert waiting["isError"] is False and "[lc:index_fallback reason=index_building]" in _text(waiting)
         release.set()
         server.prepare()
         assert order == ["alpha", "charlie", "bravo"]
@@ -444,8 +565,51 @@ def test_a_failed_member_is_named_and_the_others_still_answer(
         found = server.call("code_search", {"query": "subscription_plan_code"})
         assert found["isError"] is False
         assert found["structuredContent"]["workspace"]["failed"] == ["bazaar"]  # type: ignore[index]
-        assert "[lc:lite_failed] bazaar was not searched: disk is read-only" in _text(found)
+        assert "[lc:index_fallback reason=index_failed] bazaar" in _text(found)
+        assert "disk is read-only" in _text(found)
+        assert "bazaar/bazaar/client.py" in _text(found)
         assert _paths(found) == ["billing/billing/api.py"]
+    finally:
+        server.close()
+
+
+def test_members_past_the_grep_bound_are_named_as_not_searched(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(self: LiteIndex, *, progress: object = None) -> object:
+        raise RuntimeError("disk is read-only")
+
+    monkeypatch.setattr(LiteIndex, "adopt_prepared", broken)
+    monkeypatch.setattr(lite_mcp, "_GREP_FALLBACK_REPOS", 1)
+    server = LiteMcp(environment=_env(workspace, tmp_path))
+    try:
+        found = server.call("code_search", {"query": "subscription_plan_code"})
+        assert found["isError"] is False
+        text = _text(found)
+        assert text.count("[lc:index_fallback reason=index_failed]") == 1
+        assert text.count("was not searched: disk is read-only") == 1
+        grepped = found["structuredContent"]["workspace"]["grep_fallback"]  # type: ignore[index]
+        assert list(grepped.values()) == ["index_failed"]
+    finally:
+        server.close()
+
+
+def test_members_sharing_a_failure_get_one_notice_and_root_relative_paths(
+    workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(self: LiteIndex, *, progress: object = None) -> object:
+        raise RuntimeError("disk is read-only")
+
+    monkeypatch.setattr(LiteIndex, "adopt_prepared", broken)
+    server = LiteMcp(environment=_env(workspace, tmp_path))
+    try:
+        found = server.call("code_search", {"query": "subscription_plan_code"})
+        text = _text(found)
+        assert text.count("disk is read-only") == 1
+        assert "billing/billing/api.py" in text and "bazaar/bazaar/client.py" in text
+        missed = server.call("code_search", {"query": "qqzz_absent_everywhere"})
+        assert missed["isError"] is False
+        assert _text(missed).count("no matches") == 1
     finally:
         server.close()
 
@@ -492,3 +656,134 @@ def test_lc_with_and_runtime_index_accept_a_root_with_members(
     sink = io.StringIO()
     assert cli._runtime_index(["--repo-root", str(app), "--json"], sink) == 0
     assert set(json.loads(sink.getvalue())["repositories"]) == {".", "vendor/lib", "vendor/lib/vendor/inner"}
+
+
+# -- fast workspace planning, without dishonest completeness ------------------ #
+
+
+def _search_planner_fixture(tmp_path: Path, count: int = 12) -> Path:
+    root = tmp_path / "planner-root"
+    root.mkdir()
+    for i in range(count):
+        name = "Billing" if i == count - 1 else f"Repository{i:02}"
+        _repo(
+            root / name,
+            {
+                "src/api.py": f"planner_shared_token = {i}\n"
+                + ("def billing_named_handoff(): return planner_shared_token\n" if name == "Billing" else "")
+            },
+        )
+    return root
+
+
+def test_fast_workspace_search_names_skipped_and_complete_recovers_all(tmp_path: Path) -> None:
+    root = _search_planner_fixture(tmp_path)
+    server = LiteMcp(environment=_env(root, tmp_path))
+    try:
+        # No warm-up needed: fast mode only builds selected indexes, not all twelve.
+        quick = server.call("code_search", {"query": "billing_named_handoff", "coverage": "fast"})
+        assert quick["isError"] is False, _text(quick)
+        assert _paths(quick) == ["Billing/src/api.py"]
+        scope = quick["structuredContent"]["workspace"]
+        assert scope["coverage"] == "fast"
+        assert scope["searched"] == ["Billing", *[f"Repository{i:02}" for i in range(7)]]
+        assert scope["skipped"] == [f"Repository{i:02}" for i in range(7, 11)]
+        assert scope["complete"] is False
+        assert "[lc:workspace_partial]" in _text(quick)
+        assert "coverage=complete" in _text(quick)
+        exhaustive = server.call("code_search", {"query": "planner_shared_token", "coverage": "complete", "limit": 32})
+        assert exhaustive["isError"] is False
+        assert {item["repo"] for item in exhaustive["structuredContent"]["files"]} == {
+            "Billing",
+            *(f"Repository{i:02}" for i in range(11)),
+        }
+        complete = exhaustive["structuredContent"]["workspace"]
+        assert complete["complete"] is True and not complete["skipped"]
+    finally:
+        server.close()
+
+
+def test_fast_no_hit_expands_all_and_explicit_path_never_skips(tmp_path: Path) -> None:
+    root = _search_planner_fixture(tmp_path)
+    server = LiteMcp(environment=_env(root, tmp_path))
+    try:
+        missing = server.call("code_search", {"query": "unfindable_exact_token_135798", "coverage": "fast"})
+        assert missing["isError"] is False, _text(missing)
+        coverage = missing["structuredContent"]["workspace"]
+        assert coverage["complete"] is True
+        assert len(coverage["searched"]) == 12
+        assert coverage["skipped"] == []
+        scoped = server.call(
+            "code_search", {"query": "planner_shared_token", "paths": "Repository10", "coverage": "fast"}
+        )
+        assert _paths(scoped) == ["Repository10/src/api.py"]
+        assert scoped["structuredContent"]["workspace"]["complete"]
+        assert not scoped["structuredContent"]["workspace"]["skipped"]
+    finally:
+        server.close()
+
+
+def test_workspace_query_fanout_is_bounded_across_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    root = _search_planner_fixture(tmp_path, 12)
+    server = LiteMcp(environment=_env(root, tmp_path))
+    server.prepare()
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+    original = LiteIndex.search
+
+    def slow_search(self: LiteIndex, *args: object, **kwargs: object) -> dict[str, object]:
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        try:
+            time.sleep(0.018)
+            return original(self, *args, **kwargs)  # type: ignore[arg-type]
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(LiteIndex, "search", slow_search)
+    try:
+        with ThreadPoolExecutor(max_workers=6) as callers:
+            results = list(
+                callers.map(
+                    lambda _i: server.call(
+                        "code_search", {"query": "planner_shared_token", "coverage": "complete", "limit": 32}
+                    ),
+                    range(6),
+                )
+            )
+        assert all(not result["isError"] for result in results)
+        assert all(result["structuredContent"]["workspace"]["complete"] for result in results)
+        assert 1 < maximum <= lite_mcp._SEARCH_READERS
+        assert active == 0
+    finally:
+        server.close()
+
+
+def test_global_code_search_ranks_definition_over_incidental_document_mentions(tmp_path: Path) -> None:
+    """A top hit in another repo must not erase stronger symbol evidence."""
+    root = tmp_path / "projects"
+    root.mkdir()
+    _repo(root / "alpha", {"docs/discussion.md": "# finalize_subscription_payout\nA document mentioning an API.\n"})
+    _repo(
+        root / "zed",
+        {"src/payout.py": "def finalize_subscription_payout():\n    return 'settled'\n"},
+    )
+    server = LiteMcp(environment=_env(root, tmp_path))
+    try:
+        server.prepare()
+        result = server.call("code_search", {"query": "finalize_subscription_payout", "limit": 8})
+        assert result["isError"] is False
+        data = result["structuredContent"]
+        assert data["workspace"]["complete"] is True
+        assert data["files"][0]["path"] == "zed/src/payout.py"
+        assert 0 < data["files"][0]["workspace_score"] < 1
+        assert {item["repo"] for item in data["files"]} == {"alpha", "zed"}
+    finally:
+        server.close()

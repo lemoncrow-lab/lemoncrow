@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { INVESTIGATION_FIXTURES, type InvestigationFixture } from "../investigation/fixtures";
 import { investigationContext } from "../investigation/investigationContext";
+import { readinessGaps } from "../investigation/impactReadiness";
 import { MAX_ROWS_PER_KIND, assumptionsCurrent, assumptionsModel, classifyAssumption, type AssumptionFinding, type AssumptionRow } from "./assumptionsModel";
 import { authWithPermission, brokenPaymentRetry, maliciousComments, orderSnapshots } from "./fixtures";
 
@@ -81,9 +82,28 @@ describe("assumptionsModel", () => {
     const result = model(INVESTIGATION_FIXTURES.cleanNoGraph());
     expect(result.groups).toEqual([]);
     expect(result.counts.rows).toBe(0);
-    expect(result.looked).toEqual({ claims: 1, declaredAssumptions: 0, statedLimits: 0, aiQuestions: 0, behaviorChanges: 0, consumerSites: 0 });
-    expect(result.notMeasured.join(" ")).toMatch(/no caller or consumer inventory/);
+    // No consumer inventory: the count is unknown, never 0.
+    expect(result.looked).toEqual({ claims: 1, declaredAssumptions: 0, statedLimits: 0, aiQuestions: 0, behaviorChanges: 0, consumerSites: null, consumerSitesAtLeast: false });
+    expect(result.notMeasured.join(" ")).toMatch(/no record of who calls or uses the changed code/);
     expect(result.notMeasured.join(" ")).toMatch(/synthesis has not run/);
+  });
+
+  it("counts consumer sites from the impact pass and says unknown when it did not run", () => {
+    const fixture = brokenPaymentRetry();
+    expect(model(fixture).looked.consumerSites).toBe(2);
+    const context = fixture.projection.context!;
+    const notRun = { ...fixture, projection: { ...fixture.projection, context: { ...context, readiness: { ...context.readiness, impact_pass: "not_run" as const } } } };
+    const result = model(notRun);
+    expect(result.looked.consumerSites).toBeNull();
+    expect(result.notMeasured.join(" ")).toMatch(/impact pass did not run/);
+    // A capture with no code index never measured callers: unknown, never 0.
+    const noIndex = { ...fixture, projection: { ...fixture.projection, context: { readiness: { ...context.readiness, impact_pass: "no_index" as const }, consumers: [], consumers_omitted: 0 } } };
+    const unmeasured = model(noIndex);
+    expect(unmeasured.looked.consumerSites).toBeNull();
+    expect(unmeasured.notMeasured.join(" ")).toMatch(/no code index answered/);
+    expect(readinessGaps(noIndex.projection.context.readiness).map((gap) => gap.key)).toEqual(["impact:no_index"]);
+    const bounded = { ...fixture, projection: { ...fixture.projection, context: { ...context, consumers_omitted: 3 } } };
+    expect(model(bounded).looked).toMatchObject({ consumerSites: 2, consumerSitesAtLeast: true });
   });
 
   it("never lets hostile text become a verified row or a verdict", () => {
@@ -101,7 +121,7 @@ describe("assumptionsModel", () => {
     expect(row(result, /auth check is safe/).support).toEqual([expect.objectContaining({ mapping: "inferred", status: "PASS" })]);
   });
 
-  it("drops supporting links when a new Snapshot changes the source", () => {
+  it("drops supporting links when a new revision changes the source", () => {
     const { before, after } = orderSnapshots();
     const first = model(before);
     const second = model(after);
@@ -127,7 +147,7 @@ describe("assumptionsModel", () => {
 
     const elsewhere = model(fixture, { ...finding, path: "src/unrelated.py" });
     expect(elsewhere.counts.rows).toBe(0);
-    expect(elsewhere.notMeasured.join(" ")).toMatch(/not on a loaded changed target/);
+    expect(elsewhere.notMeasured.join(" ")).toMatch(/not on a loaded part/);
   });
 
   it("counts rows past the per-kind bound instead of dropping them", () => {

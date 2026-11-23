@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import threading
+import time
 import urllib.parse
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +60,12 @@ _KIND_PREFIX: dict[str, str] = {
 _MARKER = "<!-- lemoncrow:op={operation_id} -->"
 _MARKER_PREFIX = "<!-- lemoncrow:op="
 
+#: The last line of every review body (SPEC 4.8 and 4.17). Only a person's verdict and notes are posted.
+HUMAN_REVIEW_LINE = "Human review. Nothing here was decided by an AI."
+#: The line the Reader puts before an AI-suggested fix the reviewer ticked into a note (``ReviewFocusScreen``).
+#: It is the only trace on a stored note that an AI wrote part of it, and that part is posted with the comment.
+AI_FIX_MARKER = "AI suggested fix (unverified; explicitly included by reviewer):"
+
 # GitHub's stored state for each review event.
 _REVIEW_STATE: dict[str, str] = {
     "APPROVE": "APPROVED",
@@ -88,6 +97,8 @@ class InlineComment:
     start_line: int
     line: int
     body: str
+    ai_fix: bool = False
+    """The comment carries an AI-suggested fix the reviewer explicitly included (posted with it)."""
 
     def payload(self) -> dict[str, Any]:
         row: dict[str, Any] = {"path": self.path, "side": self.side, "line": self.line, "body": self.body}
@@ -166,6 +177,10 @@ class GitHubReviewPlan:
     inline: tuple[InlineComment, ...]
     folded: tuple[FoldedComment, ...]
     notices: tuple[str, ...] = ()
+    verdict_on_github: bool = False
+    """The reviewer's verdict for this commit is already on GitHub: this post adds comments, and GitHub keeps the verdict."""
+    human_review: bool = False
+    """A person's review: its body ends with :data:`HUMAN_REVIEW_LINE`. The bot's plan (an AI) never does."""
 
     @property
     def annotation_ids(self) -> tuple[str, ...]:
@@ -175,7 +190,8 @@ class GitHubReviewPlan:
     def empty(self) -> bool:
         return not self.inline and not self.folded and not self.summary and self.event == "COMMENT"
 
-    def body(self, operation_id: str) -> str:
+    def shown_body(self) -> str:
+        """The review body as a reader sees it on GitHub: everything but the hidden retry marker."""
         parts: list[str] = []
         if self.summary:
             parts.append(self.summary)
@@ -185,8 +201,13 @@ class GitHubReviewPlan:
                 text = item.body.replace("\n", "\n  ")
                 lines.append(f"- `{item.location}`: {text}")
             parts.append("\n".join(lines))
-        parts.append(_MARKER.format(operation_id=operation_id))
+        if self.human_review:
+            parts.append(HUMAN_REVIEW_LINE)
         return "\n\n".join(parts)
+
+    def body(self, operation_id: str) -> str:
+        """The posted body: :meth:`shown_body` plus the hidden retry marker (the marker alone when there is nothing else)."""
+        return "\n\n".join(part for part in (self.shown_body(), _MARKER.format(operation_id=operation_id)) if part)
 
     def payload(self, operation_id: str) -> dict[str, Any]:
         return {
@@ -208,6 +229,7 @@ class GitHubReviewPlan:
             "commit_id": self.commit_id,
             "event": self.event,
             "summary": self.summary,
+            "body": self.shown_body(),
             "inline": [
                 {
                     "annotation_id": item.annotation_id,
@@ -216,6 +238,7 @@ class GitHubReviewPlan:
                     "start_line": item.start_line,
                     "line": item.line,
                     "body": item.body,
+                    "ai_fix": item.ai_fix,
                 }
                 for item in self.inline
             ],
@@ -229,6 +252,7 @@ class GitHubReviewPlan:
                 for item in self.folded
             ],
             "notices": list(self.notices),
+            "verdict_on_github": self.verdict_on_github,
             "plan_hash": self.plan_hash,
         }
 
@@ -254,6 +278,7 @@ def build_plan(
     outcome_summary: str,
     outcome_current: bool,
     state: PullRequestState,
+    human_review: bool = False,
 ) -> GitHubReviewPlan:
     """Place every candidate inline or in the body, and pick the review event."""
 
@@ -301,6 +326,7 @@ def build_plan(
                 start_line=start,
                 line=end,
                 body=body,
+                ai_fix=AI_FIX_MARKER in body,
             )
         )
 
@@ -317,9 +343,10 @@ def build_plan(
     if event != "COMMENT" and not state.open:
         notices.append("The pull request is closed; publishing as Comment.")
         event = "COMMENT"
+    on_github = False
     if (event != "COMMENT" or summary) and state.verdict_published(commit_id, event, summary):
         notices.append("Your verdict for this commit is already on GitHub; only new comments are published.")
-        event, summary = "COMMENT", ""
+        event, summary, on_github = "COMMENT", "", True
     return GitHubReviewPlan(
         pr=pr,
         commit_id=commit_id,
@@ -328,7 +355,54 @@ def build_plan(
         inline=tuple(inline),
         folded=tuple(folded),
         notices=tuple(notices),
+        verdict_on_github=on_github,
+        human_review=human_review,
     )
+
+
+class PullRequestStateCache:
+    """Pull request states read a moment ago, so a reviewer typing a summary re-plans without re-reading GitHub.
+
+    Bounded two ways: an entry older than ``ttl`` seconds is never served and is dropped on the next write, and at
+    most ``max_entries`` are kept, the oldest written going first. A state holds every file's patch, so it must not
+    pile up in a long-running server.
+    """
+
+    def __init__(
+        self, *, ttl: float = 15.0, max_entries: int = 32, clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self._ttl = ttl
+        self._max = max_entries
+        self._clock = clock
+        self._held: dict[str, tuple[float, PullRequestState]] = {}
+        self._lock = threading.Lock()  # plans run on worker threads
+
+    def get(self, key: str) -> PullRequestState | None:
+        with self._lock:
+            held = self._held.get(key)
+            if held is None or self._clock() - held[0] >= self._ttl:
+                return None
+            return held[1]
+
+    def put(self, key: str, state: PullRequestState) -> None:
+        with self._lock:
+            now = self._clock()
+            for stale in [name for name, (at, _state) in self._held.items() if now - at >= self._ttl]:
+                del self._held[stale]
+            self._held.pop(key, None)  # a rewritten key becomes the newest
+            self._held[key] = (now, state)
+            while len(self._held) > self._max:
+                del self._held[next(iter(self._held))]
+
+    def drop(self, key: str) -> None:
+        with self._lock:
+            self._held.pop(key, None)
+
+    def __len__(self) -> int:
+        return len(self._held)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._held
 
 
 def _mapping(value: object) -> dict[str, Any]:
@@ -515,8 +589,114 @@ def publish_plan(plan: GitHubReviewPlan, operation_id: str, state: PullRequestSt
     )
 
 
+# --------------------------------------------------------------------------- #
+# what GitHub's page will show around the review (SPEC 4.17)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class SignatureSignal:
+    """How many signatures a change needs and has. Only a hosted policy can say; nothing local guesses it."""
+
+    required: int
+    signed: int
+    disagrees: bool = False
+    signer: str = ""
+    """The login of the first signer, read from the signature itself, never from who is looking."""
+
+
+CHECK_RUN_NAME = "LemonCrow review"
+
+
+def check_run_for(*, head_sha: str, event: str, signal: SignatureSignal | None) -> dict[str, Any] | None:
+    """The check run's text and state, or ``None`` when no signal says how many signatures are required.
+
+    "1 of 2 signatures" reads the signal and nothing else. With no signal (a local review has no second reviewer
+    policy; the hosted one is P7-1), the answer is ``None``: this never writes a count it was not given, and never
+    says "Required by branch protection", which only GitHub's branch rules can tell. "Signed by" needs a signature that
+    exists (``signed >= 1``) and names the signer the signal carries, not whoever is previewing.
+    """
+
+    if signal is None or signal.required < 1 or signal.signed < 1 or not signal.signer or not head_sha:
+        return None
+    signed = min(signal.signed, signal.required)
+    if signal.disagrees or event == "REQUEST_CHANGES":
+        state, label = "failing", "Failing \u00b7 changes requested"
+    elif signed >= signal.required:
+        state, label = "passing", "Passing"
+    else:
+        state, label = "pending", "Pending \u00b7 waiting for a second signature"
+    return {
+        "name": CHECK_RUN_NAME,
+        "text": f"{CHECK_RUN_NAME} \u00b7 signed by @{signal.signer} \u00b7 rev {head_sha[:7]} \u00b7 {signed} of {signal.required} signatures",
+        "state": state,
+        "label": label,
+    }
+
+
+@dataclass(frozen=True)
+class BotApproval:
+    """An approval a bot account left on the pull request: a hint, never a judgment."""
+
+    login: str
+    name: str
+    commit_id: str
+    current: bool
+    """It was left on the commit this Review revision holds."""
+
+
+_BOT_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$")
+#: GitHub's states that end an earlier verdict of the same reviewer; a plain comment does not.
+_VERDICT_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
+
+
+#: The logins GitHub's own Copilot reviewer and agent use. A look-alike (``copilot-helper``) shows its login.
+_COPILOT_LOGINS = frozenset({"copilot", "copilot-pull-request-reviewer", "copilot-swe-agent"})
+
+
+def bot_display_name(login: str) -> str:
+    base = login.removesuffix("[bot]")
+    return "Copilot" if base.lower() in _COPILOT_LOGINS else base
+
+
+def load_bot_approvals(pr: PullRequestRef, runner: GhRunner, *, reviewed_head: str) -> tuple[BotApproval, ...]:
+    """Each bot account whose latest verdict on the pull request is an approval.
+
+    GitHub itself types an account ``Bot`` (a person cannot claim it), so the type is the only test; the login is
+    shown after a character check and the review's text is never read. GitHub has no per-file approval, so none is
+    claimed: what a bot approved is the pull request at one commit.
+    """
+
+    latest: dict[str, tuple[int, str, str]] = {}
+    for row in gh_paginated(runner, f"{pr.api_path}/reviews?per_page=100"):
+        user = _mapping(row.get("user"))
+        login = str(user.get("login") or "")
+        if user.get("type") != "Bot" or not _BOT_LOGIN.match(login) or not isinstance(row.get("id"), int):
+            continue
+        state = str(row.get("state") or "")
+        if state not in _VERDICT_STATES:
+            continue
+        previous = latest.get(login)
+        if previous is None or int(row["id"]) > previous[0]:
+            latest[login] = (int(row["id"]), state, str(row.get("commit_id") or ""))
+    return tuple(
+        BotApproval(
+            login=login,
+            name=bot_display_name(login),
+            commit_id=commit_id,
+            current=bool(reviewed_head) and commit_id == reviewed_head,
+        )
+        for login, (_id, state, commit_id) in sorted(latest.items())
+        if state == "APPROVED"
+    )
+
+
 __all__ = [
+    "AI_FIX_MARKER",
+    "CHECK_RUN_NAME",
     "EVENT_BY_OUTCOME",
+    "HUMAN_REVIEW_LINE",
+    "BotApproval",
     "FoldedComment",
     "GitHubReviewPlan",
     "InlineComment",
@@ -524,10 +704,15 @@ __all__ = [
     "PublishResult",
     "PullRequestFile",
     "PullRequestState",
+    "PullRequestStateCache",
     "RemoteReview",
+    "SignatureSignal",
+    "bot_display_name",
     "build_plan",
+    "check_run_for",
     "ensure_current_head",
     "hunk_ranges",
+    "load_bot_approvals",
     "load_bot_pull_request_state",
     "load_pull_request_state",
     "publish_plan",

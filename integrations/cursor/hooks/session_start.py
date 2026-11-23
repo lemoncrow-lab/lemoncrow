@@ -45,9 +45,10 @@ def _lemoncrow_root() -> Path:
 def _session_dir(root: Path, host: str, sid: str, search_days: int = 3) -> Path:
     """Replicate ``paths.session_dir``: sessions/YYYY/MM/DD/<host>/<sid>/.
 
-    Reuse an existing dir within the last ``search_days`` days (so a session
-    spanning midnight keeps one folder) else mint today's -- identical to the
-    MCP server's resolver so both sides agree on where stats.json lives.
+    Reuse an existing dir (the last ``search_days`` days probed directly, then
+    the newest older partition, so a session spanning midnight or resumed days
+    later keeps one folder) else mint today's -- identical to the MCP server's
+    resolver so both sides agree on where stats.json lives.
     """
     base = root / "sessions"
     today = _dt.date.today()
@@ -56,6 +57,9 @@ def _session_dir(root: Path, host: str, sid: str, search_days: int = 3) -> Path:
         cand = base / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" / host / sid
         if cand.exists():
             return cand
+    existing = sorted(base.glob(f"*/*/*/{host}/{sid}"))
+    if existing:
+        return existing[-1]
     return base / f"{today:%Y}" / f"{today:%m}" / f"{today:%d}" / host / sid
 
 

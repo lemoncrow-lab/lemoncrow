@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Folder, FolderOpen, ListFilter, Search, X } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import FileTypeIcon from "../components/FileTypeIcon";
 import { Button as UiButton } from "../components/ui/button";
 import { PanelResizeHandle } from "../components/ui/panel-resize-handle";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/disclosure-card";
 import { Input as UiInput } from "../components/ui/input";
+import { cn } from "../lib/utils";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import type { CodeChangedFile, CodeChanges, CodeHotspots, CodeMapActivityKind, CodeMapActivitySession, CodeMapNode } from "../api";
 import { folderRollups, sessionLabel, windowPhrase, type FolderRollup } from "./codeModel";
@@ -208,6 +210,22 @@ export interface CodeExplorerProps {
   /** False where agent sessions and edit ledgers are developer-local and never reach this surface. */
   liveWorkspace?: boolean;
   onResizeWidth?: (width: number) => void;
+  /** Extra classes for the explorer's frame, e.g. to fill the Files sheet below xl. */
+  className?: string;
+  /** Filters and folds to start from: the page keeps them so closing the Files sheet does not reset them. */
+  initialView?: CodeExplorerView;
+  onViewChange?: (view: CodeExplorerView) => void;
+}
+
+/** The explorer's own filters and section folds. */
+export interface CodeExplorerView {
+  fileFilter: string;
+  changedOnly: boolean;
+  folderFilter: string;
+  fileTypeFilter: string;
+  filesOpen: boolean;
+  sessionsOpen: boolean;
+  hotspotsOpen: boolean;
 }
 
 const HOTSPOT_ROWS = 10;
@@ -234,14 +252,22 @@ export default function CodeExplorer({
   hotspots = null,
   liveWorkspace = true,
   onResizeWidth,
+  className,
+  initialView,
+  onViewChange,
 }: CodeExplorerProps) {
-  const [fileFilter, setFileFilter] = useState("");
-  const [changedOnly, setChangedOnly] = useState(false);
-  const [folderFilter, setFolderFilter] = useState("all");
-  const [fileTypeFilter, setFileTypeFilter] = useState("all");
-  const [filesOpen, setFilesOpen] = useState(true);
-  const [sessionsOpen, setSessionsOpen] = useState(true);
-  const [hotspotsOpen, setHotspotsOpen] = useState(true);
+  const [fileFilter, setFileFilter] = useState(initialView?.fileFilter ?? "");
+  const [changedOnly, setChangedOnly] = useState(initialView?.changedOnly ?? false);
+  const [folderFilter, setFolderFilter] = useState(initialView?.folderFilter ?? "all");
+  const [fileTypeFilter, setFileTypeFilter] = useState(initialView?.fileTypeFilter ?? "all");
+  const [filesOpen, setFilesOpen] = useState(initialView?.filesOpen ?? true);
+  const [sessionsOpen, setSessionsOpen] = useState(initialView?.sessionsOpen ?? true);
+  const [hotspotsOpen, setHotspotsOpen] = useState(initialView?.hotspotsOpen ?? true);
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
+  useEffect(() => {
+    onViewChangeRef.current?.({ fileFilter, changedOnly, folderFilter, fileTypeFilter, filesOpen, sessionsOpen, hotspotsOpen });
+  }, [changedOnly, fileFilter, fileTypeFilter, filesOpen, folderFilter, hotspotsOpen, sessionsOpen]);
   const [sessionsHeight, setSessionsHeight] = useState<number | null>(null);
   const [hotspotsHeight, setHotspotsHeight] = useState<number | null>(null);
   const explorerRef = useRef<HTMLElement>(null);
@@ -312,7 +338,7 @@ export default function CodeExplorer({
   };
 
   return (
-    <aside ref={explorerRef} className="relative flex min-h-0 flex-col overflow-hidden border-b border-border bg-background/55 xl:border-b-0 xl:border-r" aria-label="Explorer">
+    <aside ref={explorerRef} className={cn("relative flex min-h-0 flex-col overflow-hidden border-b border-border bg-background/55 xl:sticky xl:top-[82px] xl:h-[calc(100dvh-82px)] xl:self-start xl:border-b-0 xl:border-r", className)} aria-label="Explorer">
       {onResizeWidth && <PanelResizeHandle label="Resize code explorer" onResize={onResizeWidth} className="hidden xl:flex" />}
       <div ref={toolbarRef} className="border-b border-border p-2">
         <div className="flex items-center gap-2">
@@ -417,7 +443,11 @@ export default function CodeExplorer({
           </CollapsibleTrigger>
           <CollapsibleContent className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
             {!liveWorkspace ? (
-              <p className="px-3 py-1 text-caption text-muted-foreground">Agent sessions are recorded on developer machines and are not available here.</p>
+              // No live workspace (hosted): sessions are not tied to files here, but recorded ones are listed in Activity.
+              <p className="px-3 py-1 text-caption text-muted-foreground">
+                Sessions are not linked to files here. See recorded sessions in{" "}
+                <Link className="font-medium text-foreground underline underline-offset-4" to="/activity">Activity</Link>.
+              </p>
             ) : !sessions.length && !idle.length && !changes?.unattributed.length && <p className="px-3 py-1 text-caption text-muted-foreground">No recent sessions.</p>}
             {sessions.map((session) => (
             <UiButton

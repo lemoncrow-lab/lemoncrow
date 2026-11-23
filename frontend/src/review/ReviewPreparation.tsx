@@ -7,6 +7,11 @@ import { authenticatedFetch } from "./reviewApi";
 
 import { useReviewPreparation, type PreparationStep } from "./reviewPreparationContext";
 
+/** A single progress request that takes longer than this is abandoned and retried. */
+const POLL_TIMEOUT_MS = 15_000;
+/** A step that runs longer than this offers a way out instead of an endless spinner. */
+export const PREPARATION_STALL_MS = 25_000;
+
 interface Preparation {
   id: string;
   state: "running" | "ready" | "failed";
@@ -25,6 +30,7 @@ export default function ReviewPreparation() {
   const jobId = preparationId ?? new URLSearchParams(location.search).get("startup") ?? "";
   const [job, setJob] = useState<Preparation | null>(null);
   const [error, setError] = useState("");
+  const [expired, setExpired] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [retry, setRetry] = useState(0);
 
@@ -36,16 +42,22 @@ export default function ReviewPreparation() {
     const startedAt = Date.now();
     setJob(null);
     setError("");
+    setExpired(false);
     setDismissed(false);
     async function poll() {
       let delay = 850;
+      // One unanswered request must not freeze progress: give each poll a deadline and let the retry path take over.
+      const deadline = new AbortController();
+      const abortDeadline = () => deadline.abort();
+      controller.signal.addEventListener("abort", abortDeadline, { once: true });
+      const timeout = setTimeout(abortDeadline, POLL_TIMEOUT_MS);
       try {
         const response = await authenticatedFetch(
-          `/api/review-preparations/${jobId}`, { signal: controller.signal, cache: "no-store" },
+          `/api/review-preparations/${jobId}`, { signal: deadline.signal, cache: "no-store" },
         );
         if (!response.ok) {
           if (response.status === 404) {
-            if (!disposed) setError("Preparation expired. Run lc review again to retry.");
+            if (!disposed) { setError("This preparation has expired."); setExpired(true); }
             return;
           }
           throw new Error("Cannot load preparation progress. Reconnecting…");
@@ -57,9 +69,12 @@ export default function ReviewPreparation() {
         if (next.state !== "running") return;
       } catch (cause) {
         if (disposed) return;
-        setError(cause instanceof Error ? cause.message : "Cannot load preparation progress.");
+        setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Cannot load preparation progress. Reconnecting…");
         if (Date.now() - startedAt > 600_000) return;
         delay = 2000;
+      } finally {
+        clearTimeout(timeout);
+        controller.signal.removeEventListener("abort", abortDeadline);
       }
       if (!disposed) timer = setTimeout(poll, delay);
     }
@@ -91,6 +106,8 @@ export default function ReviewPreparation() {
   }, [preparationId, readerPending, job?.state, jobId, location.pathname, location.search, location.hash, navigate]);
 
   const hasJob = /^[a-f0-9]{32}$/.test(jobId);
+  // A /reviews/preparing/<id> address whose id cannot be a preparation: say so instead of a blank page.
+  if (!preparationId && /^\/reviews\/preparing\/[^/]*\/?$/.test(location.pathname)) return <PreparationNotFound />;
   if ((!hasJob && !readerPending) || dismissed || (!preparationId && job?.state === "ready" && !readerPending)) return null;
   const steps = [
     ...(hasJob ? job?.steps.filter((step) => step.state !== "skipped") ?? [] : []),
@@ -103,6 +120,7 @@ export default function ReviewPreparation() {
     failed={hasJob && job?.state === "failed"}
     detail={hasJob ? job?.detail : undefined}
     error={hasJob ? error : undefined}
+    expired={hasJob && expired}
     starting={!job && !reader}
     onReconnect={() => setRetry((value) => value + 1)}
     onDismiss={() => setDismissed(true)}
@@ -110,30 +128,47 @@ export default function ReviewPreparation() {
   />;
 }
 
+/** `/reviews/preparing/<not an id>`: a full page with one way out. */
+function PreparationNotFound() {
+  return (
+    <section aria-label="Review preparation" data-testid="preparation-not-found" className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-3 px-4 py-8 text-foreground">
+      <h1 className="text-title font-semibold">This preparation link isn't valid</h1>
+      <p className="text-body text-muted-foreground">Check the link, or run <code className="rounded bg-muted px-1 font-mono text-meta">lc review</code> in your terminal to start a new review.</p>
+      <div><Button asChild size="sm"><Link to="/reviews">All reviews</Link></Button></div>
+    </section>
+  );
+}
+
 /** One progress surface for capture, saved state, and the first useful Reader view. */
 export function PreparationProgress({
-  fullPage, steps, failed = false, detail, error, starting = false, onReconnect, onDismiss, onOpenCode,
+  fullPage, steps, failed = false, detail, error, expired = false, starting = false, onReconnect, onDismiss, onOpenCode,
 }: {
   fullPage: boolean;
   steps: PreparationStep[];
   failed?: boolean;
   detail?: string;
   error?: string;
+  /** The server no longer knows this preparation: nothing will open, so no progress line and no Reconnect. */
+  expired?: boolean;
   starting?: boolean;
   onReconnect?: () => void;
   onDismiss?: () => void;
   onOpenCode?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [, tick] = useState(0);
-  const timedStepRunning = steps.some((step) => step.state === "running" && step.started_at !== undefined);
-  useEffect(() => {
-    if (!timedStepRunning) return;
-    const timer = setInterval(() => tick((value) => value + 1), 1000);
-    return () => clearInterval(timer);
-  }, [timedStepRunning]);
-  const completed = steps.filter((step) => step.state === "done").length;
+  const [now, setNow] = useState(() => Date.now());
   const current = steps.find((step) => step.state === "running");
+  const waitingOn = failed ? "" : current?.key ?? (starting ? "starting" : "");
+  // When the step being waited on started, measured here so a stalled request is caught whatever the step reports.
+  const [waitStart, setWaitStart] = useState({ key: waitingOn, at: Date.now() });
+  if (waitStart.key !== waitingOn) setWaitStart({ key: waitingOn, at: Date.now() });
+  useEffect(() => {
+    if (!waitingOn) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [waitingOn]);
+  const stalled = Boolean(waitingOn) && waitStart.key === waitingOn && now - waitStart.at > PREPARATION_STALL_MS;
+  const completed = steps.filter((step) => step.state === "done").length;
   const label = failed ? "Review preparation stopped" : "Preparing your review";
   const showSteps = fullPage || expanded;
   const progress = steps.length ? Math.round(completed / steps.length * 100) : 0;
@@ -169,13 +204,13 @@ export function PreparationProgress({
         <div className="h-full bg-foreground transition-[width] duration-200 motion-reduce:transition-none"
           style={{ width: `${progress}%` }} />
       </div>
-      <p className="mt-2 text-caption tabular-nums text-muted-foreground">
-        {starting ? "The review opens as soon as the source snapshot is ready." : `${completed} of ${steps.length} steps complete`}
-      </p>
+      {expired ? null : <p className="mt-2 text-caption tabular-nums text-muted-foreground">
+        {starting ? "The review opens as soon as the source revision is ready." : `${completed} of ${steps.length} steps complete`}
+      </p>}
       {showSteps && steps.length > 0 && (
         <ol className="mt-5 space-y-3 text-body">
           {steps.map((step) => {
-            const elapsed = step.elapsed ?? (step.started_at ? Date.now() / 1000 - step.started_at : null);
+            const elapsed = step.elapsed ?? (step.started_at ? now / 1000 - step.started_at : null);
             return (
               <li key={step.key} className="flex items-start gap-2">
                 <span className="mt-0.5 shrink-0" aria-hidden="true">
@@ -202,9 +237,18 @@ export function PreparationProgress({
       )}
       {(failed || error) && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          {error && onReconnect && <Button size="sm" onClick={onReconnect}>Reconnect</Button>}
+          {error && !expired && onReconnect && <Button size="sm" onClick={onReconnect}>Reconnect</Button>}
           <Button asChild size="sm"><Link to="/reviews">Open reviews</Link></Button>
-          {failed && <p className="text-caption text-muted-foreground">Run lc review again to retry preparation.</p>}
+          {failed || expired ? <p className="text-caption text-muted-foreground">Run <code className="rounded bg-muted px-1 font-mono">lc review</code> again to retry preparation.</p> : null}
+        </div>
+      )}
+      {stalled && !error && (
+        <div className="mt-4 space-y-2" data-testid="preparation-stalled">
+          <p className="text-caption text-muted-foreground">This is taking longer than usual. The review keeps preparing if you leave.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Reload</Button>
+            <Button asChild size="sm" variant="outline"><Link to="/reviews">Open reviews</Link></Button>
+          </div>
         </div>
       )}
     </section>

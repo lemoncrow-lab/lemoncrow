@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator
@@ -235,7 +236,7 @@ def test_execution_fixture_synthetic_recording_round_trips_byte_exactly(tmp_path
 
 
 def test_execution_fixture_replay_never_starts_a_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.pro.capabilities.review import runtimes
+    from lemoncrow.pro.capabilities.review import runner_host as runtimes
 
     attempts: list[str] = []
 
@@ -246,13 +247,38 @@ def test_execution_fixture_replay_never_starts_a_process(tmp_path: Path, monkeyp
 
         return call
 
+    # Capture reads the trusted base's .gitattributes with Git plumbing (read-tree into a scratch index, then
+    # check-attr), which runs no filter, hook or reviewed code; every other process stays refused.
+    real_run, real_popen = subprocess.run, subprocess.Popen
+    plumbing: list[str] = []
+
+    def is_plumbing(argv: Any) -> bool:
+        # Exactly `read-tree <sha>` (no -u or -m: nothing is checked out, so no filter runs) and `check-attr --cached`.
+        if not isinstance(argv, list) or argv[:2] != ["git", "-C"] or len(argv) < 5:
+            return False
+        if argv[3] == "read-tree":
+            return len(argv) == 5 and re.fullmatch(r"[0-9a-f]{40,64}", argv[4]) is not None
+        return argv[3] == "check-attr" and argv[4] == "--cached"
+
+    def run(argv: Any, *args: Any, **kwargs: Any) -> Any:
+        if is_plumbing(argv):
+            return real_run(argv, *args, **kwargs)  # starts its process through ``popen`` below
+        return refuse("subprocess.run")(argv, *args, **kwargs)
+
+    def popen(argv: Any, *args: Any, **kwargs: Any) -> Any:
+        if is_plumbing(argv):
+            plumbing.append(argv[3])
+            return real_popen(argv, *args, **kwargs)
+        return refuse("subprocess.Popen")(argv, *args, **kwargs)
+
     monkeypatch.setattr(runtimes, "built_in_runner_registry", refuse("runner-registry"))
-    monkeypatch.setattr(subprocess, "run", refuse("subprocess.run"))
-    monkeypatch.setattr(subprocess, "Popen", refuse("subprocess.Popen"))
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(subprocess, "Popen", popen)
     report = replay_corpus(_subset(tmp_path, "execution-runtime-network"), _spec("thorough"))
 
     assert report.complete
     assert attempts == []
+    assert set(plumbing) <= {"read-tree", "check-attr"}
     assert report.selections["thorough"]["behavior"]["rate"] == 1.0
 
 

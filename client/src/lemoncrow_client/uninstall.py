@@ -7,9 +7,10 @@ dry run cannot list something the real run does not remove, or the reverse. It h
 
 * **Installed by LemonCrow**: the commands, the Review client and engine (a Python environment), the installer's scripts and
   Reader, the carried review results (a cache), the background server's process files, the lines the installer added to
-  your shell startup files (``~/.bashrc``, ``~/.profile`` ...) and the git hooks ``lc review hook install`` wrote. A hook
-  is found by its marker line, in the repositories ``lc review hook install`` listed in ``installed-hooks.txt`` and in the
-  one you are standing in; it calls ``lc``, so it goes with ``lc`` and no repository keeps a hook for a command that is gone.
+  your shell startup files (``~/.bashrc``, ``~/.profile`` ...) and the git hooks ``lc review hook install`` wrote (and,
+  for ``all``, ``lc verify hook install``). A hook is found by its marker line, in the repositories listed in
+  ``installed-hooks.txt`` and in the one you are standing in; it calls ``lc``, so it goes with ``lc`` and no repository
+  keeps a hook for a command that is gone.
   Removed after one question (or ``--yes``).
 * **Yours**: the settings file (it can hold an API key you saved), the reviews you opened in the Reader, the telemetry id of
   the full CLI, a hosted sign-in. Each group is asked about; ``--yes`` keeps them and ``--purge`` removes them.
@@ -36,13 +37,21 @@ from typing import Final, TextIO
 
 __all__ = ["USAGE", "Step", "build_plan", "main"]
 
-USAGE: Final[str] = "usage: lc uninstall review|runtime|all [--dry-run] [--yes] [--purge]\n"
+USAGE: Final[str] = (
+    "usage: lc uninstall review|workspaces|all [--dry-run] [--yes] [--purge]   (runtime: the old name of workspaces)\n"
+)
 
 _BLOCK_MARKERS: Final[tuple[tuple[str, str], ...]] = (
     ("# >>> lemoncrow path setup >>>", "# <<< lemoncrow path setup <<<"),
     ("# >>> lemoncrow >>>", "# <<< lemoncrow <<<"),
 )
 _HOOK_MARKER: Final[str] = "# lemoncrow-review-hook"
+#: ``verify_hook.HOOK_MARKER_PREFIX``: the pre-push hook ``lc verify hook install`` writes, removed with ``lc`` (``all``).
+_VERIFY_HOOK_MARKER: Final[str] = "# lemoncrow-verify-hook"
+_HOOK_SOURCES: Final[dict[str, str]] = {
+    "review": "A git hook written by lc review hook install",
+    "verify": "A git hook written by lc verify hook install",
+}
 _PROOF_FILE: Final[str] = ".lemoncrow-local-fs-proof"
 HOOK_RECORD: Final[str] = "installed-hooks.txt"
 #: The commands the Review install links into the bin directory.
@@ -161,11 +170,16 @@ def _recorded_hooks(home: Path) -> list[Path]:
     return [Path(line.strip()) for line in lines if line.strip()]
 
 
-def _is_our_hook(path: Path) -> bool:
+def _hook_kind(path: Path) -> str:
+    """``review`` or ``verify`` for a hook LemonCrow wrote, ``""`` for any other file."""
+
     try:
-        return path.is_file() and _HOOK_MARKER in path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
     except (OSError, UnicodeDecodeError):
-        return False
+        return ""
+    if _HOOK_MARKER in text:
+        return "review"
+    return "verify" if _VERIFY_HOOK_MARKER in text else ""
 
 
 def build_plan(
@@ -180,7 +194,7 @@ def build_plan(
     keep_shared = (
         product == "review" and runtime_present
     )  # Runtime still needs the scripts, the shell lines, the server
-    steps: list[Step] = _hook_steps(state, cwd, user)
+    steps: list[Step] = _hook_steps(state, cwd, user, verify=product == "all")
 
     def tilde(path: Path) -> str:
         return _tilde(path, user)
@@ -190,9 +204,9 @@ def build_plan(
             Step(
                 "installed",
                 "runtime",
-                "Runtime: its coding-agent entries (claude, codex, opencode, pi) and its client",
+                "Workspaces: its coding-agent entries (claude, codex, opencode, pi) and its client",
                 state / "runtime",
-                f"{tilde(state / 'runtime')} ({_human(_size(state / 'runtime'))}); the same as `lc uninstall runtime`",
+                f"{tilde(state / 'runtime')} ({_human(_size(state / 'runtime'))}); the same as `lc uninstall workspaces`",
             )
         )
     if keep_shared:
@@ -200,9 +214,9 @@ def build_plan(
             Step(
                 "installed",
                 "review_script",
-                "Review: its client and engine, and its commands (Runtime keeps working)",
+                "Review: its client and engine, and its commands (Workspaces keeps working)",
                 state / "review",
-                f"{tilde(state / 'review')} ({_human(_size(state / 'review'))}); the background server moves to Runtime",
+                f"{tilde(state / 'review')} ({_human(_size(state / 'review'))}); the background server moves to Workspaces",
             )
         )
     server_script = state / "install" / "scripts" / "local_server.sh"
@@ -294,7 +308,8 @@ def build_plan(
             (state / "server" / "data", "The reviews you opened in the Reader", "marks, comments and snapshots"),
             (state / "account", "Your hosted sign-in", "credentials from lc auth login"),
             (state / "telemetry.db", "Local usage counters", "written by the full CLI"),
-            (config_dir, "The full CLI's telemetry id and notice", "a source checkout's lc only"),
+            (state / "usage", "Feature counts waiting to be sent", "anonymous; lc rt telemetry show lists them"),
+            (config_dir, "The telemetry id, notice and setting", "anonymous; nothing else is kept there"),
         ]
         for path, what, note in data_items:
             if path.exists():
@@ -311,31 +326,35 @@ def _repo_top(cwd: Path) -> Path | None:
     return Path(top) if top else None
 
 
-def _hook_steps(state: Path, cwd: Path, user: Path) -> list[Step]:
-    """The hooks ``lc review hook install`` wrote, and the list it kept of them: installed by LemonCrow, so removed with it.
+def _hook_steps(state: Path, cwd: Path, user: Path, *, verify: bool) -> list[Step]:
+    """The hooks ``lc review hook install`` (and, with *verify*, ``lc verify hook install``) wrote, and the list kept of
+    them: installed by LemonCrow, so removed with it.
 
-    A hook is ours when it carries the marker line, wherever it is: in a repository the installer listed, or in the one
+    A hook is ours when it carries a marker line, wherever it is: in a repository an installer listed, or in the one
     *cwd* is in. A listed path that is gone, or that someone has since replaced with their own hook, is not touched.
+    The list stays while it still names a verify hook that is kept.
     """
 
-    seen: dict[Path, None] = {}
+    kinds = {"review", "verify"} if verify else {"review"}
+    seen: dict[Path, str] = {}
+    kept = False
     for hook in _recorded_hooks(state):
-        if _is_our_hook(hook):
-            seen.setdefault(hook, None)
+        kind = _hook_kind(hook)
+        if kind in kinds:
+            seen.setdefault(hook, kind)
+        kept = kept or (kind == "verify" and not verify)
     repo = _repo_top(cwd)
     if repo is not None:
         hooks_dir = _git(repo, "rev-parse", "--git-path", "hooks")
         if hooks_dir:
             base = Path(hooks_dir) if Path(hooks_dir).is_absolute() else repo / hooks_dir
             for name in ("pre-push", "pre-commit"):
-                if _is_our_hook(base / name):
-                    seen.setdefault(base / name, None)
-    steps = [
-        Step("installed", "remove", "A git hook written by lc review hook install", hook, _tilde(hook, user))
-        for hook in seen
-    ]
+                kind = _hook_kind(base / name)
+                if kind in kinds:
+                    seen.setdefault(base / name, kind)
+    steps = [Step("installed", "remove", _HOOK_SOURCES[kind], hook, _tilde(hook, user)) for hook, kind in seen.items()]
     record = state / HOOK_RECORD
-    if record.exists():
+    if record.exists() and not kept:
         # Its own bookkeeping goes with the hooks it lists.
         steps.append(Step("installed", "remove", "The list of hooks it keeps", record, _tilde(record, user)))
     return steps

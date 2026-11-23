@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { ChevronRight, Folder, RefreshCcw, Sparkles } from "lucide-react";
 
 import { Button } from "../components/ui/button";
-import { COLUMN_LAYOUT, type ColumnCard, type ColumnEdge, type ColumnModel } from "./columnModel";
+import { COLUMN_LAYOUT, fitZoom, type ColumnCard, type ColumnEdge, type ColumnModel } from "./columnModel";
 import type { MapActivityKind } from "./types";
 import "./map.css";
 
@@ -33,15 +33,19 @@ function stageY(value: number): number {
   return value - COLUMN_LAYOUT.header;
 }
 
+// Arrows point from a module to the modules it uses, so columns run from the
+// modules that only use others (left) to the ones the others build on (right).
 function columnTitle(model: ColumnModel, index: number): string {
   const column = model.columns[index];
   if (column.unlinked) return "No links";
   const linked = model.columns.filter((item) => !item.unlinked).length;
   if (linked === 1) return "Modules";
-  if (index === 0) return "Uses the others";
-  if (index === linked - 1) return "Used by the others";
-  return "";
+  if (index === 0) return "Uses others";
+  if (index === linked - 1) return "Used by others";
+  return "Uses and is used";
 }
+
+const COLUMN_HINT = "Arrows point from a module to the modules it uses.";
 
 const ColumnCardView = memo(function ColumnCardView({
   card,
@@ -119,6 +123,19 @@ function edgeLabel(edge: ColumnEdge): string {
   return top ? `${top[0]} ×${edge.weight}` : `×${edge.weight}`;
 }
 
+const labelWidth = (text: string) => text.length * 5.6 + 14;
+
+/** The label that fits the gap beside the edge (the full one, else just the count), centred on the edge inside that gap. */
+function placedLabel(edge: ColumnEdge): { text: string; width: number; x: number } | null {
+  const room = edge.labelMax - edge.labelMin;
+  const full = edgeLabel(edge);
+  const text = labelWidth(full) <= room ? full : `×${edge.weight}`;
+  const width = labelWidth(text);
+  if (width > room) return null;
+  const x = Math.min(Math.max(edge.labelX - width / 2, edge.labelMin), edge.labelMax - width);
+  return { text, width, x };
+}
+
 export default function ColumnCanvas({
   model,
   selectedId,
@@ -132,16 +149,21 @@ export default function ColumnCanvas({
   const scrollRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef(new Map<string, HTMLButtonElement>());
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [paneWidth, setPaneWidth] = useState(0);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
-    onWidth(element.clientWidth);
+    const measure = () => {
+      setPaneWidth(element.clientWidth);
+      onWidth(element.clientWidth);
+    };
+    measure();
     if (typeof ResizeObserver === "undefined") return;
     let frame = 0;
     const observer = new ResizeObserver(() => {
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => onWidth(element.clientWidth));
+      frame = window.requestAnimationFrame(measure);
     });
     observer.observe(element);
     return () => {
@@ -230,12 +252,18 @@ export default function ColumnCanvas({
   };
 
   const stageHeight = stageY(model.height);
+  const zoom = fitZoom(model.width, paneWidth);
 
   return (
     <div ref={scrollRef} className="rm-canvas h-full w-full" role="group" aria-label={ariaLabel} onKeyDown={move}>
-      <div className="rm-lane-headers" style={{ width: model.width }}>
+      <div className="rm-lane-headers" style={{ width: model.width, zoom }}>
         {model.columns.map((column) => (
-          <div key={column.index} className="rm-lane-title" style={{ left: column.x + 4, width: column.w }}>
+          <div
+            key={column.index}
+            className="rm-lane-title"
+            title={column.unlinked ? "Modules with no links to the others." : COLUMN_HINT}
+            style={{ left: column.x + 4, width: column.w, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 0, lineHeight: 1.25 }}
+          >
             {columnTitle(model, column.index)}
             <small>{plural(column.count, "module")}</small>
           </div>
@@ -243,7 +271,7 @@ export default function ColumnCanvas({
       </div>
       <div
         className="relative"
-        style={{ width: model.width, height: stageHeight }}
+        style={{ width: model.width, height: stageHeight, zoom }}
         onClick={(event) => {
           if (event.target === event.currentTarget || (event.target as HTMLElement).classList?.contains("rm-lane-band")) onSelect(null);
         }}
@@ -270,12 +298,12 @@ export default function ColumnCanvas({
               </g>
             ))}
             {labels.map(({ edge }) => {
-              const text = edgeLabel(edge);
-              const width = text.length * 5.6 + 14;
+              const label = placedLabel(edge);
+              if (!label) return null;
               return (
-                <g key={edge.key} className="rm-edge-label" transform={`translate(${edge.labelX - width / 2},${edge.labelY - 9})`}>
-                  <rect width={width} height={18} rx={9} />
-                  <text x={width / 2} y={12.5} textAnchor="middle">{text}</text>
+                <g key={edge.key} className="rm-edge-label" transform={`translate(${label.x},${edge.labelY - 9})`}>
+                  <rect width={label.width} height={18} rx={9} />
+                  <text x={label.width / 2} y={12.5} textAnchor="middle">{label.text}</text>
                 </g>
               );
             })}

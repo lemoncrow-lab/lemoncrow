@@ -23,12 +23,19 @@ from lemoncrow.gateway.cli import cli
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.github_publish import (
+    AI_FIX_MARKER,
+    HUMAN_REVIEW_LINE,
     PublishCandidate,
     PullRequestFile,
     PullRequestState,
+    PullRequestStateCache,
     RemoteReview,
+    SignatureSignal,
+    bot_display_name,
     build_plan,
+    check_run_for,
     hunk_ranges,
+    load_bot_approvals,
 )
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.sources import github as github_source
@@ -74,9 +81,11 @@ class FakeGitHub:
         self.lose_response = False
         self.repository_id: Any = REPO_ID
         self.html_url: Any = PR.url
+        self.calls: list[list[str]] = []
 
     def __call__(self, args: Any, stdin: str | None = None, *, cwd: Path | None = None) -> str:
         call = list(args)
+        self.calls.append(call)
         api = f"repos/{PR.slug}/pulls/{PR.number}"
         if call == ["api", "user"]:
             return json.dumps({"login": self.viewer})
@@ -153,7 +162,14 @@ def _candidate(annotation_id: str, start: int, end: int = 0, **overrides: Any) -
     return PublishCandidate(**fields)
 
 
-def _plan(candidates: list[PublishCandidate], *, outcome: str = "", current: bool = True, **state: Any) -> Any:
+def _plan(
+    candidates: list[PublishCandidate],
+    *,
+    outcome: str = "",
+    current: bool = True,
+    human_review: bool = False,
+    **state: Any,
+) -> Any:
     return build_plan(
         PR,
         candidates,
@@ -162,6 +178,7 @@ def _plan(candidates: list[PublishCandidate], *, outcome: str = "", current: boo
         outcome_summary="Ship it" if outcome else "",
         outcome_current=current,
         state=_state(**state),
+        human_review=human_review,
     )
 
 
@@ -675,3 +692,262 @@ def test_pr_flag_combinations_are_checked(tmp_path: Path, args: list[str], messa
     result = CliRunner().invoke(cli, ["--root", str(tmp_path / "store"), "review", "--no-open", *args])
     assert result.exit_code != 0
     assert message in result.output
+
+
+# --------------------------------------------------------------------------- #
+# P6-3: the review as it will appear, the check run, bot approvals (SPEC 4.17)
+# --------------------------------------------------------------------------- #
+
+
+def test_every_review_body_ends_with_the_human_review_line_before_the_hidden_marker() -> None:
+    plan = _plan([_candidate("outside", 25)], outcome="lgtm", human_review=True)
+    shown = plan.shown_body()
+    assert shown.endswith(HUMAN_REVIEW_LINE)
+    assert "<!--" not in shown
+    assert plan.body("op-9") == f"{shown}\n\n<!-- lemoncrow:op=op-9 -->"
+    # Even a review with no summary and no folded comment carries the line.
+    assert _plan([_candidate("a", 3)], human_review=True).shown_body() == HUMAN_REVIEW_LINE
+    # The bot's review is an AI's: it never claims to be a human review.
+    assert HUMAN_REVIEW_LINE not in _plan([_candidate("a", 3)], outcome="lgtm").body("op")
+    assert plan.preview()["body"] == shown
+
+
+def test_only_a_note_that_includes_an_ai_fix_is_marked_as_carrying_one() -> None:
+    plain = _candidate("plain", 3)
+    fixed = _candidate("fixed", 4, body=f"keep the guard\n\n{AI_FIX_MARKER}\n-x\n+y")
+    plan = _plan([plain, fixed])
+    assert {item.annotation_id: item.ai_fix for item in plan.inline} == {"plain": False, "fixed": True}
+    assert [row["ai_fix"] for row in plan.preview()["inline"]] == [False, True]
+
+
+def test_the_check_run_reads_only_a_signal_it_was_given() -> None:
+    kwargs: dict[str, Any] = {"head_sha": "4e1b9c2" + "0" * 33, "event": "APPROVE"}
+    first = {"signer": "srivera"}
+    # No signal (every local review): no check run, so no "of 2" and no branch-protection claim.
+    assert check_run_for(signal=None, **kwargs) is None
+    assert check_run_for(signal=SignatureSignal(required=0, signed=0), **kwargs) is None
+    assert check_run_for(signal=SignatureSignal(required=2, signed=1), **kwargs) is None  # no signer named
+    # "signed by" needs a signature that exists, and the signer the signal names.
+    assert check_run_for(signal=SignatureSignal(required=2, signed=0, **first), **kwargs) is None
+    waiting = check_run_for(signal=SignatureSignal(required=2, signed=1, **first), **kwargs)
+    assert waiting == {
+        "name": "LemonCrow review",
+        "text": "LemonCrow review \u00b7 signed by @srivera \u00b7 rev 4e1b9c2 \u00b7 1 of 2 signatures",
+        "state": "pending",
+        "label": "Pending \u00b7 waiting for a second signature",
+    }
+    done = check_run_for(signal=SignatureSignal(required=2, signed=2, **first), **kwargs)
+    assert done is not None and (done["state"], done["label"]) == ("passing", "Passing")
+    assert done["text"].endswith("2 of 2 signatures")
+    refused = check_run_for(signal=SignatureSignal(required=2, signed=2, disagrees=True, **first), **kwargs)
+    assert refused is not None and (refused["state"], refused["label"]) == (
+        "failing",
+        "Failing \u00b7 changes requested",
+    )
+    changes = check_run_for(
+        signal=SignatureSignal(required=2, signed=1, **first), **{**kwargs, "event": "REQUEST_CHANGES"}
+    )
+    assert changes is not None and changes["state"] == "failing"
+    # A count past the requirement is never printed.
+    over = check_run_for(signal=SignatureSignal(required=2, signed=5, **first), **kwargs)
+    assert over is not None and over["text"].endswith("2 of 2 signatures")
+
+
+def test_wrap_up_previews_a_verdict_before_it_is_recorded_and_publishing_matches(
+    tmp_path: Path, github: FakeGitHub
+) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    ws.comment(3, "why three?", kind="request_change")
+    before = ws.post("/github/preview").json()
+    assert before["event"] == "COMMENT"  # nothing recorded yet
+
+    proposed = ws.post("/github/preview", {"outcome": "changes_requested", "summary": "Fix first"})
+    assert proposed.status_code == 200, proposed.text
+    shown = proposed.json()
+    assert shown["event"] == "REQUEST_CHANGES"
+    assert shown["summary"] == "Fix first"
+    assert shown["body"] == "Fix first\n\n" + HUMAN_REVIEW_LINE
+    assert (shown["viewer"], shown["author"]) == ("bob", "alice")
+    assert shown["check_run"] is None
+    assert ws.store.latest_outcome(ws.review_id, "local") is None  # previewing recorded nothing
+    assert github.posts == []
+
+    ws.post(
+        "/outcome",
+        {"outcome": "changes_requested", "summary": "Fix first", "expected_revision_id": ws.revision_id()},
+    )
+    plan, response = ws.publish()
+    assert response.status_code == 200, response.text
+    assert plan["plan_hash"] == shown["plan_hash"]
+    assert github.posts[0]["body"].startswith("Fix first\n\n" + HUMAN_REVIEW_LINE)
+
+
+def test_a_previewed_approval_on_your_own_pull_request_is_drawn_as_a_comment(
+    tmp_path: Path, github: FakeGitHub
+) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    github.viewer = github.author
+    shown = ws.post("/github/preview", {"outcome": "lgtm", "summary": ""}).json()
+    assert shown["event"] == "COMMENT"
+    assert "your own pull request" in shown["notices"][0]
+
+
+@pytest.mark.parametrize("body", [{"outcome": "merge"}, {"outcome": ""}, {"outcome": "lgtm", "summary": 3}])
+def test_a_preview_for_an_unknown_verdict_or_bad_summary_is_refused(
+    tmp_path: Path, github: FakeGitHub, body: dict[str, Any]
+) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    assert ws.post("/github/preview", body).status_code == 422
+    too_long = ws.post("/github/preview", {"outcome": "lgtm", "summary": "x" * 16385})
+    assert too_long.status_code == 422
+
+
+def _bot_review(review_id: int, login: str, state: str, commit: str, kind: str = "Bot") -> dict[str, Any]:
+    return {"id": review_id, "user": {"login": login, "type": kind}, "state": state, "commit_id": commit, "body": "x"}
+
+
+def test_bot_approvals_are_the_bots_latest_approval_typed_bot_by_github(github: FakeGitHub) -> None:
+    head = "a" * 40
+    github.reviews = [
+        _bot_review(1, "copilot-pull-request-reviewer[bot]", "APPROVED", head),
+        _bot_review(2, "copilot-pull-request-reviewer[bot]", "COMMENTED", head),  # a comment ends nothing
+        _bot_review(3, "old-bot[bot]", "APPROVED", "b" * 40),  # approved an earlier commit
+        _bot_review(4, "changed-mind[bot]", "APPROVED", head),
+        _bot_review(5, "changed-mind[bot]", "CHANGES_REQUESTED", head),  # a later verdict wins
+        _bot_review(6, "dismissed[bot]", "APPROVED", head),
+        _bot_review(7, "dismissed[bot]", "DISMISSED", head),
+        _bot_review(8, "bob", "APPROVED", head, kind="User"),  # a person is not a bot
+        _bot_review(9, "copilot-lookalike", "APPROVED", head, kind="User"),
+        _bot_review(10, "bad login[bot]", "APPROVED", head),  # not a login GitHub could issue
+        _bot_review(11, "pending[bot]", "PENDING", head),
+    ]
+    found = load_bot_approvals(PR, github, reviewed_head=head)
+    assert [(item.login, item.name, item.current) for item in found] == [
+        ("copilot-pull-request-reviewer[bot]", "Copilot", True),
+        ("old-bot[bot]", "old-bot", False),
+    ]
+    assert load_bot_approvals(PR, github, reviewed_head="") == tuple(
+        item.__class__(item.login, item.name, item.commit_id, False) for item in found
+    )
+
+
+def test_the_bot_approvals_route_reports_a_hint_and_changes_nothing(tmp_path: Path, github: FakeGitHub) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    github.reviews = [_bot_review(1, "copilot-pull-request-reviewer[bot]", "APPROVED", ws.head_sha)]
+    ws.comment(3, "why three?")
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    notes_url = f"/api/reviews/{ws.review_id}/annotations"
+    parts_url = f"/api/reviews/{ws.review_id}/targets"
+    notes_before = ws.client.get(notes_url, headers=headers).json()
+    parts_before = ws.client.get(parts_url, headers=headers)
+    assert parts_before.status_code == 200, parts_before.text
+    got = ws.client.get(f"/api/reviews/{ws.review_id}/github/bot-approvals", headers=headers)
+    assert got.status_code == 200, got.text
+    assert got.json()["approvals"] == [
+        {
+            "login": "copilot-pull-request-reviewer[bot]",
+            "name": "Copilot",
+            "commit_id": ws.head_sha,
+            "current": True,
+        }
+    ]
+    assert ws.client.get(notes_url, headers=headers).json() == notes_before
+    assert ws.client.get(parts_url, headers=headers).json() == parts_before.json()
+    assert github.posts == []
+
+    plain = _workspace(tmp_path / "plain", source_ref="main...feature")
+    assert plain.client.get(f"/api/reviews/{plain.review_id}/github/bot-approvals", headers=headers).status_code == 409
+
+
+def test_a_plan_without_a_summary_posts_the_marker_alone_unless_it_is_a_human_review() -> None:
+    # The bot's plan (no human line, no summary) posts exactly the marker, as before.
+    assert _plan([_candidate("a", 3)]).body("op-1") == "<!-- lemoncrow:op=op-1 -->"
+    assert (
+        _plan([_candidate("a", 3)], human_review=True).body("op-1")
+        == f"{HUMAN_REVIEW_LINE}\n\n<!-- lemoncrow:op=op-1 -->"
+    )
+
+
+def test_only_githubs_own_copilot_logins_are_named_copilot() -> None:
+    assert bot_display_name("copilot-pull-request-reviewer[bot]") == "Copilot"
+    assert bot_display_name("Copilot") == "Copilot"
+    assert bot_display_name("copilot-helper[bot]") == "copilot-helper"
+    assert bot_display_name("dependabot[bot]") == "dependabot"
+
+
+def test_the_body_a_preview_shows_is_the_body_published_minus_the_hidden_marker(
+    tmp_path: Path, github: FakeGitHub
+) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    ws.comment(25, "unrelated cleanup")  # lands in the body, not inline
+    ws.post("/outcome", {"outcome": "lgtm", "summary": "Ship it", "expected_revision_id": ws.revision_id()})
+    plan, response = ws.publish()
+    assert response.status_code == 200, response.text
+    posted = github.posts[0]["body"]
+    assert posted == f"{plan['body']}\n\n<!-- lemoncrow:op={plan['operation_id']} -->"
+    assert HUMAN_REVIEW_LINE in plan["body"] and "unrelated cleanup" in plan["body"]
+
+
+def test_typing_a_summary_re_plans_without_reading_the_pull_request_again(tmp_path: Path, github: FakeGitHub) -> None:
+    ws = _workspace(tmp_path)
+    github.head_sha = ws.head_sha
+    ws.comment(3, "why three?")
+
+    def pulls() -> list[list[str]]:
+        return [call for call in github.calls if call == ["api", f"repos/{PR.slug}/pulls/{PR.number}"]]
+
+    ws.post("/github/preview")  # a preview with no verdict always reads GitHub
+    assert len(pulls()) == 1
+    first = ws.post("/github/preview", {"outcome": "lgtm", "summary": "a"}).json()
+    again = ws.post("/github/preview", {"outcome": "lgtm", "summary": "ab"}).json()
+    assert (first["summary"], again["summary"]) == ("a", "ab")  # the plan follows what was typed
+    assert len(pulls()) == 1  # the pull request was read once for all of them
+    ws.post("/github/preview")
+    assert len(pulls()) == 2  # a preview with no verdict is fresh again
+
+    # Publishing reads GitHub afresh and drops what was held, so the next plan sees what it posted.
+    github.head_sha = ws.head_sha
+    ws.post("/outcome", {"outcome": "lgtm", "summary": "Ship it", "expected_revision_id": ws.revision_id()})
+    _plan_after, response = ws.publish()
+    assert response.status_code == 200, response.text
+    seen = ws.post("/github/preview", {"outcome": "lgtm", "summary": "Ship it"}).json()
+    assert "already on GitHub" in seen["notices"][0]
+    assert seen["summary"] == ""  # the typed summary is dropped, and the notice says why
+
+
+def test_held_pull_request_states_are_bounded_by_age_and_by_count() -> None:
+    now = [0.0]
+    cache = PullRequestStateCache(ttl=15.0, max_entries=3, clock=lambda: now[0])
+    one, two = _state(head_sha="1" * 40), _state(head_sha="2" * 40)
+    cache.put("a", one)
+    cache.put("b", two)
+    assert cache.get("a") is one
+    now[0] = 16.0
+    assert cache.get("a") is None  # expired: never served
+    assert "a" in cache and "b" in cache  # ...but still held until the next write
+    cache.put("c", one)
+    assert "a" not in cache and "b" not in cache and len(cache) == 1  # expired entries go on the next write
+    for key in ("d", "e", "f"):
+        cache.put(key, two)
+    assert list(k for k in "cdef" if k in cache) == ["d", "e", "f"]  # the cap evicts the oldest written
+    cache.put("d", one)  # a rewrite is the newest
+    cache.put("g", two)
+    assert [k for k in "defg" if k in cache] == ["d", "f", "g"]
+    cache.drop("d")
+    assert "d" not in cache
+
+
+def test_a_verdict_already_on_github_is_flagged_for_the_screen_not_only_in_a_notice() -> None:
+    earlier = RemoteReview(id=1, body="Ship it\n\n<!-- lemoncrow:op=gop-1 -->", commit_id="h" * 40, state="APPROVED")
+    held = _plan([_candidate("a", 3)], outcome="lgtm", viewer_reviews=(earlier,))
+    assert held.verdict_on_github is True and held.preview()["verdict_on_github"] is True
+    fresh = _plan([_candidate("a", 3)], outcome="lgtm")
+    assert fresh.verdict_on_github is False and fresh.preview()["verdict_on_github"] is False
+    # Downgraded for another reason (your own pull request): GitHub shows no verdict from this post, and says why.
+    own = _plan([], outcome="lgtm", viewer="Alice")
+    assert own.event == "COMMENT" and own.verdict_on_github is False

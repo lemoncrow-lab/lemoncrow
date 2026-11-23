@@ -379,9 +379,9 @@ class _Observed:
         return ()
 
     def run(self, context: Any, runtime: Any, surface: Any, *, side: str) -> Any:
-        from lemoncrow.pro.capabilities.review.execution import ExecutionSubject, StageOutcome
         from lemoncrow.pro.capabilities.review.runtime_observation import ObservedEffect, RuntimeObservation
-        from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
+        from lemoncrow.pro.environment.execution import ExecutionSubject, StageOutcome
+        from lemoncrow.pro.environment.runners import SurfaceRunResult
         from tests.gateway.test_review_execution_contract import _result
 
         self.calls.append((runtime.id, side))
@@ -416,7 +416,7 @@ def _scripted(
     tests: bool = True,
     shared_store: tuple[Any, Path] | None = None,
 ) -> tuple[SimpleNamespace, _Observed]:
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry
+    from lemoncrow.pro.environment.runners import RunnerRegistry
 
     runner = _Observed()
     files = {**_files(), ".lemoncrow/review.yaml": config}

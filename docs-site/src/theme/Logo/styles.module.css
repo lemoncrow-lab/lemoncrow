@@ -5,18 +5,12 @@
   text-decoration: none !important;
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.mark {
+  display: block;
   width: 1.75rem;
   height: 1.75rem;
   flex-shrink: 0;
-  background: #0a0a0a;
-  color: #d7ccf7;
-  font-family: 'JetBrains Mono', 'Hack Nerd Font Mono', monospace;
-  font-size: 1rem;
-  line-height: 1;
+  border-radius: 0.375rem;
 }
 
 .wordmark {

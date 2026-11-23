@@ -535,7 +535,7 @@ def test_an_unavailable_or_failing_index_changes_nothing(repo: Path) -> None:
 
 def test_a_failure_while_reading_the_snapshot_never_raises(tmp_path: Path) -> None:
     def broken() -> Path:
-        raise OSError("snapshot unavailable")
+        raise OSError("Revision unavailable")
 
     pack = rc.RepoContext(
         root=broken,

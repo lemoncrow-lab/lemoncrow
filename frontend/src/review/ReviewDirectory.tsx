@@ -1,4 +1,5 @@
 import { Select, SelectItem } from "../components/ui/select";
+import { fmtWhen } from "../lib/format";
 import { Badge, type BadgeTone } from "../components/ui/badge";
 import { EmptyState } from "../components/ui/empty-state";
 import { Hunk, HunkHead, HunkLabel } from "../components/ui/hunk";
@@ -24,6 +25,8 @@ import {
 } from "./reviewApi";
 import { hasInboxSignals, InboxRowSignals, InboxViewControls, SavedInboxFilterControls } from "./ReviewInboxViews";
 import { reviewEnvironmentDescription, reviewEnvironmentLabel, useReviewEnvironment } from "./reviewEnvironment";
+import { laterCount } from "./answerModel";
+import { judgedParts } from "./vocabulary";
 import {
   archiveConfirmationRequired,
   confirmationFor,
@@ -85,8 +88,8 @@ function reviewRowAction(row: ReviewDirectoryRow): { label: string; tone: BadgeT
   if (progress.changed_since_review > 0) {
     return { label: `${progress.changed_since_review} changed`, tone: "p2" };
   }
-  if (progress.unreviewed + progress.unknown > 0) {
-    const pending = progress.unreviewed + progress.unknown;
+  if (progress.unreviewed + progress.unknown + laterCount(progress) > 0) {
+    const pending = progress.unreviewed + progress.unknown + laterCount(progress);
     return { label: `${pending} left`, tone: "p1" };
   }
   if (progress.needs_changes > 0) {
@@ -157,6 +160,14 @@ function ReviewRow({
   const hasWorkspaceIdentity = Boolean(
     row.directory || row.project || row.worktree || row.branch,
   );
+  // The card shows "project · branch" (plus the worktree when it differs); the full path is on hover.
+  const workspaceName = [row.project, row.worktree && row.worktree !== row.project ? row.worktree : "", row.branch].filter(Boolean);
+  const workspaceDetail = [
+    row.project ? `Project ${row.project}` : "",
+    row.worktree ? `Worktree ${row.worktree}` : "",
+    row.branch ? `Branch ${row.branch}` : "",
+    row.worktree_root || row.directory || "",
+  ].filter(Boolean).join("\n");
   const saveTitle = async (title: string) => {
     setSaving(true);
     setRenameError("");
@@ -176,7 +187,7 @@ function ReviewRow({
       {!editing && <a
         href={reviewHref(row.ref || row.id)}
         data-review-link
-        title={`${row.worktree_root || row.repo_id} · ${row.id}`}
+        title={workspaceDetail || undefined}
         aria-label={`Open ${row.title || "Untitled review"}`}
         className="absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
       />}
@@ -262,7 +273,7 @@ function ReviewRow({
                     <DialogHeader><DialogTitle>Delete archived review?</DialogTitle></DialogHeader>
                     <DialogBody>
                       <DialogDescription>
-                        Permanently delete “{row.title || "Untitled review"}” and its review history, comments, and saved snapshots. This cannot be undone and is recorded in the deletion audit. Your source files are kept.
+                        Permanently delete “{row.title || "Untitled review"}” and its review history, comments, and saved revisions. This cannot be undone and is recorded in the deletion audit. Your source files are kept.
                       </DialogDescription>
                       <label className="mt-3 grid gap-1 text-caption text-muted-foreground">
                         <span>Type the review id <span className="font-mono text-foreground">{row.id}</span> or its exact title to confirm</span>
@@ -356,14 +367,14 @@ function ReviewRow({
           <span className="truncate" title={row.title_is_custom ? row.auto_title : undefined}>{row.title_is_custom ? `Auto: ${row.auto_title || reviewSourceLabel(row)}` : reviewSourceLabel(row)}</span>
           {row.progress && row.progress.target_count > 0 && (
             <>
-              <span className="shrink-0 font-mono tabular-nums">· {row.progress.reviewed}/{row.progress.target_count} reviewed</span>
+              <span className="shrink-0 font-mono tabular-nums">· {judgedParts(row.progress)}/{row.progress.target_count} reviewed</span>
               <span
                 aria-hidden="true"
                 className="hidden h-1 w-16 shrink-0 overflow-hidden rounded-full bg-border sm:block"
               >
                 <span
                   className="block h-full rounded-full bg-foreground/70"
-                  style={{ width: `${Math.round((row.progress.reviewed / row.progress.target_count) * 100)}%` }}
+                  style={{ width: `${Math.round((judgedParts(row.progress) / row.progress.target_count) * 100)}%` }}
                 />
               </span>
               {row.progress.changed_since_review > 0 && (
@@ -376,41 +387,18 @@ function ReviewRow({
           )}
         </div>
       </div>
-      <div
-        className="review-grid-secondary pointer-events-none relative min-w-0 pr-4 text-caption text-muted-foreground"
-        title={row.worktree_root || row.directory || row.repo_id}
-      >
+      <div className="review-grid-secondary pointer-events-none relative min-w-0 pr-4 text-caption text-muted-foreground">
         {hasWorkspaceIdentity ? (
-          <>
-            <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-              {row.project && (
-                <>
-                  <span className="text-muted-foreground">project</span>
-                  <span className="max-w-28 truncate font-medium text-foreground">{row.project}</span>
-                </>
-              )}
-              {row.worktree && (
-                <>
-                  {row.project && <span className="text-muted-foreground">·</span>}
-                  <span className="text-muted-foreground">worktree</span>
-                  <span className="max-w-32 truncate font-medium text-foreground">{row.worktree}</span>
-                </>
-              )}
-              {row.branch && (
-                <>
-                  {(row.project || row.worktree) && <span className="text-muted-foreground">·</span>}
-                  <span className="text-muted-foreground">branch</span>
-                  <span className="max-w-40 truncate font-medium text-foreground">{row.branch}</span>
-                </>
-              )}
-            </div>
-            {row.directory && (
-              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
-                <span>dir</span>
-                <span className="truncate font-mono text-muted-foreground">{row.directory}</span>
-              </div>
-            )}
-          </>
+          <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap" data-testid="review-row-workspace">
+            {workspaceName.length > 0
+              ? workspaceName.map((part, index) => (
+                <span key={`${index}:${part}`} className="flex min-w-0 items-center gap-1.5">
+                  {index > 0 && <span aria-hidden="true">·</span>}
+                  <span className={`truncate ${index === 0 ? "font-medium text-foreground" : ""}`}>{part}</span>
+                </span>
+              ))
+              : <span className="truncate font-mono">{row.directory?.split("/").filter(Boolean).pop()}</span>}
+          </div>
         ) : (
           <span className="truncate text-muted-foreground">Workspace unavailable</span>
         )}
@@ -421,12 +409,7 @@ function ReviewRow({
       </div>
       <div className="review-grid-secondary pointer-events-none relative text-right text-caption text-muted-foreground">
         {row.updated_at
-          ? new Date(row.updated_at).toLocaleString([], {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+          ? fmtWhen(row.updated_at)
           : ""}
       </div>
     </div>

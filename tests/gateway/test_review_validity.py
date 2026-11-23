@@ -32,13 +32,6 @@ from lemoncrow.pro.capabilities.review.check_ingest import (
     explain_equivalent,
     find_equivalent,
 )
-from lemoncrow.pro.capabilities.review.execution import (
-    EXECUTOR_FINGERPRINT_VERSION,
-    EnvironmentFingerprint,
-    ExecutableIdentity,
-    ExecutionRecipe,
-    ExecutionResult,
-)
 from lemoncrow.pro.capabilities.review.freshness import FreshnessPolicy, assess_freshness, format_timestamp
 from lemoncrow.pro.capabilities.review.incremental import (
     _COMPONENT_REASONS,
@@ -74,6 +67,13 @@ from lemoncrow.pro.capabilities.review.validity import (
     mark_event_reason,
     mark_results,
     result,
+)
+from lemoncrow.pro.environment.execution import (
+    EXECUTOR_FINGERPRINT_VERSION,
+    EnvironmentFingerprint,
+    ExecutableIdentity,
+    ExecutionRecipe,
+    ExecutionResult,
 )
 
 # --------------------------------------------------------------------------- #
@@ -269,7 +269,7 @@ def test_the_persisted_mark_event_reason_is_the_registered_sentence() -> None:
     assert mark_event_reason("content_changed") == (
         "revision reconciliation: the content differs from what the reviewer judged"
     )
-    assert mark_event_reason("fingerprint_unknown", renamed=True).startswith("unit identity migrated across rename; ")
+    assert mark_event_reason("fingerprint_unknown", renamed=True).startswith("part identity migrated across rename; ")
     with pytest.raises(ValueError):
         mark_event_reason("looks_fine")
 

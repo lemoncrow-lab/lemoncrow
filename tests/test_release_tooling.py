@@ -136,6 +136,9 @@ def test_changelog_finalize_and_release_notes_use_the_same_version_section() -> 
     assert 'source "$HOME/.lemoncrow/shell-env.sh"' in rendered
     assert "lc runtime status" in rendered
     assert "lc runtime enable codex" in rendered
+    "case: test_public_release_commit_message_is_the_tag_and_its_changelog_section"
+    message = release_notes.render_commit_message(finalized, "0.8.0", "v0.8.0")
+    assert message == "Release v0.8.0\n\n### Added\n- New architecture.\n"
 
 
 def test_changelog_finalize_folds_late_candidate_notes_into_existing_version() -> None:

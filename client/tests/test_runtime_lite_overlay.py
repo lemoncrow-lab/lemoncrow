@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -9,7 +10,8 @@ from typing import Any
 
 import pytest
 from lemoncrow_client.lite import index as lite_index
-from lemoncrow_client.lite.index import LiteIndex, open_index_reader
+from lemoncrow_client.lite.index import LiteIndex, is_leftover_store, open_index_reader, warm_overlay
+from lemoncrow_client.lite.mcp import LiteMcp
 
 _MODULES = 30
 
@@ -288,6 +290,73 @@ def test_an_unattachable_base_serves_own_rows_then_the_index_goes_standalone(
     assert len(own) == _MODULES + 1 and not inherited
     assert _meta(child)["base_path"] == ""
     assert _symbol_paths(child, "func_5") == {"mod_5.py"}
+
+
+def test_warm_overlay_builds_only_on_a_usable_base(tmp_path: Path) -> None:
+    root = _main_repo(tmp_path)
+    linked = _worktree(root)
+    assert warm_overlay(linked) is None and not (linked / ".lemoncrow").exists()  # no base: no standalone build
+    assert warm_overlay(root) is None  # the main checkout is no overlay
+    main = LiteIndex(root)
+    main.prepare()
+    report = warm_overlay(linked)
+    assert report is not None and report.path == LiteIndex(linked).db_path
+    own, inherited = _own_and_inherited(LiteIndex(linked))
+    assert not own and len(inherited) == _MODULES + 1
+    assert _meta(LiteIndex(linked))["base_path"] == str(main.db_path)
+
+
+def test_an_index_never_brings_back_a_removed_worktree(
+    overlay: tuple[LiteIndex, LiteIndex], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    main, child = overlay
+    linked = child.repo_root
+    shutil.rmtree(linked)  # removed another way: the overlay went with it
+    monkeypatch.setattr(child, "maybe_refresh", lambda: None)  # a warm session answers before refreshing
+    with pytest.raises(OSError):
+        child.search("func_5")
+    with pytest.raises(OSError):
+        child.exact_symbols("func_5")
+    monkeypatch.undo()
+    with pytest.raises(RuntimeError):
+        child.prepare()
+    assert child.refresh_if_needed() is None
+    assert not linked.exists()
+
+    # What an older writer left there is only Runtime Lite state; anything else is not.
+    (linked / ".lemoncrow" / "workspace").mkdir(parents=True)
+    assert is_leftover_store(linked)
+    (linked / "notes.txt").write_text("keep\n")
+    assert not is_leftover_store(linked)
+    assert not is_leftover_store(main.repo_root)
+
+
+def test_a_session_closes_the_overlay_of_a_removed_worktree(tmp_path: Path) -> None:
+    root = _main_repo(tmp_path)
+    LiteIndex(root).prepare()
+    first, second = _worktree(root, "first"), _worktree(root, "second")
+    environment = {
+        "LEMONCROW_WORKSPACE_ROOT": str(root),
+        "LEMONCROW_HOME": str(tmp_path / "state"),
+        "HOME": str(tmp_path),
+        "LEMONCROW_RUNTIME_TRACE": "off",
+    }
+    server = LiteMcp(environment=environment)
+    try:
+        found = server.call("code_search", {"query": "func_5", "paths": str(first)})
+        assert found["content"][0]["text"].startswith("[worktree first]")
+        assert list(server._children) == [first]
+        assert _meta(LiteIndex(first))["base_path"] == str(LiteIndex(root).db_path)
+        server._children[first].index.mark_dirty()  # a refresh is due when it goes
+        shutil.rmtree(first)
+        server._schedule_refresh(server._children[first])
+
+        server.call("code_search", {"query": "func_5", "paths": str(second)})
+        assert list(server._children) == [second]
+        assert first not in server._refresh_futures
+    finally:
+        server.close()
+    assert not first.exists()
 
 
 def test_symbol_lookup_through_the_view_uses_the_base_name_index(overlay: tuple[LiteIndex, LiteIndex]) -> None:

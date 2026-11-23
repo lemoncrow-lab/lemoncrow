@@ -103,7 +103,7 @@ def execution_summary(rows: Sequence[Any]) -> dict[str, Any]:
 
 
 AI_REVIEW_ENTRIES: Final[tuple[str, ...]] = ("ai.investigators", "ai.hypotheses", "ai.rule_checks")
-NO_AI_REASON: Final[str] = "the effective run plan runs no AI review on this Snapshot"
+NO_AI_REASON: Final[str] = "the effective run plan runs no AI review on this revision"
 _LOCUS_OF: Final[Mapping[str, str]] = {"local": "local", "managed": "managed", "worker": "customer"}
 _METERING_OF: Final[Mapping[str, str]] = {
     "local": "customer_provider",

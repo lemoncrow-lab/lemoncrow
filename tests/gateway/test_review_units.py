@@ -684,3 +684,36 @@ def test_unchanged_frozen_file_reuses_units_and_refreshes_ranking(monkeypatch: p
 _VITEST_SUITE = 'import { afterEach, describe } from "vitest";\n\nexport function navigateTo(url: string): void {\n  window.history.replaceState({}, "", url);\n}\n\nafterEach(() => {\n  navigateTo("/");\n});\n'
 _TSX_TERNARY = 'export function Shell({ bare }: { bare: boolean }) {\n  return (\n    <div className={bare ? "min-h-full font-mono" : "min-h-full bg-tint"}>\n      {bare}\n    </div>\n  );\n}\n'
 _PACKAGE_JSON = '{\n  "name": "app",\n  "dependencies": {\n    "react": "19.0.0"\n  }\n}\n'
+
+
+def test_units_are_stamped_with_their_structural_answer_and_only_a_marked_file_is_accepted_by_rule() -> None:
+    from lemoncrow.pro.capabilities.review.units import stamp_answers
+
+    symlink = ChangedFile(
+        path="link",
+        old_path=None,
+        status="added",
+        new_mode=0o120000,
+        hunks=(_hunk(1, 1, ranges=((1, 1),), patch="+target.txt\n"),),
+    )
+    submodule = ChangedFile(path="vendor/lib", old_path=None, status="modified", submodule_pointer=("a" * 40, "b" * 40))
+    executable = ChangedFile(path="run.sh", old_path=None, status="modified", old_mode=0o100644, new_mode=0o100755)
+    plain = ChangedFile(path="src/a.py", old_path=None, status="modified")
+    generated = ChangedFile(path="gen/api.pb.go", old_path=None, status="modified")
+    packet = _packet(files=(symlink, submodule, executable, plain, generated))
+    blobs = {"src/a.py": "x = 1\n", "gen/api.pb.go": "package gen\n", "run.sh": "#!/bin/sh\n", "link": "t\n"}
+    units = derive_units(packet, blobs)
+
+    stamped = stamp_answers(units, packet, marked_generated={"gen/api.pb.go"})
+    by_path = {unit.path: (unit.answer_category, unit.category_rule) for unit in stamped}
+    assert by_path["link"] == ("decision", "")
+    assert by_path["vendor/lib"] == ("decision", "")
+    assert by_path["run.sh"] == ("decision", "")
+    assert by_path["src/a.py"] == ("quick_check", "")
+    assert by_path["gen/api.pb.go"] == ("accepted_by_rule", "generated_files")
+    # Unmarked, the same file is a quick check: nothing is accepted without evidence.
+    again = stamp_answers(units, packet)
+    assert {unit.path: unit.answer_category for unit in again}["gen/api.pb.go"] == "quick_check"
+    # Pure: the same input gives the same stamps, and the units are otherwise untouched.
+    assert stamp_answers(units, packet, marked_generated={"gen/api.pb.go"}) == stamped
+    assert [replace(unit, answer_category="", category_rule="") for unit in stamped] == list(units)

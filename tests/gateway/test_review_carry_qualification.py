@@ -93,7 +93,7 @@ class _Executing(_Runner):
         walk(commit.tree, "")
 
     def _execute(self, _runtime: str, side: str, _count: int, command: tuple[str, ...]) -> dict[str, str]:
-        from lemoncrow.pro.capabilities.review.runtimes import command_view
+        from lemoncrow.pro.capabilities.review.runner_host import command_view
 
         work = self.scratch / f"run-{len(self.calls)}-{side}"
         self._materialize(work)
@@ -182,7 +182,7 @@ def _pyrun(version: str, extra: str = "") -> str:
 def _install_pyrun(world: _World, monkeypatch: pytest.MonkeyPatch) -> None:
     """Put ``pyrun`` 1.0 on the sandbox's host-runtime PATH (a probed, read-only mount)."""
 
-    from lemoncrow.pro.capabilities.review import runtimes
+    from lemoncrow.pro.environment import runners as runtimes
 
     tools = world.root.parent / "tools"
     tools.mkdir()

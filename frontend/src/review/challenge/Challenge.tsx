@@ -22,6 +22,7 @@ import {
   type Loadable,
 } from "./challengeModel";
 import "./challenge.css";
+import { revisionName } from "../revisionLabel";
 
 export interface ChallengeProps {
   claim: ChallengeClaim;
@@ -54,7 +55,7 @@ const OUTCOME_TONE: Record<ChallengeObservation["outcome"], "success" | "destruc
 };
 
 const PROOF_LABEL: Record<string, string> = {
-  snapshot: "Snapshot",
+  snapshot: "Revision",
   observed: "Observed",
   current_index: "Working index",
   inferred: "Inferred",
@@ -172,7 +173,7 @@ export default function Challenge(props: ChallengeProps) {
           {stale && (
             <p className="ch-stale" role="status" data-testid="challenge-stale">
               <Badge tone="warning">Stale</Badge>
-              <span>{`Read on ${claim.snapshotIdentity || "another Snapshot"}; this Review now shows ${context.snapshot_identity}. Nothing below describes the Snapshot shown now.`}</span>
+              <span>{`Read on ${claim.snapshotIdentity || "another revision"}; this Review now shows ${context.snapshot_identity}. Nothing below describes the revision shown now.`}</span>
             </p>
           )}
           <ol className="ch-chain" data-testid="challenge-chain">
@@ -259,14 +260,14 @@ function ChecksStep({ chain }: { chain: ChallengeChain }) {
               <Badge tone="neutral" data-outcome={check.outcome}>{CHECK_OUTCOME_LABEL[check.outcome]}</Badge>
               <span className="ch-note">
                 {check.relation === "named_by_claim" ? "named by the claim" : "on the same code, not named by the claim"}
-                {check.current ? "" : check.snapshotNumber !== null ? ` · from Snapshot ${check.snapshotNumber}` : " · from an earlier Snapshot"}
+                {check.current ? "" : check.snapshotNumber !== null ? ` · from ${revisionName(check.snapshotNumber)}` : " · from an earlier revision"}
               </span>
             </li>
           ))}
         </ul>
       )}
       {chain.reviewLevelChecks > 0 && (
-        <p className="ch-note">{`${chain.reviewLevelChecks} Snapshot-wide ${chain.reviewLevelChecks === 1 ? "check is" : "checks are"} not linked to this claim and not counted here.`}</p>
+        <p className="ch-note">{`${chain.reviewLevelChecks} revision-wide ${chain.reviewLevelChecks === 1 ? "check is" : "checks are"} not linked to this claim and not counted here.`}</p>
       )}
     </Step>
   );
@@ -276,7 +277,7 @@ function CandidateStep({ chain, busy, ran, onRun }: { chain: ChallengeChain; bus
   const candidate = chain.candidate;
   return (
     <Step index={4} title="Reproduction candidate" testId="challenge-candidate">
-      {candidate.kind === "loading" && <p className="ch-note" role="status">Looking for a bounded check in this Snapshot's run plan…</p>}
+      {candidate.kind === "loading" && <p className="ch-note" role="status">Looking for a bounded check in this revision's run plan…</p>}
       {candidate.kind === "inspect_only" && (
         <div className="ch-inspect" data-testid="challenge-inspect-only">
           <Badge tone="neutral">Inspect only</Badge>
@@ -308,7 +309,7 @@ function CandidateStep({ chain, busy, ran, onRun }: { chain: ChallengeChain; bus
               : "It covers the claim's source but the claim does not name it: whatever it shows stays inconclusive for the claim."}</dd>
           </dl>
           {ran ? (
-            <p className="ch-note">Ran once on this Snapshot. Run it again from Check recipes if you need another result.</p>
+            <p className="ch-note">Ran once on this revision. Run it again from Check recipes if you need another result.</p>
           ) : (
             <Button variant="outline" size="compact" type="button" className="self-start" disabled={busy} onClick={() => onRun(candidate.command)}>
               {busy ? "Running…" : "Confirm and run"}

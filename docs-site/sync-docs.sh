@@ -3,8 +3,10 @@ set -e
 
 PORT=${1:-3200}
 
-echo "Syncing public docs into Docusaurus content..."
-node sync-docs.mjs
+# Build the static site (prebuild syncs the public docs) and serve the output.
+# For live editing use `npm run start` directly.
+echo "Building the docs site..."
+npm run build
 
-echo "Starting Docusaurus on port $PORT..."
-npm run start -- --host 0.0.0.0 --port $PORT
+echo "Serving the built site on port $PORT..."
+npm run serve -- --host 0.0.0.0 --port "$PORT" --no-open

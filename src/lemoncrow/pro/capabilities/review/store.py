@@ -58,6 +58,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast
 
+from lemoncrow_client.review_words import revision_name
+
 from lemoncrow.core.foundation.paths import (
     DEFAULT_STORE_DIRNAME,
     ensure_dir_gitignore,
@@ -68,9 +70,12 @@ from lemoncrow.core.foundation.sqlite_base import SqliteTableStore
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.run_evidence import RunArtifactStore
 from lemoncrow.infra.storage.ids import make_uuid7
+from lemoncrow.pro.capabilities.review import request_reads, viewer_lens
 from lemoncrow.pro.capabilities.review.errors import AnnotationVersionConflict as AnnotationVersionConflict
 from lemoncrow.pro.capabilities.review.errors import HostedAttachmentConflict
 from lemoncrow.pro.capabilities.review.errors import ReviewArtifactReclaimed as ReviewArtifactReclaimed
+from lemoncrow.pro.capabilities.review.freshness import format_timestamp
+from lemoncrow.pro.capabilities.review.packet_index import PacketIndex, build_packet_index
 from lemoncrow.pro.capabilities.review.session_models import (
     ANCHOR_METHODS,
     HOSTED_ACTION_KINDS,
@@ -133,6 +138,8 @@ from lemoncrow.pro.capabilities.review.session_models import (
     SynthesisStatus,
     validate_annotation_semantics,
 )
+from lemoncrow.pro.capabilities.review.validity import parse_symbol_move_reason
+from lemoncrow.pro.capabilities.review.viewer_queue import Resume, ViewerState, resume_from_json, resume_to_json
 
 DB_NAME = "lemoncrow_reviews.db"
 
@@ -316,6 +323,8 @@ CREATE TABLE IF NOT EXISTS review_units (
   attention_rank      INTEGER NOT NULL DEFAULT 0,
   attention_group     TEXT NOT NULL DEFAULT 'production',
   reasons_json        TEXT NOT NULL DEFAULT '[]',
+  answer_category     TEXT NOT NULL DEFAULT '',
+  category_rule       TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (revision_id, unit_key)
 );
 CREATE INDEX IF NOT EXISTS idx_review_units_path ON review_units(revision_id, path);
@@ -704,7 +713,7 @@ CREATE TABLE IF NOT EXISTS review_decision_events (
 CREATE INDEX IF NOT EXISTS idx_review_decision_events_key
   ON review_decision_events(review_id, reviewer_id, decision_key, created_at, id);
 
--- Generic Review Intelligence runs/cache. Identity is semantic and Snapshot-
+-- Generic Review Intelligence runs/cache. Identity is semantic and revision-
 -- bound; local materialization paths and prompts are intentionally not stored.
 CREATE TABLE IF NOT EXISTS review_intelligence_runs (
   review_id         TEXT NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
@@ -776,7 +785,7 @@ CREATE TABLE IF NOT EXISTS review_synthesis_spend (
   updated_at   TEXT NOT NULL DEFAULT ''
 );
 
--- Hook-captured discussion does not require a code Snapshot. Change deletion owns retention.
+-- Hook-captured discussion does not require a code revision. Change deletion owns retention.
 CREATE TABLE IF NOT EXISTS review_discussion_comments (
   id TEXT PRIMARY KEY,
   review_id TEXT NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
@@ -797,7 +806,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS annotations_fts USING fts5(
   body, path, content=''
 );
 -- Change-level Development (see review/development.py). Append-only events
--- with a per-Change sequence. A Snapshot freezes its Development by recording
+-- with a per-Change sequence. A revision freezes its Development by recording
 -- the event watermark in the same transaction that creates the revision.
 CREATE TABLE IF NOT EXISTS development_sessions (
   change_id         TEXT NOT NULL REFERENCES review_sessions(id) ON DELETE CASCADE,
@@ -938,6 +947,24 @@ def _row_to_deletion_tombstone(row: Any) -> ReviewDeletionTombstone:
         deleted_at=str(row["deleted_at"]),
         previous_sha256=str(row["previous_sha256"]),
         record_sha256=str(row["record_sha256"]),
+    )
+
+
+class _Unset:
+    """Marks "argument left out" where ``None`` already means "clear"."""
+
+
+_UNSET = _Unset()
+
+
+def _row_to_viewer_state(row: Any) -> ViewerState:
+    return ViewerState(
+        review_id=str(row["review_id"]),
+        viewer_id=str(row["viewer_id"]),
+        snoozed_until=str(row["snoozed_until"]),
+        snoozed_revision=int(row["snoozed_revision"] or 0),
+        resume=resume_from_json(str(row["resume_json"] or "")),
+        updated_at=str(row["updated_at"]),
     )
 
 
@@ -1270,7 +1297,13 @@ class AnnotationHistoryContext:
 
 def _insert_activity_event(conn: sqlite3.Connection, event: ReviewActivityEvent) -> ReviewActivityEvent:
     now = event.created_at or utc_now()
-    record = replace(event, id=event.id or _new_activity_event_id(), created_at=now)
+    record = replace(
+        event,
+        id=event.id or _new_activity_event_id(),
+        created_at=now,
+        # written from the full rows for a viewer shown a narrowed answer? Then it says so (see viewer_lens.activity)
+        detail_json=viewer_lens.mark_if_decision(event.detail_json),
+    )
     conn.execute(
         """
         INSERT INTO review_activity_events (
@@ -1381,6 +1414,14 @@ def _insert_annotation_version(conn: sqlite3.Connection, version: AnnotationVers
     return record
 
 
+#: The relationship kind that sets a stored verdict aside (see :meth:`ReviewStore.void_outcome`).
+VOID_OUTCOME_KIND = "void_outcome"
+#: SQL: a verdict that was not set aside; takes the Review id once more as a parameter.
+_NOT_VOID = (
+    f"id NOT IN (SELECT external_id FROM review_relationships WHERE review_id = ? AND kind = '{VOID_OUTCOME_KIND}')"
+)
+
+
 class ReviewStore(SqliteTableStore):
     """Durable review sessions, revisions, units, marks and annotations."""
 
@@ -1434,6 +1475,12 @@ class ReviewStore(SqliteTableStore):
         "v3_038_review_ask_conversations.sql",
         "v3_039_review_hosted_attachment.sql",
         "v3_040_project_knowledge.sql",
+        "v3_041_review_answer_category.sql",
+        "v3_042_review_structure_reconsideration.sql",
+        "v3_043_review_flow_send.sql",
+        "v3_044_review_viewer_state.sql",
+        "v3_045_review_user_settings.sql",
+        "v3_046_review_ask_author.sql",
     )
     """Additive review-store migrations.
 
@@ -1458,6 +1505,8 @@ class ReviewStore(SqliteTableStore):
         "review_ask_messages",
         "review_ask_handoffs",
         "review_outcomes",
+        "review_flow_sends",
+        "review_user_settings",
         "review_frontiers",
         "review_discarded_marks",
         "annotations",
@@ -1477,6 +1526,7 @@ class ReviewStore(SqliteTableStore):
         "review_destinations",
         "review_hosted_attachments",
         "review_hosted_actions",
+        "review_viewer_state",
         "project_knowledge_meta",
         "project_knowledge_entries",
         "project_knowledge_events",
@@ -1510,6 +1560,10 @@ class ReviewStore(SqliteTableStore):
         # Units per Snapshot, reused while the Snapshot row is unchanged; see list_units.
         self._units_memo: OrderedDict[str, tuple[tuple[Any, ...], tuple[ReviewUnit, ...]]] = OrderedDict()
         self._units_memo_lock = threading.Lock()
+        # Indexed packets per (revision, packet digest, packet path); see packet_index.
+        self._packet_index_memo: OrderedDict[tuple[str, str, str], PacketIndex] = OrderedDict()
+        self._packet_index_lock = threading.Lock()
+        self._packet_index_building: dict[tuple[str, str, str], threading.Lock] = {}
 
     # ----- lifecycle ------------------------------------------------------ #
 
@@ -2447,6 +2501,90 @@ class ReviewStore(SqliteTableStore):
                 )
         return self.get_destination(destination.review_id)
 
+    # ----- per-viewer queue state (Home and queue, P5-1) ------------------ #
+
+    def viewer_states(self, review_ids: Sequence[str], viewer_id: str) -> dict[str, ViewerState]:
+        """This viewer's snooze and resume rows for *review_ids* (one read for a list page)."""
+
+        self._ensure_ready()
+        ids = list(review_ids)
+        if not ids:
+            return {}
+        found: dict[str, ViewerState] = {}
+        with self._transaction() as conn:
+            for start in range(0, len(ids), 400):
+                chunk = ids[start : start + 400]
+                marks = ",".join("?" for _ in chunk)
+                for row in conn.execute(
+                    f"SELECT * FROM review_viewer_state WHERE viewer_id = ? AND review_id IN ({marks})",
+                    (viewer_id, *chunk),
+                ).fetchall():
+                    found[str(row["review_id"])] = _row_to_viewer_state(row)
+        return found
+
+    def set_viewer_state(
+        self,
+        review_id: str,
+        viewer_id: str,
+        *,
+        snooze: str | _Unset | None = _UNSET,
+        resume: Resume | _Unset | None = _UNSET,
+    ) -> ViewerState | None:
+        """Write this viewer's snooze and/or resume position; ``None`` clears that part, leaving it out keeps it.
+
+        ``snooze`` is an already validated instant (:func:`parse_snooze_until`). It is pinned to the Review's latest
+        Snapshot number, so a newer Snapshot ends it. Every write drops this viewer's expired snoozes, and a row left
+        with neither part is deleted, so the table holds only what still means something.
+        """
+
+        self._ensure_ready()
+        now = datetime.now(UTC)
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM review_sessions WHERE id = ?", (review_id,)).fetchone() is None:
+                raise ValueError(f"no review {review_id!r}")
+            conn.execute(
+                "UPDATE review_viewer_state SET snoozed_until = '', snoozed_revision = 0 "
+                "WHERE viewer_id = ? AND snoozed_until != '' AND snoozed_until <= ?",
+                (viewer_id, format_timestamp(now)),
+            )
+            conn.execute(
+                "DELETE FROM review_viewer_state WHERE viewer_id = ? AND snoozed_until = '' AND resume_json = ''",
+                (viewer_id,),
+            )
+            row = conn.execute(
+                "SELECT * FROM review_viewer_state WHERE review_id = ? AND viewer_id = ?", (review_id, viewer_id)
+            ).fetchone()
+            current = _row_to_viewer_state(row) if row is not None else ViewerState(review_id, viewer_id)
+            until, pinned = current.snoozed_until, current.snoozed_revision
+            if isinstance(snooze, _Unset):
+                pass
+            elif snooze is None:
+                until, pinned = "", 0
+            else:
+                latest = conn.execute(
+                    "SELECT MAX(revision_number) AS n FROM review_revisions WHERE review_id = ?", (review_id,)
+                ).fetchone()
+                until, pinned = snooze, int(latest["n"] or 0) if latest is not None else 0
+            kept = current.resume if isinstance(resume, _Unset) else resume
+            if not until and kept is None:
+                conn.execute(
+                    "DELETE FROM review_viewer_state WHERE review_id = ? AND viewer_id = ?", (review_id, viewer_id)
+                )
+                return None
+            stamp = utc_now()
+            conn.execute(
+                """
+                INSERT INTO review_viewer_state (
+                    review_id, viewer_id, snoozed_until, snoozed_revision, resume_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(review_id, viewer_id) DO UPDATE SET
+                    snoozed_until = excluded.snoozed_until, snoozed_revision = excluded.snoozed_revision,
+                    resume_json = excluded.resume_json, updated_at = excluded.updated_at
+                """,
+                (review_id, viewer_id, until, pinned, resume_to_json(kept), stamp),
+            )
+            return ViewerState(review_id, viewer_id, until, pinned, kept, stamp)
+
     # ----- local <-> hosted attachment (G5-SYNC) ------------------------- #
 
     def hosted_attachment_supported(self) -> bool:
@@ -2454,6 +2592,15 @@ class ReviewStore(SqliteTableStore):
 
         Only a local store can: a hosted store *is* the authority and keeps no
         projection or replay queue of another server.
+        """
+
+        return True
+
+    def later_mark_supported(self) -> bool:
+        """Whether this store may record the ``later`` ("Decide later") mark state.
+
+        A local store always may: it is one process. A hosted store may only once every build that can serve
+        its database understands the state (see ``HostedReviewStore``).
         """
 
         return True
@@ -2768,15 +2915,91 @@ class ReviewStore(SqliteTableStore):
                 conn.execute("DELETE FROM review_hosted_actions WHERE id = ?", (action_id,))
         return len(doomed)
 
-    def list_relationships_by_kind(self, kind: str) -> tuple[ReviewRelationship, ...]:
-        """Every relationship of one kind across all Changes in this store."""
+    def list_relationships_by_kind(self, kind: str, *, statuses: Sequence[str] = ()) -> tuple[ReviewRelationship, ...]:
+        """Every relationship of one kind across all Changes in this store (only those in *statuses*, when given)."""
         self._ensure_ready()
+        sql = "SELECT * FROM review_relationships WHERE kind = ?"
+        params: list[Any] = [kind]
+        if statuses:
+            sql += f" AND status IN ({','.join('?' for _ in statuses)})"
+            params.extend(statuses)
         with self._transaction() as conn:
-            rows = conn.execute(
-                "SELECT * FROM review_relationships WHERE kind = ? ORDER BY review_id, created_at, id",
-                (kind,),
-            ).fetchall()
+            rows = conn.execute(sql + " ORDER BY review_id, created_at, id", params).fetchall()
         return tuple(_row_to_relationship(row) for row in rows)
+
+    def list_relationships_for_reviews(self, kind: str, review_ids: Sequence[str]) -> tuple[ReviewRelationship, ...]:
+        """Every relationship of one kind on these Changes (an Inbox page's worth), read in bounded chunks."""
+        self._ensure_ready()
+        found: list[ReviewRelationship] = []
+        wanted = list(dict.fromkeys(review_ids))
+        with self._transaction() as conn:
+            for start in range(0, len(wanted), 400):
+                chunk = wanted[start : start + 400]
+                marks = ",".join("?" for _ in chunk)
+                rows = conn.execute(
+                    f"SELECT * FROM review_relationships WHERE kind = ? AND review_id IN ({marks})"
+                    " ORDER BY review_id, created_at, id",
+                    (kind, *chunk),
+                ).fetchall()
+                found.extend(_row_to_relationship(row) for row in rows)
+        return tuple(found)
+
+    def insert_relationship_if_absent(self, relationship: ReviewRelationship) -> ReviewRelationship | None:
+        """Insert one relationship unless its key already exists; ``None`` when another writer's row is there.
+
+        One ``INSERT ... ON CONFLICT DO NOTHING`` statement, so of several writers of the same key (two replicas
+        included, on PostgreSQL) exactly one gets its row back. The key is the one :meth:`upsert_relationship`
+        conflicts on.
+        """
+
+        self._ensure_ready()
+        now = utc_now()
+        record = ReviewRelationship(
+            id=relationship.id or new_relationship_id(),
+            review_id=relationship.review_id,
+            kind=relationship.kind.strip(),
+            relation=relationship.relation.strip(),
+            provider=relationship.provider.strip(),
+            external_id=relationship.external_id.strip(),
+            target_review_id="",
+            url=relationship.url.strip(),
+            title=relationship.title.strip(),
+            status=relationship.status.strip(),
+            source=relationship.source.strip() or "explicit",
+            metadata_json=relationship.metadata_json or "{}",
+            created_at=relationship.created_at or now,
+            updated_at=now,
+        )
+        if not record.kind or not record.relation or not record.external_id:
+            raise ValueError("relationship kind, relation and external id are required")
+        with self._transaction() as conn:
+            inserted = conn.execute(
+                """
+                INSERT INTO review_relationships (
+                    id, review_id, kind, relation, provider, external_id,
+                    target_review_id, url, title, status, source, metadata_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(review_id, kind, relation, provider, external_id, target_review_id) DO NOTHING
+                """,
+                (
+                    record.id,
+                    record.review_id,
+                    record.kind,
+                    record.relation,
+                    record.provider,
+                    record.external_id,
+                    record.target_review_id,
+                    record.url,
+                    record.title,
+                    record.status,
+                    record.source,
+                    record.metadata_json,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            ).rowcount
+        return record if inserted == 1 else None
 
     def update_relationship_if_unchanged(
         self,
@@ -2966,6 +3189,7 @@ class ReviewStore(SqliteTableStore):
             owns_transaction = not conn.in_transaction
             if owns_transaction:
                 conn.execute("BEGIN IMMEDIATE")
+            changes = conn.total_changes
             try:
                 yield conn
                 if owns_transaction and conn.in_transaction:
@@ -2974,6 +3198,10 @@ class ReviewStore(SqliteTableStore):
                 if owns_transaction and conn.in_transaction:
                     conn.rollback()
                 raise
+            finally:
+                # The callers write on this connection directly (attention rows, outbox rows), not through a
+                # store method, so the scope as a whole says whether it moved a row (request_reads write epoch).
+                self._note_changes(conn, changes)
             return
 
         conn = self._connect()
@@ -2981,6 +3209,7 @@ class ReviewStore(SqliteTableStore):
         old_deadline = self._batch_deadline
         self._connection = conn
         self._batch_deadline = None
+        changes = conn.total_changes
         try:
             conn.execute("BEGIN IMMEDIATE")
             yield conn
@@ -2993,6 +3222,7 @@ class ReviewStore(SqliteTableStore):
         finally:
             self._connection = old_conn
             self._batch_deadline = old_deadline
+            self._note_changes(conn, changes)
             conn.close()
 
     # ----- revisions + units ---------------------------------------------- #
@@ -3091,7 +3321,7 @@ class ReviewStore(SqliteTableStore):
 
         if not revision.packet_path:
             return
-        self._claim_artifacts((revision.packet_path, *written), row="Snapshot")
+        self._claim_artifacts((revision.packet_path, *written), row="Revision")
 
     def add_revision(
         self,
@@ -3244,8 +3474,8 @@ class ReviewStore(SqliteTableStore):
                         INSERT INTO review_units (
                             revision_id, unit_key, kind, path, symbol, ordinal,
                             start_line, end_line, content_fingerprint, fingerprint_method,
-                            attention_rank, attention_group, reasons_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            attention_rank, attention_group, reasons_json, answer_category, category_rule
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             record.id,
@@ -3261,6 +3491,8 @@ class ReviewStore(SqliteTableStore):
                             unit.attention_rank,
                             unit.attention_group,
                             _dump_tuple(unit.reasons),
+                            unit.answer_category,
+                            unit.category_rule,
                         ),
                     )
                 _insert_activity_event(
@@ -3274,12 +3506,14 @@ class ReviewStore(SqliteTableStore):
                         actor_type="agent" if record.provenance_host else "unknown",
                         subject_type="revision",
                         subject_id=record.id,
-                        summary=f"Snapshot {max(0, record.revision_number - 1)} recorded",
+                        summary=f"{revision_name(max(0, record.revision_number - 1))} recorded",
                         detail_json=json.dumps(
                             {
                                 "base_sha": record.base_sha,
                                 "head_sha": record.head_sha,
                                 "degraded": list(record.degraded),
+                                # The Reader names the agent by its host, never by this session id.
+                                **({"host": record.provenance_host} if record.provenance_host else {}),
                             },
                             ensure_ascii=False,
                             sort_keys=True,
@@ -3405,7 +3639,8 @@ class ReviewStore(SqliteTableStore):
             return
         self._ensure_ready()
         now = utc_now()
-        with self._transaction() as conn:
+        # A stamped, recomputable row: it does not move ``write_epoch`` (no fact a request memo holds depends on it).
+        with self.cache_write(), self._transaction() as conn:
             conn.executemany(
                 """
                 INSERT INTO review_derived (
@@ -3564,7 +3799,8 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         key = (result.revision_id, result.kind, result.scope_key)
         for _attempt in range(max(1, int(max_attempts))):
-            with self._transaction() as conn:
+            # An additive spend ledger: no fact a request memo holds is read from it.
+            with self.cache_write(), self._transaction() as conn:
                 row = conn.execute(
                     "SELECT stamp, payload_json FROM review_derived WHERE revision_id = ? AND kind = ? AND scope_key = ?",
                     key,
@@ -3657,7 +3893,7 @@ class ReviewStore(SqliteTableStore):
         """Mark one row as just used (least-recently-used retention reads ``updated_at``)."""
 
         self._ensure_ready()
-        with self._transaction() as conn:
+        with self.cache_write(), self._transaction() as conn:
             conn.execute(
                 "UPDATE review_derived SET updated_at = ? WHERE revision_id = ? AND kind = ? AND scope_key = ?",
                 (utc_now(), revision_id, kind, scope_key),
@@ -3766,19 +4002,19 @@ class ReviewStore(SqliteTableStore):
             key not in projected or identity(stored[key]) != identity(projected[key]) for key in stored
         )
         added_keys = projected.keys() - stored.keys()
-        # Compatibility repair for Snapshots created by the pre-symbol-fast-path:
-        # those rows persisted file/hunk identity only, then a later normal Review
-        # discovered stable symbol units and was rejected.  Adding only symbol
-        # units is monotonic and preserves every identity the human could already
+        # A large capture persists file/hunk identity only and leaves symbols to
+        # the background impact pass, which then finds the definitions and the
+        # module declarations (``document_section``) those hunks touch. Adding
+        # these is monotonic and preserves every identity the human could already
         # have reviewed; any removal, moved target, changed fingerprint, or other
         # new unit kind remains a hard refusal.
-        symbol_only_upgrade = bool(
+        refinement_only = bool(
             added_keys
             and not common_identity_changed
             and not (stored.keys() - projected.keys())
-            and all(projected[key].kind == "symbol" for key in added_keys)
+            and all(projected[key].kind in {"symbol", "document_section"} for key in added_keys)
         )
-        if common_identity_changed or stored.keys() - projected.keys() or (added_keys and not symbol_only_upgrade):
+        if common_identity_changed or stored.keys() - projected.keys() or (added_keys and not refinement_only):
             raise ValueError("review enrichment changed target identity; refusing to rewrite a visible revision")
 
         # Stable slots: the ranks this enrichment replaces are kept beside it, so a
@@ -3818,8 +4054,8 @@ class ReviewStore(SqliteTableStore):
                         INSERT INTO review_units (
                             revision_id, unit_key, kind, path, symbol, ordinal,
                             start_line, end_line, content_fingerprint, fingerprint_method,
-                            attention_rank, attention_group, reasons_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            attention_rank, attention_group, reasons_json, answer_category, category_rule
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             revision_id,
@@ -3835,19 +4071,27 @@ class ReviewStore(SqliteTableStore):
                             unit.attention_rank,
                             unit.attention_group,
                             _dump_tuple(unit.reasons),
+                            unit.answer_category,
+                            unit.category_rule,
                         ),
                     )
                 else:
                     conn.execute(
                         """
                         UPDATE review_units
-                           SET attention_rank = ?, attention_group = ?, reasons_json = ?
+                           SET attention_rank = ?, attention_group = ?, reasons_json = ?,
+                               answer_category = CASE WHEN ? = '' THEN answer_category ELSE ? END,
+                               category_rule = CASE WHEN ? = '' THEN category_rule ELSE ? END
                          WHERE revision_id = ? AND unit_key = ?
                         """,
                         (
                             unit.attention_rank,
                             unit.attention_group,
                             _dump_tuple(unit.reasons),
+                            unit.answer_category,
+                            unit.answer_category,
+                            unit.answer_category,
+                            unit.category_rule,
                             revision_id,
                             unit.unit_key,
                         ),
@@ -4079,12 +4323,17 @@ class ReviewStore(SqliteTableStore):
 
     def list_revisions(self, review_id: str) -> tuple[ReviewRevision, ...]:
         self._ensure_ready()
-        with self._transaction() as conn:
-            rows = conn.execute(
-                "SELECT * FROM review_revisions WHERE review_id = ? ORDER BY revision_number ASC",
-                (review_id,),
-            ).fetchall()
-        return tuple(_row_to_revision(row) for row in rows)
+
+        def read() -> tuple[ReviewRevision, ...]:
+            with self._transaction() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM review_revisions WHERE review_id = ? ORDER BY revision_number ASC",
+                    (review_id,),
+                ).fetchall()
+            return tuple(_row_to_revision(row) for row in rows)
+
+        # Asked many times by one request; served again only while this store has seen no write (request_reads).
+        return request_reads.facts_once(self, ("revisions", review_id), read)
 
     def publish_snapshot(self, review_id: str, revision_id: str) -> None:
         """Expose an explicit Review capture in History, once per revision."""
@@ -4108,7 +4357,7 @@ class ReviewStore(SqliteTableStore):
                         actor_type="unknown",
                         subject_type="snapshot",
                         subject_id=revision_id,
-                        summary="Snapshot saved",
+                        summary="Revision saved",
                     ),
                 )
 
@@ -4123,6 +4372,29 @@ class ReviewStore(SqliteTableStore):
 
     # Units held for reuse across calls, counted in units (~6k per large Snapshot).
     UNITS_MEMO_MAX_UNITS: ClassVar[int] = 60_000
+
+    def policy_edit_revisions(self, revision_ids: Sequence[str]) -> dict[str, tuple[str, ...]]:
+        """Per revision, the policy files (rules file, CODEOWNERS, allowed signers) its change edits (P7-3).
+
+        One read for many revisions; a revision that edits none is absent. The same fact the Overview, Wrap up and
+        the Home row state, so they cannot disagree.
+        """
+
+        from lemoncrow.pro.capabilities.review.policy_edit import POLICY_FILES, policy_paths
+
+        self._ensure_ready()
+        found: dict[str, list[str]] = {}
+        ids = list(dict.fromkeys(revision_ids))
+        for start in range(0, len(ids), 500):
+            chunk = ids[start : start + 500]
+            with self._transaction() as conn:
+                for row in conn.execute(
+                    f"SELECT DISTINCT revision_id, path FROM review_units WHERE revision_id IN ({', '.join('?' for _ in chunk)})"
+                    f" AND path IN ({', '.join('?' for _ in POLICY_FILES)})",
+                    [*chunk, *POLICY_FILES],
+                ).fetchall():
+                    found.setdefault(str(row["revision_id"]), []).append(str(row["path"]))
+        return {revision_id: policy_paths(paths) for revision_id, paths in found.items()}
 
     def list_units(self, revision_id: str) -> tuple[ReviewUnit, ...]:
         """A Snapshot's units, most important first.
@@ -4165,6 +4437,64 @@ class ReviewStore(SqliteTableStore):
                     _key, (_stamp, dropped) = self._units_memo.popitem(last=False)
                     held -= len(dropped)
         return units
+
+    def has_file_unit(self, revision_id: str, path: str) -> bool:
+        """Whether the Snapshot has a file unit at exactly *path*: one indexed lookup, not the whole unit list."""
+
+        self._ensure_ready()
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM review_units WHERE revision_id = ? AND path = ? AND kind = 'file' LIMIT 1",
+                (revision_id, path),
+            ).fetchone()
+        return row is not None
+
+    # What the packet-index memo may hold. A 10,000-file Snapshot indexes to about 11 MiB, so this keeps a few.
+    # The most recent index stays even when it alone is larger, so a huge packet is read once and not once per request.
+    PACKET_INDEX_MEMO_MAX_BYTES: ClassVar[int] = 64 * 1024 * 1024
+    PACKET_INDEX_MEMO_MAX_ENTRIES: ClassVar[int] = 4
+
+    def packet_index(self, revision: ReviewRevision) -> PacketIndex | None:
+        """The Snapshot's packet, indexed for one-file reads, or ``None`` when it is not readable.
+
+        A packet is immutable for its digest, so the index is kept per ``(revision id, packet_sha256, packet_path)``:
+        a rewritten packet has another digest and never reads an older index, and another revision never reads this
+        one. A revision with no recorded digest has nothing to key on, so it is read fresh every time. Concurrent
+        first reads of one packet build it once.
+        """
+
+        key = (revision.id, revision.packet_sha256, revision.packet_path)
+        if not revision.packet_sha256:
+            return build_packet_index(self.read_packet_artifact(revision))
+        with self._packet_index_lock:
+            index = self._packet_index_memo.get(key)
+            if index is not None:
+                self._packet_index_memo.move_to_end(key)
+                return index
+            building = self._packet_index_building.setdefault(key, threading.Lock())
+        with building:
+            with self._packet_index_lock:
+                index = self._packet_index_memo.get(key)
+                if index is not None:
+                    self._packet_index_memo.move_to_end(key)
+                    return index
+            try:
+                index = build_packet_index(self.read_packet_artifact(revision))
+                if index is not None:
+                    with self._packet_index_lock:
+                        self._packet_index_memo[key] = index
+                        self._packet_index_memo.move_to_end(key)
+                        held = sum(item.nbytes for item in self._packet_index_memo.values())
+                        while len(self._packet_index_memo) > 1 and (
+                            held > self.PACKET_INDEX_MEMO_MAX_BYTES
+                            or len(self._packet_index_memo) > self.PACKET_INDEX_MEMO_MAX_ENTRIES
+                        ):
+                            _key, dropped = self._packet_index_memo.popitem(last=False)
+                            held -= dropped.nbytes
+            finally:
+                with self._packet_index_lock:
+                    self._packet_index_building.pop(key, None)
+            return index
 
     def add_revision_attributions(
         self,
@@ -4452,7 +4782,7 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM review_marks WHERE review_id = ? AND reviewer_id = ? ORDER BY updated_at DESC",
                 (review_id, reviewer_id),
             ).fetchall()
-        return tuple(_row_to_mark(row) for row in rows)
+        return viewer_lens.reviewer_marks(review_id, reviewer_id, (_row_to_mark(row) for row in rows))
 
     def human_behavior_judgments(self, review_id: str) -> tuple[tuple[str, str], ...]:
         """``(judged revision id, note)`` of every human behavior judgment in force, any reviewer.
@@ -4490,7 +4820,42 @@ class ReviewStore(SqliteTableStore):
         sql += " ORDER BY created_at ASC, id ASC"
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return tuple(_row_to_mark_event(row) for row in rows)
+        return viewer_lens.reviewer_marks(review_id, reviewer_id, (_row_to_mark_event(row) for row in rows))
+
+    def list_symbol_move_provenance(
+        self, review_id: str, *, revision_id: str, reviewer_id: str = "local"
+    ) -> dict[str, tuple[str, str, str]]:
+        """``unit_key -> ("moved" | "renamed", previous path, previous qualified name)`` for units whose
+        *latest* mark event is the reconciliation that followed a symbol move or rename **onto
+        *revision_id***.
+
+        One query, no new column: the provenance rides in the audited ``reason`` of the reconciling
+        event (see :func:`validity.mark_event_reason`). Only a ``reconciled`` event counts -- a
+        judgment's free-text note is stored in the same column and must never forge a label -- and only
+        on the revision the move happened at: it says where the code came from *at that Snapshot*, and
+        is silent on every later one rather than risk describing a source that has changed since. Any
+        later event on the unit -- a judgment, a re-reconciliation, a discard -- supersedes it.
+        Ties inside one instant break on ``id``, which :func:`make_uuid7` issues in creation order.
+        """
+
+        self._ensure_ready()
+        moved, renamed = ("symbol moved from ", "symbol renamed from ")
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT e.unit_key AS unit_key, e.reason AS reason FROM review_mark_events e "
+                "WHERE e.review_id = ? AND e.reviewer_id = ? AND e.revision_id = ? AND e.event_kind = 'reconciled' "
+                f"AND (substr(e.reason, 1, {len(moved)}) = ? OR substr(e.reason, 1, {len(renamed)}) = ?) "
+                "AND NOT EXISTS (SELECT 1 FROM review_mark_events l WHERE l.review_id = e.review_id "
+                "AND l.reviewer_id = e.reviewer_id AND l.unit_key = e.unit_key "
+                "AND (l.created_at > e.created_at OR (l.created_at = e.created_at AND l.id > e.id)))",
+                (review_id, reviewer_id, revision_id, moved, renamed),
+            ).fetchall()
+        out: dict[str, tuple[str, str, str]] = {}
+        for row in rows:
+            parsed = parse_symbol_move_reason(str(row["reason"]))
+            if parsed is not None:
+                out[str(row["unit_key"])] = parsed
+        return out
 
     def first_judgment_at(self, review_id: str, revision_id: str, *, reviewer_id: str) -> str:
         """When *reviewer_id* first judged an item on this Snapshot (a human judgment), or ``""``."""
@@ -4612,6 +4977,30 @@ class ReviewStore(SqliteTableStore):
         params.append(max(1, min(limit, 5000)))
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
+        return cast(
+            "tuple[ReviewActivityEvent, ...]",
+            viewer_lens.activity(review_id, (_row_to_activity_event(row) for row in rows)),
+        )
+
+    def list_coverage_events(
+        self, review_id: str, *, revision_id: str, actor_id: str, kinds: Sequence[str]
+    ) -> tuple[ReviewActivityEvent, ...]:
+        """Every ``kinds`` event of one actor on one revision, oldest first, with no row cap.
+
+        Revision and actor are filtered in SQL. The rows are bounded by writes
+        (one per block, see ``seen_coverage.already_reported``), never truncated,
+        because a signed record must recompute from exactly the rows it bound.
+        """
+
+        self._ensure_ready()
+        if not kinds:
+            return ()
+        sql = (
+            "SELECT * FROM review_activity_events WHERE review_id = ? AND revision_id = ? AND actor_id = ?"
+            f" AND kind IN ({', '.join('?' for _ in kinds)}) ORDER BY created_at ASC, id ASC"
+        )
+        with self._transaction() as conn:
+            rows = conn.execute(sql, [review_id, revision_id, actor_id, *kinds]).fetchall()
         return tuple(_row_to_activity_event(row) for row in rows)
 
     def activity_events_for_reviews(
@@ -4637,7 +5026,9 @@ class ReviewStore(SqliteTableStore):
             for row in rows:
                 event = _row_to_activity_event(row)
                 out.setdefault(event.review_id, []).append(event)
-        return {review_id: tuple(events) for review_id, events in out.items()}
+        # The same lens as list_activity_events: a priority override a hidden person set (his reason, his id) is not read.
+        lensed = {review_id: viewer_lens.activity(review_id, events) for review_id, events in out.items()}
+        return {review_id: events for review_id, events in lensed.items() if events}
 
     #: Tables whose newest timestamp is a durable Review fact the readiness record must postdate.
     FACT_WATERMARK_SOURCES: ClassVar[tuple[tuple[str, str], ...]] = (
@@ -4682,9 +5073,10 @@ class ReviewStore(SqliteTableStore):
         return {review_id: text for review_id, (_parsed, text) in newest.items()}
 
     def inbox_side_facts(self, review_ids: Sequence[str]) -> dict[str, dict[str, str]]:
-        """Per Review: pinned feedback destination kind and Merge-when-ready landing status.
+        """Per Review: pinned feedback destination kind, Merge-when-ready landing status and latest verdict.
 
-        Two reads per 500 Reviews (the local Inbox); a Review with neither is absent.
+        Three reads per 500 Reviews (the local Inbox); a Review with none of them is absent.
+        ``verdict`` / ``verdict_revision`` are the newest verdict not set aside, and the revision it binds.
         """
 
         self._ensure_ready()
@@ -4705,6 +5097,20 @@ class ReviewStore(SqliteTableStore):
                     chunk,
                 ).fetchall():
                     out.setdefault(str(row["review_id"]), {})["landing"] = str(row["status"] or "")
+                for row in conn.execute(
+                    "SELECT o.review_id, o.revision_id, o.reviewer_id, o.outcome FROM review_outcomes o"
+                    f" WHERE o.review_id IN ({marks}) AND o.id NOT IN (SELECT r.external_id FROM review_relationships r"
+                    f" WHERE r.review_id = o.review_id AND r.kind = '{VOID_OUTCOME_KIND}')"
+                    " ORDER BY o.review_id, o.created_at DESC, o.id DESC",
+                    chunk,
+                ).fetchall():
+                    review_id = str(row["review_id"])
+                    if str(row["reviewer_id"] or "") in viewer_lens.hidden_in(review_id):
+                        continue  # the same lens list_outcomes applies: a hidden reviewer's verdict is not read
+                    facts = out.setdefault(review_id, {})
+                    if "verdict" not in facts:  # newest first: the first row per Review is its latest verdict
+                        facts["verdict"] = str(row["outcome"] or "")
+                        facts["verdict_revision"] = str(row["revision_id"] or "")
         return out
 
     # ----- contextual Ask conversation ------------------------------------ #
@@ -4715,6 +5121,7 @@ class ReviewStore(SqliteTableStore):
         *,
         title: str = "",
         origin_json: str = "{}",
+        created_by: str = "",
     ) -> ReviewAskConversationRecord:
         """Create one durable conversation. Existing unthreaded Ask rows remain legacy history."""
 
@@ -4733,6 +5140,7 @@ class ReviewStore(SqliteTableStore):
             origin_json=json.dumps(origin, sort_keys=True, separators=(",", ":")),
             created_at=now,
             updated_at=now,
+            created_by=created_by,
         )
         with self._transaction() as conn:
             exists = conn.execute("SELECT 1 FROM review_sessions WHERE id = ?", (review_id,)).fetchone()
@@ -4740,8 +5148,16 @@ class ReviewStore(SqliteTableStore):
                 raise ValueError("Ask conversation Review does not exist")
             conn.execute(
                 "INSERT INTO review_ask_conversations "
-                "(id, review_id, title, origin_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (stored.id, stored.review_id, stored.title, stored.origin_json, stored.created_at, stored.updated_at),
+                "(id, review_id, title, origin_json, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    stored.id,
+                    stored.review_id,
+                    stored.title,
+                    stored.origin_json,
+                    stored.created_at,
+                    stored.updated_at,
+                    stored.created_by,
+                ),
             )
         return stored
 
@@ -4752,14 +5168,19 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM review_ask_conversations WHERE id = ?",
                 (conversation_id,),
             ).fetchone()
-        return None if row is None else _row_to_ask_conversation(row)
+        found = None if row is None else _row_to_ask_conversation(row)
+        return found if found is not None and viewer_lens.ask_rows(found.review_id, [found]) else None
 
     def list_ask_conversations(self, review_id: str, *, limit: int = 50) -> tuple[ReviewAskConversationRecord, ...]:
         self._ensure_ready()
+        # The author filter is in the query, not after it: a limit must count only what the reader may see.
+        author_sql, author_params = viewer_lens.ask_author_sql(review_id)
         with self._transaction() as conn:
             rows = conn.execute(
-                "SELECT * FROM review_ask_conversations WHERE review_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?",
-                (review_id, max(1, min(limit, 500))),
+                "SELECT * FROM review_ask_conversations WHERE review_id = ?"
+                + author_sql
+                + " ORDER BY updated_at DESC, id DESC LIMIT ?",
+                (review_id, *author_params, max(1, min(limit, 500))),
             ).fetchall()
         return tuple(_row_to_ask_conversation(row) for row in rows)
 
@@ -4819,8 +5240,8 @@ class ReviewStore(SqliteTableStore):
                 INSERT INTO review_ask_messages (
                     id, review_id, revision_id, role, intent, body,
                     target_unit_key, path, symbol, side, start_line, end_line,
-                    context_json, references_json, action_json, created_at, conversation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    context_json, references_json, action_json, created_at, conversation_id, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     stored.id,
@@ -4840,6 +5261,7 @@ class ReviewStore(SqliteTableStore):
                     stored.action_json,
                     stored.created_at,
                     stored.conversation_id,
+                    stored.created_by,
                 ),
             )
             if stored.conversation_id:
@@ -4858,7 +5280,8 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM review_ask_messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
-        return None if row is None else _row_to_ask_message(row)
+        found = None if row is None else _row_to_ask_message(row)
+        return found if found is not None and viewer_lens.ask_rows(found.review_id, [found]) else None
 
     def list_ask_messages(
         self,
@@ -4873,7 +5296,9 @@ class ReviewStore(SqliteTableStore):
         if conversation_id is not None:
             sql += " AND conversation_id = ?"
             params.append(conversation_id)
-        sql += " ORDER BY created_at ASC, id ASC LIMIT ?"
+        author_sql, author_params = viewer_lens.ask_author_sql(review_id)
+        sql += author_sql + " ORDER BY created_at ASC, id ASC LIMIT ?"
+        params.extend(author_params)
         params.append(max(1, min(limit, 5000)))
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
@@ -4991,6 +5416,227 @@ class ReviewStore(SqliteTableStore):
             ).fetchone()
         return None if row is None else _row_to_ask_handoff(row)
 
+    # ----- P2-5 delayed review send -------------------------------------- #
+
+    def schedule_review_flow_send(
+        self,
+        *,
+        review_id: str,
+        revision_id: str,
+        reviewer_id: str,
+        operation_id: str,
+        payload_json: str,
+        send_after: str,
+    ) -> dict[str, str]:
+        """Durably hold a human-approved operation. Nothing is delivered yet.
+
+        Repeating the same operation is idempotent. One pending or dispatching
+        operation per review prevents a second tab from sending a competing verdict.
+        """
+        self._ensure_ready()
+        now = utc_now()
+        with self._transaction() as conn:
+            self._lock_for_write(conn, key=f"flow-send:{review_id}")
+            current = conn.execute(
+                "SELECT current_revision_id, status FROM review_sessions WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+            if current is None or current["current_revision_id"] != revision_id or current["status"] != "open":
+                raise ValueError("the review changed or is not open; reload before sending")
+            prior = conn.execute(
+                "SELECT * FROM review_flow_sends WHERE id = ? AND review_id = ?",
+                (operation_id, review_id),
+            ).fetchone()
+            if prior is not None:
+                if prior["payload_json"] != payload_json or prior["revision_id"] != revision_id:
+                    raise ValueError("this send operation ID refers to different content")
+                return dict(prior)
+            active = conn.execute(
+                "SELECT id FROM review_flow_sends WHERE review_id = ? AND state IN ('pending','dispatching')",
+                (review_id,),
+            ).fetchone()
+            if active is not None:
+                raise ValueError("this review already has a pending send; check its status first")
+            conn.execute(
+                """INSERT INTO review_flow_sends
+                   (id,review_id,revision_id,reviewer_id,payload_json,state,send_after,created_at,updated_at)
+                   VALUES (?,?,?,?,?,'pending',?,?,?)""",
+                (operation_id, review_id, revision_id, reviewer_id, payload_json, send_after, now, now),
+            )
+            row = conn.execute("SELECT * FROM review_flow_sends WHERE id = ?", (operation_id,)).fetchone()
+        assert row is not None
+        return dict(row)
+
+    def get_user_settings(self, reviewer_id: str) -> dict[str, Any]:
+        """The settings *reviewer_id* set (SPEC 4.11); ``{}`` when none."""
+
+        self._ensure_ready()
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT settings_json FROM review_user_settings WHERE reviewer_id = ?", (reviewer_id,)
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            value = json.loads(row["settings_json"])
+        except ValueError:
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def patch_user_settings(self, reviewer_id: str, patch: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate *patch* against the stored settings and write the result in one transaction.
+
+        An empty result removes the row, so a reviewer who reset everything leaves nothing behind.
+        """
+
+        from lemoncrow.pro.capabilities.review.user_settings import apply_patch
+
+        self._ensure_ready()
+        with self._transaction() as conn:
+            self._lock_for_write(conn, key=f"user-settings:{reviewer_id}")
+            row = conn.execute(
+                "SELECT settings_json FROM review_user_settings WHERE reviewer_id = ?", (reviewer_id,)
+            ).fetchone()
+            try:
+                stored = json.loads(row["settings_json"]) if row is not None else {}
+            except ValueError:
+                stored = {}
+            updated = apply_patch(stored if isinstance(stored, dict) else {}, patch)
+            if updated:
+                conn.execute(
+                    """INSERT INTO review_user_settings (reviewer_id, settings_json, updated_at) VALUES (?,?,?)
+                       ON CONFLICT(reviewer_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at""",
+                    (reviewer_id, json.dumps(updated, sort_keys=True), utc_now()),
+                )
+            else:
+                conn.execute("DELETE FROM review_user_settings WHERE reviewer_id = ?", (reviewer_id,))
+        return updated
+
+    def reset_user_settings(self, reviewer_id: str) -> None:
+        self._ensure_ready()
+        with self._transaction() as conn:
+            conn.execute("DELETE FROM review_user_settings WHERE reviewer_id = ?", (reviewer_id,))
+
+    def get_review_flow_send(self, review_id: str, operation_id: str = "") -> dict[str, str] | None:
+        self._ensure_ready()
+        with self._transaction() as conn:
+            if operation_id:
+                row = conn.execute(
+                    "SELECT * FROM review_flow_sends WHERE review_id = ? AND id = ?",
+                    (review_id, operation_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM review_flow_sends WHERE review_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (review_id,),
+                ).fetchone()
+        return dict(row) if row is not None else None
+
+    def undo_review_flow_send(self, review_id: str, operation_id: str, *, now: str) -> dict[str, str] | None:
+        """Server-side expiry and state CAS: a late Undo never claims to stop a send."""
+        self._ensure_ready()
+        with self._transaction() as conn:
+            self._lock_for_write(conn, key=f"flow-send:{review_id}")
+            updated = conn.execute(
+                """UPDATE review_flow_sends SET state='undone',updated_at=?
+                   WHERE id=? AND review_id=? AND state='pending' AND send_after>?""",
+                (now, operation_id, review_id, now),
+            ).rowcount
+            row = conn.execute(
+                "SELECT * FROM review_flow_sends WHERE id=? AND review_id=?",
+                (operation_id, review_id),
+            ).fetchone()
+        if row is None:
+            return None
+        if not updated:
+            raise ValueError("can't be undone now; the send window has closed")
+        return dict(row)
+
+    def list_due_review_flow_repositories(self, *, now: str) -> tuple[str, ...]:
+        """One repository per pending due send, for the aiohttp background worker."""
+        self._ensure_ready()
+        with self._transaction() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT rs.repo_root FROM review_flow_sends AS fs
+                   JOIN review_sessions AS rs ON rs.id=fs.review_id
+                   WHERE fs.state='pending' AND fs.send_after<=?""",
+                (now,),
+            ).fetchall()
+        return tuple(str(row["repo_root"]) for row in rows)
+
+    def list_due_review_flow_ids(self, *, now: str) -> tuple[str, ...]:
+        """Due review IDs within this one repository store, for the local loopback service."""
+        self._ensure_ready()
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT review_id FROM review_flow_sends WHERE state='pending' AND send_after<=?",
+                (now,),
+            ).fetchall()
+        return tuple(str(row["review_id"]) for row in rows)
+
+    def claim_due_review_flow_sends(
+        self, *, now: str, limit: int = 8, repo_root: str = "", review_id: str = ""
+    ) -> tuple[dict[str, str], ...]:
+        """Atomic claims across workers. Dispatching is not replayed after a crash."""
+        self._ensure_ready()
+        with self._transaction() as conn:
+            self._lock_for_write(conn, key="flow-send-due")
+            rows = conn.execute(
+                """SELECT * FROM review_flow_sends WHERE state='pending' AND send_after<=?
+                   AND (?='' OR review_id IN (SELECT id FROM review_sessions WHERE repo_root=?))
+                   AND (?='' OR review_id=?)
+                   ORDER BY send_after,id LIMIT ?""",
+                (now, repo_root, repo_root, review_id, review_id, limit),
+            ).fetchall()
+            for row in rows:
+                conn.execute(
+                    "UPDATE review_flow_sends SET state='dispatching',updated_at=? WHERE id=? AND state='pending'",
+                    (now, row["id"]),
+                )
+        return tuple(dict(row) for row in rows)
+
+    def recover_stale_review_flow_sends(self, *, before: str) -> int:
+        """Rows left 'dispatching' by a crashed worker become 'uncertain'.
+
+        A message may or may not have been delivered, so they are never resent
+        automatically. 'uncertain' is not active, so a later send is possible.
+        """
+        self._ensure_ready()
+        with self._transaction() as conn:
+            self._lock_for_write(conn, key="flow-send-due")
+            return conn.execute(
+                """UPDATE review_flow_sends SET state='uncertain',updated_at=?,
+                   error='Interrupted while sending. Delivery was not confirmed and will not be retried automatically.'
+                   WHERE state='dispatching' AND updated_at<?""",
+                (before, before),
+            ).rowcount
+
+    def finish_review_flow_send(
+        self,
+        review_id: str,
+        operation_id: str,
+        *,
+        state: str,
+        error: str = "",
+    ) -> dict[str, str]:
+        if state not in {"sent", "failed", "uncertain"}:
+            raise ValueError("invalid flow send final state")
+        self._ensure_ready()
+        now = utc_now()
+        with self._transaction() as conn:
+            updated = conn.execute(
+                """UPDATE review_flow_sends SET state=?,error=?,updated_at=?
+                   WHERE review_id=? AND id=? AND state='dispatching'""",
+                (state, error[:2048], now, review_id, operation_id),
+            ).rowcount
+            row = conn.execute(
+                "SELECT * FROM review_flow_sends WHERE review_id=? AND id=?",
+                (review_id, operation_id),
+            ).fetchone()
+        if not updated or row is None:
+            raise ValueError("send state changed before completion")
+        return dict(row)
+
     # ----- reviewer outcomes --------------------------------------------- #
 
     def record_outcome(
@@ -5051,12 +5697,12 @@ class ReviewStore(SqliteTableStore):
             # lost) must not append a duplicate verdict: the same reviewer's
             # newest verdict, identical on the same revision, is the answer.
             latest = conn.execute(
-                """
+                f"""
                 SELECT * FROM review_outcomes
-                 WHERE review_id = ? AND reviewer_id = ?
+                 WHERE review_id = ? AND reviewer_id = ? AND {_NOT_VOID}
                  ORDER BY created_at DESC, id DESC LIMIT 1
                 """,
-                (review_id, reviewer),
+                (review_id, reviewer, review_id),
             ).fetchone()
             if latest is not None:
                 existing = _row_to_outcome(latest)
@@ -5102,19 +5748,43 @@ class ReviewStore(SqliteTableStore):
             )
         return record
 
+    def void_outcome(self, review_id: str, outcome_id: str) -> None:
+        """Set one stored verdict aside for good: it is read by nobody, as if it had never been recorded.
+
+        For a verdict recorded by an attempt that then failed (a second signature that could not be given, SPEC 4.16):
+        the person's earlier decisions, retracted or not, are then read by the normal rules. The row is a
+        ``review_relationships`` child of the Review, so it goes with it. Idempotent."""
+
+        self.upsert_relationship(
+            ReviewRelationship(
+                id="",
+                review_id=review_id,
+                kind=VOID_OUTCOME_KIND,
+                relation="void",
+                external_id=outcome_id,
+                status="void",
+                source="lemoncrow",
+            )
+        )
+
+    def void_outcome_ids(self, review_id: str) -> frozenset[str]:
+        return frozenset(row.external_id for row in self.list_relationships(review_id, kind=VOID_OUTCOME_KIND))
+
     def list_outcomes(self, review_id: str, *, reviewer_id: str = "") -> tuple[ReviewOutcome, ...]:
         """Append-only reviewer verdict history, newest first."""
 
         self._ensure_ready()
-        sql = "SELECT * FROM review_outcomes WHERE review_id = ?"
-        params: list[Any] = [review_id]
+        sql = f"SELECT * FROM review_outcomes WHERE review_id = ? AND {_NOT_VOID}"
+        params: list[Any] = [review_id, review_id]
         if reviewer_id:
             sql += " AND reviewer_id = ?"
             params.append(reviewer_id)
         sql += " ORDER BY created_at DESC, id DESC"
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return tuple(_row_to_outcome(row) for row in rows)
+        return cast(
+            "tuple[ReviewOutcome, ...]", viewer_lens.outcomes(review_id, (_row_to_outcome(row) for row in rows))
+        )
 
     def latest_outcome(self, review_id: str, reviewer_id: str) -> ReviewOutcome | None:
         """Newest verdict by one reviewer, regardless of whether it is stale."""
@@ -5122,14 +5792,15 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT * FROM review_outcomes
-                 WHERE review_id = ? AND reviewer_id = ?
+                 WHERE review_id = ? AND reviewer_id = ? AND {_NOT_VOID}
                  ORDER BY created_at DESC, id DESC LIMIT 1
                 """,
-                (review_id, reviewer_id),
+                (review_id, reviewer_id, review_id),
             ).fetchone()
-        return None if row is None else _row_to_outcome(row)
+        found = None if row is None else _row_to_outcome(row)
+        return None if found is None or reviewer_id in viewer_lens.hidden_in(review_id) else found
 
     def latest_outcomes(self, review_id: str) -> tuple[ReviewOutcome, ...]:
         """Newest verdict for every reviewer who has ever recorded one."""
@@ -5533,7 +6204,13 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             row = conn.execute("SELECT * FROM review_change_proposals WHERE id = ?", (proposal_id,)).fetchone()
-        return _row_to_change_proposal(row) if row is not None else None
+        found = _row_to_change_proposal(row) if row is not None else None
+        # Under a viewer lens a proposal of a hidden person is missing, as a note of his is.
+        return (
+            viewer_lens.reachable(viewer_lens.hidden_in(found.review_id), found, lambda item: item.created_by)
+            if found
+            else None
+        )
 
     def list_change_proposals(self, review_id: str) -> tuple[ReviewChangeProposal, ...]:
         self._ensure_ready()
@@ -5542,7 +6219,9 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM review_change_proposals WHERE review_id = ? ORDER BY created_at ASC, id ASC",
                 (review_id,),
             ).fetchall()
-        return tuple(_row_to_change_proposal(row) for row in rows)
+        return viewer_lens.visible(
+            review_id, (_row_to_change_proposal(row) for row in rows), lambda item: item.created_by
+        )
 
     def update_change_proposal(
         self,
@@ -5655,6 +6334,8 @@ class ReviewStore(SqliteTableStore):
             revision_id=annotation.revision_id,
             anchor=annotation.anchor,
             body=annotation.body,
+            reconsidered_after_structure=annotation.reconsidered_after_structure,
+            structure_revision_id=annotation.structure_revision_id,
             kind=annotation.kind,
             state=annotation.state,
             parent_id=annotation.parent_id,
@@ -5701,11 +6382,12 @@ class ReviewStore(SqliteTableStore):
                 INSERT INTO annotations (
                     id, review_id, revision_id, parent_id, anchor_json, unit_key, path,
                     kind, body, state, created_by, created_by_actor,
+                    reconsidered_after_structure, structure_revision_id,
                     source, source_id, title, evidence_json, rule_refs_json, confidence,
                     author_response, author_response_source_id, author_response_at,
                     resolved_revision_id, anchor_method, anchor_detail,
                     turn_owner_kind, turn_owner_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -5720,6 +6402,8 @@ class ReviewStore(SqliteTableStore):
                     record.state,
                     record.created_by,
                     record.created_by_actor,
+                    int(record.reconsidered_after_structure),
+                    record.structure_revision_id,
                     record.source,
                     record.source_id,
                     record.title,
@@ -5822,7 +6506,21 @@ class ReviewStore(SqliteTableStore):
                     subject_type="annotation",
                     subject_id=record.id,
                     summary=f"{record.created_by}: {record.kind}",
-                    detail_json=json.dumps({"path": record.anchor.path, "parent_id": record.parent_id}, sort_keys=True),
+                    detail_json=json.dumps(
+                        {
+                            "path": record.anchor.path,
+                            "parent_id": record.parent_id,
+                            **(
+                                {
+                                    "reviewer_reported_reconsideration": True,
+                                    "structure_revision_id": record.structure_revision_id,
+                                }
+                                if record.reconsidered_after_structure
+                                else {}
+                            ),
+                        },
+                        sort_keys=True,
+                    ),
                     created_at=record.created_at,
                 ),
             )
@@ -5948,6 +6646,10 @@ class ReviewStore(SqliteTableStore):
         if unknown:
             raise ValueError(f"unknown annotations column(s): {', '.join(unknown)}")
         with self._transaction() as conn:
+            if fields:
+                # The row read below, the version check and the version number all describe one moment: two
+                # updates of one annotation must not both pass the same check (HST-029: a pool runs them at once).
+                self._lock_for_write(conn, key=f"annotation:{annotation_id}")
             row = conn.execute(
                 "SELECT * FROM annotations WHERE id = ?",
                 (annotation_id,),
@@ -6126,7 +6828,7 @@ class ReviewStore(SqliteTableStore):
                 ).fetchone()
                 is None
             ):
-                raise ValueError("Snapshot does not belong to this Change")
+                raise ValueError("Revision does not belong to this Change")
             row = conn.execute(
                 "SELECT payload_json FROM review_discussion_comments WHERE id=? AND review_id=?",
                 (comment_id, review_id),
@@ -6137,7 +6839,7 @@ class ReviewStore(SqliteTableStore):
             if payload.get("revision_id"):
                 return
             payload["revision_id"] = revision_id
-            payload["anchor_detail"] = "Snapshot discussion; no code anchor"
+            payload["anchor_detail"] = "Revision discussion; no code anchor"
             conn.execute(
                 "UPDATE review_discussion_comments SET payload_json=? WHERE id=? AND review_id=? AND payload_json=?",
                 (json.dumps(payload, ensure_ascii=False), comment_id, review_id, row["payload_json"]),
@@ -6169,7 +6871,7 @@ class ReviewStore(SqliteTableStore):
             payload["anchor"] = AnnotationAnchor(**payload["anchor"])
             payload["evidence"] = tuple(payload["evidence"])
             out.append(Annotation(**payload))
-        return tuple(out)
+        return cast("tuple[Annotation, ...]", viewer_lens.notes(review_id, out))
 
     def list_discussion_comments_at_revision(self, review_id: str, revision_id: str) -> tuple[Annotation, ...]:
         self._ensure_ready()
@@ -6215,7 +6917,7 @@ class ReviewStore(SqliteTableStore):
         sql += " ORDER BY created_at ASC"
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return tuple(_row_to_annotation(row) for row in rows)
+        return cast("tuple[Annotation, ...]", viewer_lens.notes(review_id, (_row_to_annotation(row) for row in rows)))
 
     def list_annotations_at_revision(self, review_id: str, revision_id: str) -> tuple[Annotation, ...]:
         """Comments as the selected revision's first active era ended.
@@ -6292,7 +6994,18 @@ class ReviewStore(SqliteTableStore):
                         anchor_detail=str(event["detail"] or ""),
                     )
                 out.append(annotation)
-        return tuple(out)
+        return cast("tuple[Annotation, ...]", viewer_lens.notes(review_id, out))
+
+    def annotation_origin_anchor(self, annotation_id: str) -> AnnotationAnchor | None:
+        """Immutable creation anchor from the append-only ledger (not the relocated current row)."""
+        self._ensure_ready()
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT anchor_json FROM annotation_anchor_events WHERE annotation_id = ? "
+                "ORDER BY created_at ASC, id ASC LIMIT 1",
+                (annotation_id,),
+            ).fetchone()
+        return _anchor_from_json(row["anchor_json"]) if row is not None else None
 
     def list_annotation_versions(self, annotation_id: str) -> tuple[AnnotationVersion, ...]:
         self._ensure_ready()
@@ -6301,6 +7014,14 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM annotation_versions WHERE annotation_id = ? ORDER BY version_number ASC",
                 (annotation_id,),
             ).fetchall()
+            hidden = viewer_lens.hidden_in(str(rows[0]["review_id"])) if rows else frozenset()
+            author = (
+                conn.execute("SELECT created_by FROM annotations WHERE id = ?", (annotation_id,)).fetchone()
+                if hidden
+                else None
+            )
+        if author is not None and str(author["created_by"]) in hidden:
+            return ()  # a note of someone this reader may not read yet has no history for her either
         return tuple(_row_to_annotation_version(row) for row in rows)
 
     def annotation_versions_for_review(self, review_id: str) -> dict[str, tuple[AnnotationVersion, ...]]:
@@ -6312,9 +7033,23 @@ class ReviewStore(SqliteTableStore):
                 "SELECT * FROM annotation_versions WHERE review_id = ? ORDER BY annotation_id, version_number ASC",
                 (review_id,),
             ).fetchall()
+            hidden = viewer_lens.hidden_in(review_id)
+            unreadable = (
+                {
+                    str(item["id"])
+                    for item in conn.execute(
+                        f"SELECT id FROM annotations WHERE review_id = ? AND created_by IN ({','.join('?' for _ in hidden)})",
+                        (review_id, *sorted(hidden)),
+                    ).fetchall()
+                }
+                if hidden
+                else set()
+            )
         grouped: dict[str, list[AnnotationVersion]] = {}
         for row in rows:
             version = _row_to_annotation_version(row)
+            if version.annotation_id in unreadable:
+                continue
             grouped.setdefault(version.annotation_id, []).append(version)
         return {annotation_id: tuple(items) for annotation_id, items in grouped.items()}
 
@@ -6381,7 +7116,11 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             row = conn.execute("SELECT * FROM annotations WHERE id = ?", (annotation_id,)).fetchone()
-        return None if row is None else _row_to_annotation(row)
+        found = None if row is None else _row_to_annotation(row)
+        # A note of someone this reader may not read yet is not found by its id either.
+        if found is not None and found.created_by in viewer_lens.hidden_in(found.review_id):
+            return None
+        return found
 
     def get_annotation_by_source(self, review_id: str, source: str, source_id: str) -> Annotation | None:
         """Return one external signal already ingested under its stable source id."""
@@ -7176,12 +7915,16 @@ class ReviewStore(SqliteTableStore):
 
     def list_evidence(self, review_id: str) -> tuple[ReviewEvidence, ...]:
         self._ensure_ready()
-        with self._transaction() as conn:
-            rows = conn.execute(
-                "SELECT * FROM review_evidence WHERE review_id = ? ORDER BY created_at DESC, id DESC",
-                (review_id,),
-            ).fetchall()
-        return tuple(_row_to_evidence(row) for row in rows)
+
+        def read() -> tuple[ReviewEvidence, ...]:
+            with self._transaction() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM review_evidence WHERE review_id = ? ORDER BY created_at DESC, id DESC",
+                    (review_id,),
+                ).fetchall()
+            return tuple(_row_to_evidence(row) for row in rows)
+
+        return request_reads.facts_once(self, ("evidence", review_id), read)
 
     def add_author_guidance(self, row: AuthorGuidanceRow) -> bool:
         """Store one imported guidance document; ``False`` if already stored.
@@ -7269,7 +8012,7 @@ class ReviewStore(SqliteTableStore):
             if session is None:
                 raise ValueError(f"no such review session {event.review_id!r}")
             if str(session["current_revision_id"] or "") != event.revision_id:
-                raise ValueError("Snapshot changed since you loaded this decision; reload before deciding")
+                raise ValueError("Revision changed since you loaded this decision; reload before deciding")
             latest = conn.execute(
                 """
                 SELECT id, created_at FROM review_decision_events
@@ -7347,31 +8090,35 @@ class ReviewStore(SqliteTableStore):
         sql += " ORDER BY created_at ASC, id ASC"
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return tuple(
-            ReviewDecisionEvent(
-                id=str(row["id"]),
-                review_id=str(row["review_id"]),
-                decision_key=str(row["decision_key"]),
-                reviewer_id=str(row["reviewer_id"]),
-                revision_id=str(row["revision_id"]),
-                action=cast(DecisionAction, str(row["action"])),
-                disposition=cast(DecisionDisposition, str(row["disposition"])),
-                option_key=str(row["option_key"] or ""),
-                definition_ref=str(row["definition_ref"] or ""),
-                semantic_fingerprint=str(row["semantic_fingerprint"] or ""),
-                implementation_fingerprint=str(row["implementation_fingerprint"] or ""),
-                scope_json=str(row["scope_json"] or "{}"),
-                implementation_json=str(row["implementation_json"] or "{}"),
-                reason=str(row["reason"] or ""),
-                trigger_kind=str(row["trigger_kind"] or ""),
-                trigger_check_key=str(row["trigger_check_key"] or ""),
-                trigger_note=str(row["trigger_note"] or ""),
-                feedback_annotation_id=str(row["feedback_annotation_id"] or ""),
-                prior_event_id=str(row["prior_event_id"] or ""),
-                actor_type=cast(ActorType, str(row["actor_type"] or "human")),
-                created_at=str(row["created_at"]),
-            )
-            for row in rows
+        return viewer_lens.visible(
+            review_id,
+            (
+                ReviewDecisionEvent(
+                    id=str(row["id"]),
+                    review_id=str(row["review_id"]),
+                    decision_key=str(row["decision_key"]),
+                    reviewer_id=str(row["reviewer_id"]),
+                    revision_id=str(row["revision_id"]),
+                    action=cast(DecisionAction, str(row["action"])),
+                    disposition=cast(DecisionDisposition, str(row["disposition"])),
+                    option_key=str(row["option_key"] or ""),
+                    definition_ref=str(row["definition_ref"] or ""),
+                    semantic_fingerprint=str(row["semantic_fingerprint"] or ""),
+                    implementation_fingerprint=str(row["implementation_fingerprint"] or ""),
+                    scope_json=str(row["scope_json"] or "{}"),
+                    implementation_json=str(row["implementation_json"] or "{}"),
+                    reason=str(row["reason"] or ""),
+                    trigger_kind=str(row["trigger_kind"] or ""),
+                    trigger_check_key=str(row["trigger_check_key"] or ""),
+                    trigger_note=str(row["trigger_note"] or ""),
+                    feedback_annotation_id=str(row["feedback_annotation_id"] or ""),
+                    prior_event_id=str(row["prior_event_id"] or ""),
+                    actor_type=cast(ActorType, str(row["actor_type"] or "human")),
+                    created_at=str(row["created_at"]),
+                )
+                for row in rows
+            ),
+            lambda event: event.reviewer_id,
         )
 
     @staticmethod
@@ -7923,6 +8670,14 @@ class ReviewStore(SqliteTableStore):
         rel = self.artifact_relpath(review_id, revision_id)
         digest = self._write_artifact_bytes(rel, payload)
         return rel, digest, len(payload)
+
+    def prefetch_artifacts(self, review_id: str, revision_id: str) -> None:
+        """Ask a backend that can to read every artifact key of one Snapshot at once (hosted, within a request)."""
+
+        prefetch = getattr(self._artifact_backend, "prefetch", None)
+        if prefetch is not None:
+            prefix = self.artifact_relpath(review_id, revision_id).rsplit("/", 1)[0] + "/"
+            prefetch(prefix)
 
     def read_packet_artifact(self, revision: ReviewRevision) -> bytes | None:
         """Read a revision's packet back, or ``None`` when it is unavailable."""
@@ -8498,7 +9253,7 @@ class ReviewStore(SqliteTableStore):
         self._ensure_ready()
         with self._transaction() as conn:
             rows = conn.execute("SELECT * FROM annotations ORDER BY created_at ASC, id ASC").fetchall()
-        return tuple(_row_to_annotation(row) for row in rows)
+        return viewer_lens.notes_of_any_review(_row_to_annotation(row) for row in rows)
 
     def dismissed_rule_suggestion_ids(self, *, repository_scope: str = "") -> tuple[str, ...]:
         """Durable dismissal only; a suggestion row is never authoritative policy."""
@@ -8541,6 +9296,9 @@ class ReviewStore(SqliteTableStore):
         except ValueError:
             return
         self._delete_artifact_prefix(f"review/{ARTIFACT_DIRNAME}/{segment}/")
+        # A deleted Review's packets must not outlive it in the packet-index memo.
+        with self._packet_index_lock:
+            self._packet_index_memo.clear()
         # Raw run artifacts (sink payloads, logs) go with their Review, local or hosted.
         with contextlib.suppress(OSError, ValueError):
             artifacts = self.run_artifacts()
@@ -8699,6 +9457,8 @@ def _row_to_unit(row: sqlite3.Row) -> ReviewUnit:
         attention_rank=int(row["attention_rank"]),
         attention_group=str(row["attention_group"]),  # type: ignore[arg-type]
         reasons=_json_tuple(row["reasons_json"]),
+        answer_category=str(row["answer_category"] or ""),  # type: ignore[arg-type]
+        category_rule=str(row["category_rule"] or ""),
     )
 
 
@@ -8787,6 +9547,7 @@ def _row_to_ask_conversation(row: sqlite3.Row) -> ReviewAskConversationRecord:
         origin_json=str(row["origin_json"]),
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
+        created_by=str(row["created_by"]) if "created_by" in row.keys() else "",
     )
 
 
@@ -8809,6 +9570,7 @@ def _row_to_ask_message(row: sqlite3.Row) -> ReviewAskMessage:
         action_json=str(row["action_json"]),
         created_at=str(row["created_at"]),
         conversation_id=str(row["conversation_id"]) if "conversation_id" in row.keys() else "",
+        created_by=str(row["created_by"]) if "created_by" in row.keys() else "",
     )
 
 
@@ -8908,6 +9670,10 @@ def _row_to_annotation(row: sqlite3.Row) -> Annotation:
         revision_id=str(row["revision_id"]),
         anchor=_anchor_from_json(row["anchor_json"]),
         body=str(row["body"]),
+        reconsidered_after_structure=(
+            bool(row["reconsidered_after_structure"]) if "reconsidered_after_structure" in row.keys() else False
+        ),
+        structure_revision_id=str(row["structure_revision_id"]) if "structure_revision_id" in row.keys() else "",
         kind=str(row["kind"]),  # type: ignore[arg-type]
         state=str(row["state"]),  # type: ignore[arg-type]
         parent_id=str(row["parent_id"]),

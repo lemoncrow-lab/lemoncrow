@@ -93,7 +93,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
 grep -q '"name":"lemoncrow-runtime-lite"' "$WORK/runtime-lite-smoke.jsonl"
 HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lemoncrow-runtime-client" status >/dev/null
 code_help="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lemoncrow-runtime-client" code --help)"
-[[ "$code_help" == *"Hosted coding agent"* && "$code_help" == *"not the open-source local Runtime Lite launcher"* ]] \
+[[ "$code_help" == *"Hosted coding agent"* && "$code_help" == *"not the open-source local Workspaces Lite launcher"* ]] \
     || { echo "build_runtime_client.sh: Runtime artifact does not expose Hosted lc code boundary" >&2; exit 1; }
 [[ "$code_help" != *"--pro"* ]] \
     || { echo "build_runtime_client.sh: Runtime artifact still advertises removed --pro compatibility" >&2; exit 1; }

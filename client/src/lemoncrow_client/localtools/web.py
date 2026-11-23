@@ -172,7 +172,11 @@ def run_web_fetch(context: LocalContext, arguments: Mapping[str, Any]) -> LocalR
         content += f"\n\n[{'summarized:heuristic' if summary else 'truncated'}: {total} chars"
         content += f"; full page: read {path}]" if path else "]"
     payload: dict[str, Any] = {"content": content, "format": output_format}
+    saved = 0
+    if page.content_type.split(";", 1)[0].strip().lower() in {"text/html", "application/xhtml+xml"}:
+        # The full server's credit: the page's HTML against what the model got.
+        saved = max(0, len(page.body.decode("utf-8", errors="ignore")) // 4 - len(content) // 4)
     if not 200 <= page.status < 300:
         payload["status"] = page.status
         content = f"HTTP {page.status}\n\n{content}"
-    return text_result(content, structured=payload)
+    return text_result(content, structured=payload, tokens_saved=saved)

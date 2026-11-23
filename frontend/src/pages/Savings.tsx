@@ -5,6 +5,9 @@ import LeverBar from "../components/LeverBar";
 import SavingsTimeChart from "../components/SavingsTimeChart";
 import { EmptyState } from "../components/WorkbenchUI";
 import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { toolLabel } from "../lib/labels";
+import { REDUCTION_HINT, REDUCTION_LABEL, savingsHeadline } from "../lib/savings";
+import { ServerUnreachable, describeError, isUnreachable } from "../components/ServerUnreachable";
 import type {
   SavingsProofSession,
   SavingsSummaryV2,
@@ -35,7 +38,7 @@ function statusTone(status: string): string {
 }
 
 function displayToolName(toolName: string): string {
-  return toolName === "unattributed" ? "Capture gap" : toolName;
+  return toolLabel(toolName);
 }
 
 function Sparkline({ values }: { values: number[] }) {
@@ -63,7 +66,8 @@ function Sparkline({ values }: { values: number[] }) {
 
 export default function Savings() {
   const [data, setData] = useState<SavingsSummaryV2 | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
   const [ledgerByRun, setLedgerByRun] = useState<Record<string, any>>({});
   const [ledgerLoading, setLedgerLoading] = useState<Record<string, boolean>>(
     {}
@@ -72,13 +76,17 @@ export default function Savings() {
   const { days } = useTimeRange();
 
   useEffect(() => {
+    setErr(null);
     api
       .savingsSummary(days)
       .then(setData)
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-  }, [days]);
+      .catch((e) => setErr(e ?? new Error("Savings couldn't be loaded.")));
+  }, [days, attempt]);
 
-  if (err) return <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">{err}</div>;
+  if (err) {
+    if (isUnreachable(err)) return <ServerUnreachable onRetry={() => setAttempt((n) => n + 1)} />;
+    return <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">{describeError(err)}</div>;
+  }
   if (!data) return <div className="text-muted-foreground">Loading…</div>;
 
   const latestBenchmark = data.latest_benchmark ?? null;
@@ -101,13 +109,10 @@ export default function Savings() {
   const maxLever = sortedLevers[0]?.value ?? 0;
   const topSources = data.top_sources ?? [];
   const trackedToolCalls = data.tracked_tool_calls ?? 0;
-  const headlineLabel = verification?.headline_kind
-    ? toTitle(verification.headline_kind)
-    : "Cost Reduction";
-  // TODO: use total_saved_usd once backend adds it — currently absent from
-  // api.ts's SavingsSummaryV2 (see savings-display consistency plan).
-  const totalSavedUsd =
-    data.total_saved_usd ?? (data.saved_usd ?? 0) + (data.carry_usd ?? 0);
+  // The headline is the shared definition (lib/savings.ts): the same Saved and Cost reduction as Home and Usage.
+  const headline = savingsHeadline(data);
+  const headlineLabel = REDUCTION_LABEL;
+  const totalSavedUsd = headline.savedUsd;
   const loadLedger = (runId: string) => {
     const nextExpanded = !expandedRuns[runId];
     setExpandedRuns((prev) => ({ ...prev, [runId]: nextExpanded }));
@@ -136,19 +141,15 @@ export default function Savings() {
       <section className="rounded-lg border border-border/70 bg-background/60 p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="text-label font-mono uppercase tracking-tag text-cyan-300">
+            <div className="text-label font-mono uppercase tracking-tag text-cyan-300" title={REDUCTION_HINT}>
               {headlineLabel}
             </div>
             <div className="mt-1 text-h2 font-semibold leading-none text-foreground">
-              {fmtPct(
-                data.cost_basis === "session_ledger"
-                  ? (data.saved_pct ?? 0)
-                  : data.reduction_pct
-              )}
+              {fmtPct(headline.reductionPct)}
             </div>
             <p className="text-heading text-muted-foreground mt-3">
               {fmtUsd(totalSavedUsd)} saved of{" "}
-              {fmtUsd(data.would_have_cost_usd ?? 0)} would-have-cost over the
+              {fmtUsd(headline.baselineUsd)} would-have-cost over the
               last {data.window_days} days —{" "}
               {fmtTok(
                 data.cost_basis === "session_ledger"
@@ -165,8 +166,8 @@ export default function Savings() {
             </p>
             <p className="max-w-3xl text-body text-muted-foreground mt-3 leading-relaxed">
               {data.cost_basis === "context_budget"
-                ? "Proof-oriented reduction from persisted context-budget rows. Ledger totals remain visible below for statusline/CLI reconciliation."
-                : "Realized savings from the per-session ledger — the same figure shown by the statusline and the LemonCrow savings CLI."}
+                ? "Worked out from each tool output LemonCrow recorded: its token cost with LemonCrow against what it would have cost without. The per-session totals below are the ones the status line and the savings command show, so you can compare them."
+                : "The savings recorded for each session: the same figure the status line and the savings command show."}
             </p>
           </div>
           <div className="w-full md:w-auto">
@@ -178,22 +179,21 @@ export default function Savings() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      {/* At most three cards a row: the sheet is narrow, and six columns wrapped each line to one or two words. */}
+      <section className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="rounded-lg border border-border/70 border-l-2 border-l-emerald-600/50 bg-background/60 p-4">
           <div className="text-caption font-mono uppercase tracking-widest text-emerald-300 mb-1">
-            Cost Saved
+            Tool-output savings
           </div>
           <div className="text-h3 font-semibold text-emerald-300">
             {fmtUsd(data.saved_usd ?? 0)}
           </div>
-          {(data.saved_pct ?? 0) > 0 && (
-            <div className="text-body text-emerald-300 mt-1">
-              {fmtPct(data.saved_pct ?? 0)} vs baseline
-            </div>
-          )}
+          <div className="text-body text-muted-foreground mt-1">
+            part of the {fmtUsd(totalSavedUsd)} saved
+          </div>
           {(data.routing_saved_usd ?? 0) > 0 && (
             <div className="text-body text-muted-foreground mt-1">
-              + {fmtUsd(data.routing_saved_usd ?? 0)} routing (separate)
+              plus {fmtUsd(data.routing_saved_usd ?? 0)} from model routing, counted separately
             </div>
           )}
           {(data.ops_saved_usd ?? 0) > 0 && (
@@ -213,7 +213,7 @@ export default function Savings() {
             {data.cost_basis === "session_ledger"
               ? `realized session spend (${fmtUsd(data.saved_usd ?? 0)} saved)`
               : data.cost_basis === "context_budget"
-                ? `tracked from context-budget rows (${fmtUsd(data.tracked_actual_cost_usd ?? 0)} actual / ${fmtUsd(data.tracked_baseline_cost_usd ?? 0)} baseline)`
+                ? `${fmtUsd(data.tracked_actual_cost_usd ?? 0)} with LemonCrow against ${fmtUsd(data.tracked_baseline_cost_usd ?? 0)} without, on the recorded tool outputs`
                 : `live estimate ${fmtUsd(data.live_saved_usd ?? 0)}`}
           </div>
         </div>
@@ -244,7 +244,7 @@ export default function Savings() {
             {fmtTok(data.total_actual_tokens)}
           </div>
           <div className="text-body text-muted-foreground mt-1">
-            persisted compacted tool-output tokens
+            tool-output tokens the model read after LemonCrow shortened them
           </div>
         </div>
         <div className="rounded-lg border border-border/70 border-l-2 border-l-emerald-600/50 bg-background/60 p-4">
@@ -255,11 +255,11 @@ export default function Savings() {
             {fmtUsd(data.read_saved_usd ?? 0)}
           </div>
           <div className="text-body text-muted-foreground mt-1">
-            cache-read / retrieval cost avoided
+            cache-read and retrieval cost avoided
           </div>
         </div>
         <div className="rounded-lg border border-border/70 bg-muted/60 p-4">
-          <div className="mb-1 text-caption font-medium text-muted-foreground">
+          <div className="mb-1 text-caption font-mono uppercase tracking-widest text-muted-foreground/70">
             Context Carry
           </div>
           <div className="text-h3 font-semibold text-foreground">
@@ -359,7 +359,7 @@ export default function Savings() {
               <p className="mt-3 text-body text-muted-foreground">
                 Real paired command run: baseline{" "}
                 {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
-                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lc)}{" "}
+                LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lemoncrow)}{" "}
                 tokens.
               </p>
             </section>
@@ -555,47 +555,52 @@ function ManualVerificationPanel({
 
   return (
     <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/45 bg-background/60 p-4 space-y-4">
-      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+      <div className="flex flex-col gap-4">
         <div>
-          <h2 className="text-body uppercase tracking-widest text-amber-300 mb-2">
-            Manual verification
+          <h2 className="text-body uppercase tracking-widest text-muted-foreground mb-2">
+            How this figure is worked out
           </h2>
           <p className="text-heading text-subtle leading-relaxed max-w-3xl">
-            This section shows the raw proof coverage behind the headline so you
-            can audit whether the aggregate is broad-based or dominated by a
-            small number of tool turns.
+            {fmtTok(verification.tracked_row_count)} recorded tool outputs across{" "}
+            {fmtTok(verification.tracked_run_count)} sessions. Open the details
+            to check whether a few of them account for most of the savings.
           </p>
         </div>
         {verification.warning && (
-          <div className="max-w-xl rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3 text-body text-amber-200 leading-relaxed">
+          <div className="max-w-3xl rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3 text-body text-subtle leading-relaxed">
             {verification.warning}
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <details className="group">
+        <summary className="cursor-pointer text-body font-medium text-foreground">
+          Details for auditing the total
+        </summary>
+        <div className="mt-4 space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Metric
-          label="Proof Rows"
+          label="Recorded tool outputs"
           value={fmtTok(verification.tracked_row_count)}
         />
         <Metric
-          label="Tracked Sessions"
+          label="Sessions counted"
           value={fmtTok(verification.tracked_run_count)}
         />
         <Metric
-          label="Trace Linked"
+          label="Sessions with a trace"
           value={fmtTok(verification.trace_linked_run_count)}
         />
         <Metric
-          label="Ledger Backed"
+          label="Sessions with saved totals"
           value={fmtTok(verification.ledger_backed_run_count)}
         />
         <Metric
-          label="Live Events"
+          label="Live events"
           value={fmtTok(verification.live_event_count)}
         />
         <Metric
-          label="Coverage Gaps"
+          label="Sessions missing data"
           value={fmtTok(verification.coverage_gap_count)}
         />
       </div>
@@ -603,17 +608,17 @@ function ManualVerificationPanel({
       {compactOutputRows > 0 && (
         <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-2">
           <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
-            Excluded Compact Output Rows
+            Left out of the headline
           </div>
           <div className="text-lead font-semibold text-cyan-200">
             {fmtTok(compactOutputRows)} row
             {compactOutputRows === 1 ? "" : "s"}
           </div>
           <div className="text-body text-muted-foreground leading-relaxed">
-            {fmtTok(compactOutputSavedTokens)} saved tokens remain visible in
-            session proof, but are excluded from the top-line headline because
-            they represent tool-output compaction rather than audited
-            session-level savings.
+            {fmtTok(compactOutputSavedTokens)} tokens saved by shortening tool
+            output still appear in each session's details, but the headline
+            leaves them out: they come from shortening tool output, not from
+            the audited session totals.
           </div>
         </div>
       )}
@@ -683,6 +688,8 @@ function ManualVerificationPanel({
       <p className="text-body text-muted-foreground font-mono break-all">
         Data root: {verification.data_root}
       </p>
+        </div>
+      </details>
     </section>
   );
 }
@@ -725,11 +732,13 @@ function SessionProofCard({
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
         <div className="space-y-2 min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest">
-            <span
-              className={`px-2 py-0.5 border ${statusTone(session.status)}`}
-            >
-              {session.status}
-            </span>
+            {session.status && (
+              <span
+                className={`px-2 py-0.5 border ${statusTone(session.status)}`}
+              >
+                {session.status}
+              </span>
+            )}
             <span className="px-2 py-0.5 border border-border text-muted-foreground">
               {session.agent}
             </span>
@@ -773,11 +782,11 @@ function SessionProofCard({
           <Metric label="Saved Tokens" value={fmtTok(session.saved_tokens)} />
           <Metric
             label="Tool Turns"
-            value={fmtTok(session.tracked_tool_calls)}
+            value={fmtTok(session.tracked_tool_calls ?? 0)}
           />
           <Metric
             label="Live Calls Saved"
-            value={fmtTok(session.live_calls_saved)}
+            value={fmtTok(session.live_calls_saved ?? 0)}
           />
         </div>
       </div>

@@ -10,8 +10,8 @@ from typing import TextIO
 from lemoncrow.core.foundation.identity import config_dir
 from lemoncrow.core.service.telemetry.config import resolve_destination
 
-#: One line, once: that it is on, what it sends, and the command that turns it off. Only the full engine (a source
-#: checkout's ``lc``) has telemetry; the installed client sends none (``lc audit`` says so).
+#: One line, once: that it is on, what it sends, and the command that turns it off. The installed client prints the
+#: same words (``lemoncrow_client.usage.NOTICE``) and shares the record that it was shown.
 BANNER_TEXT = (
     "Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths. "
     "Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1)."

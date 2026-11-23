@@ -108,7 +108,7 @@ describe("ReviewerSuggestionList", () => {
 });
 
 describe("fetchReviewerSuggestions", () => {
-  it("asks the Reader API for the exact Snapshot", async () => {
+  it("asks the Reader API for the exact revision", async () => {
     const actual = await vi.importActual<typeof import("./reviewerSuggestionLogic")>("./reviewerSuggestionLogic");
     api.requestBrowserJson.mockResolvedValue(set);
     await expect(actual.fetchReviewerSuggestions("rv 1", "rev-2")).resolves.toBe(set);
@@ -122,7 +122,7 @@ describe("ReviewerSuggestionsPanel", () => {
     panel.fetchReviewerSuggestions.mockReset();
   });
 
-  it("loads the current Snapshot's suggestions when Review Status opens", async () => {
+  it("loads the current revision's suggestions when Review Status opens", async () => {
     panel.fetchReviewerSuggestions.mockResolvedValue(set);
     render(<ReviewerSuggestionsPanel reviewId="rv 1" revisionId="rev-2" />);
     await waitFor(() => expect(screen.getAllByTestId("reviewer-suggestion")).toHaveLength(2));

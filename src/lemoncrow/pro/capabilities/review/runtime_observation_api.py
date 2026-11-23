@@ -6,7 +6,8 @@
 
 Entries: ``side_effects.runtime`` (observed base/head test runs through the
 R4 runner registry), ``visual.dom_a11y`` and ``visual.matrix`` (sandboxed
-headless-browser renders, local executor only). Every run is admitted by the
+headless-browser renders: on the local executor, or on an executor whose
+registry carries a ``render_executor``). Every run is admitted by the
 effective run plan (``planned_execution``), meters its compute, honors the
 entry budget, and publishes against the exact Snapshot. The routes compose
 the seams ``register_review_api`` already owns (:class:`CheckRecipeDeps`).
@@ -24,8 +25,8 @@ from typing import TYPE_CHECKING, Any, Final, cast
 # Module level: FastAPI resolves the (postponed) ``Request`` annotation from these globals.
 from fastapi import HTTPException, Request, status
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.check_api import CheckRecipeDeps, rerun_budget_seconds
-from lemoncrow.pro.capabilities.review.execution import ExecutorClass
 from lemoncrow.pro.capabilities.review.render_diff import (
     RENDER_DIFF_MEDIA_TYPE,
     RENDER_ENTRIES,
@@ -38,7 +39,12 @@ from lemoncrow.pro.capabilities.review.render_diff import (
     run_render_entry,
     select_routes,
 )
-from lemoncrow.pro.capabilities.review.render_driver import ChromeCdpDriver, RenderDriver
+from lemoncrow.pro.capabilities.review.render_driver import (
+    ChromeCdpDriver,
+    RenderDriver,
+    RenderRequest,
+    RenderSource,
+)
 from lemoncrow.pro.capabilities.review.runtime_observation import (
     LIMITATIONS,
     RUNTIME_OBSERVATION_ENTRY,
@@ -50,6 +56,7 @@ from lemoncrow.pro.capabilities.review.runtime_observation_runs import (
     latest_observations,
     run_observation_entry,
 )
+from lemoncrow.pro.environment.execution import ExecutorClass, cache_namespace
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
@@ -109,7 +116,8 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
         revision = deps.requested_revision(session, revision_id) if revision_id else latest
 
         def build() -> dict[str, Any]:
-            plan = run_plans.peek(session, revision)
+            with request_reads.reads_once():
+                plan = run_plans.peek(session, revision)
             entries = []
             for entry_id in OBSERVATION_ENTRIES:
                 entry = plan.entry(entry_id)
@@ -158,7 +166,7 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
 
         payload, media_type, referenced = await run_in_threadpool(read)
         if not referenced:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such run artifact on this Snapshot")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such run artifact on this revision")
         if payload is None:
             raise HTTPException(
                 status_code=status.HTTP_410_GONE,
@@ -193,7 +201,7 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
         requested = str(body.get("revision_id") or "").strip()
         if not requested:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="observation runs on an exact revision_id (Snapshot)"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="observation runs on an exact revision_id (revision)"
             )
         revision = deps.requested_revision(session, requested)
         current = revision.id == deps.latest(session).id
@@ -281,13 +289,16 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
                     ) from exc
                 report = observed.to_wire()
             else:
-                if run_on != "local":
+                # Off the local executor only a deployment that wired a render path runs these:
+                # the control plane never builds or renders reviewed code itself.
+                remote = getattr(runners, "render_executor", None) if run_on != "local" else None
+                if run_on != "local" and remote is None:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="rendering diffs run only on the local executor",
                     )
                 report = _render(
-                    entry_id, entry, budget, meter, policy_digest, intent, current, authority, executor_class
+                    entry_id, entry, budget, meter, policy_digest, intent, current, authority, executor_class, remote
                 )
             return {
                 **report,
@@ -308,6 +319,7 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
             current: bool,
             authority: Any,
             executor_class: ExecutorClass,
+            remote: Any,
         ) -> dict[str, Any]:
             from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable, materialize_review_side
             from lemoncrow.pro.capabilities.review.web_preview import (
@@ -358,6 +370,36 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
                     return root, config.spa, config.static_root
                 return _built_site(side, changed, context)
 
+            def materialize(side: str, target: Path, scope: str) -> None:
+                try:
+                    materialize_review_side(
+                        context.store_root, source, revision, side=side, target=target, scope=scope, store=store
+                    )
+                except ReviewSnapshotUnavailable as exc:
+                    raise RenderUnavailable(str(exc)) from exc
+
+            def remote_source() -> RenderSource:
+                if config.static_root:
+                    return RenderSource(config.static_root, config.spa)
+                descriptor = _descriptor(changed, context)
+                return RenderSource(descriptor.root, descriptor.framework == "vite", descriptor.framework)
+
+            def side_policy(side: str) -> tuple[Mapping[str, Any], str]:
+                if context.execution is None:
+                    return policy.to_wire(), cache_namespace(side, "unknown")
+                scoped = context.execution.for_side(side)
+                if scoped.policy_error:
+                    raise RenderUnavailable(f"trusted-base execution policy is invalid: {scoped.policy_error}")
+                return scoped.policy.to_wire(), scoped.namespace
+
+            driver: RenderDriver
+            resolver = site
+            if remote is None:
+                driver = default_render_driver()
+            else:
+                bound = remote.bind(RenderRequest(remote_source, materialize, side_policy))
+                driver, resolver = bound, bound.site
+
             try:
                 rendered = run_render_entry(
                     RenderRunInputs(
@@ -367,8 +409,8 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
                         config=config,
                         selection=selection,
                         plan=cells,
-                        driver=default_render_driver(),
-                        site=site,
+                        driver=driver,
+                        site=resolver,
                         artifacts=store.run_artifacts(retention_seconds=policy.retention_seconds),
                         executor_class=executor_class,
                         policy=policy,
@@ -385,11 +427,10 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
                 ) from exc
             return rendered.to_wire()
 
-        def _built_site(side: str, changed: tuple[str, ...], context: Any) -> tuple[Path, bool, str]:
-            """A framework app's revision-pinned static build, through the web preview's sandboxed builder."""
+        def _descriptor(changed: tuple[str, ...], context: Any) -> Any:
+            """The buildable web app this change touches; raises ``RenderUnavailable`` without one."""
 
             from lemoncrow.pro.capabilities.review import web_preview
-            from lemoncrow.pro.capabilities.review.scratch_cache import touch_cache_entry
 
             descriptor = None
             for path in changed:
@@ -406,6 +447,15 @@ def register_runtime_observation_routes(router: APIRouter, deps: CheckRecipeDeps
                     "no static render source: set render.static_root in the trusted-base review config, "
                     "or change a file the web preview can build"
                 )
+            return descriptor
+
+        def _built_site(side: str, changed: tuple[str, ...], context: Any) -> tuple[Path, bool, str]:
+            """A framework app's revision-pinned static build, through the web preview's sandboxed builder."""
+
+            from lemoncrow.pro.capabilities.review import web_preview
+            from lemoncrow.pro.capabilities.review.scratch_cache import touch_cache_entry
+
+            descriptor = _descriptor(changed, context)
             try:
                 # The same revision-pinned, sandboxed build the web preview serves (content-keyed cache).
                 cache_root = web_preview._build_cache_root(

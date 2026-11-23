@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from lemoncrow.pro.capabilities.review.readiness import (
     SATISFIED_STATES,
@@ -130,7 +130,7 @@ def mark_landing_stale_for_revision(
         landing,
         status="stale",
         metadata_updates={
-            "detail": ("Semantic Snapshot changed after landing was armed; provider landing cancellation is pending."),
+            "detail": ("Semantic revision changed after landing was armed; provider landing cancellation is pending."),
             "provider_cancel": "pending",
             "cancel_reason": "snapshot",
             "invalidated_by_revision_id": revision.id,
@@ -182,7 +182,10 @@ def complete_pending_landing_cancel(
             },
         )
     metadata = landing_metadata(landing)
-    discarded = metadata.get("cancel_reason") == "discarded"
+    reason = str(metadata.get("cancel_reason") or "")
+    discarded = reason == "discarded"
+    # The human reopened a finished Review: Merge when ready waits for Finish again.
+    reopened = reason == "reopened"
     # A readiness withdrawal (see claim_readiness_withdrawal) carries its own
     # cause: the definite blockers, or the policy generation change.
     withdrawn = metadata.get("cancel_reason") == "readiness"
@@ -201,10 +204,8 @@ def complete_pending_landing_cancel(
         failure = (
             f"{withdraw_detail} Withdrawing provider landing FAILED: {detail}."
             if withdrawn
-            else (
-                f"{'The Change was discarded' if discarded else 'Semantic Snapshot changed'}, but withdrawing "
-                f"provider landing FAILED: {detail}."
-            )
+            else f"{_WITHDRAWAL_CAUSE.get(reason, 'Semantic revision changed')}, but withdrawing "
+            f"provider landing FAILED: {detail}."
         )
         return record_landing_state(
             store,
@@ -217,12 +218,12 @@ def complete_pending_landing_cancel(
                 "detail": f"{failure} The provider may still merge until the withdrawal succeeds; {retry}.",
             },
         )
-    if discarded:
-        detail_text = "The Change was discarded; Merge when ready was withdrawn." + (f" {detail}" if detail else "")
+    if discarded or reopened:
+        detail_text = withdrawn_detail(reason) + (f" {detail}" if detail else "")
     elif withdrawn:
         detail_text = f"{withdraw_detail} Provider landing was cancelled; resolve it and re-arm.".strip()
     else:
-        detail_text = "Semantic Snapshot changed; provider landing was cancelled and must be re-armed after review."
+        detail_text = "Semantic revision changed; provider landing was cancelled and must be re-armed after review."
     if withdrawn and landing.status in ARMED_LANDING_STATES:
         settled_status = "blocked"
     elif landing.status in ARMED_LANDING_STATES:
@@ -232,8 +233,8 @@ def complete_pending_landing_cancel(
     return record_landing_state(
         store,
         landing,
-        # A discard owes its cancel while the intent is still armed; once the
-        # provider confirms, the intent is over. A readiness withdrawal ends
+        # A discard or reopen owes its cancel while the intent is still armed;
+        # once the provider confirms, the intent is over. A readiness withdrawal ends
         # blocked (resolve, then re-arm). A stale intent stays stale.
         status=settled_status,
         metadata_updates={
@@ -246,26 +247,51 @@ def complete_pending_landing_cancel(
     )
 
 
-def owe_discard_withdrawal(store: ReviewStore, review_id: str) -> ReviewRelationship | None:
-    """Record that a discarded Change's armed intent owes a provider cancel.
+#: Why a human status change withdraws an armed intent: the Change was
+#: discarded, or its finished Review was reopened (Merge when ready is offered
+#: only on a finished Review).
+WithdrawalReason = Literal["discarded", "reopened"]
+_WITHDRAWAL_CAUSE: Final[Mapping[str, str]] = {
+    "discarded": "The Change was discarded",
+    "reopened": "The review was reopened",
+}
+
+
+def withdrawn_detail(reason: str) -> str:
+    """What an intent withdrawn for *reason* says once nothing is owed any more."""
+
+    if reason == "reopened":
+        return "The review was reopened; Merge when ready was withdrawn. Finish the review to offer it again."
+    return "The Change was discarded; Merge when ready was withdrawn."
+
+
+def owe_landing_withdrawal(
+    store: ReviewStore, review_id: str, *, reason: WithdrawalReason
+) -> ReviewRelationship | None:
+    """Record that an armed intent owes a provider cancel because of a human status change.
 
     The cancel itself runs through :func:`complete_pending_landing_cancel`
     where a provider delegate lives, and stays owed until the provider
     confirms it, so a transient failure is retried rather than forgotten
-    while the provider could still merge the discarded Change.
+    while the provider could still merge a Change that was discarded, or
+    whose Review was reopened. Idempotent: an intent already owing this
+    withdrawal is returned unchanged.
     """
 
     landing = landing_relationship(store, review_id)
     if landing is None or landing.status not in ARMED_LANDING_STATES:
         return None
+    metadata = landing_metadata(landing)
+    if metadata.get("provider_cancel") == "pending" and metadata.get("cancel_reason") == reason:
+        return landing
     return record_landing_state(
         store,
         landing,
         status=landing.status,
         metadata_updates={
             "provider_cancel": "pending",
-            "cancel_reason": "discarded",
-            "detail": "The Change was discarded; withdrawing Merge when ready.",
+            "cancel_reason": reason,
+            "detail": f"{_WITHDRAWAL_CAUSE[reason]}; withdrawing Merge when ready.",
         },
     )
 
@@ -310,14 +336,16 @@ def claim_readiness_withdrawal(
     )
 
 
-def withdraw_discarded_landing(
+def withdraw_landing(
     store: ReviewStore,
     review_id: str,
     cancel: Callable[[], Mapping[str, Any]],
+    *,
+    reason: WithdrawalReason,
 ) -> ReviewRelationship | None:
-    """Withdraw a discarded Change's armed intent (and any cancel already owed)."""
+    """Withdraw an armed intent after a discard or reopen (and any cancel already owed)."""
 
-    owe_discard_withdrawal(store, review_id)
+    owe_landing_withdrawal(store, review_id, reason=reason)
     return complete_pending_landing_cancel(store, review_id, cancel)
 
 
@@ -470,7 +498,7 @@ def _local_github_step(
                 url,
             )
         if not head_sha:
-            return _github_result("failed", "This Snapshot has no immutable GitHub head commit.", url)
+            return _github_result("failed", "This revision has no immutable GitHub head commit.", url)
         if state != "OPEN":
             return _github_result("blocked", "GitHub pull request was closed without merging.", url)
         if remote_head != head_sha:
@@ -478,13 +506,13 @@ def _local_github_step(
             moved = f"GitHub head moved from {head_sha[:12]} to {remote_head[:12] or 'unknown'}"
             if action == "arm":
                 return _github_result(
-                    "blocked", f"{moved}; capture the new Snapshot and review it before arming landing.", url
+                    "blocked", f"{moved}; capture the new revision and review it before arming landing.", url
                 )
             return _github_result(
                 "stale",
                 f"{moved} after landing was armed; the new head has not been reviewed"
                 + (f" ({'; '.join(withdrawn)})" if withdrawn else "")
-                + ". Review the new Snapshot and re-arm.",
+                + ". Review the new revision and re-arm.",
                 url,
             )
         if bool(pull.get("isDraft")):
@@ -640,7 +668,7 @@ def _withdraw_expired_landing(
             "blocked_by": ["Time-sensitive evidence expired"],
             "detail": (
                 f"Time-sensitive evidence this landing relied on expired at {expired_at}; nothing was merged. "
-                "Re-verify it on this Snapshot and re-arm." + (f" {detail}" if detail else "")
+                "Re-verify it on this revision and re-arm." + (f" {detail}" if detail else "")
             ),
         },
     )
@@ -777,7 +805,7 @@ def reconcile_local_github_landing(
             store,
             landing,
             status="stale",
-            metadata_updates={"detail": "The armed Snapshot is no longer available; review and re-arm."},
+            metadata_updates={"detail": "The armed revision is no longer available; review and re-arm."},
         )
     armed_tree = str(metadata.get("tree_fingerprint") or armed_revision.tree_fingerprint)
     if latest.tree_fingerprint != armed_tree:
@@ -842,10 +870,11 @@ __all__ = [
     "local_github_landing",
     "mark_landing_stale_for_revision",
     "normalized_requirement_state",
-    "owe_discard_withdrawal",
+    "owe_landing_withdrawal",
     "readiness_summary",
     "reconcile_local_github_landing",
     "record_landing_state",
     "recorded_generation_change",
-    "withdraw_discarded_landing",
+    "withdraw_landing",
+    "withdrawn_detail",
 ]

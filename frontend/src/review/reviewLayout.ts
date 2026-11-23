@@ -28,3 +28,31 @@ function subscribe(onChange: () => void): () => void {
 export function useCompactReviewLayout(): boolean {
   return useSyncExternalStore(subscribe, isCompactReviewViewport, () => false);
 }
+
+/**
+ * Below the md breakpoint the Reader opens with the file drawer closed (the
+ * Map does the same with its inspector). Wider than the phone composition
+ * above, so a tablet keeps its collapsed rail with a visible toggle.
+ */
+export const REVIEW_NARROW_QUERY = "(max-width: 767px)";
+
+function narrowQuery(): MediaQueryList | null {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+  return window.matchMedia(REVIEW_NARROW_QUERY);
+}
+
+export function isNarrowReviewViewport(): boolean {
+  return Boolean(narrowQuery()?.matches);
+}
+
+function subscribeNarrow(onChange: () => void): () => void {
+  const query = narrowQuery();
+  if (!query) return () => undefined;
+  query.addEventListener?.("change", onChange);
+  return () => query.removeEventListener?.("change", onChange);
+}
+
+/** Live below-md flag; false wherever media queries are unavailable. */
+export function useNarrowReviewLayout(): boolean {
+  return useSyncExternalStore(subscribeNarrow, isNarrowReviewViewport, () => false);
+}

@@ -155,18 +155,14 @@ _CLAUDE_TOOL_DISCIPLINE_READ = (
 # the generic Claude tool instruction. Keep that rule in the generator, not
 # in manually patched outputs that the next sync would overwrite.
 _CLAUDE_CODE_DISCIPLINE = (
-    "Inside Git worktrees, use `code_search` first for unknown source and `read` for known "
-    "paths/ranges; do not use Bash grep/rg for repository discovery, including in subagents. "
-    "Outside Git worktrees, Bash `grep`/`rg` remains available for standalone directories. "
-    "Keep `edit` for edits and `bash` for execution. If lc is unavailable, stop rather than falling back."
+    "Git source discovery → `code_search` first; combine terms. Known files → `read`. "
+    "Don't embed source grep/rg in compound Bash. Use `bash` for Git, tests, logs, "
+    "non-Git search and exact shell output. Index misses fall back to grep."
 )
 _CLAUDE_EXPLORE_DISCIPLINE = (
-    "- **Read-only role — `bash` never mutates.** Inspection and validation only, "
-    "no redirects into the tree, no `sed -i`/`tee`, no git state changes.\n\n"
-    "Inside Git worktrees, use `code_search` for unknown source and `read` for known paths/ranges; "
-    "do not use Bash grep/rg for code discovery, including pipes and cd-prefixed forms. "
-    "Outside Git worktrees, Bash grep/rg can search standalone directories. "
-    "If lc is unavailable, stop rather than falling back."
+    "Read-only: `bash` never mutates. Git source discovery → `code_search` first; "
+    "known files → `read`. Bash for logs, non-Git search and exact output, not compound "
+    "source grep. Index misses fall back to grep."
 )
 _CLAUDE_SHARED_OVERRIDES = {
     "{{TOOL_DISCIPLINE}}": _CLAUDE_TOOL_DISCIPLINE,
@@ -364,7 +360,7 @@ _CURSOR_DISCOVERY_LEAD = (
 )
 
 _CURSOR_DISCOVERY_TAIL = (
-    "Reminder: `get_mcp_tools` server `user-lemoncrow`, then LemonCrow `code_search`/`bash` " "before any edit."
+    "Reminder: `get_mcp_tools` server `user-lemoncrow`, then LemonCrow `code_search`/`bash` before any edit."
 )
 
 
@@ -615,13 +611,6 @@ def build_mode_outputs(
                 "opencode", resolve_explicit_host_model("opencode", role_id, workspace_root=repo_root)
             ),
         )
-
-        # lemoncode is a rebranded opencode fork -- same agent markdown format,
-        # same tool prefix, same `.opencode/agents` workspace layout. It reuses
-        # the opencode projection so the two surfaces can never drift apart; the
-        # opencode-provider model pin above is opencode's own and is not carried over.
-        lemoncode_path = repo_root / "integrations" / "lemoncode" / "agents" / f"{opencode_projection.output_name}.md"
-        outputs[lemoncode_path] = opencode_text
 
         copilot_projection = registry.projection(role_id, "copilot_agent")
         copilot_path = repo_root / "integrations" / "copilot" / "agents" / f"{copilot_projection.output_name}.agent.md"

@@ -267,7 +267,7 @@ def test_a_cold_open_sends_the_generation_base_then_exact_worktree_overlay(
 def test_hosted_review_capture_uses_an_exact_virtual_snapshot(
     stub: StubServer, session: RemoteSession, tmp_path: Path
 ) -> None:
-    historical = {"src/app.py": "print('historical snapshot')\n"}
+    historical = {"src/app.py": "print('historical revision')\n"}
     binary = {"assets/logo.bin": b"\x00\x01\xff\xfe"}
     snapshot = tmp_path / "review-snapshot"
     (snapshot / "src").mkdir(parents=True)

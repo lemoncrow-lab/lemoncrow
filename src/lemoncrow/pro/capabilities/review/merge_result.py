@@ -287,7 +287,7 @@ def merge_result_condition(facts: MergeResultFacts) -> ReadinessCondition | None
             id=CONDITION_ID,
             label="Merge result",
             state="fail",
-            detail="; ".join(parts) + ". Landing is blocked; the reviewed Snapshot's judgments are unchanged.",
+            detail="; ".join(parts) + ". Landing is blocked; the reviewed revision's judgments are unchanged.",
             category="landing",
             reason=(
                 "merge_conflict"

@@ -29,36 +29,33 @@ if command -v jq >/dev/null 2>&1; then
     ] | map(tostring) | join("")
   ' 2>/dev/null)"
 else
-  read_field() {
-    python3 -c "
+  # Parse once when jq is unavailable: the former read_field helper started
+  # 11 Python interpreters on every status-line refresh.
+  LEMONCROW_STATUS_DELIM=$'\037'
+  IFS="${LEMONCROW_STATUS_DELIM}" read -r MODEL PCT COST IN_TOK OUT_TOK CACHE_R CACHE_W SESSION_ID MODEL_ID TRANSCRIPT_PATH <<<"$(printf '%s' "$input" | python3 -c '
 import json, sys
 try:
-    d = json.loads(sys.argv[1] or '{}')
-    keys = sys.argv[2].split('.')
-    v = d
-    for k in keys:
-        if isinstance(v, dict):
-            v = v.get(k)
-        else:
-            v = None
-            break
-    if v is None:
-        v = sys.argv[3]
-    print(v)
-except Exception:
-    print(sys.argv[3])
-" "$input" "$1" "$2"
-  }
-  MODEL=$(read_field "model.display_name" "$(read_field "model.id" "claude")")
-  MODEL_ID=$(read_field "model.id" "$MODEL")
-  PCT=$(read_field "context_window.used_percentage" "0")
-  COST=$(read_field "cost.total_cost_usd" "0")
-  IN_TOK=$(read_field "context_window.current_usage.input_tokens" "0")
-  OUT_TOK=$(read_field "context_window.current_usage.output_tokens" "0")
-  CACHE_R=$(read_field "context_window.current_usage.cache_read_input_tokens" "0")
-  CACHE_W=$(read_field "context_window.current_usage.cache_creation_input_tokens" "0")
-  SESSION_ID=$(read_field "session_id" "")
-  TRANSCRIPT_PATH=$(read_field "transcript_path" "")
+    d = json.load(sys.stdin)
+    m = d.get("model") or {}
+    w = d.get("context_window") or {}
+    u = w.get("current_usage") or {}
+    c = d.get("cost") or {}
+    fields = [
+        m.get("display_name") or m.get("id") or "claude",
+        w.get("used_percentage") or 0,
+        c.get("total_cost_usd") or 0,
+        u.get("input_tokens") or 0,
+        u.get("output_tokens") or 0,
+        u.get("cache_read_input_tokens") or 0,
+        u.get("cache_creation_input_tokens") or 0,
+        d.get("session_id") or "",
+        m.get("id") or m.get("display_name") or "",
+        d.get("transcript_path") or "",
+    ]
+    print(chr(31).join(str(value).replace(chr(31), "") for value in fields))
+except (ValueError, TypeError, AttributeError):
+    print(chr(31).join(["claude", "0", "0", "0", "0", "0", "0", "", "", ""]))
+' 2>/dev/null)"
 fi
 
 PCT_INT=${PCT%%.*}
@@ -289,39 +286,45 @@ if [ -n "${TRANSCRIPT_PATH:-}" ] && [ -f "${TRANSCRIPT_PATH}" ]; then
       _BG_HIT=1
     fi
   fi
-  [ "${_BG_HIT}" -eq 1 ] || BG_JOBS=$(awk '
-    /tool_use_id/ && /Command running in background with ID: / {
-      line = $0
-      path = ""
-      if (match(line, /Output is being written to: [^", ]+/)) {
-        path = substr(line, RSTART, RLENGTH)
-        sub(/^Output is being written to: /, "", path)
-      }
-      while (match(line, /Command running in background with ID: [a-z0-9]+/)) {
-        id = substr(line, RSTART, RLENGTH)
-        sub(/^.*ID: /, "", id)
-        launched[id] = 1
-        if (path != "") output_file[id] = path
-        line = substr(line, RSTART + RLENGTH)
-      }
-    }
-    /task-notification/ && match($0, /<task-id>[a-z0-9]+<\/task-id>/) {
-      id = substr($0, RSTART, RLENGTH)
-      gsub(/<\/?task-id>/, "", id)
-      if ($0 ~ /<status>(completed|failed|stopped|cancelled|killed)<\/status>/) done[id] = 1
-    }
-    END {
-      n = 0
-      for (id in launched) {
-        if (id in done) continue
-        if (!(id in output_file)) continue
-        cmd = "test -e \"" output_file[id] "\""
-        if (system(cmd) != 0) continue
-        n++
-      }
-      print n
-    }
-  ' "${_BG_SCAN_FILES[@]}" 2>/dev/null)
+  if [ "${_BG_HIT}" -eq 0 ]; then
+    # Parse transcript into DATA ONLY. Never pass a transcript-controlled path
+    # to awk system(): quoting a filename into a shell command permits injection.
+    # A retained output file is not proof a job is alive, so count only files
+    # with an open process handle. On hosts without lsof, report unknown (0).
+    BG_JOBS=0
+    if command -v lsof >/dev/null 2>&1; then
+      while IFS= read -r _BG_OUTPUT; do
+        [ -f "${_BG_OUTPUT}" ] || continue
+        if [ -n "$(lsof -t "${_BG_OUTPUT}" 2>/dev/null | head -n 1)" ]; then
+          BG_JOBS=$(( BG_JOBS + 1 ))
+        fi
+      done < <(awk '
+        /tool_use_id/ && /Command running in background with ID: / {
+          line = $0
+          path = ""
+          if (match(line, /Output is being written to: [^", ]+/)) {
+            path = substr(line, RSTART, RLENGTH)
+            sub(/^Output is being written to: /, "", path)
+          }
+          while (match(line, /Command running in background with ID: [a-z0-9]+/)) {
+            id = substr(line, RSTART, RLENGTH)
+            sub(/^.*ID: /, "", id)
+            launched[id] = 1
+            if (path != "") output_file[id] = path
+            line = substr(line, RSTART + RLENGTH)
+          }
+        }
+        /task-notification/ && match($0, /<task-id>[a-z0-9]+<\/task-id>/) {
+          id = substr($0, RSTART, RLENGTH)
+          gsub(/<\/?task-id>/, "", id)
+          if ($0 ~ /<status>(completed|failed|stopped|cancelled|killed)<\/status>/) done[id] = 1
+        }
+        END {
+          for (id in launched) if (!(id in done) && (id in output_file)) print output_file[id]
+        }
+      ' "${_BG_SCAN_FILES[@]}" 2>/dev/null)
+    fi
+  fi
   [ -z "${BG_JOBS}" ] && BG_JOBS=0
   if [ "${_BG_HIT}" -eq 0 ] && [ -n "${_BG_CACHE}" ]; then
     # Atomic rename so a concurrent render never reads a torn cache file.
@@ -417,7 +420,7 @@ fi
 # The status text rides on the last row so the logo reads as a left-hand mark.
 LOGO_PREFIX=""
 if [ "${LEMONCROW_STATUSLINE_LOGO:-}" = "1" ] && [ -z "${LEMONCROW_NO_COLOR:-}" ]; then
-  _LOGO_FILE="$(dirname "${BASH_SOURCE[0]}")/lemoncode-logo.ansi"
+  _LOGO_FILE="$(dirname "${BASH_SOURCE[0]}")/lemoncrow-logo.ansi"
   if [ -f "${_LOGO_FILE}" ]; then
     _LOGO_LINES=()
     while IFS= read -r _L; do _LOGO_LINES+=("${_L}"); done <"${_LOGO_FILE}"

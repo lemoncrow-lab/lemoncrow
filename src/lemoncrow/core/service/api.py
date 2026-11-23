@@ -98,38 +98,62 @@ def _host_family(host: str | None) -> str:
     return host_name
 
 
+# Same names as the Integrations page (server local_app._local_integration_rows), so a host reads alike everywhere.
 _HOST_LABEL_OVERRIDES: dict[str, str] = {
     "claude": "Claude Code",
-    "codex": "Codex CLI",
-    "opencode": "opencode",
-    "lemoncode": "LemonCode",
-    "copilot": "Copilot / VS Code",
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "pi": "Pi",
+    "copilot": "VS Code / Copilot",
     "antigravity": "Antigravity",
-    "cursor": "Cursor IDE",
+    "cursor": "Cursor",
     "hermes": "Hermes Agent",
 }
 
+# Shown to users on the Hosts page: what LemonCrow adds to each coding tool, in plain terms.
 _HOST_DESCRIPTION_OVERRIDES: dict[str, str] = {
-    "claude": "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
-    "codex": "Codex MCP registration with generated instructions and shared telemetry.",
-    "opencode": "OpenCode MCP config with imported session support and local agents.",
-    "lemoncode": "LemonCrow's controlled OpenCode fork: managed host binary, local agents, and session import.",
-    "copilot": "VS Code / Copilot MCP config with custom instructions and shared telemetry.",
-    "antigravity": "Antigravity MCP config plus generated AGENTS guidance and agy companion flow.",
-    "cursor": "Cursor MCP config with project rules and MCP-first guidance.",
-    "hermes": "Global-only Hermes MCP registration through ~/.hermes/config.yaml.",
+    "claude": "Adds LemonCrow's tools, agents, skills and session hooks to Claude Code.",
+    "codex": "Adds LemonCrow's tools, instructions and session hooks to Codex.",
+    "opencode": "Adds LemonCrow's tools and agents to OpenCode, and imports its sessions.",
+    "pi": "The coding agent `lc code` runs by default. LemonCrow installs and manages it.",
+    "copilot": "Adds LemonCrow's tools and custom instructions to VS Code and GitHub Copilot.",
+    "antigravity": "Adds LemonCrow's tools and instructions to Antigravity.",
+    "cursor": "Adds LemonCrow's tools and project rules to Cursor.",
+    "hermes": "Adds LemonCrow's tools to Hermes Agent for every project, through ~/.hermes/config.yaml.",
 }
 
-_HOST_ORDER: tuple[str, ...] = (
-    "lemoncode",
-    "claude",
-    "codex",
-    "opencode",
-    "copilot",
-    "antigravity",
-    "cursor",
-    "hermes",
-)
+# The same hosts, in the same order, as the Integrations page (and session_replay.SUPPORTED_HOSTS), so the
+# Diagnostics count and the Integrations list agree.
+_HOST_ORDER: tuple[str, ...] = ("claude", "codex", "opencode", "pi", "copilot", "cursor", "antigravity", "hermes")
+
+
+def _skill_description(content: str) -> str:
+    """The ``description`` of a SKILL.md frontmatter block, as the YAML value (quotes removed).
+
+    A frontmatter block that is not valid YAML falls back to the raw ``description:`` line, still unquoted.
+    """
+    import yaml
+
+    if not content.startswith("---"):
+        return ""
+    end = content.find("---", 3)
+    if end <= 0:
+        return ""
+    block = content[3:end]
+    try:
+        loaded = yaml.safe_load(block)
+    except yaml.YAMLError:
+        loaded = None
+    if isinstance(loaded, dict):
+        value = loaded.get("description")
+        return "" if value is None else str(value).strip()
+    for line in block.split("\n"):
+        if line.startswith("description:"):
+            raw = line.split(":", 1)[1].strip()
+            if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+                raw = raw[1:-1]
+            return raw
+    return ""
 
 
 def _integration_resource_path(*parts: str) -> Path:
@@ -435,7 +459,7 @@ class CodeMapAgentHandoffRequest(BaseModel):
 
     project_root: str | None = Field(default=None, max_length=4096)
     expected_session_id: str | None = Field(default=None, max_length=240)
-    engine: Literal["auto", "lemoncode", "pi", "codex", "claude"] | None = None
+    engine: Literal[("auto", "pi", "codex", "claude")] | None = None
     path: str = Field(min_length=1, max_length=4096)
     line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
@@ -2941,6 +2965,8 @@ def _ledger_savings_summary_payload(
                     "task": row["task"],
                     "saved_tokens": 0,
                     "saved_cost_usd": 0.0,
+                    "tracked_tool_calls": 0,
+                    "live_calls_saved": 0,
                     "items": [],
                 },
             )
@@ -2950,6 +2976,8 @@ def _ledger_savings_summary_payload(
                 session["task"] = row["task"]
             session["saved_tokens"] += int(row["saved_tokens"])
             session["saved_cost_usd"] = round(float(session["saved_cost_usd"]) + float(row["saved_cost_usd"]), 6)
+            session["tracked_tool_calls"] += int(row["tool_calls"])
+            session["live_calls_saved"] += int(row["live_calls_saved"])
             session["items"].append(
                 {
                     "session_id": row["session_id"],
@@ -3254,7 +3282,7 @@ def _implemented_optimization_catalog(
     from lemoncrow.pro.capabilities.session_optimizer import SUPPORTED_OPTIMIZER_HOSTS
 
     supported_hosts = list(SUPPORTED_OPTIMIZER_HOSTS)
-    owned_runtime_hosts = ["lemoncode", "codex", "claude", "native"]
+    owned_runtime_hosts = ["codex", "claude", "native"]
     per_lever = {
         str(key): int(value or 0)
         for key, value in (savings_payload.get("per_lever") or {}).items()
@@ -3354,10 +3382,10 @@ def _implemented_optimization_catalog(
             "automation": "Automatic eager core with deterministic focused fallback",
             "status": "adapted_complete",
             "observed_tokens_saved": 0,
-            "applies_to": [*supported_hosts, "lemoncode", "native"],
+            "applies_to": [*supported_hosts, "native"],
             "notes": (
                 "Keeps ordinary coding tools eager and never requires a search-first broker call; "
-                "managed LemonCode exposes no redundant outer MCP schemas."
+                "managed Pi exposes no redundant outer MCP schemas."
             ),
             "examples": ["LEMONCROW_MCP_TOOL_PROFILE=full", "--mcp-schema-mode auto"],
         },
@@ -3522,7 +3550,7 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
             "id": "owned-runtime-controlled-ab",
             "priority": "high",
             "title": "Run controlled quality/cost acceptance gates for the V2 savings runtime",
-            "hosts": ["lemoncode", "codex", "claude", "native"],
+            "hosts": ["codex", "claude", "native"],
             "notes": (
                 "All six runtime implementations are locally verified, but routing, output, cache, "
                 "retrieval, and evidence reuse remain measurement-pending until frozen-corpus A/B "
@@ -3533,7 +3561,7 @@ def _optimization_implementation_gaps() -> list[dict[str, Any]]:
             "id": "local-retrieval-recall-corpus",
             "priority": "high",
             "title": "Measure local retrieval recall, frontier tokens, and latency",
-            "hosts": ["lemoncode", "codex", "claude", "native"],
+            "hosts": ["codex", "claude", "native"],
             "notes": (
                 "Compare deterministic-only and optional-local-planner packets against normal "
                 "frontier retrieval; keep the feature shadow-only if exact-target recall regresses."
@@ -5782,14 +5810,9 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                     md = skill_dir / "SKILL.md"
                     if md.exists():
                         content = md.read_text(encoding="utf-8")
-                        desc = ""
-                        if content.startswith("---"):
-                            end = content.find("---", 3)
-                            if end > 0:
-                                for line in content[3:end].split("\n"):
-                                    if line.startswith("description:"):
-                                        desc = line.split(":", 1)[1].strip()
-                        skills.append({"name": skill_dir.name, "description": desc, "content": content})
+                        skills.append(
+                            {"name": skill_dir.name, "description": _skill_description(content), "content": content}
+                        )
         return skills
 
     @app.get("/skills/{name}", tags=["ops"], dependencies=[Depends(verify_api_key)])
@@ -5813,7 +5836,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         if not md.exists():
             raise HTTPException(status_code=404, detail=f"Skill not found: {name}")
         content = md.read_text(encoding="utf-8")
-        return {"name": name, "description": "", "content": content}
+        return {"name": name, "description": _skill_description(content), "content": content}
 
     # ------------------------------------------------------------------ #
     # Agents                                                              #
@@ -7377,12 +7400,15 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
         report_path = report_dir / "report.txt"
         summary_path = report_dir / "summary.csv"
+        # report.txt is plain text (aligned columns); only the summary.csv fallback is Markdown.
+        content_format = "text"
         if report_path.is_file():
             try:
                 content = report_path.read_text(encoding="utf-8")
             except OSError as exc:
                 raise HTTPException(status_code=500, detail="Failed to read benchmark report") from exc
         elif summary_path.is_file():
+            content_format = "markdown"
             try:
                 summary = summary_path.read_text(encoding="utf-8")
             except OSError as exc:
@@ -7405,6 +7431,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "run_id": run_id,
             "generated_at": generated_at,
             "markdown": content,
+            "format": content_format,
             "files": files,
         }
 

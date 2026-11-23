@@ -245,6 +245,36 @@ def test_authward_refresh_keeps_refresh_token_when_provider_does_not_rotate_it()
     assert client.refresh("refresh-stable") == ("authward-access-2", "refresh-stable")
 
 
+def test_one_sign_in_names_every_resource_and_each_token_request_names_one() -> None:
+    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
+    started = {"device_code": "dev-1", "user_code": "ABCD-EFGH", "verification_uri": "https://auth.example/device"}
+    auth = FakeTransport(
+        "https://auth.example",
+        [
+            _oidc_discovery(),
+            Response(200, started),
+            Response(200, {"access_token": "api-access", "refresh_token": "refresh-2"}),
+            Response(200, {"access_token": "server-access", "refresh_token": "refresh-3"}),
+        ],
+    )
+    client = discover_authward(
+        server,  # type: ignore[arg-type]
+        timeout_s=5,
+        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
+    )
+
+    servers = ["https://acme.workspaces.lemoncrow.com", "https://api.lemoncrow.com", "https://beta.lemoncrow.com"]
+    client.start_device(servers)
+    assert client.refresh("refresh-1") == ("api-access", "refresh-2")
+    resource = "https://acme.workspaces.lemoncrow.com"
+    assert client.refresh("refresh-2", resource=resource) == ("server-access", "refresh-3")
+
+    named = ["https://api.lemoncrow.com", "https://acme.workspaces.lemoncrow.com", "https://beta.lemoncrow.com"]
+    assert auth.calls[1][2]["resource"] == named
+    assert auth.calls[2][2]["resource"] == "https://api.lemoncrow.com"
+    assert auth.calls[3][2]["resource"] == resource
+
+
 @pytest.mark.parametrize(
     ("oauth_error", "http_status", "expected_code", "retryable"),
     [
@@ -275,6 +305,25 @@ def test_device_polling_oauth_error_field_not_http_status(
     assert caught.value.server_code == oauth_error
     assert caught.value.retryable is retryable
     assert len(auth.calls) == 2
+
+
+def test_device_polling_rate_limit_without_an_oauth_error_is_retried() -> None:
+    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
+    limited = Response(429, {"message": "Too many requests. Please try again later."})
+    auth = FakeTransport("https://auth.example", [_oidc_discovery(), limited, limited])
+    client = discover_authward(
+        server,
+        timeout_s=5,
+        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
+    )
+    with pytest.raises(ClientError) as caught:
+        client.poll_device("device-code")
+    assert caught.value.server_code == "slow_down"
+    assert caught.value.retryable is True
+    # Only the device token poll is retried that way: any other refused request stays a refusal.
+    with pytest.raises(ClientError) as other:
+        client.refresh("refresh-1")
+    assert other.value.retryable is False
 
 
 @pytest.mark.parametrize(("oauth_error", "status"), [("invalid_grant", 400), ("invalid_client", 400)])

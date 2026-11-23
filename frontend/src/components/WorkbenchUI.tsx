@@ -118,7 +118,7 @@ export function SectionHeader({
   return (
     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
-        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        {eyebrow && <p className={EYEBROW_LABEL}>{eyebrow}</p>}
         <h2 className="mt-1 text-heading font-semibold text-foreground">{title}</h2>
         {description && (
           <p className="mt-1 text-label leading-5 text-muted-foreground">
@@ -132,7 +132,13 @@ export function SectionHeader({
 }
 
 /**
- * One page header: an optional mono eyebrow (`@@ SETTINGS @@`), the page title, and one lede. The same
+ * A header's mono eyebrow: the `.eyebrow` look without its `@@ … @@` markers. Over a page or section title the
+ * markers read as stray diff markup; they stay on Hunk header strips (HunkLabel), the one place they mean a frame.
+ */
+const EYEBROW_LABEL = "font-mono text-tag uppercase text-muted-foreground";
+
+/**
+ * One page header: an optional mono eyebrow ("SETTINGS"), the page title, and one lede. The same
  * pattern opens every routed page so none starts with a bare heading or a raw micro-label.
  */
 export function PageHeader({
@@ -151,7 +157,7 @@ export function PageHeader({
   return (
     <header className={cn("flex flex-col gap-3 md:flex-row md:items-start md:justify-between", className)}>
       <div className="min-w-0">
-        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        {eyebrow && <p className={EYEBROW_LABEL}>{eyebrow}</p>}
         <h2 className={cn("text-title font-semibold text-foreground", eyebrow && "mt-2")}>{title}</h2>
         {description && <p className="mt-1 max-w-[72ch] text-body text-muted-foreground">{description}</p>}
       </div>
@@ -285,10 +291,13 @@ export function SnippetCard({
   title,
   body,
   caption,
+  wrap = false,
 }: {
   title: string;
   body: string;
   caption?: string;
+  /** Wrap long lines (long shell commands) instead of scrolling them sideways. */
+  wrap?: boolean;
 }) {
   return (
     <Card>
@@ -299,7 +308,7 @@ export function SnippetCard({
         </div>
         <CopyButton text={body} />
       </div>
-      <pre className="overflow-x-auto border-0 bg-transparent p-4 text-body leading-relaxed text-subtle">
+      <pre className={cn("border-0 bg-transparent p-4 text-body leading-relaxed text-subtle", wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto")}>
         {body}
       </pre>
     </Card>

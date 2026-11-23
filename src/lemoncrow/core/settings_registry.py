@@ -44,6 +44,10 @@ class SettingSpec:
     """Allowed values for a ``str`` setting (empty means free text, or unset)."""
     int_range: tuple[int, int] | None = None
     """Inclusive ``(low, high)`` bounds an ``int`` setting must lie in (``None``: unbounded)."""
+    float_range: tuple[float, float] | None = None
+    """Inclusive ``(low, high)`` bounds a ``float`` setting must lie in (``None``: unbounded)."""
+    float_unset: float | None = None
+    """A ``float`` value outside ``float_range`` that means "no value" (settings cannot hold null)."""
     yields_to: str | None = None
     """An exported variable (the vendor's own name, ``ANTHROPIC_API_KEY``) that wins over the saved value: when it is
     set, the saved value is not put into the environment at all."""
@@ -251,6 +255,22 @@ SETTINGS: list[SettingSpec] = [
         False,
         "storage",
         "Enable pgvector-backed semantic search in the Postgres store.",
+    ),
+    SettingSpec(
+        "storage.vector_cache_max_rows",
+        "LEMONCROW_VECTOR_CACHE_MAX_ROWS",
+        "int",
+        50000,
+        "storage",
+        "Rows kept in the sidecar embedding cache (vector_cache.sqlite); past it the oldest are dropped. 0 keeps all.",
+    ),
+    SettingSpec(
+        "storage.raw_retention_days",
+        "LEMONCROW_RAW_RETENTION_DAYS",
+        "int",
+        90,
+        "storage",
+        "Days a redacted copy of a host transcript under raw/ is kept; the parsed traces stay. 0 keeps all.",
     ),
     # -- retrieval: code_search / explore ranking and channel tuning --
     SettingSpec(
@@ -2037,12 +2057,16 @@ SETTINGS: list[SettingSpec] = [
     # contract and is read fresh on every route resolution, so a stale process
     # env never overrides it. ``driver: auto`` still reads LEMONCROW_LLM_BACKEND.
     SettingSpec(
-        "intelligence.enabled",
+        "intelligence.monthly_budget_usd",
         None,
-        "bool",
-        True,
+        "float",
+        -1.0,
         "intelligence",
-        "Allow model routes at all (Review Intelligence, Ask and background intelligence); false refuses every route.",
+        "AI budget in US dollars per UTC calendar month for every model call this machine makes (Ask, Review and "
+        "background work). -1 for no limit; 0 runs no new AI. Results already made stay either way. "
+        "Replaces the retired intelligence.enabled switch (a stored false becomes 0).",
+        float_range=(0.0, 1_000_000_000.0),
+        float_unset=-1.0,
     ),
     SettingSpec(
         "intelligence.driver",
@@ -2297,9 +2321,8 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "review",
-        "Preferred fixing agent for Review Fix after the original author's session (claude, codex, opencode, "
-        "lemoncode); empty means none.",
-        choices=("claude", "codex", "opencode", "lemoncode"),
+        "Preferred fixing agent for Review Fix after the original author's session (claude, codex, opencode); empty means none.",
+        choices=("claude", "codex", "opencode"),
     ),
     # Personal, explicit opt-in (Phase 10 item 19): the reviewer's own Ed25519
     # key for signing local review records. The file must be owner-only and

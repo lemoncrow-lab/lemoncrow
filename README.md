@@ -8,13 +8,13 @@
 
 ### Add local code intelligence to the coding agent you already use
 
-Runtime gives Claude Code, Codex, OpenCode, and Cursor useful local repository
-intelligence and LemonCrow tools without replacing the agent. Hosted Runtime
-adds deeper private retrieval; Enterprise Runtime puts that private Runtime in
-customer-controlled infrastructure. Managed execution and cross-workspace
+Workspaces gives Claude Code, Codex, OpenCode, and Cursor useful local repository
+intelligence and LemonCrow tools without replacing the agent. LemonCrow Pro adds
+hosted retrieval for deeper private search; Enterprise Workspaces puts that private
+engine in customer-controlled infrastructure. Managed execution and cross-workspace
 context are not yet available.
 
-**LemonCrow has two connected products:** Runtime improves the agent's repository
+**LemonCrow has two connected products:** Workspaces improves the agent's repository
 context and tools. Review helps you understand the code your agents changed and
 preserve human review state across revisions.
 
@@ -26,7 +26,7 @@ preserve human review state across revisions.
 [![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
 [![Stars](https://img.shields.io/github/stars/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow)
 
-[Quick start](#quick-start) · [Runtime](#runtime-local-by-default) · [Review](#review-agent-changes) · [Results](#results) · [Privacy](#privacy) · [Reference](#reference)
+[Quick start](#quick-start) · [Workspaces](#workspaces-local) · [Review](#review-agent-changes) · [Results](#results) · [Privacy](#privacy) · [Reference](#reference)
 
 </div>
 
@@ -47,9 +47,9 @@ cd your-project && lc review --ai                           # 3. the review, pri
 
 No key? Use the agent you already have, with no key: `lc review --ai --agent claude` (also `codex`, `opencode`). Add `--remember` once and `lc review --ai` uses it whenever no key is set. If there is neither, `lc review --ai` says what to do in three lines and exits 3. To keep a key instead of exporting it in every terminal: `lc settings set llm.anthropic_api_key` (asks for it; stored in `~/.lemoncrow/plugin_settings.json`, readable only by you). [Your first AI review](docs/setup/ai-review.md) has the details.
 
-The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch. Upgrading from an earlier release? Read the [behaviour changes](CHANGELOG.md#behaviour-changes-for-local-installs) first.
+The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Workspaces is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product workspaces` (`runtime` still works) or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch. Upgrading from an earlier release? Read the [behaviour changes](CHANGELOG.md#behaviour-changes-for-local-installs) first.
 
-Give Claude Code, Codex, or OpenCode Local Lite tools in the current Git repo:
+Give Claude Code, Codex, or OpenCode Workspaces Lite tools in the current Git repo:
 
 ```bash
 lc with claude
@@ -57,11 +57,11 @@ lc with codex
 lc with opencode
 ```
 
-Cursor is not configured by the installer or `lc rt enable`; today it needs a source checkout (`bash scripts/install_cursor.sh`, see [Cursor integration](docs/hosts/cursor-install.md)). Runtime Lite stays local through `lc with`, persistent host integrations, and `lc runtime index`. `lc code` is the Hosted LemonCrow-owned coding agent. A Pro plan grants Hosted Runtime access; it is not a local engine mode.
+Cursor is not configured by the installer or `lc rt enable`; today it needs a source checkout (`bash scripts/install_cursor.sh`, see [Cursor integration](docs/hosts/cursor-install.md)). Workspaces Lite stays local through `lc with`, persistent host integrations, and `lc runtime index`. `lc code` is the Hosted LemonCrow-owned coding agent. A Pro plan grants hosted retrieval; it is not a local engine mode.
 
 `lc with` is temporary. It adds the LemonCrow plugin to that launch and does **not** modify the agent's saved configuration, model, authentication, or settings. The repository index is incremental and persists under `.lemoncrow/workspace/`.
 
-Like it? Keep Local Lite enabled for that host:
+Like it? Keep Workspaces Lite enabled for that host:
 
 ```bash
 lc rt enable claude
@@ -69,13 +69,15 @@ lc rt enable codex
 lc rt enable opencode
 ```
 
-To use Hosted Runtime:
+To have an agent work in a task of its own that lands on `main` only when your checks pass, follow the [Workspaces Lite quickstart](docs/setup/workspaces-lite-quickstart.md) (about ten minutes, no account).
+
+With a Pro plan, use hosted retrieval instead:
 
 ```bash
 lc rt enable claude --hosted
 ```
 
-Signing in does not change a local integration into hosted execution. Local Runtime Lite stays local. `lc code` is an explicit Hosted Runtime entry point.
+Signing in does not turn a local integration into a hosted one. Local Workspaces Lite stays local. `lc code` is an explicit hosted entry point.
 
 To look at the change in the browser first (no model is called):
 
@@ -83,38 +85,39 @@ To look at the change in the browser first (no model is called):
 lc review                          # capture the change and open it in the Reader
 ```
 
-Runtime and Review remain separate product surfaces: Runtime does not require
-Review, and Review does not require Runtime. The installed client sends no
-product telemetry; see [Privacy](#privacy).
+Workspaces and Review remain separate product surfaces: Workspaces does not require
+Review, and Review does not require Workspaces. The installed client sends
+anonymous feature counts unless you turn them off; see [Privacy](#privacy).
 
 ---
 
 <a id="runtime-local-by-default" name="runtime-local-by-default"></a>
 
-## Runtime: local
+## Workspaces: local
 
-Runtime Lite is the open-source local Runtime for Claude Code, Codex, OpenCode,
+Workspaces Lite is the open-source local mode of Workspaces for Claude Code, Codex, OpenCode,
 and Cursor. It gives the agent useful single-repository code intelligence and
 LemonCrow's local coding tools while keeping the host's normal model,
 credentials, and settings. Claude Code, Codex, and OpenCode support the temporary `lc with` path; Cursor's integration is installed from a source checkout.
 
 | What you want | Command | Execution |
 | --- | --- | --- |
-| Try once | `lc with claude` | Ephemeral Local Lite |
-| Keep enabled | `lc rt enable claude` | Persistent Local Lite configuration |
-| Local index | `lc runtime index` | Local Lite |
-| LemonCrow coding agent | `lc code` | Hosted Runtime |
-| Hosted Runtime | `lc rt enable claude --hosted` | Explicit hosted opt-in |
+| Try once | `lc with claude` | Ephemeral Workspaces Lite |
+| Keep enabled | `lc rt enable claude` | Persistent Workspaces Lite configuration |
+| Local index | `lc runtime index` | Workspaces Lite |
+| Agent tasks | `lc task start fix-123` | Workspaces Lite |
+| LemonCrow coding agent | `lc code` | Hosted, not yet available |
+| Hosted retrieval (Pro) | `lc rt enable claude --hosted` | Explicit hosted opt-in |
 
-Local Lite opens no LemonCrow listening port, starts no LemonCrow application server or daemon, requires no LemonCrow account, and uploads no repository source to LemonCrow. The persistent incremental repository index lives under `<repo>/.lemoncrow/workspace/`.
+Workspaces Lite opens no LemonCrow listening port, starts no LemonCrow application server or daemon, requires no LemonCrow account, and uploads no repository source to LemonCrow. The persistent incremental repository index lives under `<repo>/.lemoncrow/workspace/`.
 
-Local Lite is intentionally lightweight. It provides lexical/local repository
+Workspaces Lite is intentionally lightweight. It provides lexical/local repository
 intelligence rather than pretending to be the private advanced engine. Start
 local; add hosted infrastructure, deeper semantic/hybrid retrieval, team
 policy, or enterprise deployment only when you need those capabilities.
 Cross-workspace context outside Review is not yet available.
 
-Architecture details: [Runtime Lite](docs/architecture/runtime-lite.md) and the
+Architecture details: [Workspaces Lite](docs/architecture/runtime-lite.md) and the
 [OSS/private code-intelligence boundary](docs/architecture/oss-private-code-intelligence.md).
 
 <a id="review-agent-changes" name="review-agent-changes"></a>
@@ -180,8 +183,9 @@ change, run `lc review` again: the Reader shows **Changed since your review**,
 and **Copy feedback** (or **Send to agent**) hands every open comment to the
 author.
 
-The same loop is scriptable with the full Review CLI in a source checkout
-(`uv run lc review ...`); the installed `lc` client does not carry these flags:
+The same loop is scriptable from the terminal, in the installed `lc` and in a
+source checkout alike. Each command captures the current change first, then
+acts on the same Review:
 
 ```bash
 lc review --mark src/auth.py
@@ -189,7 +193,18 @@ lc review --comment "ttl is hardcoded" --on src/auth.py:L81
 # author or agent revises the change
 lc review --since-my-review
 lc review --feedback
+lc review status                 # add --json for scripts
 ```
+
+`lc review status` reports the current Review without capturing: its Revision,
+parts reviewed, unresolved comments, unsent feedback, whether it is
+ready, and the Reader URL. Its exit code is the same with `--json`: `0` ready,
+`1` not ready yet, `2` no Review found for this repository, `3` error.
+
+`--mark`, `--comment` and `--finish` record human judgment, so they are refused
+inside a coding-agent session. An agent captures with
+`lc review --no-open --track`, reads `lc review status --json` and
+`lc review --feedback`, fixes, and captures again.
 
 Comments are re-anchored only when the new location is unambiguous. Otherwise
 they are reported as orphaned instead of being silently moved.
@@ -276,9 +291,9 @@ F-score on the public 50-PR code-review benchmark, highest first. Rows scored by
 
 ## Results
 
-The numbers below are fixed results from pinned end-to-end Runtime benchmark
-runs, not live counters. They remain supporting proof for the Runtime product;
-they are not a claim that Local Lite has identical retrieval quality to the
+The numbers below are fixed results from pinned end-to-end Workspaces benchmark
+runs, not live counters. They remain supporting proof for the Workspaces product;
+they are not a claim that Workspaces Lite has identical retrieval quality to the
 advanced engine. Full methodology and raw-run references are in
 [BENCHMARKS.md](BENCHMARKS.md).
 
@@ -307,7 +322,7 @@ tokens**.
 
 The retrieval suite also contains advanced semantic-search measurements across
 ~7,200 query/answer pairs and 14 repositories. Those results describe the
-advanced code-intelligence path, not Runtime Lite. Runtime Lite deliberately
+advanced code-intelligence path, not Workspaces Lite. Workspaces Lite deliberately
 uses a lightweight local lexical/indexed pipeline instead. See
 [indexing and retrieval results](BENCHMARKS.md#indexing-time) for the full
 comparison and caveats.
@@ -317,7 +332,7 @@ comparison and caveats.
 <a id="how-it-works" name="how-it-works"></a>
 <a id="what-lemoncrow-does" name="what-lemoncrow-does"></a>
 
-## How Runtime Lite works
+## How Workspaces Lite works
 
 `lc with` resolves the current Git worktree, prepares the incremental Lite index, and launches your normal coding agent with the LemonCrow plugin available for that run:
 
@@ -326,18 +341,18 @@ Claude Code / Codex / OpenCode
             |
    LemonCrow plugin
             |
-       Runtime Lite
+     Workspaces Lite
             |
          your repo
             |
             +-- .lemoncrow/workspace/  (persistent local index)
 ```
 
-There is no background LemonCrow daemon, listening Runtime port, or application server to keep running.
+There is no background LemonCrow daemon, listening port, or application server to keep running.
 
-Key Local Lite tools include:
+Key Workspaces Lite tools include:
 
-| LemonCrow tool | Local Lite purpose |
+| LemonCrow tool | Workspaces Lite purpose |
 | --- | --- |
 | `code_search` | Exact symbols plus indexed lexical, path/name, and import-aware search |
 | `read` | Exact ranges and bounded local source reads |
@@ -346,12 +361,11 @@ Key Local Lite tools include:
 | `relations` / `graph` | Basic repository relationships and import map |
 | `scan` / `codemod` / `blame` | Local repository helpers |
 
-Runtime Lite deliberately excludes embeddings, ANN/vector search, Torch,
-Runtime Lite deliberately excludes embeddings, ANN/vector search, Torch,
+Workspaces Lite deliberately excludes embeddings, ANN/vector search, Torch,
 SentenceTransformers, a resident Zoekt server, and the heavy LemonCrow
 application server. Advanced semantic/hybrid retrieval, richer ranking and
 lineage, and shared infrastructure belong to the explicit Hosted/Enterprise
-paths; cross-workspace context is not yet available. A Pro plan is an access tier for Hosted Runtime, not an execution mode.
+paths; cross-workspace context is not yet available. A Pro plan is an access tier for hosted retrieval, not an execution mode.
 
 Architecture details: [docs/architecture/runtime-lite.md](docs/architecture/runtime-lite.md).
 
@@ -359,8 +373,8 @@ Architecture details: [docs/architecture/runtime-lite.md](docs/architecture/runt
 
 ## Supported hosts
 
-The one-command Local Lite path is available for Claude Code, Codex CLI, and
-OpenCode: `lc with claude|codex|opencode|pi`. Cursor is also supported through a LemonCrow integration installed from a source checkout. Pi and LemonCode are public managed coding-agent hosts under `lc rt host` (the installed client manages Pi; LemonCode host lifecycle needs the full CLI); using either host does not imply Hosted Runtime. LemonCrow also integrates with other hosts; capability depth
+The one-command Workspaces Lite path is available for Claude Code, Codex CLI, and
+OpenCode: `lc with claude|codex|opencode|pi`. Cursor is also supported through a LemonCrow integration installed from a source checkout. Pi is a public managed coding-agent host under `lc rt host`; using it does not imply hosted retrieval. LemonCrow also integrates with other hosts; capability depth
 varies by what each host exposes. See
 [all host integrations](docs/hosts/all-agent-clis.md) and the
 [host capability matrix](docs/hosts/host-capability-matrix.md) before depending
@@ -374,7 +388,7 @@ on host-specific lifecycle or verification behavior.
 
 These are useful, but they are not the core review workflow:
 
-- **Remote MCP:** `lc rt mcp serve` (opt-in) exposes the current workspace through an OAuth-protected remote MCP endpoint for compatible clients. The gateway process runs Runtime Lite itself, or the hosted thin client when Runtime targets a hosted server; it never starts a local LemonCrow server.
+- **Remote MCP:** `lc rt mcp serve` (opt-in) exposes the current workspace through an OAuth-protected remote MCP endpoint for compatible clients. The gateway process runs Workspaces Lite itself, or the hosted thin client when Workspaces targets a hosted server; it never starts a local LemonCrow server.
 
 The full LemonCrow CLI in a source checkout (`uv run lc ...`) adds these; the installed `lc` client says so instead of running them:
 
@@ -392,32 +406,35 @@ Full commands and flags live in the [CLI reference](docs/reference/cli.md).
 
 ## Privacy
 
-**Local Lite:** repository source, the Lite index, and local tool execution stay
-on the developer machine. Local Lite requires no LemonCrow account and does not
+**Workspaces Lite:** repository source, the Lite index, and local tool execution stay
+on the developer machine. Workspaces Lite requires no LemonCrow account and does not
 upload repository source to LemonCrow. The coding agent still uses its own
 configured model provider, so that provider's normal network behavior still
 applies.
 
-**Hosted Runtime:** deeper retrieval and richer code relationships run in LemonCrow-operated private infrastructure. Pro is the commercial plan that can grant access to this service. Cross-workspace context outside Review and managed model/provider routing and execution are **not yet available**; see [what Pro includes](docs/setup/pro-hosted-runtime.md#what-pro-includes).
+**Workspaces Pro:** hosted retrieval: deeper retrieval and richer code relationships run in LemonCrow-operated private infrastructure. Pro is the commercial plan that can grant access to this service. Cross-workspace context outside Review and managed model/provider routing and execution are **not yet available**; see [what Pro includes](docs/setup/pro-hosted-runtime.md#what-pro-includes).
 
-**Enterprise Runtime:** the private Runtime runs in customer-controlled or dedicated infrastructure with identity, policy, workspaces, governance, and audit. Do not assume the local Runtime privacy boundary applies to either managed deployment.
+**Enterprise Workspaces:** the private engine runs in customer-controlled or dedicated infrastructure with identity, policy, workspaces, governance, and audit. Do not assume the local Workspaces privacy boundary applies to any managed deployment.
 
-**Telemetry:** the installed `lc` client and the Local Review server it
-installs send no product telemetry. `lc audit` prints
-`"product_telemetry": false`, and there is nothing to turn off.
+**Telemetry:** the installed `lc` client sends anonymous feature counts, **on by
+default**: which LemonCrow feature ran, whether it worked and a duration bucket,
+once a day. It never sends code, prompts, file paths, repository names, command
+arguments or findings. `lc rt telemetry show` lists what is waiting to be sent,
+and `lc audit` reports whether it is on.
 
-The full LemonCrow engine you run from a source checkout (`uv run lc ...`)
-sends anonymous aggregate telemetry, **on by default**, and says so once, on your
-first run: `Telemetry is on: LemonCrow sends anonymous counts and timings, never
+The installed client and the full LemonCrow engine you run from a source checkout
+(`uv run lc ...`) both say so once, on your first run, before anything is counted
+or sent. The full engine also sends anonymous aggregate telemetry about savings,
+commands and tools: `Telemetry is on: LemonCrow sends anonymous counts and timings, never
 code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
 It contains aggregate
 counts, bucketed durations, dollar estimates, hashed install/session
 identifiers, version, host source, retrieval domain, and timestamps. It does
 **not** contain source code, prompts, repository paths, file paths, or symbol
-names. Turn it off in that checkout with:
+names. Turn it off with:
 
 ```bash
-uv run lc rt telemetry remote off
+lc rt telemetry remote off      # in a source checkout: uv run lc rt telemetry remote off
 ```
 
 or set `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`. Commands you explicitly
@@ -435,7 +452,7 @@ installer or the coding agent calling its configured model provider. See
 - Host capabilities differ. Features that depend on lifecycle hooks or live session capture may degrade to imported or manual evidence on some hosts.
 - Linux with Python 3.13 is the release-qualified platform. macOS builds are published but not yet covered by release qualification, and Windows support is partial and not currently validated. See the [support matrix](docs/reference/support-matrix.md).
 - LemonCrow does not run or pay for your model provider; you configure the provider or local endpoint you want to use.
-- Runtime Lite is the public open-source local Runtime. Hosted/Pro/enterprise paths are separate explicit surfaces; none is required for Local Lite use.
+- Workspaces Lite is the public open-source local mode of Workspaces. Hosted/Pro/enterprise paths are separate explicit surfaces; none is required for Workspaces Lite use.
 
 ---
 
@@ -498,11 +515,11 @@ See [Installation](docs/setup/installation.md) for development setup details.
 
 ### License
 
-[Apache-2.0](LICENSE). Runtime Lite, public contracts, and the auditable public
+[Apache-2.0](LICENSE). Workspaces Lite, public contracts, and the auditable public
 client are open source.
 
 Hosted LemonCrow and the advanced Pro code-intelligence engine are separate
-commercial/private surfaces and are not required for Local Lite. If you want to
+commercial/private surfaces and are not required for Workspaces Lite. If you want to
 discuss an enterprise deployment, contact <contact@lemoncrow.com>.
 
 See [LICENSE](LICENSE) and [NOTICE](NOTICE).

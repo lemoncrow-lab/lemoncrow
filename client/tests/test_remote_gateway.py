@@ -302,6 +302,20 @@ def test_discovery_documents_advertise_the_public_tunnel_origin(lite_gateway: tu
     assert document["code_challenge_methods_supported"] == ["S256"]
 
 
+def test_discovery_uses_https_on_public_hostname_without_forwarded_proto(
+    lite_gateway: tuple[GatewayServer, Path],
+) -> None:
+    gateway, _repo = lite_gateway
+    status, _h, raw = _Client(gateway).request(
+        "GET", "/.well-known/oauth-authorization-server", headers={"X-Forwarded-Proto": ""}
+    )
+    assert status == 200
+    document = json.loads(raw)
+    assert document["issuer"] == f"https://{HOSTNAME}"
+    assert document["authorization_endpoint"] == f"https://{HOSTNAME}/authorize"
+    assert document["registration_endpoint"] == f"https://{HOSTNAME}/register"
+
+
 def test_lite_mode_runs_runtime_lite_inside_the_gateway(
     lite_gateway: tuple[GatewayServer, Path], store_root: Path
 ) -> None:
@@ -351,6 +365,10 @@ def test_project_id_selects_a_repository_inside_the_connector_workspace(store_ro
     with GatewayServer(environment=_lite_environment(store_root)) as gateway:
         client = _Client(gateway)
         client.pair(store_root)
+        initialized = client.rpc("initialize", {"protocolVersion": "2025-06-18"})
+        assert initialized["result"]["serverInfo"]["name"] == "lemoncrow-runtime-lite"
+        listed = client.rpc("tools/list")
+        assert {"read", "bash", "code_search"} <= {tool["name"] for tool in listed["result"]["tools"]}
         read = client.rpc(
             "tools/call",
             {"name": "read", "arguments": {"files": ["two.py"], "project_id": str(projects / "two")}},
@@ -363,9 +381,9 @@ def test_project_id_selects_a_repository_inside_the_connector_workspace(store_ro
         )
         assert refused["result"]["isError"] is True
         assert "outside this connector's workspace" in refused["result"]["content"][0]["text"]
-        unbound = client.rpc("tools/call", {"name": "read", "arguments": {"files": ["one.py"]}}, request_id=3)
-        assert unbound["result"]["isError"] is True
-        assert "project_id" in unbound["result"]["content"][0]["text"]
+        unbound = client.rpc("tools/call", {"name": "read", "arguments": {"files": ["one/one.py"]}}, request_id=3)
+        assert unbound["result"]["isError"] is False
+        assert "first project" in unbound["result"]["content"][0]["text"]
 
 
 def test_existing_pairing_and_oauth_state_files_are_reused(store_root: Path, tmp_path: Path) -> None:

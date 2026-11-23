@@ -316,13 +316,37 @@ def test_the_one_socket_is_an_owner_only_unix_datagram_nudge() -> None:
 
 
 def test_only_explicit_transport_modules_reach_the_network() -> None:
-    """Product RPC, public pages and explicit pinned Pi installs own their transports."""
+    """Product RPC, public pages and explicit pinned Pi installs own their transports.
+
+    ``remote/tunnel.py`` makes one read-only GET to Cloudflare's zone API, only during the opt-in remote MCP
+    gateway setup, to refuse a DNS route outside the zone cloudflared is logged in to. It reads the zone name and
+    persists nothing (``test_the_transport_module_never_writes_a_file`` holds it to that).
+
+    ``task_server.py`` is ``lc task ... --server URL``: JSON requests to the Workspaces server the person named, only
+    when they name one, redirects refused so the bearer token never leaves that server.
+
+    ``image_registry.py`` is ``lc verify init --toolchain IMAGE``: anonymous manifest requests to the registry IMAGE
+    names, only when a person names one, to read its digest; no credential is sent, redirects are refused, and it
+    writes nothing.
+
+    ``usage_upload.py`` is the once-a-day post of anonymous feature counts, which ``lc rt telemetry remote off`` stops.
+    """
     network = {"urllib.request", "urllib.error", "http.client", "ftplib", "smtplib", "telnetlib"}
     reaching = {path.name for path in iter_modules() if _imported_names(path) & network}
-    assert reaching == {"transport.py", "webtransport.py", "pi_host.py"}
+    assert reaching == {
+        "transport.py",
+        "webtransport.py",
+        "pi_host.py",
+        "tunnel.py",
+        "task_server.py",
+        "image_registry.py",
+        "usage_upload.py",
+    }
 
 
-@pytest.mark.parametrize("module", ["transport.py", "webtransport.py"])
+@pytest.mark.parametrize(
+    "module", ["transport.py", "webtransport.py", "remote/tunnel.py", "image_registry.py", "usage_upload.py"]
+)
 def test_the_transport_module_never_writes_a_file(module: str) -> None:
     """Nothing that arrives over the network can become a file on disk.
 
@@ -429,6 +453,12 @@ def test_the_package_has_no_background_or_persistence_primitives() -> None:
                 continue  # Drains a quick tunnel's stderr for the life of that child process.
             if path == LITE_MCP and needle in ("threading.Thread", "daemon=True"):
                 continue  # One index build per stdio session, off the initialize path; stopped and joined on close.
+            if path.name == "browser.py" and needle == "start_new_session":
+                assert body.count("start_new_session") == 1
+                continue  # The person's own browser, opened on request; stdlib webbrowser detaches it the same way.
+            if path.name == "verify.py" and needle == "start_new_session":
+                assert "start_new_session" not in body and "process_group=0" in body and body.count("os.killpg(") >= 2
+                continue  # Each lc verify check runs in its own process group (not a session), killed whole on timeout.
             if path.name == "review_service.py" and needle in {"threading.Thread", "daemon=True"}:
                 assert "stop.set()" in body and "monitor.join(" in body
                 continue  # Opt-in foreground Review observer; no OS process or listener spawned.
@@ -460,11 +490,19 @@ def test_the_package_has_no_self_update_path() -> None:
                 body = body.replace("install.sh", "")
                 # Bash pipefail propagates a failed download; it does not invoke pip.
                 body = body.replace('"pipefail"', "")
+        if path.name == "verify_init.py" and path.parent == PACKAGE_ROOT:
+            # ``lc verify init`` RECOGNIZES ``pipenv run`` as a launcher in the commands a
+            # repository already runs, to read which check it starts. It never runs one.
+            body = body.replace('"pipenv", ', "")
         if path.name == "edit.py" and path.parent.name == "kit":
             # ``kit/edit.py`` names ``.venv`` only as a directory an edit must
             # never write into (``PROTECTED_PARTS``). It neither creates nor runs
             # a virtual environment.
             body = body.replace('".venv"', "")
+        if path.name == "workspace_members.py":
+            # ``workspace_members.py`` names ``venv`` only as a generated tree that is never a
+            # workspace grouping directory (``_SKIP_CONTAINERS``). It neither creates nor runs one.
+            body = body.replace('"venv",', "")
         if path.name == "bash_output.py" and path.parent.name == "kit":
             # ``kit/bash_output.py`` RECOGNIZES commands the agent already ran --
             # ``uv pip install`` to collapse its successful output, ``pipenv`` as
@@ -569,18 +607,40 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
     explicitly requested pinned Pi bundle and metadata under ``<state_dir>/hosts``.
     ``uninstall.py`` rewrites a shell startup file only to cut the block the installer added to it, and a repository's
     ``.git/info/exclude`` only to drop the one line a review added; it writes nothing else.
+    ``usage.py`` appends anonymous feature counts to owner-only files under ``<state_dir>/usage`` and keeps the
+    telemetry setting, id and first-run record in the user config directory the full engine uses; never source bytes.
+    ``verify.py`` writes the changed-path listing for ``lc verify`` checks into a temporary directory it removes
+    when the checks finish; nothing persists.
+    ``environment.py`` atomically replaces one ``lc verify`` record per commit under
+    ``<git common dir>/lemoncrow/verify/<commit>.json`` (check ids, statuses and fingerprint digests, never file
+    bytes or credentials) and keeps only the newest 64.
+    ``verify_hook.py`` writes the one pre-push hook a person asked for (``lc verify hook install``), never over a
+    hook that is not its own without ``--force``, and appends its path to ``installed-hooks.txt`` so ``lc uninstall``
+    removes it; ``lc verify hook uninstall`` deletes it.
+    ``verify_init.py`` writes the one ``.lemoncrow/environment.toml`` a person asked for (``lc verify init``), only
+    where none exists (an exclusive create); its one rewrite is ``--toolchain``, which atomically replaces that file
+    with only its ``[toolchain]`` changed, after printing the change.
+    ``task.py`` appends one ``/.worktrees/`` line to a repository's ``.git/info/exclude`` at ``lc task start`` when
+    task worktrees are not ignored yet, so the main checkout never stages them; it writes nothing else.
+    ``task_server.py`` keeps the one-time token of a task started on a Workspaces server (``lc task start --server``):
+    one O_EXCL owner-only JSON file per task, atomically replaced, under owner-only
+    ``<state_dir>/workspaces/tasks``, deleted by ``lc task finish --server``; never source bytes.
     Every other module must remain pure unless its persistence contract is
     reviewed here.
     """
     writers: list[str] = []
     for path in iter_modules():
         body = code_only(path)
+        if path.name == "workspace_search_plan.py":
+            # Opens a README read-only (O_RDONLY, O_NOFOLLOW) to rank repositories; it writes nothing.
+            body = body.replace('os.fdopen(fd, "rb")', "")
         if any(needle in body for needle in ("write_text(", "os.fdopen(", "write_bytes(")):
             writers.append(path.relative_to(PACKAGE_ROOT).as_posix())
     assert sorted(writers) == [
         "cli.py",
         "config.py",
         "credentials.py",
+        "environment.py",
         "kit/fsio.py",
         "liveview.py",
         "localtools/shell.py",
@@ -594,8 +654,14 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
         "review_model_attempts.py",
         "review_service.py",
         "session.py",
+        "task.py",
+        "task_server.py",
         "trace.py",
         "uninstall.py",
+        "usage.py",
+        "verify.py",
+        "verify_hook.py",
+        "verify_init.py",
         "workspace_paths.py",
     ], sorted(writers)
 

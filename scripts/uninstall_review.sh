@@ -86,5 +86,5 @@ if [[ "$lc_owned" == "1" ]]; then
 fi
 
 printf '✓ LemonCrow Review uninstalled\n'
-printf '  Runtime: %s\n' "$([[ -x "$RUNTIME_CLIENT" ]] && echo preserved || echo not installed)"
+printf '  Workspaces: %s\n' "$([[ -x "$RUNTIME_CLIENT" ]] && echo preserved || echo not installed)"
 printf '  Account: preserved under %s/account\n' "$STATE_DIR"

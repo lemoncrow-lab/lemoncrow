@@ -421,7 +421,6 @@ _ANSWER = {
 
 
 class _Model:
-
     def __init__(self, answer: Any = _ANSWER, *, gate: threading.Event | None = None) -> None:
         self.answer = answer
         self.gate = gate
@@ -506,7 +505,7 @@ def test_completion_for_an_old_snapshot_never_serves_the_new_one(tmp_path: Path)
     current = _run(store, session, revision.id, new_model)
     gate.set()
     worker.join(10)
-    assert len(new_model.calls) == 1, "a pending claim for another Snapshot does not answer this one"
+    assert len(new_model.calls) == 1, "a pending claim for another revision does not answer this one"
     assert current.synthesis is not None and list(current.synthesis.explanations) == ["area:intent:b"]
     reread = _run(store, session, revision.id, new_model)
     assert reread.synthesis is not None and list(reread.synthesis.explanations) == ["area:intent:b"]

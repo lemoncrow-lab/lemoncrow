@@ -98,24 +98,6 @@ describe("Integrations", () => {
           ],
         },
         {
-          id: "lemoncode",
-          label: "LemonCode",
-          description: "Managed rollback frontend; lc code auto prefers Pi.",
-          detected: true,
-          configured: true,
-          status: "configured",
-          support: "supported",
-          components: [
-            {
-              id: "binary",
-              label: "Managed host",
-              description: "LemonCode rollback host binary managed by LemonCrow.",
-              present: true,
-              path: "~/.lemoncrow/bin/lemoncode-host",
-            },
-          ],
-        },
-        {
           id: "antigravity",
           label: "Antigravity",
           description: "Antigravity integration is not part of the current setup wizard yet.",
@@ -146,27 +128,29 @@ describe("Integrations", () => {
     expect(screen.queryByText("Connection ready")).not.toBeInTheDocument();
     expect(screen.queryByText("Live detection")).not.toBeInTheDocument();
 
+    // A page header says what this is, and the status reads in words, not "2/3 surfaces present".
+    expect(await screen.findByRole("heading", { name: "Coding hosts" })).toBeInTheDocument();
     const claude = await screen.findByRole("button", { name: /Claude Code/ });
-    expect(within(claude).getByText("2/3 surfaces present")).toBeInTheDocument();
+    expect(within(claude).getByText("Connected · 2 of 3 parts found")).toBeInTheDocument();
     expect(within(claude).getByText("MCP registration · Plugin bundle")).toBeInTheDocument();
 
     await user.click(claude);
 
-    const surfaces = screen.getByLabelText("Claude Code integration surfaces");
+    const surfaces = screen.getByLabelText("Claude Code integration parts");
     expect(within(surfaces).getByText("MCP registration")).toBeInTheDocument();
     expect(within(surfaces).getByText("Lifecycle hooks")).toBeInTheDocument();
     expect(within(surfaces).getByText("Missing")).toBeInTheDocument();
     expect(screen.getByText("~/.lemoncrow/claude-plugin/hooks/hooks.json")).toBeInTheDocument();
   });
 
-  it("shows OpenCode role files and the Pi/LemonCode managed frontend relationship", async () => {
+  it("shows OpenCode role files and the Pi managed frontend relationship", async () => {
     const user = userEvent.setup();
     render(<Integrations />);
 
     const opencode = await screen.findByRole("button", { name: /OpenCode/ });
     expect(within(opencode).getByText(/\+6 more/)).toBeInTheDocument();
     await user.click(opencode);
-    const surfaces = screen.getByLabelText("OpenCode integration surfaces");
+    const surfaces = screen.getByLabelText("OpenCode integration parts");
     expect(within(surfaces).getByText("Agent · code")).toBeInTheDocument();
     expect(within(surfaces).getByText("Agent · solve")).toBeInTheDocument();
     expect(
@@ -174,23 +158,35 @@ describe("Integrations", () => {
     ).toBeInTheDocument();
 
     expect(screen.getByText("Default LemonCrow-managed coding frontend.")).toBeInTheDocument();
-    expect(screen.getByText("Managed rollback frontend; lc code auto prefers Pi.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /LemonCode/ })).not.toBeInTheDocument();
   });
 
-  it("shows Pi and marks Antigravity and Hermes as coming soon", async () => {
-    const user = userEvent.setup();
+  it("shows Pi and marks Antigravity and Hermes as coming soon, with nothing to open", async () => {
     render(<Integrations />);
 
     expect(await screen.findByRole("button", { name: /^Pi\b/ })).toBeInTheDocument();
 
-    const antigravity = screen.getByRole("button", { name: /Antigravity/ });
-    const hermes = screen.getByRole("button", { name: /Hermes Agent/ });
-    expect(within(antigravity).getByText("Coming soon")).toBeInTheDocument();
-    expect(within(hermes).getByText("Coming soon")).toBeInTheDocument();
+    for (const id of ["antigravity", "hermes"]) {
+      const card = screen.getByTestId(`integration-${id}`);
+      expect(within(card).getByText("Coming soon")).toBeInTheDocument();
+      expect(within(card).queryByRole("button")).not.toBeInTheDocument();
+      expect(within(card).queryByText("Roadmap integration")).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /Antigravity|Hermes Agent/ })).not.toBeInTheDocument();
+    // Claude is connected in this fixture, so there is no connect guidance.
+    expect(screen.queryByText("No coding host is connected yet")).not.toBeInTheDocument();
+  });
 
-    await user.click(antigravity);
-    expect(
-      screen.getByText(/not offered by the current LemonCrow setup wizard/i),
-    ).toBeInTheDocument();
+  it("guides a first connection with the lc rt enable command", async () => {
+    const payload = await vi.mocked(fetchLocalIntegrations)();
+    vi.mocked(fetchLocalIntegrations).mockResolvedValue({
+      ...payload,
+      hosts: payload.hosts.map((host) => ({ ...host, configured: false, detected: host.id === "claude" })),
+    });
+    render(<Integrations />);
+
+    expect(await screen.findByText("No coding host is connected yet")).toBeInTheDocument();
+    // Only the installed host that `lc rt enable` accepts is offered.
+    expect(screen.getByText("lc rt enable claude")).toBeInTheDocument();
   });
 });

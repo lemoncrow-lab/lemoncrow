@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.host_tools import host_executable, host_tool_environment
+from lemoncrow.pro.environment.host_tools import host_executable, host_tool_environment
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.session_models import Annotation
@@ -32,12 +32,12 @@ if TYPE_CHECKING:
 
 _BG_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}\b")
 _DONE_BACKGROUND_STATES = frozenset({"done", "completed", "stopped", "failed"})
-DIRECT_DELIVERY_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode", "copilot")
+DIRECT_DELIVERY_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "copilot")
 # Hosts LemonCrow can start fresh *and* learn the new session's id, so the
 # agent's later `review_feedback_addressed` claim matches the delivery. Claude
 # takes a caller-chosen id; the others report theirs in their JSON event stream.
 # Copilot reports no id for a new session, so it is not offered.
-NEW_SESSION_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode")
+NEW_SESSION_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode")
 PENDING_SESSION_ID = "pending"
 _NEW_SESSION_ID_WAIT_S = 10.0
 _SESSION_ID_KEYS = ("thread_id", "sessionID", "session_id", "sessionId")
@@ -284,7 +284,7 @@ def _workspace_session_activity(repo_root: Path, session_id: str, *, host: str) 
 
 
 def _opencode_session_is_active(repo_root: Path, session_id: str, *, host: str = "opencode") -> bool:
-    """OpenCode/LemonCode keep `active` while the exact session is live."""
+    """OpenCode keep `active` while the exact session is live."""
 
     return _workspace_session_activity(repo_root, session_id, host=host) == "active"
 
@@ -309,7 +309,7 @@ def _spawn_resume(
     if not cli:
         return AgentDeliveryResult("failed", target_ref, message=f"{host} CLI is not installed")
     prompt = _feedback_prompt(feedback, delivery_id=delivery_id) if wrap_review_feedback else feedback
-    if host in {"opencode", "lemoncode"} and _opencode_session_is_active(repo_root, session_id, host=host):
+    if host in {"opencode"} and _opencode_session_is_active(repo_root, session_id, host=host):
         try:
             from lemoncrow.core.foundation.paths import default_store_root
             from lemoncrow.pro.capabilities.review.session_inbox import enqueue_session_message
@@ -367,7 +367,7 @@ def _spawn_resume(
             session_id,
             prompt,
         ]
-    elif host in {"opencode", "lemoncode"}:
+    elif host in {"opencode"}:
         command = [
             cli,
             "run",
@@ -454,7 +454,7 @@ def deliver_to_agent_session(
     if host == "claude":
         claude_feedback = f"LemonCrow delivery ID: {delivery_id}\n\n{feedback}" if delivery_id else feedback
         return deliver_to_claude_session(session_id, repo_root, claude_feedback)
-    if host in {"codex", "opencode", "lemoncode", "copilot"}:
+    if host in {"codex", "opencode", "copilot"}:
         return _spawn_resume(host, session_id, repo_root, feedback, delivery_id=delivery_id)
     return AgentDeliveryResult(
         "blocked",
@@ -493,7 +493,7 @@ def deliver_prompt_to_agent_session(
                 wrap_review_feedback=False,
             )
         )
-    if host in {"codex", "opencode", "lemoncode", "copilot"}:
+    if host in {"codex", "opencode", "copilot"}:
         return as_prompt_result(
             _spawn_resume(
                 host,
@@ -629,7 +629,7 @@ def launch_agent_session(
 
     if host == "codex":
         command = [cli, "exec", "--json", *_CODEX_EXEC_SANDBOX, prompt]
-    else:  # opencode / lemoncode: the same flags as their verified resume path
+    else:  # opencode: the same flags as their verified resume path
         command = [
             cli,
             "run",

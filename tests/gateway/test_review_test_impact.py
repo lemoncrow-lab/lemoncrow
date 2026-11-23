@@ -316,7 +316,7 @@ def test_the_map_round_trips_and_aliases_are_unknowable() -> None:
 # the planner: selection never narrows required work; head first (item 20)
 # --------------------------------------------------------------------------- #
 
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 
 
 def _plan(repo: dict[str, Any] | None, impact: dict[str, EntryImpact], **kwargs: Any) -> RunPlan:

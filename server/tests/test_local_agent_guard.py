@@ -42,6 +42,14 @@ from lemoncrow_server_core.local_agent_guard import (
         ("POST", "/api/reviews/rv-1/landing/arm", True),
         ("POST", "/api/reviews/rv-1/github/publish", True),
         ("PUT", "/api/reviews/rv-1/destination", True),
+        # Snooze hides a Review from the person's own Your turn: theirs to decide (SPEC 7.1 P5-1 B).
+        ("PUT", "/api/reviews/rv-1/queue-state", True),
+        ("GET", "/api/reviews/rv-1/queue-state", False),
+        ("POST", "/api/reviews/rv-1/flow-send", True),
+        ("POST", "/api/reviews/rv-1/flow-send/op-1/undo", True),
+        ("POST", "/api/reviews/rv-1/seen-coverage", True),
+        ("GET", "/api/reviews/rv-1/flow-send", False),
+        ("GET", "/api/reviews/rv-1/seen-coverage", False),
         # Agents legitimately report checks, refresh, ask and read.
         ("POST", "/api/reviews/rv-1/verification", False),
         ("POST", "/api/reviews/rv-1/refresh", False),
@@ -55,6 +63,29 @@ from lemoncrow_server_core.local_agent_guard import (
 )
 def test_judgment_routes_are_the_human_only_writes(method: str, path: str, judgment: bool) -> None:
     assert is_judgment_request(method, path) is judgment
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/reviews/rv-1/flow-send",
+        "/api/reviews/rv-1/flow-send/op-1/undo",
+        "/api/reviews/rv-1/seen-coverage",
+    ],
+)
+def test_flow_writes_are_refused_for_an_agent_caller_and_allowed_for_a_human(path: str) -> None:
+    assert is_judgment_request("POST", path)
+    agent = {
+        40: ProcessRecord(ppid=20, names=("python",), markers=()),
+        20: ProcessRecord(ppid=1, names=("codex",), markers=()),
+    }
+    human = {
+        40: ProcessRecord(ppid=10, names=("lc",), markers=()),
+        10: ProcessRecord(ppid=1, names=("zsh",), markers=()),
+    }
+    # The server refuses whenever the host verdict is non-empty.
+    assert agent_host_in_ancestry(40, agent.get) == "codex"
+    assert agent_host_in_ancestry(40, human.get) == ""
 
 
 def test_agent_evidence_anywhere_in_the_ancestry_names_the_host() -> None:

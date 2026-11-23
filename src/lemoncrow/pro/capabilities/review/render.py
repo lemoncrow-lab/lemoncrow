@@ -47,9 +47,12 @@ import io
 import shutil
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
-from .models import FILE_CATEGORY_ORDER, ChangedFile, ImpactSite, ReviewPacket
+from lemoncrow_client.review_words import degraded_sentence
+
+from .models import FILE_CATEGORY_ORDER, ChangedFile, ImpactSite, ReviewPacket, session_task_title
 
 _STATUS_CHAR = {
     "added": "A",
@@ -73,6 +76,32 @@ _INDEX_HINT = "run `lc runtime index` for caller and centrality signals"
 _ITA_SIGNAL_PREFIX = "intent_to_add_excluded"
 _ITA_HINT = "`git add -N` paths hold no staged content; `git diff --cached` skips them too"
 _HUMAN_REVIEW_FOOTER = "Human review  REQUIRED"
+
+# A pass `lc review` handed to the background is neither off nor unknown: the
+# first readable Snapshot was published without it and the Reader receives it
+# when it finishes. The first-phase packet still names it with its `*_disabled`
+# code (that packet really was built without it), so the terminal and `--json`
+# swap the code for this pending state instead of repeating it.
+PENDING_PASS_CODES: dict[str, str] = {"impact": "impact_disabled", "provenance": "provenance_disabled"}
+_PENDING_LABELS: dict[str, str] = {"impact": "map and caller impact", "provenance": "author attribution"}
+
+
+def without_pending(packet: ReviewPacket, pending: Sequence[str]) -> ReviewPacket:
+    """*packet* without the `*_disabled` codes of the passes still running in the background."""
+
+    codes = {PENDING_PASS_CODES[name] for name in pending if name in PENDING_PASS_CODES}
+    if not codes or not codes & set(packet.degraded):
+        return packet
+    return replace(packet, degraded=tuple(code for code in packet.degraded if code not in codes))
+
+
+def review_title(packet: ReviewPacket) -> str:
+    """The exact author session's task, else the range title, else the range itself."""
+
+    record = packet.provenance
+    task = session_task_title(record.task) if record.certainty == "exact" else ""
+    return task or packet.title or _range_label(packet)
+
 
 # Severity order for the ATTENTION section: a contract that can no longer be
 # satisfied outranks a call site that merely needs re-reading.
@@ -402,8 +431,12 @@ def _visible_attention(
 # --- EXECUTION EVIDENCE -----------------------------------------------------
 
 
-def _provenance_lines(packet: ReviewPacket, *, show_all: bool = False) -> list[str]:
+def _provenance_lines(packet: ReviewPacket, *, show_all: bool = False, pending: Sequence[str] = ()) -> list[str]:
     record = packet.provenance
+    if "provenance" in pending:
+        # Attribution is still being matched; "unknown" would be a verdict the
+        # Reader is about to contradict.
+        return ["Generated with: still preparing, continues in the Reader"]
     if record.status == "unknown":
         # Plan A4: an honest "unknown" beats a confident wrong attribution. The
         # reason still prints, so the gap is auditable rather than mysterious.
@@ -477,6 +510,28 @@ def _footer_line(packet: ReviewPacket) -> str:
     return line
 
 
+def _footer_lines(packet: ReviewPacket, pending: Sequence[str] = ()) -> list[str]:
+    """The terminal footer: index status, passes still running, and each fallback as a sentence."""
+
+    lines: list[str] = []
+    if packet.files and "impact_disabled" not in packet.degraded and "impact" not in pending:
+        # With `--no-impact` the index was never consulted, so "absent" would
+        # report a missing index rather than a skipped question; while impact
+        # still runs, the status it settles on is not known yet.
+        index = f"index: {packet.index_status}"
+        if _INDEX_SIGNALS & set(packet.degraded):
+            index = f"{index} — {_INDEX_HINT}"
+        lines.append(index)
+    labels = [_PENDING_LABELS[name] for name in PENDING_PASS_CODES if name in pending]
+    if labels:
+        what = " and ".join(labels)
+        lines.append(f"{what[:1].upper()}{what[1:]}: still preparing, continues in the Reader")
+    if packet.degraded:
+        lines.append("Limits of this summary:")
+        lines.extend(f"  - {degraded_sentence(code)}" for code in packet.degraded)
+    return lines
+
+
 # --- renderers --------------------------------------------------------------
 
 
@@ -536,10 +591,10 @@ def _workspace_section(packet: ReviewPacket, *, show_all: bool) -> tuple[str, li
     return heading(found), impact_lines(found, show_all=show_all)
 
 
-def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
+def _render_plain(packet: ReviewPacket, *, show_all: bool = False, pending: Sequence[str] = ()) -> str:
     out: list[str] = []
     story = _change_story(packet)
-    out.append(f"CHANGE STORY  {story}" if story else packet.title or _range_label(packet))
+    out.append(f"CHANGE STORY  {story}" if story else review_title(packet))
     out.append(f"{_range_label(packet)}   {_summary_line(packet)}")
 
     if not packet.files:
@@ -547,9 +602,7 @@ def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
         out.append("no changes in this range")
         out.append("")
         out.append(_HUMAN_REVIEW_FOOTER)
-        footer = _footer_line(packet)
-        if footer:
-            out.append(footer)
+        out.extend(_footer_lines(packet, pending))
         return "\n".join(out)
 
     attention, withheld = _visible_attention(packet, show_all=show_all)
@@ -612,7 +665,7 @@ def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
     out.append("")
     out.append("EXECUTION EVIDENCE")
     out.append("")
-    for line in _provenance_lines(packet, show_all=show_all):
+    for line in _provenance_lines(packet, show_all=show_all, pending=pending):
         out.append(f"  {line}")
     evidence = _evidence_lines(packet)
     if evidence:
@@ -622,13 +675,11 @@ def _render_plain(packet: ReviewPacket, *, show_all: bool = False) -> str:
 
     out.append("")
     out.append(_HUMAN_REVIEW_FOOTER)
-    footer = _footer_line(packet)
-    if footer:
-        out.append(footer)
+    out.extend(_footer_lines(packet, pending))
     return "\n".join(out)
 
 
-def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
+def _render_rich(packet: ReviewPacket, *, show_all: bool = False, pending: Sequence[str] = ()) -> str:
     from rich import box
     from rich.console import Console
     from rich.markup import escape
@@ -641,7 +692,7 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
     if story:
         console.print(f"[dim]CHANGE STORY[/]  [bold bright_white]{escape(story)}[/]")
     else:
-        console.print(f"[bold bright_white]{escape(packet.title or _range_label(packet))}[/]")
+        console.print(f"[bold bright_white]{escape(review_title(packet))}[/]")
     console.print(f"[dim]{escape(_range_label(packet))}[/]  {escape(_summary_line(packet))}")
 
     if not packet.files:
@@ -649,9 +700,8 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
         console.print("[dim]no changes in this range[/]")
         console.print()
         console.print(f"[bold]{_HUMAN_REVIEW_FOOTER}[/]")
-        footer = _footer_line(packet)
-        if footer:
-            console.print(f"[dim]{escape(footer)}[/]")
+        for line in _footer_lines(packet, pending):
+            console.print(f"[dim]{escape(line)}[/]", soft_wrap=True)
         return buffer.getvalue()
 
     attention, withheld = _visible_attention(packet, show_all=show_all)
@@ -730,7 +780,7 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
     console.print()
     console.print("[bold bright_white]EXECUTION EVIDENCE[/]")
     console.print()
-    for line in _provenance_lines(packet, show_all=show_all):
+    for line in _provenance_lines(packet, show_all=show_all, pending=pending):
         console.print(f"  {escape(line)}")
     evidence = _evidence_lines(packet)
     if evidence:
@@ -740,13 +790,16 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
 
     console.print()
     console.print(f"[bold]{_HUMAN_REVIEW_FOOTER}[/]")
-    footer = _footer_line(packet)
-    if footer:
-        console.print(f"[dim]{escape(footer)}[/]")
+    for line in _footer_lines(packet, pending):
+        # Sentences, not fixed-width rows: let the terminal wrap them, so a piped
+        # reader gets each one whole on its own line.
+        console.print(f"[dim]{escape(line)}[/]", soft_wrap=True)
     return buffer.getvalue()
 
 
-def render_review(packet: ReviewPacket, *, no_color: bool = False, show_all: bool = False) -> str:
+def render_review(
+    packet: ReviewPacket, *, no_color: bool = False, show_all: bool = False, pending: Sequence[str] = ()
+) -> str:
     """Render *packet* as terminal text.
 
     ``no_color`` takes the Rich-free path entirely rather than stripping ANSI
@@ -761,13 +814,14 @@ def render_review(packet: ReviewPacket, *, no_color: bool = False, show_all: boo
     reader that cannot notice.
     """
 
+    packet = without_pending(packet, pending)
     if no_color:
-        return _render_plain(packet, show_all=show_all)
+        return _render_plain(packet, show_all=show_all, pending=pending)
     try:
-        return _render_rich(packet, show_all=show_all)
+        return _render_rich(packet, show_all=show_all, pending=pending)
     except Exception:
         # A renderer must never be the reason a review fails to print.
-        return _render_plain(packet, show_all=show_all)
+        return _render_plain(packet, show_all=show_all, pending=pending)
 
 
 __all__ = ["render_review"]

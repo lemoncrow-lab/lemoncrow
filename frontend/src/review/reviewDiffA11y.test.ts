@@ -178,6 +178,16 @@ describe("diff accessibility on the Pierre renderer", () => {
     expect(click).toHaveBeenCalledTimes(2);
   });
 
+  it("names an expand control by what it hides once the stream reworded the gap as an action", () => {
+    const { host, root } = pierreHost(SPLIT);
+    const label = root.querySelector<HTMLElement>("[data-unmodified-lines]")!;
+    label.textContent = "Show 3 more lines";
+    label.dataset.lcHiddenDescription = "3 lines unchanged";
+    decorateDiffAccessibility(host, "src/a.py", "mount");
+    const button = root.querySelector<HTMLElement>("[data-expand-button]")!;
+    expect(button.getAttribute("aria-label")).toBe("Show more below: 3 lines unchanged");
+  });
+
   it("puts focus back on the same line when Pierre replaces the rows, but never steals it", async () => {
     const { host, root } = pierreHost(SPLIT);
     decorateDiffAccessibility(host, "src/a.py", "mount");

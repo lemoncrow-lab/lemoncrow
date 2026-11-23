@@ -10,12 +10,53 @@
 
 import type { AgentActionApproval, AgentApproval } from "./agentApprovalsApi";
 
+/**
+ * `later` is "Decide later": the reviewer set the part aside. It is not a judgment (see
+ * `isJudgedState` in `answerModel.ts`); every count of what is still open includes it.
+ */
 export type MarkState =
   | "unreviewed"
   | "reviewed"
   | "needs_changes"
   | "changed_since_review"
-  | "unknown";
+  | "unknown"
+  | "later";
+
+/** How a person is asked about a part. Computed on the server from checked facts only. */
+export type AnswerCategory = "decision" | "quick_check" | "accepted_by_rule";
+
+/** `rule` is set only for `accepted_by_rule` (`generated_files` | `lockfiles`). */
+export interface BatchGuard {
+  guarded: boolean;
+  code: "" | "loop_bound" | "arithmetic" | "comparison" | "block_moved" | "block_changed" | "unverifiable";
+  reason: string;
+}
+
+/**
+ * P11-2: what changed in a part since the reviewer's own review, as far as the server could prove it routine. Present
+ * only on a part the reviewer answered Looks good that has since changed. `routine` is true only when the server
+ * compared the content the reviewer reviewed (not the diff base) and found a formatting, comment or lone-rename change.
+ */
+export interface SinceReviewProof {
+  routine: boolean;
+  rule: string;
+  detail: string;
+}
+
+export interface TargetAnswer {
+  category: AnswerCategory;
+  rule: string;
+  rule_label: string;
+  reason: string;
+}
+
+/** Decisions, quick checks and parts accepted by rule, with the count per rule name. */
+export interface AnswerCounts {
+  decision: number;
+  quick_check: number;
+  accepted_by_rule: number;
+  rules: Record<string, number>;
+}
 
 export type GroupKey =
   | "needs_attention"
@@ -85,10 +126,24 @@ export interface ReviewTarget {
   additions: number;
   deletions: number;
   fingerprint_method: string;
+  /** The captured part fingerprint, used to isolate reported code exposure. */
+  content_fingerprint?: string;
   verification: { pass: number; fail: number; unknown: number };
   annotation_counts: { open: number; orphaned: number; addressed_needs_rereview: number };
   /** Canonical queue placement from the server; clients never re-rank. */
   priority?: ReviewTargetPriority;
+  /** How this part is asked of a person; absent from a server that predates it. */
+  answer?: TargetAnswer;
+  /**
+   * The server's Quick check batch guard (arithmetic, a loop bound or a comparison changed in the part).
+   * Present on quick-check parts only; a quick-check part without it is treated as guarded.
+   */
+  batch_guard?: BatchGuard;
+  /**
+   * What changed since this reviewer's own review (P11-2); present only on a reopened part. Absent from a server that
+   * predates it (hosted), which reads as "not routine".
+   */
+  since_review?: SinceReviewProof;
   /**
    * Movement since what this reviewer last judged (or the previous Snapshot).
    * `base_only`: only the diff base moved under it (rebase/merge-base); its
@@ -96,6 +151,25 @@ export interface ReviewTarget {
    * are `authored`, never `base_only`.
    */
   movement?: ReviewTargetMovement;
+  /**
+   * Where this symbol was before it moved to another file with exactly the same name and body.
+   * Present only while the move is the latest thing that happened to your judgment; the judgment
+   * was carried because nothing else in the change could be the same code.
+   */
+  moved_from?: SymbolOrigin;
+  /**
+   * Where this symbol was before it was renamed (same body, different name). The judgment is not
+   * carried: the part reopens as changed since review. A hint, not proof the change is routine: the
+   * same-body test also matches a body whose only change is a use of the old name that is not the
+   * definition (an attribute access, a string), so a batch of renamed parts must compare full content.
+   */
+  renamed_from?: SymbolOrigin;
+}
+
+/** The previous place of a symbol that moved or was renamed; `symbol` only when its name differs. */
+export interface SymbolOrigin {
+  path: string;
+  symbol?: string;
 }
 
 export type ReviewTargetMovement = "unchanged" | "authored" | "base_only" | "added";
@@ -130,6 +204,8 @@ export interface ReviewTargetPriority {
   outstanding: boolean;
   position: number;
   reasons: ReviewPriorityReason[];
+  /** Its own reasons put it in Review first whenever outstanding; a judgment does not clear it (Brief Understanding). */
+  review_first?: boolean;
 }
 
 export interface ReviewProgress {
@@ -140,6 +216,14 @@ export interface ReviewProgress {
   unreviewed: number;
   unknown: number;
   mechanical: number;
+  /** Parts left for later: not judged. Absent from a server that predates it; read it with `laterCount`. */
+  later?: number;
+  decision?: number;
+  quick_check?: number;
+  accepted_by_rule?: number;
+  /** Decisions and quick checks not yet answered (reviewed or needs changes): what is left to do. */
+  decision_open?: number;
+  quick_check_open?: number;
 }
 
 export interface ReviewOutlineItem {
@@ -151,6 +235,8 @@ export interface ReviewOutlineItem {
   unreviewed: number;
   unknown: number;
   mechanical: number;
+  /** Parts in this file left for later; the count `shiftOutlineState` moves a part into and out of. */
+  later?: number;
   attention_rank: number;
   reasons: string[];
   section?: "review_first" | "unreviewed" | "mechanical" | "done";
@@ -170,6 +256,8 @@ export interface ReviewTargetList {
   order: "recommended" | "file";
   targets: ReviewTarget[];
   progress: ReviewProgress;
+  /** Decisions, quick checks and parts accepted by rule over the whole review. */
+  answers?: AnswerCounts;
   outline: ReviewOutlineItem[];
   movement?: ReviewMovementSummary | null;
   /** False only for the bounded large-review startup projection. */
@@ -616,6 +704,8 @@ export interface ReviewMapPayload {
   revision_number: number;
   level: ReviewMapLevel;
   projection?: ReviewMapProjection;
+  /** Projections this build can serve; the Map offers no other. */
+  projections?: Partial<Record<ReviewMapProjection, boolean>>;
   architecture_delta?: ReviewArchitectureDelta;
   snapshot: {
     exactness: "snapshot";
@@ -650,10 +740,53 @@ export interface ReviewMapPayload {
     note: string;
   };
   graph: ReviewMapGraph;
+  /** P10-7: the Snapshot's stored data path report (`not_run` until requested); absent on a server without it. */
+  data_path?: ReviewDataPathReport;
+}
+
+/** `data_path.projection` (data_path.py): `ran` and `partial` carry flows; the rest say why there are none. */
+export type ReviewDataPathState = "not_run" | "ran" | "partial" | "not_available" | "not_measured";
+export type ReviewDataPathChange = "added" | "removed" | "rerouted";
+export interface ReviewDataPathRoute {
+  /** The function names the flow passes through, source first. */
+  path: string[];
+  steps: { at: string; kind: string; label?: string }[];
+  omitted_steps: number;
+}
+export interface ReviewDataPathFlow {
+  change: ReviewDataPathChange;
+  /** The sink class: db, http, file or log. */
+  kind: string;
+  framework: string;
+  entry_point: string;
+  source: { symbol: string; at: string; label: string };
+  sink: { symbol: string; at: string; callee: string };
+  found_by: string;
+  base?: ReviewDataPathRoute;
+  head?: ReviewDataPathRoute;
+}
+export interface ReviewDataPathReport {
+  schema: number;
+  entry: string;
+  state: ReviewDataPathState | string;
+  experimental: boolean;
+  summary: string;
+  detail?: string;
+  disclosure: string;
+  /** What to do so this machine can run it; set on a `not_available` report. */
+  setup?: string;
+  counts?: Record<ReviewDataPathChange | "unchanged", number>;
+  flows?: Partial<Record<ReviewDataPathChange, ReviewDataPathFlow[]>>;
+  /** Flows past the per-kind cap, not listed. */
+  omitted?: Partial<Record<ReviewDataPathChange, number>>;
+  not_measured?: { scope: string; reason: string }[];
+  limits?: string[];
 }
 
 export interface ReviewSessionInfo {
   id: string;
+  /** This viewer's own snooze and saved place (P5-1); "Next up" leaves a snoozed review out. */
+  queue?: ReviewQueueState;
   ref: string;
   object?: "change" | string;
   change_ref?: string;
@@ -1392,6 +1525,8 @@ export interface ReviewJournal {
   revision_number: number;
   session_id: string;
   host: string;
+  /** The task the author session was started with; empty when none is recorded. */
+  task?: string;
   entries: ReviewJournalEntry[];
 }
 
@@ -1683,6 +1818,8 @@ export interface RefreshInfo {
   carried: number;
   /** Judgments kept across base-only movement (their unit bytes moved only because the base did). */
   rebased?: number;
+  /** Judgments kept on a part that now shows less deleted text than the verdict covered (not reopened). */
+  restamped?: number;
   added: number;
   /** Units that left the review, named — they are gone from every pane. */
   removed: UnitRef[];
@@ -1782,9 +1919,13 @@ export interface ReviewPolicyProjection {
     ai_content_access: ReviewContentAccessRuleInfo[];
     rule_documents: string[];
     errors: string[];
+    /** The `review.focus` rules in force: which paths need whom, and why (`criticality`, `require`). */
+    focus?: { paths: string[]; criticality?: string; priority?: string; require?: string[] }[];
   };
   future_changes: ReviewFuturePolicyChange[];
   suggestions: ReviewRuleSuggestion[];
+  /** The policy files (rules file, CODEOWNERS, allowed signers) this change edits (P7-3); absent from an older server. */
+  edits_policy?: { files: string[] };
 }
 
 export interface ReviewBrief {
@@ -2167,6 +2308,8 @@ export interface ReviewOverview {
   change?: ReviewChangeContext;
   /** Real local checkout path; empty unless the server holds a trusted workspace binding. */
   workspace_root?: string;
+  /** The bundled demo's review (its checkout carries `.lemoncrow/example-review`): the Map offers its bigger-change example only here. */
+  example_review?: boolean;
   revision: RevisionInfo;
   revision_count: number;
   historical?: boolean;
@@ -2178,6 +2321,10 @@ export interface ReviewOverview {
   default_target_revision_number?: number | null;
   historical_judgment_complete?: boolean;
   packet_available: boolean;
+  /** The live-state packet cursor of the Snapshot this overview was read from. Absent on an older server. */
+  packet_cursor?: string;
+  /** Whether this server records Decide later. Absent on a server from before the flag: read as yes. */
+  later_marks?: boolean;
   stats: Record<string, number>;
   title: string;
   /** Compact orientation for large reviews; derived from deterministic Intent chapters. */
@@ -2416,11 +2563,26 @@ export type FindingDismissalReason = "" | "incorrect" | "accepted_risk" | "dupli
 export type ReviewDirectoryStatus = "all" | ReviewSessionStatus;
 
 /** A Reviews-list row; in the Inbox view mode it also carries the per-viewer Inbox signals. */
+export interface ReviewResume {
+  screen: "one" | "quick_check" | "wrap";
+  part: string;
+  position: number;
+  total: number;
+}
+
+export interface ReviewQueueState {
+  /** ISO time; empty when there is no snooze, or it ended (due, or a newer Snapshot arrived). */
+  snoozed_until: string;
+  resume: ReviewResume | null;
+}
+
 export interface ReviewDirectoryRow extends Partial<InboxSignals> {
   id: string;
   ref: string;
   review_path: string;
   repo_id: string;
+  /** Hosted only: the repository's human name from placement; a local review has `project` instead. */
+  repo_name?: string;
   title: string;
   auto_title?: string;
   title_is_custom?: boolean;
@@ -2448,6 +2610,12 @@ export interface ReviewDirectoryRow extends Partial<InboxSignals> {
   waiting_on_author_count?: number;
   /** Who a waiting handoff is with: "author", a host label, or "coding agent". */
   handoff_label?: string;
+  /** Notes written and not yet sent (the Inbox row's "1 note not sent"); absent from a server that predates it. */
+  unsent_count?: number;
+  /** This viewer's own queue state (P5-1): a snooze that still holds and the place they paused at. */
+  queue?: ReviewQueueState;
+  /** The change edits the rules file, CODEOWNERS or the allowed signers (SPEC 4.19, P7-3); absent from an older server. */
+  edits_policy?: boolean;
   /** An archived Review's provider cancellation still owed by its discard (until the provider confirms). */
   owed_cancellation?: { provider: string; landing_status: string; reason: string; detail: string; error: string } | null;
 }
@@ -2567,6 +2735,50 @@ export interface InboxSignals {
   attention: InboxAttention;
   teams: string[];
   team_requests: number;
+  /** Stored display names for the principal ids this row names (author, owners, waiting-on); absent when none is recorded. */
+  principal_names?: Record<string, string>;
+  /** Hosted only: set when the viewer was asked to co-sign this review's approval (SPEC 4.16). */
+  second_signature?: {
+    for_me: boolean;
+    /** Where the viewer signs: `/r/<review>/second`. */
+    path: string;
+    first_reviewer_id: string;
+    first_reviewer_name: string;
+    area: string;
+    decision_count: number;
+  };
+  /** Hosted only (SPEC 4.16): who is in this review, who took it, who it was handed to. Absent on a local install. */
+  team?: TeamState;
+  /** Hosted: this viewer's own snooze (while it holds) and saved place, as the local Home reads them (SPEC 7.1 P9-2 D). */
+  queue?: ReviewQueueState;
+}
+
+/** One person named by a hosted team fact. */
+export interface TeamPerson {
+  id: string;
+  name: string;
+}
+
+/** What the server says about a review's team (`GET /reviews/<id>/team`; the Inbox row carries the same). */
+export interface TeamState {
+  reviewing: Array<TeamPerson & { started_at: string; sent_notes?: number | null }>;
+  /** `told`: their own beat picked the notice up. `waiting`: they were in it when it was taken and have not yet. */
+  claim: { by: TeamPerson; by_me: boolean; at: string; told: TeamPerson[]; waiting: TeamPerson[] } | null;
+  handoff: {
+    to: TeamPerson;
+    by: TeamPerson;
+    to_me: boolean;
+    by_me: boolean;
+    note: string;
+    at: string;
+    /** Set while the person it was first meant for is away: who, and until when. */
+    away: (TeamPerson & { until: string; rerouted?: boolean }) | null;
+  } | null;
+  viewer?: string;
+  notices?: Array<{ kind: "taken" | "handed_off"; by: TeamPerson; at: string; note?: string }>;
+  /** Hosted, on the answer to a hand off or a take-back: whether the review request moved, and why not (P9-3). */
+  request_moved?: boolean;
+  request_move_error?: string;
 }
 
 export interface InboxFilterDefinition {
@@ -2596,6 +2808,8 @@ export interface SavedInboxFilterList {
 /** Page metadata of the view mode; `total` spans every page, `counts` every view. */
 export interface InboxViewPageMeta {
   mode: "views";
+  /** Hosted: false when a repository's store keeps no per-person queue state (no snooze then). */
+  queue_supported?: boolean;
   view: InboxView | "none";
   status: ReviewDirectoryStatus | "none";
   query: string;
@@ -2639,6 +2853,8 @@ export interface Annotation {
   kind: AnnotationKind;
   state: AnnotationState;
   body: string;
+  reconsidered_after_structure?: boolean;
+  structure_revision_id?: string;
   created_by: string;
   created_by_actor: string;
   source?: AnnotationSource;
@@ -2760,6 +2976,7 @@ export interface AnnotationDraft {
   target_unit_key?: string;
   /** Default-on in the reader for a root request_change; ignored for ordinary comments/replies. */
   mark_target?: boolean;
+  reconsidered_after_structure?: boolean;
 }
 
 export interface RelatedSource {
@@ -2859,8 +3076,10 @@ export interface ReviewProjectContextSelection {
 }
 
 export interface ReviewAskReference {
-  kind?: "source" | "review_map_node" | "review_map_edge" | "project_knowledge" | string;
+  kind?: "source" | "review_map_node" | "review_map_edge" | "project_knowledge" | "source_unavailable" | string;
   label?: string;
+  /** source_unavailable references only: the files Ask could not read. */
+  paths?: string[];
   exactness?: "snapshot" | "current_index" | "historical" | "ai_narration" | string;
   /** project_knowledge references only. */
   entry_id?: string;
@@ -2941,6 +3160,8 @@ export interface ReviewAskAIOptions {
   /** Drivers this server runs; a hosted server omits the agent CLIs. */
   drivers?: ReviewAskDriver[];
   models_by_driver?: Partial<Record<ReviewAskDriver, string[]>>;
+  /** Set when this server runs Ask itself and no AI model is set up: the same help the Brief shows. */
+  setup_help?: ReviewAiSetupHelp;
 }
 
 export interface ReviewAskConversation {
@@ -3052,8 +3273,31 @@ export interface ReviewDestinationChoice {
   external_ref?: string;
 }
 
+/** Human-selected Wrap up message, bound to the immutable feedback hash. */
+export interface ReviewFlowSend {
+  state: "none" | "pending" | "dispatching" | "sent" | "failed" | "undone" | "uncertain";
+  operation_id: string;
+  outcome?: ReviewOutcomeKind;
+  has_feedback?: boolean;
+  /** How many notes travel with the send (0 when none). */
+  note_count?: number;
+  revision_id?: string;
+  send_after: string;
+  created_at: string;
+  updated_at?: string;
+  error?: string;
+}
+
+export interface FeedbackPresentation {
+  verdict: "lgtm" | "changes_requested" | "comment" | "lgtm_with_suggestions";
+  importance: Record<string, "must_fix" | "suggestion" | "question">;
+  test_with_fix: boolean;
+  summary: string;
+}
+
 export interface FeedbackExport {
   markdown: string;
+  presentation?: FeedbackPresentation;
   open: number;
   orphaned: number;
   resolved: number;
@@ -3080,16 +3324,48 @@ export interface GitHubPublishPreview {
   commit_id: string;
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   summary: string;
-  inline: { annotation_id: string; path: string; side: "LEFT" | "RIGHT"; start_line: number; line: number; body: string }[];
+  /** The review body exactly as GitHub will show it, without the hidden retry marker. */
+  body?: string;
+  inline: { annotation_id: string; path: string; side: "LEFT" | "RIGHT"; start_line: number; line: number; body: string; ai_fix?: boolean }[];
   folded: { annotation_id: string; location: string; body: string; reason: string }[];
   notices: string[];
+  /** The reviewer's verdict for this commit is already on GitHub: this post only adds comments and GitHub keeps the verdict. */
+  verdict_on_github?: boolean;
   plan_hash: string;
+  /** The reviewer's GitHub login and the pull request author's. */
+  viewer?: string;
+  author?: string;
+  /** Present only when a hosted signature requirement is known; a local review has none. */
+  check_run?: GitHubCheckRun | null;
   review_id: string;
   revision_id: string;
   operation_id: string;
   head_sha: string;
   stale: boolean;
   empty: boolean;
+}
+
+export interface GitHubCheckRun {
+  name: string;
+  text: string;
+  state: "passing" | "failing" | "pending";
+  label: string;
+}
+
+/** A bot account whose latest verdict on the pull request is an approval: a hint, never a judgment. */
+export interface GitHubBotApproval {
+  login: string;
+  name: string;
+  commit_id: string;
+  /** It approved the commit this revision holds. */
+  current: boolean;
+}
+
+export interface GitHubBotApprovals {
+  review_id: string;
+  revision_id: string;
+  head_sha: string;
+  approvals: GitHubBotApproval[];
 }
 
 export interface GitHubPublishResult {
@@ -3114,6 +3390,8 @@ export interface ReviewClosure {
   changed_since_review: number;
   needs_changes: number;
   unknown_targets: number;
+  /** Parts left for later: still open, never counted as reviewed. */
+  later_targets?: number;
   open_comments: number;
   orphaned_comments: number;
   failed_verification: number;
@@ -3303,8 +3581,12 @@ export interface ReviewSnapshotDelta {
   added: string[];
   changed: string[];
   removed: number;
+  /** The parts that left the change, as "path · symbol" (at most 25; ``removed`` counts all). */
+  removed_parts?: string[];
   stale_evidence: string[];
   reopened_decisions: string[];
+  /** Root comments opened on an earlier Snapshot: still open, and resolved on the previous Snapshot or this one. */
+  comments: { carried: number; resolved: number };
   /** The behavior and items the moved targets belong to, in Brief order (spec §9). */
   items?: { id: string; title: string; kind: ReviewProjectionItem["kind"]; changed: string[]; added: string[] }[];
 }
@@ -3648,11 +3930,41 @@ export interface ReviewEvaluationSnapshot {
   comparable_results?: { scenario: string; from: "PASS" | "FAIL"; to: "PASS" | "FAIL"; change: "regression" | "recovered" | "unchanged"; evidence_ids: string[] }[];
 }
 
+export type ReviewRiskLevel = "high" | "medium" | "low" | "not_measured";
+
+/** One measured risk fact on one part: a sensitive area, a removed safeguard, outside callers, or tests nothing ran. */
+export interface ReviewRiskFact {
+  text: string;
+  kind: "sensitive" | "removed_safeguard" | "outside_callers" | "untested" | string;
+  level: ReviewRiskLevel;
+  target_ids: string[];
+}
+
+export interface ReviewChangeRisk {
+  level: ReviewRiskLevel;
+  /** High / Medium / Low / Not measured. */
+  label: string;
+  /** One plain line naming the top fact and `· and N more` for the others (or what could not be measured). */
+  reason: string;
+  /** `label · reason`, the words `lc review status` prints. */
+  text: string;
+  /** Highest level first. */
+  facts: ReviewRiskFact[];
+  /** Every input the engine could not measure, in plain words. */
+  not_measured: string[];
+  /** The queue's Review first parts (`priority.review_first`); Understanding counts Reviewed or Needs changes marks over these (every part when empty). */
+  risky_target_ids: string[];
+  /** As of the Brief's build; the Reader recounts it from live marks. */
+  understanding: { reviewed: number; total: number; risky: boolean; text: string };
+}
+
 export interface ReviewProjection {
   /** Snapshot-bound evidence history. Scores withheld if evaluator configuration is unknown. */
   evaluation_timeline?: ReviewEvaluationTimeline;
   /** Short Snapshot summary; supporting items remain available in review details. */
   summary?: {
+    /** What the Brief leads with: the Review's own title and, under it, "5 files · 14 parts · +75 −15". */
+    headline?: { title: string; counts: string };
     paragraphs: string[];
     statements?: {
       text: string;
@@ -3660,6 +3972,18 @@ export interface ReviewProjection {
       target_ids: string[];
       claim_ids: string[];
     }[];
+    /** Engine-fact statements, riskiest first: outside callers, changed symbols, new/deleted files, what was not checked. */
+    facts?: {
+      text: string;
+      origin: "observed";
+      kind: "reach" | "symbols" | "files" | "unchecked" | string;
+      target_ids: string[];
+      claim_ids: string[];
+      /** On the not-checked fact only: the repository's own configured test command, when one is recorded. */
+      command?: string;
+    }[];
+    /** Risk and Understanding, from measured facts only (brief_summary.change_risk); never a score. */
+    risk?: ReviewChangeRisk;
     origin: "author" | "inferred" | "observed" | "mixed";
     scope: string;
     verification: string;
@@ -3803,6 +4127,8 @@ export interface ReviewConsumerGroup {
   path: string;
   /** The changed symbol, when the sites came from one. */
   symbol: string;
+  /** How that symbol changed (`added`, `modified`, `deleted`); empty when no symbol owns the group. */
+  change?: string;
   target_ids: string[];
   /** `exact`: one target; `file`: every target in `path`; `review`: no changed file owns it. */
   join: "exact" | "file" | "review";
@@ -3816,9 +4142,16 @@ export interface ReviewConsumerGroup {
 }
 
 export interface ReviewImpactReadiness {
-  source: "snapshot_packet" | "unavailable";
-  impact_pass: "ran" | "not_run" | "unavailable";
-  index_status: "fresh" | "stale" | "absent" | "unknown";
+  /** `current_index`: the capture had no index, so callers come from the current code index (the Map's).
+   *  `checkout_search`: no index answered, so callers come from a search of the code by name (the one
+   *  `lc review --ai` and the GitHub Action run), at the revision's head commit or in the working tree. */
+  source: "snapshot_packet" | "current_index" | "checkout_search" | "unavailable";
+  /** `ran` only when callers were measured; `no_index`: no index answered, so callers are unknown (never 0). */
+  impact_pass: "ran" | "not_run" | "no_index" | "unavailable";
+  /** `current`: the current code index, or the search, answered in place of the capture's. */
+  index_status: "fresh" | "stale" | "absent" | "current" | "unknown";
+  /** Symbols whose callers the search could not finish (a bound, a language it cannot parse): not measured, never none. */
+  unmeasured?: { path: string; symbol: string; reason: string }[];
   /** Degradation names the impact pass recorded (e.g. `symbol_relations`, `ambiguous_symbol_counts`). */
   degraded: string[];
   caller_expansion: { max_symbols: number; callers_per_symbol: number };
@@ -4123,6 +4456,18 @@ export interface ReviewRecordSummary {
   label: string;
   decision?: string;
   decided_by?: string;
+  decided_at?: string;
+  /** Zero-based, as the server counts Snapshots; the screens say Revision n + 1. */
+  snapshot_number?: number;
+  head_sha?: string;
+  /** Decisions the reviewer answered one by one; `null` when this record binds no parts (v1, P3-2 era). */
+  parts_reviewed_one_by_one?: number | null;
+  /** P6-2: the end of the retraction window, signed time + 24 h on the server's clock ("" for a record that is never retractable). */
+  retract_until?: string;
+  /** The server's own answer: window open, this person's verdict, the key that signed it is the key set up now. */
+  retractable?: boolean;
+  /** Who retracted this record and when; `null` while it stands. */
+  retracted?: { by: string; at: string } | null;
 }
 
 export interface ReviewRecordStatus {
@@ -4131,6 +4476,8 @@ export interface ReviewRecordStatus {
   snapshot_number: number;
   decision: ReviewRecordDecision | null;
   signing: ReviewRecordSigningStatus;
+  /** True only while the server is signing this decision; the one reason to say "Signing the record…". */
+  signing_due?: boolean;
   records: ReviewRecordSummary[];
 }
 
@@ -4146,6 +4493,50 @@ export interface ReviewRecordVerification {
   signing_state: string;
   signing_mode: string;
   exit_code: number;
+}
+
+export type ReviewRecordOutcomeName = "valid" | "code_changed" | "key_not_allowed" | "retracted" | "not_valid" | "unsigned";
+
+/** `lc review verify` and the Verify dialog name the same six outcomes; `headline` is the one plain line. */
+export interface ReviewRecordOutcome {
+  outcome: ReviewRecordOutcomeName;
+  exit_code: number;
+  code: "matches" | "changed" | "not_checked";
+  key_problem: "" | "not_trusted" | "revoked";
+  key_id: string;
+  signed_by: string;
+  signed_at: string;
+  signed_head_sha: string;
+  current_head_sha: string;
+  retraction: { by: string; at: string } | null;
+  reasons: string[];
+  headline: string;
+}
+
+export interface ReviewRecordDetailRow {
+  label: string;
+  value: string;
+}
+
+/** `GET /api/reviews/{id}/records/{record}/verify`. */
+export interface ReviewRecordVerifyResult {
+  record: ReviewRecordSummary;
+  details: ReviewRecordDetailRow[];
+  repository: string;
+  outcome: ReviewRecordOutcome;
+  verification: ReviewRecordVerification;
+  /** The latest captured revision the code was compared with (never a live checkout). */
+  current: { revision_number: number; head_sha: string; tree_fingerprint: string };
+  store: Record<string, string>;
+  matches_store: boolean;
+  /** Hosted only (SPEC 4.16): what this record says about a second signature. Absent on a local install. */
+  second_signature?: {
+    state: "agrees" | "disagrees" | "waiting" | "not_needed" | "not_required" | "is_second";
+    value: string;
+    reviewer: { id: string; name: string; handle: string } | null;
+    signed_at: string;
+    outcome: string;
+  };
 }
 
 export interface ReviewRecordExportResult {

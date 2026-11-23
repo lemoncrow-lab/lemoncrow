@@ -57,6 +57,17 @@ describe("whatIfModel", () => {
     expect(bounded.gaps.some((gap) => gap.key === "unlisted")).toBe(true);
   });
 
+  it("simulates the effect on an unchanged reference, which this PR did not change", () => {
+    const fixture = authRefreshWithConsumers();
+    fixture.projection.context!.consumers = [fixtureGroup("src/auth/refresh.ts", "refreshToken", ["auth-refresh"],
+      [fixtureSite("src/worker.ts", 9, "", { kind: "consumer", impact_kind: "reference" })])];
+    expect(run(fixture, "auth-refresh").rows[0]).toMatchObject({
+      origin: "simulated",
+      unchanged: true,
+      reason: "Uses refreshToken; if return value becomes nullable, it would need to handle a missing (null/None) result.",
+    });
+  });
+
   it("says no known callers is not no callers when the index is incomplete", () => {
     const fixture = authRefreshWithConsumers({ index_status: "absent", degraded: ["symbol_relations"] });
     fixture.projection.context!.consumers = [];

@@ -667,7 +667,7 @@ export default function CodeGraph3D({
   if (failed) {
     return (
       <div className="flex h-full min-h-[420px] items-center justify-center bg-surface-sunken p-4 text-heading text-subtle">
-        WebGL is unavailable, so the 3D map can’t render. Switch to the 2D view.
+        WebGL is unavailable, so the 3D map can’t render. Switch to the Map view.
       </div>
     );
   }

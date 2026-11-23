@@ -952,7 +952,7 @@ def _build_trace_from_normalized_content(
 _SIZE_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 
 # Cap for sessions serialized in memory by the SQLite-backed importers
-# (opencode/lemoncode/cursor). Those never touch a file, so ``_SIZE_LIMIT_BYTES``
+# (opencode/cursor). Those never touch a file, so ``_SIZE_LIMIT_BYTES``
 # above -- a *file* skip enforced only by import_paths_with_progress -- never
 # applies to them, leaving redaction + JSONL parsing unbounded (#38). 32MB is
 # far above any real session (the pathological #38 report was ~20MB of inlined

@@ -755,8 +755,12 @@ class SummaryView:
     ci: proof_of_work.CiReport | None = None
     #: The description says the tests pass or CI is green (:func:`proof_of_work.claims_tests_pass`).
     tests_claimed: bool = False
-    #: The reviewer's and the declared author's model families (:mod:`authorship`); ``None``: the line is left out.
+    #: The reviewer's and the declared author's model families (:mod:`authorship`); ``None``: not assessed, and the
+    #: footer says so.
     independence: authorship.Independence | None = None
+    #: The change's Risk by the Reader's rule (:class:`impact.RiskBasis`); ``None``: the change was not read on this run,
+    #: and the Risk line says it was not measured.
+    risk: impact.ChangeRisk | None = None
     #: What a review the cost cap stopped part way covered (``3 of 7 files, stopped at the cost cap``); empty: not stopped.
     stopped: str = ""
     #: The footer's spend line (:func:`spend.receipt_line`): this run, this pull request, the cap and the cost basis.
@@ -1029,21 +1033,75 @@ REREVIEW_GITLAB: Final[str] = "Re-review: push a commit, or run the merge reques
 MAX_ONE_LINE: Final[int] = 160
 
 
-def _impact_lines(view: SummaryView, state: ReviewState) -> list[str]:
-    """``**[Medium impact]** <one sentence>`` and, under it, the reasons the label rests on.
+#: Most characters of the Risk line's reason: its facts name the pull request's own code.
+MAX_RISK_REASON: Final[int] = 240
+RISK_BASIS: Final[str] = "Risk is measured from the change and the run record, not a model"
 
-    The sentence is the overview's one-liner (the model's, neutralised), else the pull request's title; the label is the
-    fixed rule of :mod:`impact` and is shown with its reasons so a reader can check it.
+
+def _risk_head(view: SummaryView) -> list[str]:
+    """``**Risk: High · <top fact> · and N more**``, then the commit and size it covers.
+
+    The level and the reason are the Reader's (``brief_summary.change_risk``, :class:`impact.RiskBasis`): measured facts
+    of the change and the checks CI finished on the head, never a model. A change this run did not read is ``Not
+    measured``.
     """
 
-    weighed = impact.Impact.from_state(state.impact)
+    risk = view.risk
+    if risk is None:
+        why = "this push was not reviewed" if view.budget else "the change was not read on this run"
+        return [f"**Risk: Not measured · {why}**", f"<sub>{RISK_BASIS}</sub>"]
+    reason = clean(trimmed(" ".join(risk.reason.split()), MAX_RISK_REASON))
+    size = f"{plural(risk.files, 'file')}, {plural(risk.lines, 'changed line')}"
+    return [
+        f"**Risk: {risk.label} · {reason}**",
+        f"<sub>Checked on commit {short(view.head_sha)} · {size} · {RISK_BASIS}</sub>",
+    ]
+
+
+def _one_line(view: SummaryView, state: ReviewState) -> list[str]:
+    """The overview's one-liner (the model's, neutralised), else the pull request's title; ``[]`` when neither."""
+
     sentence = clean(trimmed(state.overview.one_line if state.overview is not None else "", MAX_ONE_LINE))
     sentence = sentence or clean(trimmed(view.title, MAX_ONE_LINE))
-    lead = f"**[{weighed.label}]**" if weighed is not None else ""
-    lines = [f"{lead} {sentence}".strip()] if lead or sentence else []
-    if weighed is not None:
-        lines.append(f"<sub>{weighed.summary()} · from the change itself, not a model</sub>")
-    return lines
+    return [sentence, ""] if sentence else []
+
+
+#: The first words of the ``What was not checked`` item about the tests (:func:`tests_gap`), which ``proof_refresh``
+#: rewrites when CI finishes.
+TESTS_GAP_PREFIX: Final[str] = "Tests: "
+
+
+def tests_gap(ci: proof_of_work.CiReport | None) -> str:
+    """What the run could not say about the tests on the head because CI reported nothing it could read; ``""``: CI
+    reported checks, which the proof-of-work block lists (still running ones included), so they are not said twice."""
+
+    if ci is None:
+        return f"{TESTS_GAP_PREFIX}CI was not read on this run"
+    if not ci.readable:
+        return f"{TESTS_GAP_PREFIX}{ci.reason}"
+    if not ci.checks:
+        return f"{TESTS_GAP_PREFIX}no CI run was reported on this commit"
+    return ""
+
+
+NOT_CHECKED_HEADING: Final[str] = "### What was not checked"
+
+
+def _not_checked_lines(view: SummaryView) -> list[str]:
+    """``### What was not checked``: what this run could not verify, from facts the run has (never a model)."""
+
+    items = [f"This push: not reviewed ({view.budget})" if view.budget else "", tests_gap(view.ci)]
+    if view.risk is not None:
+        items += [f"Not measured: {gap}" for gap in view.risk.not_measured]
+    facts = view.facts
+    if facts.uninvestigated:
+        items.append(f"Changed code: {plural(facts.uninvestigated, facts.unit)} not investigated by the model yet")
+    if facts.deferred_files:
+        items.append(f"Changed code: {plural(facts.deferred_files, 'file')} left for the next run")
+    if view.receipt.security_unavailable:
+        items.append("Security scan: it could not run")
+    items.append("Callers in other repositories: none were searched")
+    return [NOT_CHECKED_HEADING, "", *(f"- {clean(item)}" for item in items if item)]
 
 
 def _summary_lines(state: ReviewState) -> list[str]:
@@ -1108,39 +1166,40 @@ def _check_names(checks: Sequence[proof_of_work.CiCheck]) -> str:
 
 
 def proof_lines(ci: proof_of_work.CiReport | None, *, claimed: bool = False) -> list[str]:
-    """The open proof-of-work block: what CI reported on the reviewed head, labelled as CI's word; ``[]`` when not read.
+    """The open proof-of-work block: what CI reported on the reviewed head, labelled as CI's word; ``[]`` when it has
+    nothing to say.
 
     Failed first, then still running, then did not pass (skipped, cancelled, neutral: never counted as a pass), then
-    passed. A refusal is said, not hidden. *claimed* (the description says the tests pass) adds a line when a check
-    failed on this head, or when no completed, passing check backs it. Check names are the repository's (or the pull
-    request's) own text, so each is a code span.
+    passed. CI that was not read, could not be read or reported no check is ``What was not checked``'s to say
+    (:func:`tests_gap`), never this block's: the block then shows only when *claimed* (the description says the tests
+    pass) needs its warning. *claimed* adds a line when a check failed on this head, or when no completed, passing check
+    backs it. Check names are the repository's (or the pull request's) own text, so each is a code span.
     """
 
     if ci is None:
         return []
     sha = short(ci.sha)
-    lines = [f"**Proof of work** · Reported by CI on `{sha}`, not run by LemonCrow", ""]
+    lines: list[str] = []
     if not ci.readable:
-        lines.append(f"- {ci.reason}")
         if claimed:
             lines.append(f"- The description says tests pass; LemonCrow could not read CI on `{sha}` to back it.")
-        return lines
-    if not ci.checks:
-        lines.append(f"- No CI checks reported on `{sha}` at review time")
-    for outcome, words in _PROOF_GROUPS:
-        group = ci.of(outcome)
-        if group:
-            lines.append(f"- {words}: {len(group)} · {_check_names(group)}")
-    if ci.unread:
-        cap = proof_of_work.MAX_CHECK_PAGES * proof_of_work.PAGE
-        lines.append(f"- {plural(ci.unread, 'more check')} on this commit not read (LemonCrow reads at most {cap})")
-    if ci.statuses_unreadable:
-        lines.append("- Commit statuses not readable: the workflow needs `statuses: read`")
-    if claimed and (failed := ci.of("failed")):
-        lines.append(f"- The description says tests pass; {_check_names(failed)} failed on `{sha}`.")
-    elif claimed and not ci.has_pass:
-        lines.append(f"- The description says tests pass; no completed passing run is reported on `{sha}` yet.")
-    return lines
+    else:
+        for outcome, words in _PROOF_GROUPS:
+            group = ci.of(outcome)
+            if group:
+                lines.append(f"- {words}: {len(group)} · {_check_names(group)}")
+        if ci.unread:
+            cap = proof_of_work.MAX_CHECK_PAGES * proof_of_work.PAGE
+            lines.append(f"- {plural(ci.unread, 'more check')} on this commit not read (LemonCrow reads at most {cap})")
+        if ci.statuses_unreadable:
+            lines.append("- Commit statuses not readable: the workflow needs `statuses: read`")
+        if claimed and (failed := ci.of("failed")):
+            lines.append(f"- The description says tests pass; {_check_names(failed)} failed on `{sha}`.")
+        elif claimed and not ci.has_pass:
+            lines.append(f"- The description says tests pass; no completed passing run is reported on `{sha}` yet.")
+    if not lines:
+        return []
+    return [f"**Proof of work** · Reported by CI on `{sha}`, not run by LemonCrow", "", *lines]
 
 
 #: The first words of the summary's one ``Proof`` line (:func:`proof_result_line`), which ``proof report`` replaces.
@@ -1170,8 +1229,8 @@ def proof_result_line(record: str, head_sha: str, *, repo_url: str) -> str:
 def with_proof_result(body: str, line: str) -> str:
     """*body* with its ``Proof`` line replaced by *line*, or *line* added at the end of the first screen.
 
-    The first screen ends at the first rule; the line goes before the independence line, as :func:`_lead_lines` puts it.
-    *body* itself when it has no first screen (a cut comment).
+    The first screen ends at the first rule; the line goes last in it, as :func:`_lead_lines` puts it (after the Risk
+    head and the proof-of-work block). *body* itself when it has no first screen (a cut comment).
     """
 
     lines = body.split("\n")
@@ -1182,11 +1241,7 @@ def with_proof_result(body: str, line: str) -> str:
     rule = next((index for index, text in enumerate(lines) if text == "---"), -1)
     if rule < 1:
         return body
-    sub = next((index for index in range(rule) if lines[index].startswith("<sub>Independence:")), -1)
-    if sub >= 0:
-        lines[sub:sub] = [line, ""]
-    else:
-        lines[rule - 1 : rule - 1] = ["", line]
+    lines[rule - 1 : rule - 1] = ["", line]
     return "\n".join(lines)
 
 
@@ -1194,15 +1249,19 @@ def _family_names(families: Sequence[str]) -> str:
     return " and ".join(authorship.FAMILY_NAMES.get(family, family) for family in families)
 
 
+#: The first words of the footer's independence line, which :func:`with_footer` keeps when it rewrites the footer.
+INDEPENDENCE_PREFIX: Final[str] = "Independence: "
+
+
 def independence_line(found: authorship.Independence | None) -> str:
-    """``Independence: reviewer Anthropic (`claude-x`) · author Codex (OpenAI, ...) · **independent**``, or ``""``.
+    """``Independence: reviewer Anthropic (`claude-x`) · author Codex (OpenAI, ...) · **independent**``.
 
     Every word is fixed or a cleaned model id: the author part names only what a commit declares exactly
-    (:mod:`authorship`), and says ``unknown`` otherwise.
+    (:mod:`authorship`), and says ``unknown`` otherwise. With no assessment at all the line still shows, and says so.
     """
 
     if found is None:
-        return ""
+        return f"{INDEPENDENCE_PREFIX}unknown (not assessed on this run)"
     models = ", ".join(f"`{trimmed(code(model), 60)}`" for model in found.reviewer_models[:2])
     if found.reviewer_families:
         reviewer = _family_names(found.reviewer_families) + (f" ({models})" if models else "")
@@ -1218,11 +1277,12 @@ def independence_line(found: authorship.Independence | None) -> str:
             f"{item.source}" + (f" in {item.commits} of {found.commits} commits" if found.commits else "") + ")"
             for item in found.authors[:3]
         )
-    return f"Independence: reviewer {reviewer} · author {author} · **{found.status}**"
+    return f"{INDEPENDENCE_PREFIX}reviewer {reviewer} · author {author} · **{found.status}**"
 
 
 def _lead_lines(view: SummaryView, state: ReviewState, result: Verdict) -> list[str]:
-    """The first screen: the verdict heading; the coverage and whether a person must look; proof of work; independence."""
+    """The first screen: the verdict heading; the coverage and whether a person must look; the Risk head; proof of
+    work; the ``Proof`` line."""
 
     facts = view.facts
     coverage = coverage_words(
@@ -1241,13 +1301,12 @@ def _lead_lines(view: SummaryView, state: ReviewState, result: Verdict) -> list[
     lines = [f"<h2>{verdict_title(result)}</h2>", "", f"**{coverage}** · {human}"]
     if view.stale:
         lines += ["", view.stale]
+    lines += ["", *_risk_head(view)]
     if proof := proof_lines(view.ci, claimed=view.tests_claimed):
         lines += ["", *proof]
     repo_url = view.commit_url.rsplit("/commit/", 1)[0] if "/commit/" in view.commit_url else ""
     if repo_url and (line := proof_result_line(state.proof, view.head_sha, repo_url=repo_url)):
         lines += ["", line]
-    if line := independence_line(view.independence):
-        lines += ["", f"<sub>{line}</sub>"]
     return lines
 
 
@@ -1255,11 +1314,14 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     """The readable part of the comment at one detail level (0 full; higher drops explanation text too).
 
     Top to bottom: the marker and the re-review line; the verdict in words as the heading (:func:`verdict_title`); the
-    coverage and whether a person must review it (:func:`coverage_words`, :func:`human_review_words`); the open
-    proof-of-work block (:func:`proof_lines`); the independence line; a rule; the impact line; the status strip;
-    ``Findings``; ``Summary``; ``Diagram``; the agent prompt; then the collapsed blocks (risks examined, what was fixed,
-    dismissed or learned) and, on a clean review, ``What we checked``; the footer last. The confidence score is not
-    shown: it is in the hidden state and ``--json`` (``verdict.confidence``) for tools.
+    coverage and whether a person must review it (:func:`coverage_words`, :func:`human_review_words`); the Risk line
+    and the commit and size it covers (:func:`_risk_head`); the open proof-of-work block when CI reported something
+    (:func:`proof_lines`) and the ``Proof`` line; a rule; the one sentence (:func:`_one_line`) and the status strip;
+    ``Findings``; ``Summary``; ``Diagram``; the agent prompt; the collapsed risks examined; on a clean review ``What we
+    checked``; on every review ``What was not checked``, the only place a gap in CI is said; the collapsed blocks of
+    what was fixed, dismissed or learned; the footer last, the independence line first in it. Each fact is stated
+    once. The impact label and the confidence score are not shown: they are in the hidden state and ``--json`` for
+    tools.
     """
 
     findings = sorted(view.findings, key=sort_key)
@@ -1282,9 +1344,7 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         strip += " · security scan unavailable"
     rereview = REREVIEW_GITLAB if view.gitlab else REREVIEW_RERUN if view.chat is False else REREVIEW_CHAT
     lines = [SUMMARY_MARKER, f"<sub>{rereview}</sub>", "", *_lead_lines(view, state, result), "", "---", ""]
-    if impact_lines := _impact_lines(view, state):
-        lines += [*impact_lines, ""]
-    lines.append(f"<sub>{strip}</sub>")
+    lines += [*_one_line(view, state), f"<sub>{strip}</sub>"]
     if view.banner:
         lines += ["", view.banner]
     if view.notes:
@@ -1337,6 +1397,7 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     if not opened:
         lines += ["", "### What we checked", ""]
         lines += _receipt_lines(view)
+    lines += ["", *_not_checked_lines(view)]
     if closed:
         lines += ["", f"<details><summary>{plural(len(closed), 'finding')} fixed since last review</summary>", ""]
         lines += [_closed_row(finding) for finding in closed]
@@ -1538,7 +1599,9 @@ def footer_text(
 
 
 def _footer(view: SummaryView) -> str:
-    return footer_text(
+    """The independence line, then :func:`footer_text`; the independence line always shows."""
+
+    return f"{independence_line(view.independence)}<br>" + footer_text(
         view.state,
         model_label=view.model_label,
         depth_label=view.depth_label,
@@ -1552,15 +1615,21 @@ _FOOTER_OPEN = "\n---\n<sub>"
 
 
 def with_footer(body: str, footer: str) -> str:
-    """*body* with its footer line replaced by *footer*; *body* itself when it has no footer (a cut comment)."""
+    """*body* with its footer line replaced by *footer*; *body* itself when it has no footer (a cut comment).
+
+    The independence line at the head of the footer is kept: *footer* (:func:`footer_text`) is what follows it.
+    """
 
     start = body.rfind(_FOOTER_OPEN)
     if start < 0:
         return body
-    end = body.find("</sub>", start)
+    begin = start + len(_FOOTER_OPEN)
+    end = body.find("</sub>", begin)
     if end < 0:
         return body
-    return f"{body[: start + len(_FOOTER_OPEN)]}{footer}{body[end:]}"
+    if body.startswith(INDEPENDENCE_PREFIX, begin) and (br := body.find("<br>", begin, end)) >= 0:
+        begin = br + len("<br>")
+    return f"{body[:begin]}{footer}{body[end:]}"
 
 
 def render_summary(view: SummaryView) -> tuple[str, ReviewState]:

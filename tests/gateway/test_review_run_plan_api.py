@@ -285,7 +285,7 @@ def test_a_snapshot_with_no_source_tree_and_no_checkout_lists_no_surfaces_instea
         headers=HEADERS,
     )
     assert preview.status_code == 409
-    assert "no source tree was kept for this Snapshot" in preview.json()["detail"]
+    assert "no source tree was kept for this revision" in preview.json()["detail"]
     assert "git repository" not in preview.json()["detail"] and "/" not in preview.json()["detail"].replace("/ ", " ")
 
 
@@ -431,7 +431,7 @@ surfaces:
 
 @pytest.mark.parametrize("family", ["auto", "off"])
 def test_runtime_validation_runs_only_as_a_planned_surface_pick(tmp_path: Path, family: str) -> None:
-    from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
+    from lemoncrow.pro.environment.runners import RunnerRegistry, SurfaceRunResult
 
     ran: list[str] = []
 

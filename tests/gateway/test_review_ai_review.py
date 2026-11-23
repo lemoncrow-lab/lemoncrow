@@ -239,7 +239,7 @@ def test_valid_exact_source_ref_is_accepted_and_prose_stays_out_of_evidence(tmp_
                 "category": "security",
                 "target_ids": ["target-auth"],
                 "title": "Authorization source proves the bypass",
-                "explanation": "The exact Snapshot source reaches the privileged return without a principal guard.",
+                "explanation": "The exact revision source reaches the privileged return without a principal guard.",
                 "consequence": "A request without a principal can reach administrator-only behavior.",
                 "evidence_refs": [source_ref],
             }
@@ -260,8 +260,8 @@ def test_valid_exact_source_ref_is_accepted_and_prose_stays_out_of_evidence(tmp_
     assert captured["source_ref"].startswith("source:new:src/auth.py@sha256:")
     assert captured["source_ref"] in annotation.evidence
     assert set(annotation.evidence) <= captured["registry_refs"]
-    assert "exact Snapshot source reaches" in annotation.body
-    assert all("exact Snapshot source reaches" not in ref for ref in annotation.evidence)
+    assert "exact revision source reaches" in annotation.body
+    assert all("exact revision source reaches" not in ref for ref in annotation.evidence)
 
 
 def test_valid_review_evidence_artifact_ref_is_accepted(tmp_path: Path) -> None:
@@ -290,7 +290,7 @@ def test_valid_review_evidence_artifact_ref_is_accepted(tmp_path: Path) -> None:
                 "category": "security",
                 "target_ids": ["target-auth"],
                 "title": "Screenshot confirms unauthorized behavior",
-                "explanation": "The supplied screenshot records the unauthorized result on the reviewed Snapshot.",
+                "explanation": "The supplied screenshot records the unauthorized result on the reviewed revision.",
                 "consequence": "Unauthorized behavior is observable to the requester.",
                 "evidence_refs": [artifact["ref"]],
             }
@@ -337,7 +337,7 @@ def test_verification_evidence_projects_a_canonical_check_ref(tmp_path: Path) ->
                 "category": "security",
                 "target_ids": ["target-auth"],
                 "title": "Security verification fails",
-                "explanation": "The supplied verification observation is failed for this Snapshot.",
+                "explanation": "The supplied verification observation is failed for this revision.",
                 "consequence": "The changed authorization behavior is not verified safe.",
                 "evidence_refs": [check["ref"]],
             }
@@ -1336,7 +1336,7 @@ def _phase6_rule(stable_key: str = "auth-required") -> ReviewRule:
         stable_key=stable_key,
         instruction="Authentication must be enforced before privileged behavior.",
         path_scope=("src/auth.py",),
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class="trusted_base_repository",
         source_identity="base:review.yaml",
         source_location=".lemoncrow/review.yaml",
@@ -1429,7 +1429,7 @@ def test_ai_content_access_is_enforced_before_provider_context(tmp_path: Path) -
         access = ContentAccessRule(
             mode=mode,
             path_scope=("src/auth.py",),
-            origin="base Snapshot .lemoncrow/review.yaml",
+            origin="base revision .lemoncrow/review.yaml",
             trust_class="trusted_base_repository",
             source_identity="base:review.yaml",
         )
@@ -1503,7 +1503,7 @@ def test_operator_route_attestation_reaches_content_access_enforcement(
     access = ContentAccessRule(
         mode="customer_local_only",
         path_scope=("src/auth.py",),
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class="trusted_base_repository",
         source_identity="base:review.yaml",
     )
@@ -1549,7 +1549,7 @@ def test_cli_snapshot_root_removes_denied_adjacent_content_before_model(
     access = ContentAccessRule(
         mode="ai_denied",
         path_scope=("src/secret.txt",),
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class="trusted_base_repository",
         source_identity="base:review.yaml",
     )

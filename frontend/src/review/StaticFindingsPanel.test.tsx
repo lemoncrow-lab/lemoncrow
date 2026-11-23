@@ -136,9 +136,9 @@ describe("StaticFindingsPanel", () => {
     expect(screen.getByTestId("static-findings-truncation")).toHaveTextContent("312 not imported");
 
     const stale = screen.getByTestId("static-findings-stale");
-    expect(stale).toHaveTextContent("Earlier Snapshots · 1");
+    expect(stale).toHaveTextContent("Earlier revisions · 1");
     const old = within(stale).getByTestId("static-finding-sf_old");
-    expect(old).toHaveTextContent("Earlier Snapshot 1 · not current evidence");
+    expect(old).toHaveTextContent("Earlier Revision 2 · not current evidence");
     expect(within(old).queryByRole("button")).toBeNull();
 
     const chain = screen.getByTestId("static-chain-chain_1");
@@ -150,7 +150,7 @@ describe("StaticFindingsPanel", () => {
     expect(panel).toHaveTextContent("display only, never a gate");
   });
 
-  it("dismisses with a reason, confirms and reopens on the latest Snapshot", async () => {
+  it("dismisses with a reason, confirms and reopens on the latest revision", async () => {
     const user = userEvent.setup();
     api.fetchStaticFindings.mockResolvedValue(projection({ stale: [], chains: [], truncation_notes: [] }));
     api.postStaticDisposition.mockResolvedValue({ disposition: {}, static_findings: projection() });
@@ -207,7 +207,7 @@ describe("StaticFindingsPanel", () => {
     expect(screen.getByTestId("static-finding-sf_1")).toHaveTextContent("P0 Critical");
   });
 
-  it("offers no judgment on a read-only or earlier Snapshot and renders nothing without findings", async () => {
+  it("offers no judgment on a read-only or earlier revision and renders nothing without findings", async () => {
     api.fetchStaticFindings.mockResolvedValue(projection({ latest: false }));
     const { unmount } = render(<StaticFindingsPanel reviewId="review-1" path="src/api.py" />);
     await screen.findByTestId("static-findings-panel");

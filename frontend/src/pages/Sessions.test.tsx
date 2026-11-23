@@ -156,7 +156,7 @@ describe("Sessions page", () => {
     expect(screen.getByLabelText("Status: completed")).toBeInTheDocument();
     expect(screen.queryByText("Estimated from tokens")).not.toBeInTheDocument();
     // $0.42 appears in summary MetricCards
-    expect(screen.getAllByText("$0.420").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("$0.42").length).toBeGreaterThanOrEqual(1);
   });
 
   it("requests unbounded traces and long-window summaries", async () => {
@@ -182,18 +182,22 @@ describe("Sessions page", () => {
     ).toBe(true);
   });
 
-  it("prefixes the session-row cost with ~ for estimated costs, and offers host/workspace filters", async () => {
+  it("labels an estimated session-row cost as Priced, in a neutral colour, and offers host/workspace filters", async () => {
     mockFetch({
       "/api/traces": jsonResponse(sampleTraces),
       "/api/v1/sessions": jsonResponse(sampleSessions),
     });
     renderSessions();
-    expect(await screen.findByText("Fix login bug")).toBeInTheDocument();
-    // sampleSessions[0].cost_status is "estimated" — the row's Cost cell
-    // (the token grid was cut down to Cost + Saved only) must show the ~
-    // prefix that distinguishes it from a recorded cost.
-    expect(screen.getByText("~$0.420")).toBeInTheDocument();
-    expect(screen.getAllByText("$0.100").length).toBeGreaterThanOrEqual(1);
+    const task = await screen.findByText("Fix login bug");
+    // sampleSessions[0].cost_status is "estimated": the row says "Priced" (and why, on hover)
+    // instead of a red "~" prefix that read as an error.
+    const row = task.closest("button") as HTMLElement;
+    const priced = within(row).getByText("Priced").parentElement as HTMLElement;
+    expect(priced).toHaveAttribute("title", expect.stringMatching(/host did not report a cost/));
+    const value = within(priced).getByText("$0.42");
+    expect(value).toHaveClass("text-foreground");
+    expect(within(row).queryByText("~$0.42")).not.toBeInTheDocument();
+    expect(screen.getAllByText("$0.10").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText("Filter by host")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter by workspace")).toBeInTheDocument();
   });
@@ -274,7 +278,79 @@ describe("Sessions page", () => {
     const row = task.closest("button");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("—")).toBeInTheDocument();
-    expect(within(row as HTMLElement).queryByText("$0.000")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("$0.00")).toBeInTheDocument();
+  });
+
+  it("does not report savings nobody measured as zero", async () => {
+    const summary = (id: string, extra: Partial<SessionSummary>): SessionSummary => ({
+      session_id: id,
+      started_at: "2024-01-01T10:00:00Z",
+      ended_at: "2024-01-01T10:01:00Z",
+      duration_seconds: 60,
+      active_duration_seconds: 60,
+      vendor: "claude",
+      cost_status: "recorded",
+      total_turns: 1,
+      total_cost_usd: 1,
+      total_lemoncrow_savings_usd: 0,
+      label: null,
+      models_used: {},
+      ...extra,
+    });
+    mockFetch({
+      "/api/traces": jsonResponse(emptyTraces),
+      "/api/v1/sessions": jsonResponse([summary("unmeasured", { savings_status: "unavailable" })]),
+    });
+    renderSessions();
+    const card = (await screen.findByText("Saved")).parentElement as HTMLElement;
+    expect(within(card).getByText("—")).toBeInTheDocument();
+    // "Efficiency" is gone; the ratio is Cost reduction, as on Home and Usage, and stays "—" without measured savings.
+    expect(screen.queryByText("Efficiency")).not.toBeInTheDocument();
+    const reduction = screen.getByText("Cost reduction").parentElement as HTMLElement;
+    expect(within(reduction).getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("Totals for all 1 session.")).toBeInTheDocument();
+  });
+
+  it("says which sessions the totals cover and explains an at-least total", async () => {
+    const summary = (id: string, extra: Partial<SessionSummary>): SessionSummary => ({
+      session_id: id,
+      started_at: "2024-01-01T10:00:00Z",
+      ended_at: "2024-01-01T10:01:00Z",
+      duration_seconds: 60,
+      active_duration_seconds: 60,
+      vendor: "claude",
+      cost_status: "recorded",
+      total_turns: 1,
+      total_cost_usd: 1,
+      total_lemoncrow_savings_usd: 0,
+      label: null,
+      models_used: {},
+      ...extra,
+    });
+    mockFetch({
+      "/api/traces": jsonResponse(emptyTraces),
+      "/api/v1/sessions": jsonResponse([summary("priced", {}), summary("unpriced", { cost_status: "unavailable" })]),
+    });
+    renderSessions();
+    expect(await screen.findByText("Totals for all 2 sessions.")).toBeInTheDocument();
+    const cost = screen.getByText("Cost").parentElement as HTMLElement;
+    expect(within(cost).getByText("≥$1.00")).toBeInTheDocument();
+    expect(within(cost).getByText("At least: 1 session without a price.")).toBeInTheDocument();
+  });
+
+  it("states cost reduction with Home's label and precision, and cost in neutral text", async () => {
+    mockFetch({
+      "/api/traces": jsonResponse(emptyTraces),
+      "/api/v1/sessions": jsonResponse([{
+        session_id: "s-1", duration_seconds: 60, active_duration_seconds: 60, vendor: "claude", cost_status: "recorded",
+        total_turns: 1, total_cost_usd: 6.97, total_lemoncrow_savings_usd: 2.67, savings_status: "recorded", label: null, models_used: {},
+      }]),
+    });
+    renderSessions();
+    const reduction = (await screen.findByText("Cost reduction")).parentElement as HTMLElement;
+    // 2.67 ÷ (6.97 + 2.67) = 27.7%, as Home and Usage show it.
+    expect(within(reduction).getByText("27.7%")).toBeInTheDocument();
+    expect(screen.queryByText("Efficiency")).toBeNull();
   });
 
   it("shows empty state when no sessions", async () => {
@@ -283,7 +359,10 @@ describe("Sessions page", () => {
       "/api/v1/sessions": jsonResponse([]),
     });
     renderSessions();
-    expect(await screen.findByText(/No sessions found/i)).toBeInTheDocument();
+    expect(await screen.findByText("No sessions yet", { selector: "div" })).toBeInTheDocument();
+    // One empty state that says how sessions appear, not "Select a session" beside an empty list.
+    expect(screen.getByRole("link", { name: "Open Integrations" })).toHaveAttribute("href", "/settings/integrations");
+    expect(screen.queryByText("Select a session")).not.toBeInTheDocument();
   });
 
   it("explains unavailable hosted history without reporting zero activity", async () => {
@@ -293,8 +372,11 @@ describe("Sessions page", () => {
     );
     renderSessions();
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
-    expect(screen.queryByText(/501|ApiError|No sessions found/)).not.toBeInTheDocument();
-    expect(screen.queryByText("$0.000")).not.toBeInTheDocument();
+    expect(screen.queryByText(/501|ApiError|No sessions/)).not.toBeInTheDocument();
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+    // No "—" totals or "Select a session" beside a list that failed to load.
+    expect(screen.getByText("Sessions are unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Select a session")).not.toBeInTheDocument();
   });
 
   it("keeps an HTTP fallback when an upstream error is not JSON", async () => {
@@ -385,6 +467,56 @@ describe("Sessions page", () => {
 
     expect(await screen.findByText("Execution Flow")).toBeInTheDocument();
     expect(await screen.findByText("Done.")).toBeInTheDocument();
+  });
+
+  describe("arriving on the list", () => {
+    const twoSessions = () => ({
+      "/api/traces": jsonResponse({
+        items: ["sess-a", "sess-b"].map((sid, index) => ({
+          ...sampleTraces.items[0],
+          id: sid,
+          session_id: sid,
+          task: sid === "sess-a" ? "Older session" : "Newest session",
+          created_at: `2024-01-01T1${index}:00:00Z`,
+        })),
+        metrics: sampleTraces.metrics,
+      }),
+      // sess-a was created later, but sess-b has the newer activity.
+      "/api/v1/sessions": jsonResponse([
+        { ...sampleSessions[0], session_id: "sess-a", ended_at: null, updated_at: "2024-01-01T10:05:00Z" },
+        { ...sampleSessions[0], session_id: "sess-b", ended_at: null, updated_at: "2024-01-01T12:00:00Z" },
+      ]),
+    });
+    const setWidth = (desktop: boolean) =>
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({ matches: desktop && query.includes("min-width"), media: query, addEventListener() {}, removeEventListener() {} }),
+      });
+    afterEach(() => {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    });
+
+    it("opens the newest session beside the list on a desktop", async () => {
+      setWidth(true);
+      const fetchSpy = mockFetch(twoSessions());
+      renderSessions("/activity");
+
+      await waitFor(() => expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/v1/traces/sess-b"))).toBe(true));
+      expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/v1/traces/sess-a"))).toBe(false);
+      expect(screen.getByText("Older session")).toBeInTheDocument();
+      expect(screen.queryByText("Select a session")).not.toBeInTheDocument();
+    });
+
+    it("keeps the list first on a phone", async () => {
+      setWidth(false);
+      const fetchSpy = mockFetch(twoSessions());
+      renderSessions("/activity");
+
+      expect(await screen.findByText("Newest session")).toBeInTheDocument();
+      expect(await screen.findByText("Select a session")).toBeInTheDocument();
+      expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/v1/traces/sess-"))).toBe(false);
+    });
   });
 
   it("prefers updated_at over started_at when sorting rows", async () => {

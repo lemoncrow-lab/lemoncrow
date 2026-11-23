@@ -319,20 +319,20 @@ def test_draft_and_push_flags_reach_the_run(ci: Any, monkeypatch: pytest.MonkeyP
 
 
 def test_help_documents_the_bot_flags() -> None:
-    result = CliRunner().invoke(cli, ["review", "--help"])
+    result = CliRunner().invoke(cli, ["review", "--help-all"])
     for flag in ("--ai", "--publish-bot", "--depth", "--fail-on", "--review-drafts", "--on-push"):
         assert flag in result.output
 
 
 def test_the_fail_on_help_says_what_p1_gates_on_for_a_pull_request_and_for_a_local_review() -> None:
-    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help-all"]).output.split())
     assert "(none, p0 or p1)" in text and "p1 fails on a P0 or a P1" in text
     assert "With --publish-bot, the LemonCrow Review commit status goes to failure" in text
     assert "is for a local --ai review" not in text
 
 
 def test_help_explains_the_three_forms_of_a_pull_request_review() -> None:
-    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help-all"]).output.split())
     assert "--pr N --ai review it and print what the bot would post" in text
     assert "--pr N --ai --dry-run the same" in text
     assert "--pr N --publish-bot post those comments as a bot. Only in GitHub Actions" in text

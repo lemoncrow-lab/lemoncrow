@@ -48,12 +48,21 @@ HISTORY_LADDER: tuple[int, ...] = (100, 500, 2500)
 GIT_TIMEOUT_S = 900
 API_TIMEOUT_S = 30
 WORKDIR_ENV = "LEMONCROW_WORKDIR"
+STATUS_PREFIX = "Could not check out the pull request"
 #: Where the fetched pull request lives in the repository, apart from the user's own branches.
 REF_NAMESPACE = "refs/lemoncrow"
 
 
 class CheckoutError(RuntimeError):
-    """The workspace cannot be made ready; the message says what to change."""
+    """The workspace cannot be made ready; the message says what to change.
+
+    ``status`` is the same advice cut to fit a commit status (140 characters), when the message may not: a fetch error
+    quotes git, and the fix would fall off the end.
+    """
+
+    def __init__(self, message: str, *, status: str = "") -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -250,7 +259,7 @@ def prepare(
         try:
             _fetch(run, directory, plain, refspecs, depth=depth, secrets=secrets)
         except CheckoutError as exc:
-            raise CheckoutError(_explain_fetch_failure(str(exc), created=created, server=server)) from exc
+            raise _fetch_failure(str(exc), created=created, server=server) from exc
         if _merge_base(run, directory, plain, base_ref, head_ref):
             found = True
             break
@@ -273,22 +282,25 @@ def prepare(
     return Outcome("created" if created else "deepened", commits, f"pull request #{number} at {head[:7]}")
 
 
-def _explain_fetch_failure(detail: str, *, created: bool, server: str) -> str:
+def _fetch_failure(detail: str, *, created: bool, server: str) -> CheckoutError:
     lowered = detail.lower()
     if "403" in lowered or "denied" in lowered or "authentication failed" in lowered or "401" in lowered:
-        return (
+        return CheckoutError(
             f"GitHub refused to send the pull request's history ({detail}). The workflow token needs "
             "`contents: read`; the one-line fix is "
-            "`permissions: { contents: read, pull-requests: write, statuses: write }`."
+            "`permissions: { contents: read, pull-requests: write, statuses: write }`.",
+            status=f"{STATUS_PREFIX}: GitHub refused the fetch; the workflow token needs contents: read",
         )
     if created:
-        return (
+        return CheckoutError(
             f"The Action could not fetch the pull request from {server} ({detail}). Check that the runner can reach "
-            "it, or add an `actions/checkout` step with `fetch-depth: 0` before the Action."
+            "it, or add an `actions/checkout` step with `fetch-depth: 0` before the Action.",
+            status=f"{STATUS_PREFIX}: the fetch failed; see the workflow log, then re-run",
         )
-    return (
+    return CheckoutError(
         f"The checkout is shallow and could not be deepened ({detail}). Set `fetch-depth: 0` on your "
-        "`actions/checkout` step, or remove that step and let the Action check out the pull request itself."
+        "`actions/checkout` step, or remove that step and let the Action check out the pull request itself.",
+        status=f"{STATUS_PREFIX}: shallow checkout; set fetch-depth: 0 or remove actions/checkout",
     )
 
 
@@ -306,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         message = _SANITIZE.sub(" ", str(exc))
         print(f"::error title=LemonCrow Review::{message}")
         if str(env.get("GITHUB_EVENT_NAME") or "") == "pull_request":
-            unposted = ci_env.post_status(env, "error", f"Could not check out the pull request: {message}"[:140])
+            status = exc.status or f"{STATUS_PREFIX}: {message}"
+            unposted = ci_env.post_status(env, "error", status[:140])
             if unposted:
                 print(f"::warning title=LemonCrow Review::{unposted}")
         return 1

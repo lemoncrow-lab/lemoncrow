@@ -10,12 +10,20 @@ fully-blank ``unknown`` record rather than a plausible-looking guess.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from lemoncrow.core.foundation.history_store import HistoryStore
 from lemoncrow.core.foundation.models import CommandRecord, FileEditRecord, Trace
-from lemoncrow.pro.capabilities.review.models import ImpactSite, ProvenanceRecord
+from lemoncrow.pro.capabilities.review.models import (
+    SCHEMA_VERSION,
+    ChangedFile,
+    ImpactSite,
+    ProvenanceRecord,
+    ReviewPacket,
+)
 from lemoncrow.pro.capabilities.review.provenance import (
     collect_evidence,
     collect_exact_file_attributions,
@@ -24,6 +32,7 @@ from lemoncrow.pro.capabilities.review.provenance import (
     load_trace_for_session,
     split_files_touched,
 )
+from lemoncrow.pro.capabilities.review.render import render_review
 
 _ANCHOR = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 _PACKET_PATHS = (
@@ -908,6 +917,94 @@ def test_unknown_provenance_prints_the_reason_and_no_host() -> None:
     assert "Generated with: unknown" in evidence
     assert "no session recorded an edit" in evidence
     assert "claude" not in evidence
+
+
+def _first_phase_packet(**changes: Any) -> ReviewPacket:
+    """The source-first packet `lc review --open` publishes before impact and provenance run."""
+
+    packet = ReviewPacket(
+        schema_version=SCHEMA_VERSION,
+        generated_at="2026-09-07T12:00:00+00:00",
+        repo_root="/repo",
+        range_mode="working_tree",
+        base_rev="HEAD",
+        head_rev="WORKDIR",
+        base_sha="a" * 40,
+        head_sha="",
+        title="working tree",
+        files=(ChangedFile(path="lib/cache.ts", old_path=None, status="added"),),
+        degraded=("impact_disabled", "non_definition_symbols", "provenance_disabled"),
+    )
+    return replace(packet, **changes)
+
+
+def test_a_pass_still_running_in_the_background_is_pending_not_disabled_or_unknown() -> None:
+    """The Reader is about to show the map and the author; the terminal must not deny them."""
+
+    text = render_review(_first_phase_packet(), no_color=True, pending=("impact", "provenance"))
+
+    assert "Generated with: still preparing, continues in the Reader" in text
+    assert "Map and caller impact and author attribution: still preparing, continues in the Reader" in text
+    assert "Generated with: unknown" not in text
+    assert "not collected" not in text
+    assert "not analyzed" not in text and "not checked" not in text
+    # A genuine fallback is still reported, as a sentence rather than its code.
+    assert "imports, keys or literals, not definitions" in text
+    for code in ("impact_disabled", "provenance_disabled", "non_definition_symbols", "degraded:"):
+        assert code not in text
+    # Impact settles the index status, so none is claimed while it runs.
+    assert "index:" not in text
+
+
+def test_a_pass_that_never_ran_is_still_reported_in_plain_words() -> None:
+    text = render_review(_first_phase_packet(), no_color=True)
+
+    assert "Generated with: unknown" in text
+    assert "Map and caller impact were not analyzed." in text
+    assert "Author attribution was not checked." in text
+    assert "still preparing" not in text
+
+
+def test_without_pending_keeps_genuine_codes_for_json() -> None:
+    from lemoncrow_client.review_words import degraded_sentence
+
+    from lemoncrow.pro.capabilities.review.render import without_pending
+
+    packet = without_pending(_first_phase_packet(), ("impact",))
+
+    assert packet.degraded == ("non_definition_symbols", "provenance_disabled")
+    assert degraded_sentence("submodule_dirty:2").startswith("2 submodule(s)")
+    assert degraded_sentence("brand_new_signal") == "Another analysis step fell back (brand_new_signal)."
+
+
+def test_an_exact_author_session_task_titles_the_review() -> None:
+    exact = ProvenanceRecord(
+        status="matched",
+        host="codex",
+        session_id="billing-482",
+        task="Cache the invoice list for 60 seconds\n\nKeep the update path fresh.",
+        certainty="exact",
+        match_confidence=1.0,
+    )
+    guessed = replace(exact, certainty="possible", match_confidence=0.45)
+
+    assert render_review(_first_phase_packet(provenance=exact), no_color=True).splitlines()[0] == (
+        "Cache the invoice list for 60 seconds"
+    )
+    # A scored guess does not get to name the change.
+    assert render_review(_first_phase_packet(provenance=guessed), no_color=True).splitlines()[0] == "working tree"
+
+
+def test_an_explicit_session_id_titles_the_captured_review_before_provenance_runs(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.hosted import _explicit_session_title
+
+    root = _seed(tmp_path / "store", _trace(trace_id="t1", session_id="billing-482", workspace=tmp_path))
+
+    assert _explicit_session_title(root, "billing-482", False) == "wire the router to the service"
+    # A hint is only a guess to score, and an unknown id has no task: both keep the range title.
+    assert _explicit_session_title(root, "billing-482", True) == ""
+    assert _explicit_session_title(root, "no-such-session", False) == ""
+    assert _explicit_session_title(tmp_path / "empty", "billing-482", False) == ""
 
 
 def test_the_html_view_hedges_the_same_claim() -> None:

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button as UiButton } from "../components/ui/button";
+import { Select, SelectItem } from "../components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -166,6 +167,8 @@ export default function InteractivePreviewPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [live, setLive] = useState<LivePreview | null>(null);
+  // Which environment.toml preview to open; "" is the server's default (the first declared).
+  const [chosen, setChosen] = useState("");
   // The one-time session token stays in memory only: never storage, never a URL.
   const token = useRef("");
 
@@ -196,15 +199,24 @@ export default function InteractivePreviewPanel({
   const running = current.sessions.find(
     (row) => row.state === "running" || row.state === "starting"
   );
+  const previews = current.previews ?? [];
+  const selected = previews.includes(chosen)
+    ? chosen
+    : (current.preview ?? previews[0] ?? "");
 
   async function open() {
     setBusy(true);
     setMessage("");
     try {
-      const started = await startInteractivePreview(
-        reviewId,
-        current.revision_id
-      );
+      const started =
+        previews.length > 1
+          ? await startInteractivePreview(
+              reviewId,
+              current.revision_id,
+              undefined,
+              selected
+            )
+          : await startInteractivePreview(reviewId, current.revision_id);
       token.current = started.token;
       const urls: Partial<Record<InteractivePreviewSide, string>> = {};
       for (const { side } of SIDES) {
@@ -266,6 +278,24 @@ export default function InteractivePreviewPanel({
           Interactive preview
         </span>
         <span className="flex-1" />
+        {current.state === "available" &&
+          editable &&
+          !running &&
+          previews.length > 1 && (
+          <Select
+            aria-label="Preview"
+            value={selected}
+            onValueChange={setChosen}
+            uiSize="xs"
+            disabled={busy}
+          >
+            {previews.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </Select>
+        )}
         {current.state === "available" && editable && !running && (
           <UiButton
             type="button"

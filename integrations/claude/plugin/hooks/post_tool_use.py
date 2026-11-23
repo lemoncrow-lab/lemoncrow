@@ -134,11 +134,28 @@ def _compute_diff(tool_name: str, tool_input: dict) -> tuple[str, str]:  # type:
         if not diff:
             diff = _git_diff(file_path)
 
-    elif tool_name == "Write":
-        # For a full-file write, git diff is the most reliable source.
-        diff = _git_diff(file_path)
-
+    # Native Write has no old_string. Without a PreToolUse snapshot, using
+    # git diff HEAD repeats earlier edits and invents authorship.
     return file_path, diff
+
+
+def _compute_exact_write_diff(payload: dict[str, Any], tool_input: dict[str, Any], session_id: str) -> tuple[str, str]:
+    """A Write event may claim only the delta captured before THIS tool call."""
+    from lemoncrow.core.foundation.write_preimage import consume_write_preimage
+
+    raw = str(tool_input.get("file_path") or tool_input.get("path") or "").strip()
+    tool_id = str(payload.get("tool_use_id") or "").strip()
+    if not (raw and session_id and tool_id):
+        return "", ""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path(payload.get("cwd") or _workspace_root()) / path
+    target = path.resolve()
+    image = consume_write_preimage(_lemoncrow_root(), session_id, tool_id, target)
+    if image is None:
+        return "", ""  # Missing/oversized preimage: refuse guessed git-HEAD attribution
+    before, after = image
+    return str(target), _unified_diff(before.decode("utf-8"), after.decode("utf-8"), str(target))
 
 
 # ---------------------------------------------------------------------------
@@ -449,12 +466,14 @@ def main() -> int:
     # LemonCrow's own ``edit`` pushes what it wrote; a host edit does not.
     _nudge_lemoncrow_view(str(tool_input.get("file_path") or "") or str(payload.get("cwd") or ""))
     try:
-        file_path, diff = _compute_diff(tool_name, tool_input)
-        if not file_path or not diff:
-            return 0
-
         session_id = str(payload.get("session_id") or "").strip()
         if not session_id:
+            return 0
+        if tool_name == "Write":
+            file_path, diff = _compute_exact_write_diff(payload, tool_input, session_id)
+        else:
+            file_path, diff = _compute_diff(tool_name, tool_input)
+        if not file_path or not diff:
             return 0
 
         _append_file_edit_event(session_id, file_path, diff)

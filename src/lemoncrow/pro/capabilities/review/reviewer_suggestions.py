@@ -624,7 +624,7 @@ def trusted_base_routing(content: str, *, source: str, commit: str = "") -> Rout
     routing: ``automatic`` on its rules is ignored by :meth:`ReviewerRouting.routes_automatically`.
     """
 
-    origin = PolicyOrigin("trusted_base_repository", source or "base Snapshot .lemoncrow/review.yaml", commit)
+    origin = PolicyOrigin("trusted_base_repository", source or "base revision .lemoncrow/review.yaml", commit)
     try:
         decoded = yaml.safe_load(content) if content.strip() else None
     except yaml.YAMLError as exc:

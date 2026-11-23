@@ -268,3 +268,114 @@ def test_pipe_grep_is_not_blocked(tmp_path: Path) -> None:
     # A non-leading grep (pipe filter) was never a code search anyway.
     payload = {"tool_name": "Bash", "tool_input": {"command": "ps aux | grep python"}}
     assert _run("pre_tool_discipline.py", payload, tmp_path) == ""
+
+
+# --- one-lookup-per-turn nudge ------------------------------------------------
+
+
+def _turn(mid: str, *calls: tuple[str, str, dict]) -> list[dict]:
+    """Transcript entries for one assistant message: one entry per tool_use block."""
+    return [
+        {
+            "type": "assistant",
+            "message": {"id": mid, "content": [{"type": "tool_use", "id": cid, "name": n, "input": i}]},
+        }
+        for cid, n, i in calls
+    ]
+
+
+def _transcript(path: Path, *turns: list[dict]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(e) for t in turns for e in t]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+_GREP = ("mcp__lc__bash", {"command": "cd /repo && grep -rn foo src"})
+_SED = ("mcp__lc__bash", {"command": "sed -n 10,40p src/a.py"})
+_READ = ("mcp__lc__read", {"files": ["src/a.py:L1-L40"]})
+
+
+def _nudge(out: str) -> str:
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
+
+
+def test_third_single_lookup_turn_is_nudged_once(tmp_path: Path) -> None:
+    tx = _transcript(tmp_path / "proj" / "s1.jsonl", _turn("m1", ("t1", *_GREP)), _turn("m2", ("t2", *_SED)))
+    call = {
+        "session_id": "s1",
+        "transcript_path": str(tx),
+        "tool_use_id": "t3",
+        "tool_name": _READ[0],
+        "tool_input": _READ[1],
+    }
+    assert "3 lookups in a row" in _nudge(_run("loop_discipline_post.py", call, tmp_path))
+    # a sibling call of the same (not yet written) turn does not repeat it
+    sibling = {**call, "tool_use_id": "t4"}
+    assert _run("loop_discipline_post.py", sibling, tmp_path) == ""
+
+
+def test_batched_or_non_lookup_turn_breaks_the_chain(tmp_path: Path) -> None:
+    batched = _turn("m2", ("t2", *_SED), ("t2b", *_READ))
+    tx = _transcript(tmp_path / "proj" / "s1.jsonl", _turn("m1", ("t1", *_GREP)), batched)
+    call = {
+        "session_id": "s1",
+        "transcript_path": str(tx),
+        "tool_use_id": "t3",
+        "tool_name": _READ[0],
+        "tool_input": _READ[1],
+    }
+    assert _run("loop_discipline_post.py", call, tmp_path) == ""
+
+    tests = _turn("m2", ("t2", "mcp__lc__bash", {"command": "uv run pytest -q"}))
+    _transcript(tx, _turn("m1", ("t1", *_GREP)), tests)
+    assert _run("loop_discipline_post.py", call, tmp_path) == ""
+
+
+def test_current_turn_already_in_transcript_is_counted_once(tmp_path: Path) -> None:
+    turns = [_turn("m1", ("t1", *_GREP)), _turn("m2", ("t2", *_SED)), _turn("m3", ("t3", *_READ))]
+    tx = _transcript(tmp_path / "proj" / "s1.jsonl", *turns)
+    call = {
+        "session_id": "s1",
+        "transcript_path": str(tx),
+        "tool_use_id": "t3",
+        "tool_name": _READ[0],
+        "tool_input": _READ[1],
+    }
+    assert "3 lookups in a row" in _nudge(_run("loop_discipline_post.py", call, tmp_path))
+    # the fourth single lookup is not nudged again; the sixth is
+    _transcript(tx, *turns, _turn("m4", ("t4", *_GREP)))
+    assert _run("loop_discipline_post.py", {**call, "tool_use_id": "t4"}, tmp_path) == ""
+    _transcript(tx, *turns, _turn("m4", ("t4", *_GREP)), _turn("m5", ("t5", *_SED)))
+    assert "6 lookups in a row" in _nudge(_run("loop_discipline_post.py", {**call, "tool_use_id": "t6"}, tmp_path))
+
+
+def test_writes_and_command_batches_are_not_lookups(tmp_path: Path) -> None:
+    tx = _transcript(tmp_path / "proj" / "s1.jsonl", _turn("m1", ("t1", *_GREP)), _turn("m2", ("t2", *_SED)))
+    base = {"session_id": "s1", "transcript_path": str(tx), "tool_use_id": "t3", "tool_name": "mcp__lc__bash"}
+    for command in ("sed -i 's/a/b/' f.py", "cat > f.txt <<'EOF'\nx\nEOF", ["grep -n a f", "grep -n b g"], "sleep 60"):
+        assert _run("loop_discipline_post.py", {**base, "tool_input": {"command": command}}, tmp_path) == ""
+    # git diff and a single-element command array are lookups
+    git = {**base, "tool_input": {"command": "git -C /repo --no-pager diff HEAD~1"}}
+    assert _nudge(_run("loop_discipline_post.py", git, tmp_path))
+
+
+def test_subagent_reads_its_own_transcript(tmp_path: Path) -> None:
+    main_tx = _transcript(tmp_path / "proj" / "s1.jsonl", _turn("p1", ("x1", "Agent", {"prompt": "go"})))
+    _transcript(
+        tmp_path / "proj" / "s1" / "subagents" / "agent-a0123456789abcdef.jsonl",
+        _turn("m1", ("t1", *_GREP)),
+        _turn("m2", ("t2", *_SED)),
+    )
+    call = {
+        "session_id": "s1",
+        "agent_id": "a0123456789abcdef",
+        "transcript_path": str(main_tx),
+        "tool_use_id": "t3",
+        "tool_name": _GREP[0],
+        "tool_input": _GREP[1],
+    }
+    assert "3 lookups in a row" in _nudge(_run("loop_discipline_post.py", call, tmp_path))
+    # the parent's own chain is separate: its transcript has no lookup turns
+    parent = {k: v for k, v in call.items() if k != "agent_id"}
+    assert _run("loop_discipline_post.py", parent, tmp_path) == ""

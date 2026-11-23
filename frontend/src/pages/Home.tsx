@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, ArrowRight, ClipboardCheck, PiggyBank, Play } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, ClipboardCheck, PiggyBank, Play, Plug } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import {
@@ -17,15 +17,23 @@ import {
   type LocalIntegrations,
 } from "../control/controlApi";
 import { fmtPct, fmtRelativeTime, fmtTok, fmtUsd } from "../lib/format";
+import { REDUCTION_HINT, REDUCTION_LABEL, SAVED_LABEL, savingsHeadline } from "../lib/savings";
+import { ServerUnreachable, isUnreachable } from "../components/ServerUnreachable";
 import { useProductCapabilities, useRuntimeCapabilities } from "../lib/RuntimeCapabilities";
-import {
-  fetchReviewDirectory,
-  reviewHref,
-} from "../review/reviewApi";
+import { reviewHref } from "../review/reviewApi";
+import { useHomeSource } from "../review/home/homeApi";
+import { waitsOnViewer } from "../review/home/homeModel";
 import type { ReviewDirectoryRow } from "../review/types";
+import { revisionName } from "../review/revisionLabel";
 
 function sessionCount(count: number): string {
   return `${count} ${count === 1 ? "session" : "sessions"}`;
+}
+
+/** "needs review" → "Needs review": one casing for every status label on Home. */
+function sentenceCase(value: string): string {
+  const text = value.replaceAll("_", " ").toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function isActiveRun(trace: TraceSummary): boolean {
@@ -48,7 +56,11 @@ function runHref(trace: TraceSummary): string {
 
 /** Where a Review lives in human terms; the opaque repository id only as a last resort. */
 export function reviewPlace(review: ReviewDirectoryRow): string {
-  const project = review.project || review.directory || "";
+  // A hosted row has no project, but carries the repository's name; an id echoed back as the name is not one.
+  const hostedName = review.repo_name && review.repo_name !== review.repo_id && !/^repo_[0-9a-f]{16,}$/i.test(review.repo_name)
+    ? review.repo_name
+    : "";
+  const project = review.project || review.directory || hostedName;
   const worktree = review.worktree && review.worktree !== project ? review.worktree : "";
   return [project, worktree, review.branch].filter(Boolean).join(" · ") || review.repo_id;
 }
@@ -60,13 +72,17 @@ export default function Home() {
   const runtimeAvailable = productCapabilities.products.runtime.available;
   const [insights, setInsights] = useState<InsightsWindow | null>(null);
   const [reviews, setReviews] = useState<ReviewDirectoryRow[]>([]);
+  const [reviewTeams, setReviewTeams] = useState(false);
+  // The same reviews, read the same way, as the Reviews screen: Home never counts one that screen leaves out.
+  const homeSource = useHomeSource();
   const [runs, setRuns] = useState<TraceSummary[]>([]);
   const [integrations, setIntegrations] = useState<LocalIntegrations | null>(null);
   const [savings, setSavings] = useState<SavingsSummaryV2 | null>(null);
   const [savingsUnavailable, setSavingsUnavailable] = useState(false);
   const [runsUnavailable, setRunsUnavailable] = useState(false);
   const [reviewsUnavailable, setReviewsUnavailable] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<"" | "unreachable" | "unavailable">("");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,11 +91,11 @@ export default function Home() {
     setError("");
     if (reviewAvailable) {
       tasks.push(
-        // View mode pages lightweight rows; the legacy list opens every Review it returns.
-        fetchReviewDirectory({ view: "all", status: "all", query: "", cursor: "", limit: 12 })
+        homeSource.load()
           .then((result) => {
             if (cancelled) return;
-            setReviews(result.reviews);
+            setReviews(result.rows);
+            setReviewTeams(result.teamsSupported);
             setReviewsUnavailable(false);
           })
           .catch((error) => {
@@ -138,13 +154,16 @@ export default function Home() {
 
     Promise.allSettled(tasks).then((results) => {
       if (cancelled || results.length === 0) return;
-      if (results.every((result) => result.status === "rejected")) setError("Home data is unavailable.");
+      if (results.every((result) => result.status === "rejected")) {
+        const unreachable = results.every((result) => result.status === "rejected" && isUnreachable(result.reason));
+        setError(unreachable ? "unreachable" : "unavailable");
+      }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [reviewAvailable, runtimeAvailable, runtimeCapabilities.localIntegrations]);
+  }, [homeSource, reviewAvailable, runtimeAvailable, runtimeCapabilities.localIntegrations, attempt]);
 
   const activeRuns = useMemo(() => runs.filter(isActiveRun).slice(0, 5), [runs]);
   const failedRuns = useMemo(() => runs.filter(isFailedRun).slice(0, 4), [runs]);
@@ -152,10 +171,11 @@ export default function Home() {
     () => runs.filter((run) => !isActiveRun(run)).slice(0, 6),
     [runs],
   );
-  const openReviews = useMemo(
-    () => reviews.filter((review) => review.status === "open"),
-    [reviews],
-  );
+  // Only reviews that wait on the viewer, by the rule the Reviews screen's "Nothing waits on you" uses.
+  const openReviews = useMemo(() => {
+    const now = Date.now();
+    return reviews.filter((review) => waitsOnViewer(review, now, { teamsSupported: reviewTeams }));
+  }, [reviews, reviewTeams]);
   const recentReviews = reviews.slice(0, 6);
   const integrationIssue =
     runtimeAvailable &&
@@ -169,20 +189,12 @@ export default function Home() {
     (runtimeAvailable ? failedRuns.length + (integrationIssue ? 1 : 0) : 0);
   const attentionIncomplete =
     (reviewAvailable && reviewsUnavailable) || (runtimeAvailable && runsUnavailable);
-  const totalSavedUsd = savings
-    ? savings.total_saved_usd ?? (savings.saved_usd ?? 0) + (savings.carry_usd ?? 0)
-    : 0;
-  const savedPct = savings
-    ? savings.cost_basis === "session_ledger"
-      ? (savings.saved_pct ?? 0)
-      : savings.reduction_pct
-    : 0;
-  const actualCostUsd = savings
-    ? savings.actually_cost_usd ?? savings.tracked_actual_cost_usd ?? 0
-    : 0;
-  const baselineCostUsd = savings
-    ? savings.would_have_cost_usd ?? savings.tracked_baseline_cost_usd ?? 0
-    : 0;
+  // One definition and one source for "saved" (lib/savings.ts), the same as Usage and the Savings sheet.
+  const headline = savings ? savingsHeadline(savings) : null;
+  const totalSavedUsd = headline?.savedUsd ?? 0;
+  const savedPct = headline?.reductionPct ?? 0;
+  const actualCostUsd = headline?.costUsd ?? 0;
+  const baselineCostUsd = headline?.baselineUsd ?? 0;
   const savedTokens = savings
     ? savings.cost_basis === "session_ledger" && savings.ledger_tokens_saved !== undefined
       ? savings.ledger_tokens_saved
@@ -197,13 +209,13 @@ export default function Home() {
     `${minWidth} flex flex-1 flex-col justify-center ${divider ? "border-r border-border " : ""}px-3 py-2.5`;
   const savedTile = (
     <div className={tileClass("min-w-[130px]", true)}>
-      <div className="font-mono text-tag uppercase text-muted-foreground">Saved</div>
+      <div className="font-mono text-tag uppercase text-muted-foreground">{SAVED_LABEL}</div>
       <div className="mt-0.5 text-heading font-semibold"><span className="text-ok">{fmtUsd(totalSavedUsd)}</span></div>
     </div>
   );
   const reductionTile = (
-    <div className={tileClass("min-w-[130px]", true)}>
-      <div className="font-mono text-tag uppercase text-muted-foreground">Reduction</div>
+    <div className={tileClass("min-w-[130px]", true)} title={REDUCTION_HINT}>
+      <div className="font-mono text-tag uppercase text-muted-foreground">{REDUCTION_LABEL}</div>
       <div className="mt-0.5 text-heading font-semibold text-foreground">{fmtPct(savedPct)}</div>
     </div>
   );
@@ -211,8 +223,8 @@ export default function Home() {
     <div className={tileClass("min-w-[170px]", true)}>
       <div className="font-mono text-tag uppercase text-muted-foreground">Cost</div>
       <div className="mt-0.5 text-heading font-semibold text-foreground">
-        {(savings?.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}
-        {!savingsMissing && <span className="font-normal text-muted-foreground"> / {fmtUsd(baselineCostUsd)} baseline</span>}
+        <span className="whitespace-nowrap">{(savings?.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}</span>
+        {!savingsMissing && <span className="whitespace-nowrap font-normal text-muted-foreground max-sm:block max-sm:text-label"> / {fmtUsd(baselineCostUsd)} baseline</span>}
       </div>
     </div>
   );
@@ -223,11 +235,22 @@ export default function Home() {
     </div>
   );
 
+  if (error === "unreachable") {
+    return (
+      <PageFrame className="space-y-5 text-foreground">
+        <ServerUnreachable onRetry={() => setAttempt((n) => n + 1)} />
+      </PageFrame>
+    );
+  }
+
   return (
     <PageFrame className="space-y-5 text-foreground">
+      {/* The page says what it is; the sections below are its parts. */}
+      <h1 className="text-lead font-semibold text-foreground">Overview</h1>
       {error && (
-        <div className="rounded-lg border border-p0-line bg-p0-bg px-3 py-2 text-body text-p0">
-          {error}
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-p0-line bg-p0-bg px-3 py-2 text-body text-p0">
+          <span className="min-w-0 flex-1">Home couldn't load. The server answered with errors; open Settings › Diagnostics for details.</span>
+          <Button variant="outline" size="xs" onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
         </div>
       )}
 
@@ -243,9 +266,12 @@ export default function Home() {
             title="No usage or savings recorded yet"
             description="Saved, reduction, cost and tokens saved appear here once a connected coding agent records them."
             action={
-              <Button asChild variant="outline">
-                <Link to="/settings/integrations">{integrationIssue ? "Connect a coding agent" : "Open Integrations"}</Link>
-              </Button>
+              // With a setup issue the Needs-attention Setup row carries the one "Connect" action.
+              integrationIssue ? undefined : (
+                <Button asChild variant="outline">
+                  <Link to="/settings/integrations">Open Integrations</Link>
+                </Button>
+              )
             }
           />
         ) : (
@@ -262,7 +288,7 @@ export default function Home() {
         </div>
         {savingsUnavailable ? (
           <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-p1">
-            Savings data is unavailable. Usage details may still be available.
+            Savings couldn't be loaded.
           </div>
         ) : savings ? (
           <>
@@ -335,7 +361,7 @@ export default function Home() {
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-heading font-semibold text-foreground">Needs attention</h1>
+            <h2 className="text-heading font-semibold text-foreground">Needs attention</h2>
             <p className="mt-0.5 text-label text-muted-foreground">
               {reviewAvailable && runtimeAvailable
                 ? "Reviews and agent sessions that need a human decision."
@@ -345,7 +371,7 @@ export default function Home() {
             </p>
           </div>
           <Chip tone={attentionCount > 0 ? "warning" : "neutral"}>
-            {attentionCount} {attentionIncomplete ? "known items" : "items"}
+            {attentionCount} {attentionCount === 1 ? "item" : "items"}
           </Chip>
         </div>
 
@@ -358,12 +384,12 @@ export default function Home() {
             {reviewAvailable && (
             <Hunk>
               <div className="hunk-head justify-start">
-                <ClipboardCheck size={14} /> Reviews
+                <ClipboardCheck size={14} /> Waiting on you
               </div>
               {reviewsUnavailable ? (
                 <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
               ) : openReviews.length === 0 ? (
-                <div className="px-3 py-4 text-body text-muted-foreground">No open reviews.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">Nothing waits on you.</div>
               ) : (
                 openReviews.slice(0, 5).map((review) => (
                   <a
@@ -376,7 +402,7 @@ export default function Home() {
                         {review.title || "Untitled review"}
                       </div>
                       <div className="mt-0.5 truncate text-caption text-muted-foreground">
-                        {reviewPlace(review)} · Snapshot {review.revision_number}
+                        {reviewPlace(review)} · {revisionName(review.revision_number)}
                       </div>
                     </div>
                     <ArrowRight size={14} className="shrink-0 text-muted-foreground" />
@@ -389,12 +415,13 @@ export default function Home() {
             {runtimeAvailable && (
             <Hunk>
               <div className="hunk-head justify-start">
-                <AlertTriangle size={14} /> Failed runs
+                {/* One word for agent work across Home and the Activity page: sessions. */}
+                <AlertTriangle size={14} /> Failed sessions
               </div>
               {runsUnavailable ? (
-                <div className="px-3 py-4 text-body text-muted-foreground">Run history is unavailable.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">Session history is unavailable.</div>
               ) : failedRuns.length === 0 ? (
-                <div className="px-3 py-4 text-body text-muted-foreground">No failed runs.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">No failed sessions.</div>
               ) : (
                 failedRuns.map((run) => (
                   <Link
@@ -410,7 +437,7 @@ export default function Home() {
                         {run.host || run.agent || "agent"} · {fmtRelativeTime(run.created_at)}
                       </div>
                     </div>
-                    <Badge tone="p0">{run.status}</Badge>
+                    <Badge tone="p0">{sentenceCase(run.status)}</Badge>
                   </Link>
                 ))
               )}
@@ -420,7 +447,7 @@ export default function Home() {
             {integrationIssue && (
               <Hunk>
                 <div className="hunk-head justify-start">
-                  <AlertTriangle size={14} /> Setup
+                  {integrations?.dispatcher_available ? <Plug size={14} /> : <AlertTriangle size={14} />} Setup
                 </div>
                 <Link
                   to="/settings/integrations"
@@ -454,7 +481,7 @@ export default function Home() {
               Coding work LemonCrow can currently see.
             </p>
           </div>
-          <Link to="/activity" className="font-mono text-label uppercase tracking-tag text-muted-foreground transition-colors duration-fast hover:text-foreground">
+          <Link to="/activity" className="shrink-0 whitespace-nowrap font-mono text-label uppercase tracking-tag text-muted-foreground transition-colors duration-fast hover:text-foreground">
             All activity →
           </Link>
         </div>
@@ -462,12 +489,12 @@ export default function Home() {
           <div className="rounded-lg border border-border bg-card px-4 py-4 text-body text-muted-foreground">Coding-agent activity is unavailable.</div>
         ) : activeRuns.length === 0 ? (
           <div className="rounded-lg border border-border bg-card px-4 py-4 text-body text-muted-foreground">
-            No active runs.
+            No active sessions.
           </div>
         ) : (
-          <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {activeRuns.map((run) => (
-              <Link key={run.id} to={runHref(run)} className="block">
+              <Link key={run.id} to={runHref(run)} className="block min-w-0">
                 <Hunk className="h-full p-3 transition-colors duration-fast hover:border-input">
                   <div className="flex items-start gap-2">
                     <Play size={14} className="mt-0.5 shrink-0 text-ok" />
@@ -513,9 +540,9 @@ export default function Home() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-body text-subtle">{review.title || review.source_ref}</div>
-                  <div className="mt-0.5 text-caption text-muted-foreground">{review.repo_id}</div>
+                  <div className="mt-0.5 truncate text-caption text-muted-foreground">{reviewPlace(review)}</div>
                 </div>
-                <span className="text-caption capitalize text-muted-foreground">{review.status === "open" ? "needs review" : review.status}</span>
+                <span className="shrink-0 text-caption text-muted-foreground">{sentenceCase(review.status === "open" ? "needs review" : review.status)}</span>
               </a>
             ))
           )}
@@ -547,7 +574,7 @@ export default function Home() {
                     {run.host || run.agent || "agent"} · {fmtRelativeTime(run.created_at)}
                   </div>
                 </div>
-                <span className="text-caption capitalize text-muted-foreground">{run.status}</span>
+                <span className="shrink-0 text-caption text-muted-foreground">{sentenceCase(run.status)}</span>
               </Link>
             ))
           )}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Annotation, ReviewArchitectureFlowStep, ReviewMapEdge, ReviewMapGraph, ReviewMapNode, ReviewTarget } from "../types";
-import { EXACTNESS_LABEL, buildChangeStory, checkText, storyStage, type ChangeStoryInput } from "./changeStoryModel";
+import { EXACTNESS_LABEL, buildChangeStory, checkText, nodeChange, storyStage, type ChangeStoryInput } from "./changeStoryModel";
 
 function node(id: string, status: ReviewMapNode["status"], extra: Partial<ReviewMapNode> = {}): ReviewMapNode {
   const path = `src/${id}.ts`;
@@ -84,6 +84,15 @@ function target(id: string, verification: { pass: number; fail: number; unknown:
   return { target_id: id, path: "", start_line: 0, end_line: 0, verification } as unknown as ReviewTarget;
 }
 
+describe("nodeChange", () => {
+  it("keeps the diff's fact when no base map was compared, and stays unknown only for code the diff did not touch", () => {
+    expect(nodeChange(node("auth", "changed", { delta_status: "unknown" }))).toBe("changed");
+    expect(nodeChange(node("queue", "new", { delta_status: "unknown" }))).toBe("added");
+    expect(nodeChange(node("views", "impacted", { delta_status: "unknown" }))).toBe("unknown");
+    expect(nodeChange(node("store", "changed", { delta_status: "unchanged" }))).toBe("unchanged");
+  });
+});
+
 describe("buildChangeStory", () => {
   it("walks entry point, changed dependencies, then affected callers", () => {
     expect(ids({ graph: fixture() })).toEqual([
@@ -105,6 +114,8 @@ describe("buildChangeStory", () => {
       [edge("spec", "auth", "snapshot")],
     );
     expect(ids({ graph: withTest })).toEqual(["auth:entry", "spec:entry"]);
+    // review-13.3: neither starts a chain that goes on, so neither is called an entry point on screen.
+    expect(buildChangeStory({ graph: withTest }).steps.map((step) => step.roleLabel)).toEqual(["Changed component", "Changed component"]);
   });
 
   it("follows the architecture flow first and names an observed step as observed", () => {
@@ -135,7 +146,7 @@ describe("buildChangeStory", () => {
     expect(inferred.orderNote).toContain("This is not a runtime order.");
   });
 
-  it("labels exactness on every step and animates only Snapshot-exact or observed links", () => {
+  it("labels exactness on every step and animates only revision-exact or observed links", () => {
     const story = buildChangeStory({ graph: fixture() });
     for (const step of story.steps) {
       expect(step.exactnessLabel).toBe(EXACTNESS_LABEL[step.exactness]);
@@ -147,7 +158,7 @@ describe("buildChangeStory", () => {
     }
     const byId = new Map(story.steps.map((step) => [step.nodeId, step]));
     expect(byId.get("service")?.via?.animate).toBe(true);
-    expect(byId.get("store")?.via?.exactnessLabel).toBe("from the current index, not this Snapshot");
+    expect(byId.get("store")?.via?.exactnessLabel).toBe("from the current index, not this revision");
     expect(byId.get("store")?.via?.animate).toBe(false);
     expect(byId.get("util")?.via?.exactnessLabel).toBe("inferred");
     expect(byId.get("util")?.via?.animate).toBe(false);
@@ -206,7 +217,7 @@ describe("buildChangeStory", () => {
     expect(buildChangeStory({ graph: fixture() }).findingsKnown).toBe(false);
   });
 
-  it("keeps a 400+ file Snapshot to a bounded walk and a bounded stage", () => {
+  it("keeps a 400+ file revision to a bounded walk and a bounded stage", () => {
     const nodes: ReviewMapNode[] = [];
     const edges: ReviewMapEdge[] = [];
     for (let at = 0; at < 420; at += 1) {

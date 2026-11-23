@@ -42,7 +42,6 @@ from typing import Any, Final, Literal, cast
 
 import yaml
 
-from lemoncrow.pro.capabilities.review.execution import EnvironmentFingerprint, ExecutorClass, canonical_digest
 from lemoncrow.pro.capabilities.review.hermetic import (
     ProvisionedDependencies,
     RecordingSinks,
@@ -52,7 +51,9 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     sinks_available,
     toolchain_versions,
 )
-from lemoncrow.pro.capabilities.review.preview_proxy import (
+from lemoncrow.pro.capabilities.review.preview_sessions import MAX_TTL_SECONDS, MIN_SESSION_SECONDS
+from lemoncrow.pro.environment.execution import EnvironmentFingerprint, ExecutorClass, canonical_digest
+from lemoncrow.pro.environment.preview_proxy import (
     PreviewResponseTooLarge,
     PreviewUpstreamError,
     PreviewUpstreamTimeout,
@@ -60,7 +61,6 @@ from lemoncrow.pro.capabilities.review.preview_proxy import (
     ProxyResponse,
     safe_relative_target,
 )
-from lemoncrow.pro.capabilities.review.preview_sessions import MAX_TTL_SECONDS, MIN_SESSION_SECONDS
 
 PreviewMode = Literal["command", "static"]
 SOCKET_MOUNT: Final[str] = "/lemoncrow-preview"
@@ -269,6 +269,61 @@ def load_preview_recipe(trusted_review_config: str | None) -> PreviewRecipe | No
         start_seconds=max(5, min(start, MAX_START_SECONDS)),
         ttl_cap_seconds=max(MIN_SESSION_SECONDS, min(int(ttl_minutes * 60), MAX_TTL_SECONDS)),
     )
+
+
+#: The port an environment.toml preview is given as ``$PORT`` (each preview has its own network namespace).
+ENVIRONMENT_PREVIEW_PORT: Final[int] = 3000
+
+
+def environment_preview_recipes(trusted_environment: str | None) -> dict[str, PreviewRecipe]:
+    """Every ``[previews.<name>]`` of the trusted base's ``environment.toml``, as recipes in declaration order.
+
+    ``run`` serves on ``$PORT`` from the repository root; ``ready`` is the path that answers
+    once it is up. Empty when the file is absent or declares no previews; when it declares
+    any, review.yaml ``interactive_preview`` does not apply. An invalid file, or any preview
+    whose ``ready`` is not origin-relative, raises :class:`PreviewRecipeError` rather than
+    falling back.
+    """
+
+    from lemoncrow_client.environment import ENVIRONMENT_FILE, DefinitionError, parse_environment
+
+    if not trusted_environment:
+        return {}
+    try:
+        definition = parse_environment(trusted_environment, source=ENVIRONMENT_FILE)
+    except DefinitionError as exc:
+        raise PreviewRecipeError(str(exc)) from exc
+    recipes: dict[str, PreviewRecipe] = {}
+    for preview in definition.previews:
+        ready = safe_relative_target(preview.ready)
+        if ready is None:
+            raise PreviewRecipeError(
+                f"{ENVIRONMENT_FILE}: previews.{preview.name}.ready must be an origin-relative path"
+            )
+        recipes[preview.name] = PreviewRecipe(
+            mode="command",
+            command=("sh", "-c", preview.run),
+            port=ENVIRONMENT_PREVIEW_PORT,
+            ready_path=ready,
+            source=f"{ENVIRONMENT_FILE} previews.{preview.name}",
+        )
+    return recipes
+
+
+def environment_preview_recipe(trusted_environment: str | None, name: str | None = None) -> PreviewRecipe | None:
+    """One environment.toml preview: *name*, or the first declared; ``None`` when it declares none.
+
+    An unknown *name* raises :class:`PreviewRecipeError`.
+    """
+
+    recipes = environment_preview_recipes(trusted_environment)
+    if not recipes:
+        return None
+    if name is None:
+        return next(iter(recipes.values()))
+    if name not in recipes:
+        raise PreviewRecipeError(f"no preview named {name!r}; the trusted base declares {', '.join(recipes)}")
+    return recipes[name]
 
 
 def static_recipe(framework: str, root: str = ".") -> PreviewRecipe:
@@ -668,6 +723,7 @@ def lockfile_text_digest(texts: Mapping[str, str | None]) -> str:
 
 __all__ = [
     "BUILD_TIMEOUT_SECONDS",
+    "ENVIRONMENT_PREVIEW_PORT",
     "RELAY_UNAVAILABLE_HEADER",
     "PreparedSide",
     "PreviewRecipe",
@@ -677,6 +733,8 @@ __all__ = [
     "RunningPreview",
     "SandboxedPreviewDriver",
     "SidecarProcess",
+    "environment_preview_recipe",
+    "environment_preview_recipes",
     "forward_unix",
     "launch_side",
     "load_preview_recipe",

@@ -56,7 +56,7 @@ class BackfillResult:
 
 
 def _opencode_session_time(session_id: str, db: Path | None = None) -> datetime | None:
-    """``time_created`` for an opencode/lemoncode session (ms epoch), or None."""
+    """``time_created`` for an opencode session (ms epoch), or None."""
     from lemoncrow.core.capabilities.session_replay import _opencode_db_path
     from lemoncrow.gateway.hosts.session_parsers.opencode import find_opencode_sessions
 
@@ -78,9 +78,8 @@ def _opencode_session_time(session_id: str, db: Path | None = None) -> datetime 
 def _session_when(replay: Replay) -> datetime:
     """Best-effort real timestamp for the session, so backfilled rows land in
     the correct historical day-bucket instead of all piling onto \"today\"."""
-    if replay.host in ("opencode", "lemoncode"):
-        # For both hosts the replay's source path IS the sqlite session store,
-        # so it also selects the right data root for lemoncode.
+    if replay.host in ("opencode",):
+        # The replay's source path is the SQLite session store,
         db = Path(replay.source_path) if replay.source_path else None
         when = _opencode_session_time(replay.session_id, db)
         if when is not None:

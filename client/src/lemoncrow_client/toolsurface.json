@@ -683,7 +683,7 @@
    "core": false
   },
   "read": {
-   "description": "Read files or exact symbols. Batch the paths/ranges you ALREADY need into ONE call: files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. Need, not might-need — a speculative :full costs more than the turn it saves. :Lx-Ly exact range; :full full source; :summary gist; :outline structure at any size (mutually exclusive). Whole file → ONE :full or wide range, never successive narrow ones. One function/test → symbol='name' or ['a','b'], not a whole-file read. Default line numbers are disk-accurate for editing; :full is for exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back viewable — read to SEE them, don't write OCR/pixel code.",
+   "description": "Read files or exact symbols. Batch the paths/ranges you ALREADY need into ONE call: files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. Need, not might-need — a speculative :full costs more than the turn it saves. :Lx-Ly exact range; :full full source; :summary gist; :outline structure at any size (mutually exclusive). Whole file → ONE :full or wide range, never successive narrow ones. One function/test → symbol='name' or ['a','b'], not a whole-file read. Default line numbers are disk-accurate for editing; :full is for exact formatting only. Images (png/jpg/gif/webp/bmp) come back viewable — read to SEE them, don't write OCR/pixel code.",
    "inputSchema": {
     "properties": {
      "files": {

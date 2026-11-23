@@ -104,7 +104,9 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
                 <p key={notice} className="mb-2 text-amber-200">{notice}</p>
               ))}
               <div className="review-kicker mb-1">Verdict</div>
-              <p className="mb-3">{EVENT_LABEL[preview.event]}{preview.summary ? ` — ${preview.summary}` : ""}</p>
+              <p className="mb-1">{EVENT_LABEL[preview.event]}</p>
+              <div className="review-kicker mb-1">Review text, exactly as posted</div>
+              <div data-testid="github-sheet-body" className="mb-3 whitespace-pre-wrap text-subtle">{preview.body ?? preview.summary}</div>
               <div className="review-kicker mb-1">Inline comments ({preview.inline.length})</div>
               <ul className="mb-3 space-y-1">
                 {preview.inline.map((item) => (

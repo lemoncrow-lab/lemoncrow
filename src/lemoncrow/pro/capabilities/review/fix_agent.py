@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 FIX_AGENT_SETTING: Final[str] = "review.fix_agent"
-FIX_AGENT_EDIT_COMMAND: Final[str] = "lemoncrow settings set review.fix_agent <claude|codex|opencode|lemoncode>"
+FIX_AGENT_EDIT_COMMAND: Final[str] = "lemoncrow settings set review.fix_agent <claude|codex|opencode>"
 FIX_AGENT_UNSET_REASON: Final[str] = f"no preferred fixing agent is set; run `{FIX_AGENT_EDIT_COMMAND}`"
 
 PreferenceSource = Literal["personal_settings", "unset", "invalid"]
@@ -93,10 +93,7 @@ def hosted_fix_agent_projection() -> dict[str, Any]:
         "origin": {"layer": "personal_presentation", "source": "unset", "scope_id": ""},
         "editable": False,
         "edit_source": f"your local LemonCrow: {FIX_AGENT_EDIT_COMMAND}",
-        "reason": (
-            "hosted personal settings are not durable yet; a Fix started from your local LemonCrow "
-            "uses the preferred agent set there"
-        ),
+        "reason": "A Fix started from your local LemonCrow uses the agent set there.",
         "choices": list(fix_agent_choices()),
         "routing": ["exact_session", "preferred_agent", "prompt_fallback"],
     }

@@ -6,9 +6,12 @@ import {
   type LocalIntegrationHost,
   type LocalIntegrations,
 } from "../control/controlApi";
-import { Chip, PageFrame } from "../components/WorkbenchUI";
+import { Chip, PageFrame, SnippetCard } from "../components/WorkbenchUI";
 import { Button as UiButton } from "../components/ui/button";
 import { useRuntimeCapabilities } from "../lib/RuntimeCapabilities";
+
+// The hosts `lc rt enable` accepts (gateway/cli SUPPORTED_RUNTIME_HOSTS).
+const RT_ENABLE_HOSTS = ["claude", "codex", "opencode"];
 
 function isComingSoon(host: LocalIntegrationHost) {
   return host.support === "coming_soon";
@@ -20,55 +23,55 @@ function hostTone(host: LocalIntegrationHost) {
   return "text-muted-foreground border-border bg-muted/40";
 }
 
-function hostLabel(host: LocalIntegrationHost) {
+function partsFound(present: number, total: number) {
+  return `${present} of ${total} parts found`;
+}
+
+function hostStatus(host: LocalIntegrationHost) {
   const components = host.components ?? [];
   const present = components.filter((component) => component.present).length;
-  if (host.configured && components.length > 0 && present > 0) {
-    return `${present}/${components.length} surfaces present`;
+  if (host.configured && components.length > 0 && present < components.length) {
+    return `Connected · ${partsFound(present, components.length)}`;
   }
-  if (host.configured) return "Installer reports configured";
-  if (host.detected) return "Detected · not configured";
-  return "Not detected";
+  if (host.configured) return "Connected";
+  if (host.detected) return "Installed · not connected";
+  return "Not installed";
 }
 
 function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
   const components = host.components ?? [];
   const presentCount = components.filter((component) => component.present).length;
 
-  if (isComingSoon(host)) {
-    return (
-      <div className="border-t border-border/70 bg-muted/20 px-3 py-3 text-caption leading-5 text-muted-foreground">
-        This host is not offered by the current LemonCrow setup wizard. It is shown here for
-        roadmap visibility only; LemonCrow does not claim an active integration for it yet.
-      </div>
-    );
-  }
-
   return (
     <div className="border-t border-border/70 bg-muted/20 px-3 py-3">
       <div className="mb-3 grid gap-2 text-caption sm:grid-cols-2">
         <div className="rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
-            Host CLI
+            On this machine
           </div>
           <div className="mt-1 text-foreground">
-            {host.detected ? "Detected on this machine" : "Not detected on PATH"}
+            {host.detected ? "Installed" : "Not found on PATH"}
           </div>
         </div>
         <div className="rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
-            Live integration evidence
+            What LemonCrow added
           </div>
           <div className="mt-1 text-foreground">
             {components.length > 0
-              ? `${presentCount}/${components.length} surfaces present`
-              : "No surfaces detected"}
+              ? partsFound(presentCount, components.length)
+              : "Nothing found yet"}
           </div>
         </div>
       </div>
+      {!host.configured && RT_ENABLE_HOSTS.includes(host.id) && (
+        <p className="mb-3 text-caption text-muted-foreground">
+          Connect it with <code className="text-foreground">lc rt enable {host.id}</code>.
+        </p>
+      )}
 
       {components.length > 0 ? (
-        <div className="space-y-1.5" aria-label={`${host.label} integration surfaces`}>
+        <div className="space-y-1.5" aria-label={`${host.label} integration parts`}>
           {components.map((component) => (
             <div
               key={component.id}
@@ -106,7 +109,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
         </div>
       ) : (
         <div className="text-caption text-muted-foreground">
-          No integration-surface evidence is available for this host.
+          LemonCrow has no setup files to check for this host.
         </div>
       )}
     </div>
@@ -166,8 +169,30 @@ export default function Integrations() {
     });
   };
 
+  const connected = data?.hosts.some((host) => host.configured && !isComingSoon(host)) ?? false;
+  const detectedEnableHosts = (data?.hosts ?? [])
+    .filter((host) => host.detected && RT_ENABLE_HOSTS.includes(host.id))
+    .map((host) => host.id);
+  const enableCommands = (detectedEnableHosts.length ? detectedEnableHosts : RT_ENABLE_HOSTS)
+    .map((id) => `lc rt enable ${id}`)
+    .join("\n");
+
   return (
     <PageFrame className="space-y-4 text-foreground">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-heading font-semibold text-foreground">Coding hosts</h2>
+          <p className="mt-1 text-body text-muted-foreground">
+            The coding tools on this machine that LemonCrow can connect to, and what it has set up in each.
+          </p>
+        </div>
+        {data && !data.dispatcher_available && (
+          <span role="status" className="rounded-md border border-red-900/60 bg-red-950/20 px-2 py-1 text-caption text-red-300">
+            Connection unavailable
+          </span>
+        )}
+      </div>
+
       {error && (
         <div className="border border-red-900/50 bg-red-950/15 px-3 py-2 text-label text-red-300">
           Could not load integrations · {error}
@@ -180,28 +205,42 @@ export default function Integrations() {
         </div>
       )}
 
+      {data && !connected && (
+        <section className="space-y-2 rounded-lg border border-border bg-muted/30 p-4" aria-label="Connect a coding host">
+          <div className="text-label font-semibold text-foreground">No coding host is connected yet</div>
+          <p className="text-body text-muted-foreground">
+            Run the command for the tool you use, then reload this page.
+          </p>
+          <SnippetCard title="Connect a coding host" body={enableCommands} />
+        </section>
+      )}
+
       {data && (
         <div className="space-y-4">
           <section>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
-                  Coding hosts
-                </h2>
-              </div>
-              {!data.dispatcher_available && (
-                <span role="status" className="rounded-md border border-red-900/60 bg-red-950/20 px-2 py-1 text-caption text-red-300">
-                  Connection unavailable
-                </span>
-              )}
-            </div>
-
             <div className="grid items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
               {data.hosts.map((host) => {
                 const open = expanded.has(host.id);
                 const presentComponents = (host.components ?? []).filter(
                   (component) => component.present,
                 );
+
+                // A coming-soon host has nothing to open: a static card, no chevron.
+                if (isComingSoon(host)) {
+                  return (
+                    <div
+                      key={host.id}
+                      className="rounded-lg border border-border/70 bg-background/60 p-3"
+                      data-testid={`integration-${host.id}`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="truncate text-body font-semibold text-foreground">{host.label}</div>
+                        <Chip tone="info">Coming soon</Chip>
+                      </div>
+                      <p className="mt-1 text-caption leading-4 text-muted-foreground">{host.description}</p>
+                    </div>
+                  );
+                }
 
                 return (
                   <div
@@ -218,23 +257,19 @@ export default function Integrations() {
                     >
                       <div className="flex items-start gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="truncate text-body font-semibold text-foreground">
-                              {host.label}
-                            </div>
-                            {isComingSoon(host) && <Chip tone="info">Coming soon</Chip>}
+                          <div className="truncate text-body font-semibold text-foreground">
+                            {host.label}
                           </div>
                           <p className="mt-1 min-h-8 text-caption leading-4 text-muted-foreground">
                             {host.description}
                           </p>
                         </div>
                         <div className="mt-0.5 flex shrink-0 items-center gap-2">
-                          {!isComingSoon(host) &&
-                            (host.configured ? (
-                              <CheckCircle2 size={14} className="text-emerald-400" />
-                            ) : (
-                              <Circle size={14} className="text-muted-foreground" />
-                            ))}
+                          {host.configured ? (
+                            <CheckCircle2 size={14} className="text-emerald-400" />
+                          ) : (
+                            <Circle size={14} className="text-muted-foreground" />
+                          )}
                           {open ? (
                             <ChevronDown size={14} className="text-muted-foreground" />
                           ) : (
@@ -244,22 +279,16 @@ export default function Integrations() {
                       </div>
 
                       <div className="mt-3 flex min-w-0 items-center gap-2">
-                        {isComingSoon(host) ? (
-                          <span className="text-micro text-muted-foreground">Roadmap integration</span>
-                        ) : (
-                          <>
-                            <span
-                              className={`shrink-0 rounded border px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide ${hostTone(host)}`}
-                            >
-                              {hostLabel(host)}
-                            </span>
-                            {presentComponents.length > 0 && (
-                              <span className="truncate text-micro text-muted-foreground">
-                                {presentComponents.slice(0, 3).map((component) => component.label).join(" · ")}
-                                {presentComponents.length > 3 ? ` · +${presentComponents.length - 3} more` : ""}
-                              </span>
-                            )}
-                          </>
+                        <span
+                          className={`shrink-0 rounded border px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide ${hostTone(host)}`}
+                        >
+                          {hostStatus(host)}
+                        </span>
+                        {presentComponents.length > 0 && (
+                          <span className="truncate text-micro text-muted-foreground">
+                            {presentComponents.slice(0, 3).map((component) => component.label).join(" · ")}
+                            {presentComponents.length > 3 ? ` · +${presentComponents.length - 3} more` : ""}
+                          </span>
                         )}
                       </div>
                     </UiButton>

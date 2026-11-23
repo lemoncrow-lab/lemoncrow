@@ -8,21 +8,37 @@ process or network path.
 
 from __future__ import annotations
 
+import os
 import time
-import webbrowser
 from collections.abc import Mapping, Sequence
 from typing import Any, TextIO
 from urllib.parse import parse_qs, urlsplit
 
 from .authward import AuthwardClient, discover_authward
+from .browser import launch_browser_url
 from .config import ClientConfig, load_config
-from .credentials import clear_managed_credentials, managed_credentials_path, write_managed_credentials
+from .credentials import (
+    clear_managed_credentials,
+    managed_credentials_path,
+    read_managed_sign_in,
+    store_new_sign_in,
+)
 from .errors import ClientError
 from .transport import HttpTransport
 
 __all__ = ["auth_main"]
 
 _PENDING_REASONS = frozenset({"authorization_pending", "slow_down"})
+#: :data:`lemoncrow_client.task_server.SERVER_ENV`, named here too: the Review client ships without that module.
+_SERVER_ENV = "LEMONCROW_WORKSPACES_SERVER"
+
+
+class _NotAServer(Exception):
+    """A Workspaces server a sign-in cannot name; ``code`` is the exit status."""
+
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _config(product: str = "core") -> ClientConfig:
@@ -82,10 +98,12 @@ def _error(exc: ClientError) -> str:
 
 _VERB_USAGE: Mapping[str, str] = {
     "login": (
-        "usage: lemoncrow-client auth login [--no-browser]\n"
+        "usage: lemoncrow-client auth login [--server URL]... [--no-browser]\n"
         "Sign in to the configured Hosted LemonCrow deployment with Authward device authorization.\n"
+        "  --server URL  also sign in to this LemonCrow-hosted Workspaces server (repeatable); the servers the\n"
+        "                current sign-in covers, and LEMONCROW_WORKSPACES_SERVER, are named again\n"
         "  --no-browser  print the sign-in URL and code without opening a browser\n"
-        "Local Review and Runtime Lite need no login.\n"
+        "Local Review and Workspaces Lite need no login.\n"
     ),
     "status": "usage: lemoncrow-client auth status\nShow the configured hosted login state.\n",
     "logout": "usage: lemoncrow-client auth logout\nRevoke managed refresh credentials and sign out.\n",
@@ -97,7 +115,7 @@ def auth_main(arguments: Sequence[str], *, sink: TextIO, product: str = "core") 
 
     if not arguments or arguments[0] in {"-h", "--help", "help"}:
         sink.write("usage: lemoncrow-client auth [status|login|logout]\n")
-        sink.write("  login [--no-browser]  sign in with Authward device authorization\n")
+        sink.write("  login [--server URL]... [--no-browser]  sign in with Authward device authorization\n")
         sink.write("  status                show the configured hosted login state\n")
         sink.write("  logout                revoke managed refresh credentials and sign out\n")
         return 0
@@ -140,6 +158,12 @@ def _status(config: ClientConfig, sink: TextIO) -> int:
             )
         else:
             sink.write(f"hosted: signed in to {config.url} with Authward\n")
+            try:
+                current = read_managed_sign_in(config.account_state_dir)
+            except ClientError:
+                current = None
+            for origin in current.servers if current is not None else ():
+                sink.write(f"hosted: signed in to the Workspaces server {origin}\n")
         return 0
     if config.authenticated:
         sink.write(f"hosted: using operator-provided credentials for {config.url}\n")
@@ -148,11 +172,62 @@ def _status(config: ClientConfig, sink: TextIO) -> int:
     return 0
 
 
+def _workspaces_servers(config: ClientConfig, requested: Sequence[str]) -> list[str]:
+    """The Workspaces server origins a new sign-in names: the current sign-in's, the server in
+    ``LEMONCROW_WORKSPACES_SERVER`` when it is LemonCrow-hosted, and each ``--server``.
+
+    A client without Workspaces (the Review client has no :mod:`lemoncrow_client.task_server`) names the current
+    sign-in's servers again, so its sign-in does not drop them, and takes no ``--server``.
+    """
+
+    named: list[str] = []
+    for state_dir in (config.account_state_dir, config.state_dir):
+        try:
+            current = read_managed_sign_in(state_dir)
+        except ClientError:
+            current = None
+        if current is not None:
+            named.extend(current.servers)
+            break
+    try:
+        from .task_server import ServerError, account_resource
+    except ModuleNotFoundError as exc:
+        if exc.name != f"{__package__}.task_server":
+            raise
+        if requested:
+            raise _NotAServer(
+                "this LemonCrow client has no Workspaces: sign in to a Workspaces server with the Workspaces client "
+                "(lemoncrow-runtime-client auth login --server URL)",
+                2,
+            ) from None
+        return list(dict.fromkeys(named))
+    configured = os.environ.get(_SERVER_ENV, "").strip()
+    if configured:
+        try:
+            named.append(account_resource(configured))
+        except ServerError:
+            pass  # a server that takes the organization token, or a mistyped one `lc task` reports
+    try:
+        named.extend(account_resource(server) for server in requested)
+    except ServerError as exc:
+        raise _NotAServer(str(exc), exc.code) from None
+    return list(dict.fromkeys(named))
+
+
 def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
     no_browser = False
-    for argument in arguments:
+    requested: list[str] = []
+    items = iter(arguments)
+    for argument in items:
+        option, equals, inline = argument.partition("=")
         if argument == "--no-browser":
             no_browser = True
+        elif option == "--server":
+            value = inline if equals else next(items, "")
+            if not value.strip() or value.startswith("-"):
+                sink.write("--server needs a Workspaces server URL\n")
+                return 2
+            requested.append(value)
         else:
             sink.write(f"unknown auth login option: {argument}\n")
             return 2
@@ -162,14 +237,28 @@ def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
         return 0
 
     try:
+        servers = _workspaces_servers(config, requested)
+    except _NotAServer as exc:
+        sink.write(f"{exc}\n")
+        return exc.code
+    try:
         authward = _authward(config)
-        authorization = authward.start_device()
+        if authward.contract.resource in servers:
+            sink.write(f"{authward.contract.resource} is the LemonCrow API, not a Workspaces server\n")
+            return 2
+        authorization = authward.start_device(servers) if servers else authward.start_device()
         device_code = _required_string(authorization, "device_code")
         user_code = _required_string(authorization, "user_code")
         verification_uri = _required_string(authorization, "verification_uri")
         verification_uri = _device_browser_uri(authorization, verification_uri, user_code)
     except ClientError as exc:
         sink.write(_error(exc) + "\n")
+        if servers and exc.server_code and exc.server_code != "invalid_client":
+            sink.write(
+                f"this sign-in also named {', '.join(servers)} (from --server, {_SERVER_ENV}, and the servers your "
+                "current sign-in covers), and one that names a server LemonCrow's sign-in does not know is refused: "
+                "run `lc auth logout`, then `lc auth login --server URL` for each server you use\n"
+            )
         return 1
     except (TypeError, ValueError) as exc:
         sink.write(str(exc) + "\n")
@@ -181,12 +270,9 @@ def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
     sink.write(f"Code: {user_code}\n")
     sink.flush()
     if not no_browser:
-        try:
-            webbrowser.open(verification_uri)
-        except Exception:
-            # The URL and code are already printed. Browser-launch failure is
-            # not an authentication failure and must not discard the device code.
-            pass
+        # The URL and code are already printed: a browser that cannot open is
+        # not an authentication failure and must not discard the device code.
+        launch_browser_url(verification_uri)
 
     deadline = time.monotonic() + expires_in
     while time.monotonic() < deadline:
@@ -207,8 +293,12 @@ def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
         except ValueError as exc:
             sink.write(str(exc) + "\n")
             return 1
-        write_managed_credentials(config.account_state_dir, access_token=access_token, refresh_token=refresh_token)
+        store_new_sign_in(
+            config.account_state_dir, access_token=access_token, refresh_token=refresh_token, servers=servers
+        )
         sink.write(f"Signed in to {config.url}\n")
+        for origin in servers:
+            sink.write(f"Signed in to the Workspaces server {origin}\n")
         return 0
 
     sink.write("device login expired before approval; run `lc auth login` again\n")

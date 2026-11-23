@@ -323,6 +323,7 @@ export function BackgroundBudgetPanel({
   editSource,
   usageHref,
   routeStatus = "ready",
+  showLimits = true,
 }: {
   /** ``null`` while the status is still loading. */
   status: BackgroundBudgetStatus | null;
@@ -330,6 +331,8 @@ export function BackgroundBudgetPanel({
   editSource: string;
   usageHref?: string;
   routeStatus?: RouteStatus;
+  /** False where an editable limit sits right above, so the panel does not repeat it. */
+  showLimits?: boolean;
 }) {
   if (status === null) {
     return (
@@ -370,7 +373,7 @@ export function BackgroundBudgetPanel({
         />
       ) : null}
       <dl className="divide-y divide-border border-y border-border">
-        <Row label="Monthly budget" value={budgetLabel(status)} />
+        {showLimits ? <Row label="Monthly budget" value={budgetLabel(status)} /> : null}
         <Row
           label="Usage this month"
           value={usageLabel(status)}
@@ -491,6 +494,7 @@ export function IntelligenceOverview({
   lifetime,
   budgetEditSource,
   usageHref,
+  editedAbove = false,
 }: {
   scope: IntelligenceScope;
   route: IntelligenceRouteProjection;
@@ -498,52 +502,76 @@ export function IntelligenceOverview({
   lifetime: string;
   budgetEditSource: string;
   usageHref?: string;
+  /**
+   * The page draws an editor for these values right above (local Settings). The overview then keeps only what
+   * the form cannot show: what an automatic choice resolved to, a route problem, usage and status.
+   */
+  editedAbove?: boolean;
 }) {
   const locus = route.data_locus;
+  const routeRows = [
+    (!editedAbove || route.status !== "ready" || route.requested.driver === "auto") && (
+      <Row
+        key="route"
+        label="AI route"
+        value={routeLabel(route)}
+        detail={
+          route.status === "ready" ? undefined : route.reason || undefined
+        }
+      />
+    ),
+    (!editedAbove ||
+      (route.requested.model === "auto" && route.status === "ready" && Boolean(route.resolved.model))) && (
+      <Row key="model" label="Model" value={modelLabel(route)} />
+    ),
+    (!editedAbove || !route.run_on.offered_here) && (
+      <Row
+        key="run-on"
+        label="Runs on"
+        value={runOnLabel(scope, route.run_on.effective_value)}
+        detail={
+          route.run_on.offered_here
+            ? undefined
+            : "Not offered here: automatic work is refused, never moved elsewhere."
+        }
+      />
+    ),
+    !editedAbove && (
+      <Row
+        key="background"
+        label="Background intelligence"
+        value={route.background_enabled ? "On" : "Off"}
+      />
+    ),
+  ].filter(Boolean);
   return (
     <section
       className="hunk"
       aria-labelledby="intelligence-overview-title"
       data-testid="intelligence-overview"
     >
-      <div className="hunk-head">
-        <h2 id="intelligence-overview-title" className="hunk-label">
-          AI route and background intelligence
+      {/* A settings card, not a diff hunk: no @@ label (DESIGN_GUIDE: @@ only in real hunk headers). */}
+      <div className="border-b border-border px-4 py-3">
+        <h2 id="intelligence-overview-title" className="text-label font-semibold text-foreground">
+          {editedAbove ? "Status on this machine" : "AI route and background intelligence"}
         </h2>
       </div>
       <div className="space-y-4 p-4">
       <p className="max-w-2xl text-meta text-muted-foreground">
         {lifetime}
       </p>
-      <dl className="divide-y divide-border border-y border-border">
-        <Row
-          label="AI route"
-          value={routeLabel(route)}
-          detail={
-            route.status === "ready" ? undefined : route.reason || undefined
-          }
-        />
-        <Row label="Model" value={modelLabel(route)} />
-        <Row
-          label="Runs on"
-          value={runOnLabel(scope, route.run_on.effective_value)}
-          detail={
-            route.run_on.offered_here
-              ? undefined
-              : "Not offered here: automatic work is refused, never moved elsewhere."
-          }
-        />
-        <Row
-          label="Background intelligence"
-          value={route.background_enabled ? "On" : "Off"}
-        />
-      </dl>
+      {routeRows.length > 0 ? (
+        <dl className="divide-y divide-border border-y border-border">
+          {routeRows}
+        </dl>
+      ) : null}
       <BackgroundBudgetPanel
         status={background}
         routeStatus={route.status}
         scope={scope}
         editSource={budgetEditSource}
         usageHref={usageHref}
+        showLimits={!editedAbove}
       />
       <p
         className="max-w-2xl text-meta text-muted-foreground"

@@ -147,6 +147,7 @@ dependencies = [
   "fastapi>=0.139.2",
   "pydantic>=2.6",
   "pygit2==1.19.2",
+  "pypdf>=6.19.0",
   "pyyaml>=6.0",
   "regex>=2026.5.9",
   "watchfiles>=1.1.1",
@@ -221,7 +222,7 @@ HOME="$WORK/home" "$SMOKE/bin/python" -m lemoncrow_server_core up \
 # Import every module the wheel ships. The server only imports what a request reaches, so a module the allowlist
 # forgot (config_import.py and repo_context.py were) is a 500 in the Reader, not a build failure, unless every
 # shipped module is imported here. The installed interpreter sees the wheel, never the checkout.
-HOME="$WORK/home" "$SMOKE/bin/python" - "$wheel" <<'PY_IMPORTS'
+import_summary="$(HOME="$WORK/home" "$SMOKE/bin/python" - "$wheel" <<'PY_IMPORTS'
 import importlib
 import sys
 import zipfile
@@ -241,6 +242,8 @@ if failures:
     raise SystemExit("Review engine ships modules that do not import:\n  " + "\n  ".join(failures))
 print(f"imported {len(names)} shipped modules")
 PY_IMPORTS
+)"
+lc_verbose info "$import_summary"
 LEMONCROW_REVIEW_SMOKE_STATE="$WORK/state-capabilities" "$SMOKE/bin/python" - <<'PY'
 import importlib.util
 import os
@@ -295,6 +298,9 @@ from lemoncrow.pro.capabilities.review import ask, intelligence_drivers, tool_se
 from lemoncrow.pro.capabilities.review.state_events import state_events
 assert ask is not None and intelligence_drivers is not None and tool_server.SERVER_NAME == "lemoncrow-review"
 assert callable(state_events), "Review event streams must import with bundled dependencies"
+# A record's PDF export renders with the engine's own dependencies (pypdf), not a 500 on first use.
+from lemoncrow.pro.capabilities.review.record_pdf import render_record_pdf
+assert render_record_pdf({}, signed=False, payload_digest="0" * 64).startswith(b"%PDF-")
 os.environ["LEMONCROW_MCP_TOOL_PROFILE"] = "review_autonomous"
 listed = tool_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 assert listed is not None

@@ -308,7 +308,7 @@ if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
     # registrations with the same client before it is deleted.
     runtime_client="${LEMONCROW_RUNTIME_INSTALL_ROOT:-${LEMONCROW_HOME:-${HOME}/.lemoncrow}/runtime/client}/bin/lemoncrow-client"
     if [[ -x "$runtime_client" ]]; then
-        info "Removing Runtime host registrations (claude, codex, opencode, pi)..."
+        info "Removing Workspaces host registrations (claude, codex, opencode, pi)..."
         for runtime_host in claude codex opencode; do
             run "$(printf %q "$runtime_client") runtime disable ${runtime_host} >/dev/null 2>&1 || true"
         done
@@ -317,10 +317,10 @@ if [[ "$LEMONCROW_NO_HOSTS" != "1" ]]; then
     # Warn about a missing per-host uninstaller only in a full-engine layout
     # (at least one uninstall_<host>.sh present); split installs have none.
     host_suite_present=0
-    for host_script in "${SCRIPT_DIR}"/uninstall_{claude,codex,opencode,pi,lemoncode,copilot,antigravity,cursor,hermes}.sh; do
+    for host_script in "${SCRIPT_DIR}"/uninstall_{claude,codex,opencode,pi,copilot,antigravity,cursor,hermes}.sh; do
         if [[ -f "$host_script" ]]; then host_suite_present=1; break; fi
     done
-    for host in claude codex opencode pi lemoncode copilot antigravity cursor hermes; do
+    for host in claude codex opencode pi copilot antigravity cursor hermes; do
         script="${SCRIPT_DIR}/uninstall_${host}.sh"
         if [[ ! -f "$script" ]]; then
             if [[ "$host_suite_present" == "1" ]]; then
@@ -346,7 +346,7 @@ fi
 
 # ---- remove main bin commands ------------------------------------------------
 info "Removing LemonCrow bin commands from ${LEMONCROW_BIN_DIR}..."
-for cmd in lemoncrow lc lcr lemoncode lemoncrowd lcd pi-host; do
+for cmd in lemoncrow lc lcr lemoncrowd lcd pi-host; do
     target="${LEMONCROW_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f $(printf %q "$target")"
@@ -358,7 +358,7 @@ done
 # remove a symlink that points into the LemonCrow tree -- never clobber an
 # remove a symlink that points into the LemonCrow tree -- never clobber an
 # unrelated binary a user placed there.
-for cmd in lemoncrow lc lcr lemoncode lemoncrowd lcd; do
+for cmd in lemoncrow lc lcr lemoncrowd lcd; do
     target="${HOME}/.local/bin/${cmd}"
     if [ -L "$target" ]; then
         link_dest="$(readlink "$target" 2>/dev/null || true)"

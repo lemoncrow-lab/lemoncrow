@@ -20,7 +20,7 @@ const tabsListVariants = cva("inline-flex items-center", {
 });
 
 const tabsTriggerVariants = cva(
-  "inline-flex shrink-0 items-center gap-1.5 font-medium transition-colors duration-fast disabled:pointer-events-none disabled:opacity-50 pointer-coarse:min-h-11",
+  "inline-flex shrink-0 items-center gap-1.5 font-medium transition-colors duration-fast disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {

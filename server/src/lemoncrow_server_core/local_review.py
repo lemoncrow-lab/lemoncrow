@@ -450,7 +450,7 @@ def _run_asgi_isolated(
     return status, headers, b"".join(chunks)
 
 
-async def run_asgi_get_isolated(app: Any, path: str) -> web.Response:
+async def run_asgi_get_isolated(app: Any, path: str, query_string: str = "") -> web.Response:
     """One in-process GET on the Reader pool, buffered like a dispatched request."""
 
     scope: dict[str, Any] = {
@@ -461,7 +461,7 @@ async def run_asgi_get_isolated(app: Any, path: str) -> web.Response:
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
-        "query_string": b"",
+        "query_string": query_string.encode("ascii"),
         "root_path": "",
         "headers": [(b"host", b"127.0.0.1")],
         "client": ("127.0.0.1", 0),

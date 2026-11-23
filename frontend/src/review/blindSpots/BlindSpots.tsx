@@ -26,10 +26,10 @@ export interface BlindSpotsProps {
 }
 
 const STATE_LABEL: Record<BlindSpotState, string> = {
-  known: "Known blind spot",
-  nothing_open: "Nothing open",
-  not_measured: "Not measured",
-  not_applicable: "Not applicable",
+  known: "To check",
+  nothing_open: "Nothing found",
+  not_measured: "Not checked",
+  not_applicable: "Does not apply",
 };
 
 const STATE_TONE: Record<BlindSpotState, "warning" | "neutral" | "secondary"> = {
@@ -62,7 +62,7 @@ function ItemRow({ item, props }: { item: BlindSpotItem; props: BlindSpotsProps 
       <div id={titleId} className="bs-item-title">{item.title}</div>
       {item.detail && <div className="bs-item-detail">{item.detail}</div>}
       <div className="bs-item-anchor" data-testid="blind-spot-anchor">
-        {item.anchor.level === "target" ? item.anchor.label : "Review level · not tied to one target"}
+        {item.anchor.level === "target" ? item.anchor.label : "Whole change"}
       </div>
       <div className="bs-item-actions">
         {item.actions.includes("open_source") && target && (
@@ -132,11 +132,11 @@ function FileGroup({ label, items, props }: { label: string; items: readonly Bli
 function groupByFile(items: readonly BlindSpotItem[]): { label: string; items: BlindSpotItem[] }[] {
   const groups = new Map<string, BlindSpotItem[]>();
   for (const item of items) {
-    const label = item.anchor.level === "target" ? item.anchor.path : "Review level";
+    const label = item.anchor.level === "target" ? item.anchor.path : "Whole change";
     groups.set(label, [...(groups.get(label) ?? []), item]);
   }
-  // Review-level first, then files in the order their first item appeared.
-  return [...groups].sort(([a], [b]) => Number(b === "Review level") - Number(a === "Review level")).map(([label, rows]) => ({ label, items: rows }));
+  // The whole-change group first, then files in the order their first item appeared.
+  return [...groups].sort(([a], [b]) => Number(b === "Whole change") - Number(a === "Whole change")).map(([label, rows]) => ({ label, items: rows }));
 }
 
 function NotMeasuredLines({ lines }: { lines: readonly string[] }) {
@@ -156,7 +156,6 @@ function NotMeasuredLines({ lines }: { lines: readonly string[] }) {
 /** A known category starts closed (the Brief's first screen already leads with attention) and renders rows only while open. */
 function KnownCategory({ category, props }: { category: BlindSpotCategory; props: BlindSpotsProps }) {
   const [open, setOpen] = useState(false);
-  const total = category.items.length + category.omitted;
   return (
     <details
       className="bs-category"
@@ -167,8 +166,7 @@ function KnownCategory({ category, props }: { category: BlindSpotCategory; props
     >
       <summary className="bs-summary">
         <span className="bs-category-label">{category.label}</span>
-        <span className="bs-count">{total}</span>
-        <StateBadge state="known" />
+        <span className="bs-count">{category.countText}</span>
       </summary>
       {open && (
         <div className="bs-category-body">
@@ -178,7 +176,7 @@ function KnownCategory({ category, props }: { category: BlindSpotCategory; props
           {category.omitted > 0 && (
             <p className="bs-note">{`${category.omitted} more not listed here; open the code or evidence to see them.`}</p>
           )}
-          {category.scope && <p className="bs-note">{`Measured: ${category.scope}`}</p>}
+          {category.scope && <p className="bs-note">{`Checked: ${category.scope}`}</p>}
           <NotMeasuredLines lines={category.notMeasured} />
         </div>
       )}
@@ -190,7 +188,7 @@ function StatusRow({ category }: { category: BlindSpotCategory }) {
   const reason = category.state === "not_applicable"
     ? category.notApplicable
     : category.state === "nothing_open"
-      ? `Nothing open in what was measured: ${category.scope}`
+      ? `Nothing found in what was checked: ${category.scope}`
       : category.notMeasured[0] ?? "";
   const partial = category.state === "nothing_open" ? category.notMeasured : category.notMeasured.slice(1);
   return (
@@ -213,23 +211,15 @@ export default function BlindSpots(props: BlindSpotsProps) {
   const others = [...rest("not_measured"), ...rest("nothing_open"), ...rest("not_applicable")];
   return (
     <div className="bs-root" data-testid="blind-spots" data-snapshot={model.context.snapshot_identity}>
-      <p className="bs-intro">
-        What this Snapshot has not verified. Not measured means the Review has no data for it, which is not the same as safe.
-      </p>
-      <ul className="bs-legend" aria-label="Blind spot states" data-testid="blind-spot-counts">
-        <li><StateBadge state="known" /><span>{`${model.counts.known} ${model.counts.known === 1 ? "area" : "areas"}`}</span></li>
-        <li><StateBadge state="not_measured" /><span>{model.counts.notMeasured}</span></li>
-        <li><StateBadge state="nothing_open" /><span>{model.counts.nothingOpen}</span></li>
-        <li><StateBadge state="not_applicable" /><span>{model.counts.notApplicable}</span></li>
-      </ul>
+      <p className="bs-intro">What nothing on this revision has verified yet.</p>
       {known.length === 0 && (
-        <p className="bs-note" data-testid="blind-spot-none-known">No known blind spot in what was measured. The areas below were not measured or do not apply.</p>
+        <p className="bs-note" data-testid="blind-spot-none-known">Nothing to look at in what was checked. The areas below were not checked or do not apply.</p>
       )}
       {known.map((category) => <KnownCategory key={category.key} category={category} props={props} />)}
       <details className="bs-category" data-testid="blind-spot-measurement">
         <summary className="bs-summary">
-          <span className="bs-category-label">What was and was not measured</span>
-          <span className="bs-count">{others.length}</span>
+          <span className="bs-category-label">What was and was not checked</span>
+          <span className="bs-count">{`${others.length} ${others.length === 1 ? "area" : "areas"}`}</span>
         </summary>
         <ul className="bs-statuses">
           {others.map((category) => <StatusRow key={category.key} category={category} />)}

@@ -26,9 +26,9 @@ from typing import Any
 import pytest
 import yaml
 
-from lemoncrow.pro.capabilities.review.execution import ExecutorClass, cache_namespace
+from lemoncrow.pro.capabilities.review import hermetic
 from lemoncrow.pro.capabilities.review.hermetic import (
-    DependencyCache,
+    NPM_CACHE_MOUNT,
     HermeticPolicy,
     HermeticRefused,
     HermeticUnavailable,
@@ -38,12 +38,16 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     hermetic_context,
     hermetic_policy_from_wire,
     load_hermetic_policy,
+    npm_cache_dir,
     offline_bwrap_prefix,
     plan_npm_install,
+    provision_dependencies,
     provision_npm_dependencies,
 )
 from lemoncrow.pro.capabilities.review.previews import PreviewSandbox, PreviewUnavailable
 from lemoncrow.pro.capabilities.review.run_evidence import RunArtifactStore, execution_evidence_for_model
+from lemoncrow.pro.environment.dependency_cache import DependencyCache
+from lemoncrow.pro.environment.execution import ExecutorClass, cache_namespace
 
 
 def _bwrap_works() -> bool:
@@ -715,6 +719,180 @@ def test_cache_prune_is_the_closer_for_idle_trees(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# npm cache: every locked package where npm reads it by integrity, offline
+# --------------------------------------------------------------------------- #
+
+
+def _cacache_entry(root: Path, sri: str) -> Path:
+    """Where npm (cacache content-v2) reads the content of *sri*, computed from the SRI string alone."""
+
+    algorithm, _, value = sri.partition("-")
+    hexdigest = base64.b64decode(value).hex()
+    return root / "_cacache" / "content-v2" / algorithm / hexdigest[:2] / hexdigest[2:4] / hexdigest[4:]
+
+
+@pytest.fixture
+def builds(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The offline build stage (bubblewrap, Linux) replaced by a fake that records each build."""
+
+    calls: list[str] = []
+
+    def fake(plan: Any, digests: Any, cache: Any, staging: Path, *, should_cancel: Any = None) -> dict[str, Any]:
+        calls.append(plan.digest)
+        (staging / "node_modules" / "left-pad").mkdir(parents=True)
+        return {"ok": True, "packages": len(plan.packages), "blocked": []}
+
+    monkeypatch.setattr(hermetic, "_run_offline_install", fake)
+    return calls
+
+
+def _npm_cache_project(tmp_path: Path, registry: _Server) -> tuple[Path, dict[str, tuple[bytes, str]]]:
+    left = _tarball("left-pad", "1.0.0", files={"index.js": "module.exports = 1"})
+    right = _tarball("right-pad", "2.0.0")
+    project = _project(
+        tmp_path / "p",
+        registry,
+        [("left-pad", "1.0.0", left), ("right-pad", "2.0.0", right)],
+        overrides={"right-pad": {"integrity": _sri(right, "sha384")}},
+    )
+    return project, {"left-pad": (left, _sri(left)), "right-pad": (right, _sri(right, "sha384"))}
+
+
+def test_fetch_seeds_the_npm_cache_by_integrity_and_the_run_stage_reads_it_offline(
+    tmp_path: Path, registry: _Server, builds: list[str]
+) -> None:
+    project, locked = _npm_cache_project(tmp_path, registry)
+    cache = DependencyCache.for_store(tmp_path / "store", "head_untrusted")
+
+    tree = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+
+    assert tree.npm_cache == npm_cache_dir(cache)
+    assert tree.npm_cache.is_relative_to(tmp_path / "store" / "review" / "hermetic" / "head_untrusted")
+    for payload, sri in locked.values():
+        assert _cacache_entry(tree.npm_cache, sri).read_bytes() == payload
+    # The verified tarball is stored once: the npm cache entry is a hard link to it.
+    left, left_sri = locked["left-pad"]
+    tarball = cache.tarball(hashlib.sha512(left).hexdigest())
+    assert tarball is not None and os.path.samefile(tarball, _cacache_entry(tree.npm_cache, left_sri))
+
+    deps = provision_dependencies(project, policy=_policy(registry), cache=cache, sandbox_project="/workspace")
+    assert (tree.npm_cache, NPM_CACHE_MOUNT) in deps.mounts
+    env = dict(deps.env)
+    assert (env["npm_config_offline"], env["npm_config_cache"]) == ("true", NPM_CACHE_MOUNT)
+    assert env["npm_config_logs_dir"].startswith("/tmp/")
+    args = deps.bwrap_args()
+    at = args.index(NPM_CACHE_MOUNT)
+    assert args[at - 2 : at + 1] == ["--ro-bind", str(tree.npm_cache), NPM_CACHE_MOUNT]
+    assert len(builds) == 1
+
+
+def test_a_built_tree_missing_npm_cache_entries_is_reseeded_without_a_rebuild(
+    tmp_path: Path, registry: _Server, builds: list[str]
+) -> None:
+    project, locked = _npm_cache_project(tmp_path, registry)
+    cache = DependencyCache.for_store(tmp_path / "store", "head_untrusted")
+    tree = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    fetched = list(registry.requests)
+
+    # A tree built before the npm cache existed: reseeded from the verified tarball cache (keyed by
+    # sha512, so only the sha384-pinned package is fetched again), and nothing rebuilds.
+    shutil.rmtree(tree.npm_cache)
+    again = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    assert again.node_modules == tree.node_modules and len(builds) == 1
+    assert registry.requests == [*fetched, f"GET {_tar_path('right-pad', '2.0.0')}"]
+    fetched = list(registry.requests)
+    assert [stage.cache for stage in again.stages] == ["miss", "hit"]
+    for payload, sri in locked.values():
+        assert _cacache_entry(again.npm_cache, sri).read_bytes() == payload
+
+    # The tarballs idled out too: fetch downloads only the absent entries, and still nothing rebuilds.
+    shutil.rmtree(tree.npm_cache)
+    shutil.rmtree(cache.writable_tarballs)
+    third = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    assert len(registry.requests) == len(fetched) + 2 and len(builds) == 1
+    assert third.stages[0].cache == "miss" and third.stages[1].cache == "hit"
+    for payload, sri in locked.values():
+        assert _cacache_entry(third.npm_cache, sri).read_bytes() == payload
+
+    # Complete: a plain cache hit that fetches nothing.
+    hit = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    assert hit.stages[0].status == "skipped" and len(registry.requests) == len(fetched) + 2
+
+
+def test_a_planted_tarball_never_reaches_the_npm_cache(tmp_path: Path, registry: _Server, builds: list[str]) -> None:
+    project, locked = _npm_cache_project(tmp_path, registry)
+    cache = DependencyCache.for_store(tmp_path / "store", "head_untrusted")
+    left, left_sri = locked["left-pad"]
+    # An earlier run planted other bytes under the digest of the locked tarball.
+    cache.store_tarball(hashlib.sha512(left).hexdigest(), b"poisoned tarball")
+
+    tree = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+
+    assert _cacache_entry(tree.npm_cache, left_sri).read_bytes() == left
+    assert f"GET {_tar_path('left-pad', '1.0.0')}" in registry.requests
+
+
+def test_npm_cache_prune_is_the_closer_for_idle_entries(tmp_path: Path, registry: _Server, builds: list[str]) -> None:
+    project, locked = _npm_cache_project(tmp_path, registry)
+    cache = DependencyCache.for_store(tmp_path / "store", "head_untrusted")
+    tree = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    idle = _cacache_entry(tree.npm_cache, locked["left-pad"][1])
+    used = _cacache_entry(tree.npm_cache, locked["right-pad"][1])
+    old = time.time() - 31 * 24 * 3600
+    os.utime(idle, (old, old))
+
+    # Amortized: within the prune interval nothing is walked.
+    hermetic._prune_npm_cache(tree.npm_cache)
+    assert idle.exists()
+    hermetic._prune_npm_cache(tree.npm_cache, force=True)
+
+    assert not idle.exists() and not idle.parent.exists() and used.exists()
+
+
+@pytest.mark.skipif(not (shutil.which("npm") and shutil.which("node")), reason="npm is not installed")
+def test_npm_ci_offline_installs_every_locked_package_from_the_seeded_cache(
+    tmp_path: Path, registry: _Server, builds: list[str]
+) -> None:
+    project, _locked = _npm_cache_project(tmp_path, registry)
+    cache = DependencyCache.for_store(tmp_path / "store", "head_untrusted")
+    tree = provision_npm_dependencies(project, policy=_policy(registry), cache=cache)
+    fetched = list(registry.requests)
+    app = tmp_path / "app"
+    app.mkdir()
+    for name in ("package.json", "package-lock.json"):
+        shutil.copyfile(project / name, app / name)
+    directories = [tree.npm_cache, *(path for path in tree.npm_cache.rglob("*") if path.is_dir())]
+    for directory in directories:
+        directory.chmod(0o555)
+    try:
+        tools = {os.path.dirname(shutil.which(tool) or "") for tool in ("npm", "node")}
+        proc = subprocess.run(
+            ["npm", "ci", "--offline", "--no-audit", "--no-fund"],
+            cwd=app,
+            env={
+                "PATH": ":".join((*sorted(tools), "/usr/bin", "/bin")),
+                "HOME": str(tmp_path / "home"),
+                "npm_config_cache": str(tree.npm_cache),
+                "npm_config_offline": "true",
+                "npm_config_logs_dir": str(tmp_path / "npm-logs"),
+                "npm_config_update_notifier": "false",
+            },
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    finally:
+        for directory in directories:
+            directory.chmod(0o755)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert (app / "node_modules" / "left-pad" / "index.js").read_text() == "module.exports = 1"
+    assert json.loads((app / "node_modules" / "right-pad" / "package.json").read_text())["version"] == "2.0.0"
+    assert registry.requests == fetched
+
+
+# --------------------------------------------------------------------------- #
 # The real caller: preview sandbox executes a dependency-changing side
 # --------------------------------------------------------------------------- #
 
@@ -883,8 +1061,8 @@ def test_run_stage_sinks_record_side_effects_redacted_and_never_deliver(tmp_path
 
 
 def test_ai_denied_sink_payloads_never_reach_a_disallowed_model_route(tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities.review.execution import ExecutionRecipe, ExecutionSubject, SinkCapture, StageOutcome
     from lemoncrow.pro.capabilities.review.hermetic import build_execution_result
+    from lemoncrow.pro.environment.execution import ExecutionRecipe, ExecutionSubject, SinkCapture, StageOutcome
 
     capture = SinkCapture(kind="smtp", destination="smtp:a@b", payload_preview="Dear customer, invoice 42")
     stage = StageOutcome("run", "passed", output="pytest log with customer rows")

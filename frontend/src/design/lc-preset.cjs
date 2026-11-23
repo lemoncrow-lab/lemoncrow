@@ -45,9 +45,10 @@ module.exports = {
       borderColor: { DEFAULT: v("border") },
       ringColor: { DEFAULT: v("ring") },
       fontFamily: {
-        sans: ['"Red Hat Text"', "ui-sans-serif", "system-ui", "-apple-system", '"Segoe UI"', "Roboto", "sans-serif"],
-        display: ['"Red Hat Display"', '"Red Hat Text"', "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', "ui-monospace", '"SFMono-Regular"', "Menlo", "Consolas", "monospace"],
+        // Olaryn design layer: Inter for text and headings, Geist Mono for code and numbers.
+        sans: ["Inter", '"Helvetica Neue"', "Arial", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Inter", '"Helvetica Neue"', "Arial", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"Geist Mono"', "ui-monospace", "Menlo", "Consolas", "monospace"],
       },
       fontSize: {
         // one scale, nine steps

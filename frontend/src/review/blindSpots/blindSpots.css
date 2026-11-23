@@ -14,17 +14,6 @@
   color: rgb(var(--muted-foreground));
 }
 
-.bs-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: rgb(var(--muted-foreground));
-}
-.bs-legend li { display: inline-flex; align-items: center; gap: 6px; }
-
 /* The states differ by shape as well as colour: dashed is "not measured", dotted is "not applicable". */
 .bs-badge[data-state="not_measured"] { border-style: dashed; }
 .bs-badge[data-state="not_applicable"] { border-style: dotted; }

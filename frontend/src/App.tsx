@@ -1,5 +1,12 @@
 import { Button as UiButton, buttonVariants } from "./components/ui/button";
+import { flowDocumentTitle } from "./review/flowDocumentTitle";
 import ReviewPreparation from "./review/ReviewPreparation";
+import { ReviewFlowRoute } from "./review/ReviewFlowRoute";
+import { FlowPaletteProvider } from "./review/palette/FlowPalette";
+import { HomeSourceProvider, localHomeSource, type HomeSource } from "./review/home/homeApi";
+import { GlobalReviewUndoToast } from "./review/done/GlobalReviewUndoToast";
+import { OfflineReviewSendDispatcher } from "./review/done/OfflineReviewSendDispatcher";
+import { noteRouterLocation } from "./review/reviewBootLocation";
 import { retryableLazy } from "./review/retryableLazy";
 import { ReviewPreparationProvider } from "./review/reviewPreparationContext";
 import { Tip } from "./components/ui/tooltip";
@@ -12,27 +19,32 @@ import {
   type ProductFeature,
   type ProductId,
 } from "./lib/RuntimeCapabilities";
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { knowledgeSectionServed, sessionDerivedKnowledge } from "./pages/knowledgeSections";
 import {
   Activity,
+  BookOpen,
   ClipboardCheck,
+  ExternalLink,
   House,
   Loader2,
+  Menu,
   Moon,
   Network,
   Settings,
   Sun,
   TrendingUp,
 } from "lucide-react";
+import { ToggleGroup } from "./components/ui/toggle-group";
 
-import { Button, Select, SelectItem, cx } from "./components/WorkbenchUI";
+import { Button, cx } from "./components/WorkbenchUI";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PortalContainerContext } from "./components/ui/portal-container";
 import { isChunkLoadFailure } from "./lib/chunkLoad";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
 import lemonCrowMark from "./assets/lemoncrow-mark.svg";
 import { Badge } from "./components/ui/badge";
-import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
+import { EmptyState } from "./components/ui/empty-state";
 
 // Every page is its own chunk: the entry bundle carried all of them (~350 KB
 // with their markdown stack) and evaluated them before any route rendered.
@@ -49,6 +61,7 @@ const PAGE_CHUNKS = [HomeChunk, RunsChunk, LearningsChunk, UsageChunk, SystemChu
 const LocalReviewReader = retryableLazy(() => import("./review/ReviewReader"));
 const LocalReviewCompareReader = retryableLazy(() => import("./review/ReviewCompareReader"));
 const LocalReviewDirectory = retryableLazy(() => import("./review/ReviewDirectory"));
+const LocalReviewHome = retryableLazy(() => import("./review/home/ReviewHomeScreen"));
 
 const REVIEW_CHUNK_RECOVERY_KEY = "lemoncrow.review.chunk-recovery";
 
@@ -62,6 +75,10 @@ function ReviewChunkLoaded({ Component }: { Component: ComponentType }) {
 export interface ReviewComposition {
   Directory: ComponentType;
   Reader: ComponentType;
+  /** The directory is the redesigned Home (hosted, P9-2): drawn full screen like the local Home, whatever the flow setting. */
+  directoryIsHome?: boolean;
+  /** Where Home and the palette read reviews from; the local app's when absent. */
+  homeSource?: HomeSource;
 }
 
 /** Optional replacements supplied by a composition, never imported from it. */
@@ -98,28 +115,45 @@ interface PrimaryNavItem {
   icon: React.ElementType;
   matches: readonly string[];
   product: ProductId;
-  feature: ProductFeature;
+  /** Shown when any of these features is on. */
+  feature: ProductFeature | readonly ProductFeature[];
   annotation?: string;
+}
+
+function anyFeature(features: Record<ProductFeature, boolean>, wanted: ProductFeature | readonly ProductFeature[]): boolean {
+  return (typeof wanted === "string" ? [wanted] : wanted).some((feature) => features[feature]);
 }
 
 const PRIMARY_NAV: PrimaryNavItem[] = [
   { to: "/home", label: "Home", icon: House, matches: ["/home"], product: "core", feature: "core.home" },
   { to: "/reviews", label: "Reviews", icon: ClipboardCheck, matches: ["/reviews", "/review", "/r", "/rr"], product: "review", feature: "review.directory", annotation: "beta" },
-  { to: "/code", label: "Code", icon: Network, matches: ["/code", "/knowledge"], product: "runtime", feature: "runtime.code_map" },
+  { to: "/code", label: "Code", icon: Network, matches: ["/code"], product: "runtime", feature: "runtime.code_map" },
+  { to: "/knowledge", label: "Knowledge", icon: BookOpen, matches: ["/knowledge"], product: "runtime", feature: ["runtime.project_knowledge", "runtime.knowledge"] },
   { to: "/activity", label: "Activity", icon: Activity, matches: ["/activity", "/runs"], product: "runtime", feature: "runtime.runs" },
   { to: "/usage", label: "Usage", icon: TrendingUp, matches: ["/usage"], product: "core", feature: "core.usage" },
 ];
 
+// Grouped so Review's connections, Workspaces' integrations and the machine's own pages don't read as one flat
+// list of overlapping "connection" tabs. AI & background is Review's (Settings says so when Review is absent).
+// Installed products are a panel on Diagnostics (an old /settings/products link lands there), so Diagnostics is
+// offered whatever is installed.
 const SETTINGS_NAV = [
-  { to: "/settings/products", label: "Products", match: "/settings/products", product: "core" as ProductId },
-  { to: "/settings/ai", label: "AI & background", match: "/settings/ai", product: "review" as ProductId },
-  { to: "/settings/devices", label: "Review connections", match: "/settings/devices", product: "review" as ProductId },
-  { to: "/settings/integrations", label: "Integrations", match: "/settings/integrations", product: "runtime" as ProductId },
-  { to: "/settings/editor", label: "Editor", match: "/settings/editor", product: "runtime" as ProductId },
-  { to: "/settings/diagnostics", label: "Diagnostics", match: "/settings/diagnostics", product: "runtime" as ProductId },
-  { to: "/settings/telemetry", label: "Telemetry", match: "/settings/telemetry", product: "runtime" as ProductId },
-  { to: "/settings/advanced", label: "Advanced", match: "/settings/advanced", product: "runtime" as ProductId },
+  { to: "/settings/review", label: "Review flow", match: "/settings/review", product: "review" as ProductId, group: "Review" },
+  { to: "/settings/ai", label: "AI & background", match: "/settings/ai", product: "review" as ProductId, group: "Review" },
+  { to: "/settings/devices", label: "Review connections", match: "/settings/devices", product: "review" as ProductId, group: "Review" },
+  { to: "/settings/integrations", label: "Integrations", match: "/settings/integrations", product: "runtime" as ProductId, group: "Workspaces" },
+  { to: "/settings/editor", label: "Editor", match: "/settings/editor", product: "runtime" as ProductId, group: "Workspaces" },
+  { to: "/settings/diagnostics", label: "Diagnostics", match: "/settings/diagnostics", product: "core" as ProductId, group: "System" },
+  { to: "/settings/telemetry", label: "Telemetry", match: "/settings/telemetry", product: "runtime" as ProductId, group: "System" },
+  { to: "/settings/advanced", label: "Advanced", match: "/settings/advanced", product: "runtime" as ProductId, group: "System" },
 ] as const;
+
+type SettingsNavItem = (typeof SETTINGS_NAV)[number];
+
+/** Where the Settings gear lands: the first settings tab this installation offers. */
+function firstSettingsPath(capabilities: ReturnType<typeof useProductCapabilities>): string {
+  return SETTINGS_NAV.find((item) => productAvailable(capabilities, item.product))?.to ?? "/settings/diagnostics";
+}
 
 /**
  * Reusable dismissible notification banner. The mechanism is intentionally kept
@@ -160,79 +194,43 @@ function LegacyRunsRedirect() {
   return <Navigate to={`${suffix}${location.search}${location.hash}`} replace />;
 }
 
+/** `/r/<review>` and everything under it: the nested screens of SPEC 3.1 are routed. */
+function ReviewScreenRoute({ children }: { children: React.ReactNode }) {
+  return <ReviewFlowRoute>{children}</ReviewFlowRoute>;
+}
+
 const BRAND_WORD = "LEMONCROW";
-const BRAND_TYPE_MS = 36;
-const BRAND_CURSOR_SETTLE_MS = 200;
 
+/** The lemon mark and the wordmark, always shown: the product's name is not a hover reveal. */
 function LemonCrowBrand({ className }: { className?: string }) {
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [typed, setTyped] = useState(0);
-  const [cursorVisible, setCursorVisible] = useState(true);
-  const active = hovered || focused;
-
-  useEffect(() => {
-    if (!active) {
-      setTyped(0);
-      setCursorVisible(true);
-      return;
-    }
-
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    if (reducedMotion) {
-      setTyped(BRAND_WORD.length);
-      setCursorVisible(false);
-      return;
-    }
-
-    setTyped(0);
-    setCursorVisible(true);
-    let cursorTimer: number | undefined;
-    const typeTimer = window.setInterval(() => {
-      setTyped((current) => {
-        const next = Math.min(current + 1, BRAND_WORD.length);
-        if (next === BRAND_WORD.length) {
-          window.clearInterval(typeTimer);
-          cursorTimer = window.setTimeout(() => setCursorVisible(false), BRAND_CURSOR_SETTLE_MS);
-        }
-        return next;
-      });
-    }, BRAND_TYPE_MS);
-
-    return () => {
-      window.clearInterval(typeTimer);
-      if (cursorTimer !== undefined) window.clearTimeout(cursorTimer);
-    };
-  }, [active]);
-
-  const visibleWord = BRAND_WORD.slice(0, typed);
-  // Collapsed: the lemon mark alone (24px). Active: mark, gap, and the typed wordmark (9 letters plus the cursor,
-  // each one mono advance plus the 0.14em wordmark tracking).
-  const brandWidth = active ? "calc(1.5rem + 0.5rem + 10 * (1ch + 0.14em))" : "1.5rem";
-
   return (
     <NavLink
       to="/home"
       aria-label="LemonCrow home"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
       className={cx(
-        "z-20 flex h-7 shrink-0 items-center gap-2 overflow-visible rounded-md font-mono text-small font-semibold uppercase tracking-wordmark text-foreground transition-[width] duration-fast ease-out",
+        "z-20 flex h-7 shrink-0 items-center gap-2 rounded-md font-mono text-small font-semibold uppercase tracking-wordmark text-foreground",
         className,
       )}
-      style={{ width: brandWidth }}
     >
       <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
-      <span
-        aria-hidden="true"
-        data-testid="lemoncrow-brand-mark"
-        className="whitespace-nowrap"
-      >
-        {active ? `${visibleWord}${cursorVisible ? "_" : ""}` : ""}
+      <span aria-hidden="true" data-testid="lemoncrow-brand-mark" className="whitespace-nowrap">
+        {BRAND_WORD}
       </span>
     </NavLink>
+  );
+}
+
+/** An unknown path says so, instead of silently landing on Home. */
+function NotFoundPage() {
+  return (
+    <div className="mx-auto w-full max-w-xl px-4 py-16">
+      <EmptyState
+        label="Not found"
+        title="This page does not exist"
+        description="The link may be old or mistyped."
+        action={<Link to="/home" className={buttonVariants({ variant: "outline" })}>Go to Home</Link>}
+      />
+    </div>
   );
 }
 
@@ -243,11 +241,14 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
         <UiButton
           type="button"
           aria-label="Open navigation"
-          size="icon"
           variant="ghost"
-          className="z-20 h-8 w-9 shrink-0 text-foreground md:hidden"
+          className="z-20 h-8 shrink-0 gap-1.5 px-1.5 text-foreground md:hidden"
         >
+          <Menu size={16} aria-hidden="true" data-testid="mobile-nav-menu-icon" />
           <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
+          <span aria-hidden="true" data-testid="lemoncrow-brand-mark-mobile" className="whitespace-nowrap font-mono text-small font-semibold uppercase tracking-wordmark">
+            {BRAND_WORD}
+          </span>
         </UiButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -290,14 +291,29 @@ function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
 
   useEffect(() => {
-    applyTheme(theme);
+    applyTheme(theme, false);
   }, [theme]);
+
+  // Settings › Look changes the page's theme from outside this button (SPEC 4.11); with no saved choice (Auto) the
+  // system's own light/dark switch does too.
+  useEffect(() => {
+    const follow = () => setTheme(getInitialTheme());
+    window.addEventListener("lemoncrow-theme-change", follow);
+    let media: MediaQueryList | null = null;
+    try { media = window.matchMedia("(prefers-color-scheme: dark)"); media.addEventListener("change", follow); } catch { media = null; }
+    return () => { window.removeEventListener("lemoncrow-theme-change", follow); media?.removeEventListener("change", follow); };
+  }, []);
 
   const next: Theme = theme === "dark" ? "light" : "dark";
   return (
     <UiButton
       type="button"
-      onClick={() => setTheme(next)}
+      onClick={() => {
+        setTheme(next);
+        applyTheme(next);
+        // A page that already asked for the personal settings keeps this choice there too.
+        void import("./review/settings/userSettings").then((m) => { if (m.settingsRequested()) void m.patchUserSettings({ theme: next }); });
+      }}
       aria-label={`Switch to ${next} theme`}
       size="icon"
       variant="outline"
@@ -392,33 +408,56 @@ function pathMatches(pathname: string, prefix: string): boolean {
 }
 
 function SecondaryNav({ pathname }: { pathname: string }) {
+  // 44 px touch targets (SPEC 5.3) apply.
   const capabilities = useProductCapabilities();
   const items = pathMatches(pathname, "/settings") || pathMatches(pathname, "/system")
     ? SETTINGS_NAV.filter((item) => productAvailable(capabilities, item.product))
     : null;
 
   if (!items) return null;
+  // SETTINGS_NAV lists each group's tabs together, so consecutive runs are the groups.
+  const groups: { label: string | null; items: SettingsNavItem[] }[] = [];
+  for (const item of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.label === item.group) last.items.push(item);
+    else groups.push({ label: item.group, items: [item] });
+  }
   return (
     <div className="border-b border-border bg-background px-4">
-      <nav aria-label="Settings sections" className="flex h-10 items-end gap-1 overflow-x-auto">
-        {items.map((item) => {
-          const active = pathMatches(pathname, item.match) || (item.match === "/settings/advanced" && pathMatches(pathname, "/system"));
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              aria-current={active ? "page" : undefined}
-              className={cx(
-                "relative inline-flex h-9 shrink-0 items-center px-3 text-ui font-medium transition-colors duration-fast",
-                active
-                  ? "text-foreground shadow-indicator"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav aria-label="Settings sections" className={cx("flex h-10 items-end gap-1 overflow-x-auto", "pointer-coarse:h-12")}>
+        {groups.map((group, index) => (
+          <div
+            key={group.label ?? "general"}
+            role={group.label ? "group" : undefined}
+            aria-label={group.label ?? undefined}
+            className={cx("flex shrink-0 items-end gap-1", index > 0 && "ml-2 border-l border-border pl-3")}
+          >
+            {group.label && (
+              <span aria-hidden="true" className="inline-flex h-9 shrink-0 items-center pr-1 font-mono text-tag uppercase text-muted-foreground pointer-coarse:h-11">
+                {group.label}
+              </span>
+            )}
+            {group.items.map((item) => {
+              const active = pathMatches(pathname, item.match) || (item.match === "/settings/advanced" && pathMatches(pathname, "/system"));
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  aria-current={active ? "page" : undefined}
+                  className={cx(
+                    "relative inline-flex h-9 shrink-0 items-center px-3 text-ui font-medium transition-colors duration-fast",
+                    "pointer-coarse:h-11",
+                    active
+                      ? "text-foreground shadow-indicator"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
     </div>
   );
@@ -427,9 +466,10 @@ function SecondaryNav({ pathname }: { pathname: string }) {
 function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }) {
   const capabilities = useProductCapabilities();
   const state = capabilities.products[product];
-  const label = product === "review" ? "LemonCrow Review" : "LemonCrow Runtime";
+  const hosted = capabilities.products.core.mode === "hosted";
+  const label = product === "review" ? "LemonCrow Review" : hosted ? "Workspaces Pro" : "Workspaces Lite";
   const status = state.installed ? "not available" : "not installed";
-  if (capabilities.products.core.mode === "hosted") {
+  if (hosted) {
     return (
       <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
         <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
@@ -453,7 +493,7 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           This page belongs to {label}. Other installed LemonCrow products are unaffected.
         </p>
-        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/settings/products">
+        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/settings/diagnostics">
           View installed products
         </Link>
       </div>
@@ -461,18 +501,31 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
   );
 }
 
+/** Workspaces Pro: what it adds and how to get it (published from docs/setup/pro-hosted-runtime.md). */
+const WORKSPACES_PRO_DOCS_URL = "https://docs.lemoncrow.com/setup/pro-hosted-runtime";
+
 function HostedOnlyPage() {
   return (
     <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-        <div className="font-mono text-tag uppercase text-muted-foreground">LemonCrow Dashboard</div>
-        <h1 className="mt-2 text-title font-semibold text-foreground">This page is available on LemonCrow hosted</h1>
+        <div className="font-mono text-tag uppercase text-muted-foreground">Workspaces Lite</div>
+        <h1 className="mt-2 text-title font-semibold text-foreground">This page is available on Workspaces Pro</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
-          The local Dashboard shows sessions, usage, savings, settings and system.
+          Workspaces Lite shows sessions, usage, savings, settings and system on this machine.
         </p>
-        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/home">
-          Back to Home
-        </Link>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Link className={buttonVariants({ variant: "outline", size: "sm" })} to="/home">
+            Back to Home
+          </Link>
+          <a
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+            href={WORKSPACES_PRO_DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Learn about Workspaces Pro <ExternalLink size={14} aria-hidden="true" />
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -511,10 +564,13 @@ function FeatureRoute({ feature, children }: { feature: ProductFeature; children
 /**
  * The full-index Knowledge sections need endpoints a local Dashboard and a
  * hosted deployment do not serve. A hosted reader is sent to Code (its nearest
- * served surface) rather than a page of tabs that each fail with a 404.
+ * served surface) rather than a page of tabs that each fail with a 404. A local
+ * Dashboard answers Agent Memory, Playbooks and Review rules from its own
+ * sessions and reviews; its other sections stay behind the full index.
  */
 function KnowledgeSectionGate({ children }: { children: React.ReactNode }) {
   const capabilities = useProductCapabilities();
+  const { section = "" } = useParams<{ section?: string }>();
   if (
     capabilities.products.core.mode === "hosted"
     && productAvailable(capabilities, "runtime")
@@ -522,10 +578,13 @@ function KnowledgeSectionGate({ children }: { children: React.ReactNode }) {
   ) {
     return <Navigate to="/code" replace />;
   }
+  if (sessionDerivedKnowledge(capabilities) && knowledgeSectionServed(capabilities, section)) {
+    return <ProductGate product="runtime" feature="runtime.project_knowledge">{children}</ProductGate>;
+  }
   return <ProductGate product="runtime" feature="runtime.knowledge">{children}</ProductGate>;
 }
 
-/** A local Dashboard serves Project Knowledge but not the full-index Knowledge sections. */
+/** A local Dashboard opens Knowledge on Project Knowledge; the full index opens it there too when served. */
 function KnowledgeIndex() {
   const capabilities = useProductCapabilities();
   if (!capabilities.features["runtime.knowledge"] && capabilities.features["runtime.project_knowledge"]) {
@@ -537,7 +596,7 @@ function KnowledgeIndex() {
   }
   return (
     <KnowledgeSectionGate>
-      <Navigate to="/knowledge/blocks" replace />
+      <Navigate to={capabilities.features["runtime.project_knowledge"] ? "/knowledge/project" : "/knowledge/memory"} replace />
     </KnowledgeSectionGate>
   );
 }
@@ -559,9 +618,12 @@ export default function App({
   const PageSettings = pageComposition?.Settings ?? SettingsChunk.current();
   const PageSystem = pageComposition?.System ?? SystemChunk.current();
   const ShellSettingsNavigation = shellComposition?.SettingsNavigation;
-  const settingsPath = shellComposition?.settingsPath ?? "/settings/products";
+  const capabilities = useProductCapabilities();
+  const settingsPath = shellComposition?.settingsPath ?? firstSettingsPath(capabilities);
   const [, setReviewChunkGeneration] = useState(0);
-  const ReviewDirectory = reviewComposition?.Directory ?? LocalReviewDirectory.current();
+  // With the new flow the local `/reviews` is Home (SPEC 3.1); a hosted composition keeps its own directory.
+  const newHome = reviewComposition?.directoryIsHome === true || !reviewComposition?.Directory;
+  const ReviewDirectory = reviewComposition?.Directory ?? (newHome ? LocalReviewHome.current() : LocalReviewDirectory.current());
   const ReviewReader = reviewComposition?.Reader ?? LocalReviewReader.current();
   const ReviewCompareReader = LocalReviewCompareReader.current();
   const ShellHeaderActions = shellComposition?.HeaderActions;
@@ -569,21 +631,23 @@ export default function App({
     for (const chunk of PAGE_CHUNKS) chunk.reset();
     if (!reviewComposition) {
       LocalReviewDirectory.reset();
+      LocalReviewHome.reset();
       LocalReviewReader.reset();
       LocalReviewCompareReader.reset();
     }
     setReviewChunkGeneration((generation) => generation + 1);
   };
-  const { range, setRange } = useTimeRange();
-  const capabilities = useProductCapabilities();
   const runtimeCapabilities = useRuntimeCapabilities();
   const location = useLocation();
+  noteRouterLocation(location);
   const [searchParams, setSearchParams] = useSearchParams();
   const primaryNav = PRIMARY_NAV.filter(
-    (item) => productAvailable(capabilities, item.product) && capabilities.features[item.feature],
+    (item) => productAvailable(capabilities, item.product) && anyFeature(capabilities.features, item.feature),
   );
 
+  const onHome = newHome && location.pathname.replace(/\/+$/, "") === "/reviews";
   const fullScreenReview =
+    onHome ||
     location.pathname === "/review" ||
     location.pathname.startsWith("/r/") ||
     location.pathname.startsWith("/rr/") ||
@@ -600,23 +664,22 @@ export default function App({
       ["/activity", "Activity"],
       ["/runs", "Activity"],
       ["/code", "Code"],
-      ["/knowledge", "Code"],
+      ["/knowledge", "Knowledge"],
       ["/usage", "Usage"],
       ["/settings", "Settings"],
       ["/system", "Settings"],
     ];
     const hit = titles.find(([prefix]) => pathMatches(location.pathname, prefix));
-    document.title = fullScreenReview ? "Review" : hit ? `${hit[1]} · LemonCrow` : "LemonCrow";
-  }, [fullScreenReview, location.pathname, shellComposition?.titles]);
+    document.title = newHome && location.pathname === "/reviews" ? "Reviews · LemonCrow" : fullScreenReview ? (flowDocumentTitle() || "Review") : hit ? `${hit[1]} · LemonCrow` : "LemonCrow";
+  }, [fullScreenReview, newHome, location.pathname, shellComposition?.titles]);
 
-  const showWindow =
-    pathMatches(location.pathname, "/usage") ||
-    pathMatches(location.pathname, "/settings/telemetry");
-  const showRunType = runtimeCapabilities.swarms && pathMatches(location.pathname, "/activity");
-  const runType = searchParams.get("type") === "swarms" ? "swarms" : "sessions";
+  const plansAvailable = capabilities.features["runtime.knowledge"];
+  const showRunType = (runtimeCapabilities.swarms || plansAvailable) && pathMatches(location.pathname, "/activity");
+  const requestedRunType = searchParams.get("type");
+  const runType = requestedRunType === "swarms" || requestedRunType === "plans" ? requestedRunType : "sessions";
   const setRunType = (next: string) => {
     const params = new URLSearchParams(searchParams);
-    if (next === "swarms") params.set("type", "swarms");
+    if (next === "swarms" || next === "plans") params.set("type", next);
     else params.delete("type");
     setSearchParams(params, { replace: true });
   };
@@ -635,7 +698,7 @@ export default function App({
         <GlobalRequestIndicator />
         {!fullScreenReview && (
           <>
-            <header className="border-b border-border bg-background/95 backdrop-blur">
+            <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
               <div className="flex h-10 items-center gap-2 px-3 sm:gap-4 sm:px-4">
                 <MobilePrimaryNav pathname={location.pathname} items={primaryNav} />
                 <LemonCrowBrand className="hidden md:flex" />
@@ -671,33 +734,19 @@ export default function App({
                 </nav>
                 <div className="min-w-0 flex-1 md:hidden" aria-hidden="true" />
                 {showRunType && (
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-tag uppercase text-muted-foreground">View</span>
-                    <Select value={runType} onValueChange={setRunType} uiSize="xs" aria-label="Activity view">
-                      <SelectItem value="sessions">Sessions</SelectItem>
-                      <SelectItem value="swarms">Swarms</SelectItem>
-                    </Select>
-                  </div>
-                )}
-                {showWindow && (
-                  <div className="hidden h-8 items-center gap-2 rounded-md border border-border bg-muted/40 px-2 lg:flex">
-                    <span className="font-mono text-tag uppercase text-muted-foreground">
-                      Window
-                    </span>
-                    <Select
-                      value={range}
-                      onValueChange={(value) => setRange(value as typeof range)}
-                      uiSize="xs"
-                      className="border-0 bg-transparent px-0 py-0 text-meta text-subtle"
-                      aria-label="Global time window"
-                    >
-                      {TIME_RANGE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  </div>
+                  // A visible segmented switch, not a select: Swarms and Plans were easy to miss behind "View".
+                  <ToggleGroup
+                    variant="segment"
+                    aria-label="Activity view"
+                    className="shrink-0"
+                    value={runType}
+                    onChange={setRunType}
+                    options={[
+                      { value: "sessions", label: "Sessions" },
+                      ...(runtimeCapabilities.swarms ? [{ value: "swarms", label: "Swarms" }] : []),
+                      ...(plansAvailable ? [{ value: "plans", label: "Plans" }] : []),
+                    ]}
+                  />
                 )}
                 <Tip content="Settings">
                   <NavLink
@@ -705,6 +754,8 @@ export default function App({
                     aria-label="Settings"
                     className={cx(
                       buttonVariants({ variant: "outline", size: "icon" }),
+                      // Same shape as the theme toggle beside it (a shell button is rounded-md, see index.css).
+                      "rounded-md",
                       (pathMatches(location.pathname, "/settings") ||
                         pathMatches(location.pathname, "/system")) &&
                         "bg-accent text-foreground",
@@ -721,7 +772,8 @@ export default function App({
           </>
         )}
 
-        <main className={fullScreenReview ? "min-h-screen bg-background" : "min-h-[calc(100vh-41px)] bg-background"}>
+        {/* One element for every route, so moving to or from Home remounts nothing (a palette toast and its Undo survive). Home draws its own <main>; elsewhere this is the main landmark. */}
+        <div data-testid="app-body" role={onHome && productAvailable(capabilities, "review") ? undefined : "main"} className={fullScreenReview ? "min-h-screen bg-background" : "min-h-[calc(100vh-41px)] bg-background"}>
           <div className={settingsCompositionActive ? "mx-auto flex w-full max-w-[1440px] items-start" : "contents"}>
             {settingsCompositionActive && ShellSettingsNavigation && (
               <aside className="sticky top-[41px] hidden h-[calc(100vh-41px)] w-60 shrink-0 overflow-y-auto border-r border-border px-3 py-5 md:block">
@@ -735,6 +787,8 @@ export default function App({
                 </div>
               )}
           <ReviewPreparationProvider>
+            <HomeSourceProvider value={reviewComposition?.homeSource ?? localHomeSource}>
+            <FlowPaletteProvider>
             {capabilities.products.review.available && <ReviewPreparation />}
             <ErrorBoundary
               label={fullScreenReview ? "Review" : "Page"}
@@ -765,6 +819,9 @@ export default function App({
                     }
                   />
                   <Route path="/knowledge" element={<KnowledgeIndex />} />
+                  {/* Plans moved to Activity; Failures is hidden until /clusters is wired. */}
+                  <Route path="/knowledge/plans" element={<Navigate to="/activity?type=plans" replace />} />
+                  <Route path="/knowledge/failures" element={<Navigate to="/knowledge" replace />} />
                   <Route path="/knowledge/project" element={<ProductGate product="runtime" feature="runtime.project_knowledge"><PageKnowledge /></ProductGate>} />
                   <Route path="/knowledge/:section" element={<KnowledgeSectionGate><PageKnowledge /></KnowledgeSectionGate>} />
                   <Route path="/knowledge/:section/:rubricId" element={<KnowledgeSectionGate><PageKnowledge /></KnowledgeSectionGate>} />
@@ -804,13 +861,15 @@ export default function App({
                     }
                   />
                   <Route
-                    path="/r/:reviewRef"
+                    path="/r/:reviewRef/*"
                     element={
-                      <ProductGate product="review">
-                        <Suspense fallback={null}>
-                          <ReviewChunkLoaded Component={ReviewReader} />
-                        </Suspense>
-                      </ProductGate>
+                      <ReviewScreenRoute>
+                        <ProductGate product="review">
+                          <Suspense fallback={null}>
+                            <ReviewChunkLoaded Component={ReviewReader} />
+                          </Suspense>
+                        </ProductGate>
+                      </ReviewScreenRoute>
                     }
                   />
                   <Route
@@ -856,15 +915,22 @@ export default function App({
                   {shellComposition?.routes?.map(({ path, Component }) => (
                     <Route key={path} path={path} element={<Component />} />
                   ))}
-                  <Route path="*" element={<Navigate to="/home" replace />} />
+                  {/* Retired product routes still land on Home; any other unknown path says it does not exist. */}
+                  {["/overview", "/sessions", "/swarms", "/map", "/integrations", "/costs"].map((path) => (
+                    <Route key={path} path={path} element={<Navigate to="/home" replace />} />
+                  ))}
+                  <Route path="*" element={<NotFoundPage />} />
                 </Routes>
                 </ReviewUnavailableContext.Provider>
               </Suspense>
             </ErrorBoundary>
+            </FlowPaletteProvider>
+            </HomeSourceProvider>
           </ReviewPreparationProvider>
             </div>
           </div>
-        </main>
+        </div>
+        {capabilities.products.review.available && <><OfflineReviewSendDispatcher /><GlobalReviewUndoToast /></>}
       </div>
     </PortalContainerContext.Provider>
   );

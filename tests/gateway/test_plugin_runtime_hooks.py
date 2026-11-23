@@ -44,22 +44,22 @@ def _run_hook(
     )
 
 
-def test_pre_tool_discipline_does_not_redirect_shell_reads() -> None:
-    # Plain cat still passes: the search-first hook blocks repository grep/rg,
-    # but does not change unrelated Bash commands or their output semantics.
-    result = _run_hook(
-        "pre_tool_discipline.py",
-        {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat src/app.ts"}},
-    )
-    assert result.returncode == 0
-    assert result.stdout.strip() == ""
-    assert "permissionDecision" not in result.stdout
+def test_pre_tool_discipline_allows_shell_reads_and_searches() -> None:
+    # This hook does not deny grep/rg; tool selection is advisory.
+    for command in ("cat src/app.ts", "rg -n foo src", "grep -rn thing src"):
+        result = _run_hook(
+            "pre_tool_discipline.py",
+            {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command}},
+        )
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
+        assert "permissionDecision" not in result.stdout
 
 
-def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
+def test_pre_tool_discipline_does_not_block_shell_search_without_pythonpath() -> None:
     payload = {
         "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
+        "tool_name": "mcp__lc__bash",
         "tool_input": {"command": "rg -n foo ."},
     }
     env = os.environ.copy()
@@ -74,7 +74,7 @@ def test_pre_tool_discipline_is_quiet_without_pythonpath() -> None:
         env=env,
     )
 
-    assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert result.stdout == ""
     assert result.stderr == ""
 
 

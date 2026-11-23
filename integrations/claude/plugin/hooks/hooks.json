@@ -34,6 +34,15 @@
         ]
       },
       {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_write_snapshot.py\""
+          }
+        ]
+      },
+      {
         "matcher": "mcp__(lc|lemoncrow)__.*",
         "hooks": [
           {
@@ -101,6 +110,16 @@
         ]
       },
       {
+        "matcher": "ReportFindings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/review_findings.py\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
@@ -120,6 +139,15 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_failure.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_write_snapshot.py\""
           }
         ]
       }
@@ -166,6 +194,15 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/review_findings.py\"",
+            "timeout": 30
           }
         ]
       }

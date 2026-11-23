@@ -634,7 +634,7 @@ def test_a_trivial_change_is_not_summarised_and_the_sentence_is_the_pull_request
     report = world.review()
     assert world.model.overviews == [] and world.model.calls, "the investigator ran, the overview did not"
     body = summary_body(world)
-    assert "### Summary" not in body and "### Diagram" not in body and f"]** {TITLE}\n" in body
+    assert "### Summary" not in body and "### Diagram" not in body and f"\n\n{TITLE}\n\n" in body
     assert report.state is not None and report.state.overview is None and report.state.overview_for
 
 
@@ -646,7 +646,7 @@ def test_when_the_overview_call_fails_the_review_is_unchanged_and_the_title_stan
     assert any(note == "overview skipped: the model call failed (RuntimeError)" for note in report.notes)
     assert "provider overloaded" not in json.dumps(report.notes), "the provider's words are not repeated"
     body = summary_body(world)
-    assert "### Summary" not in body and f"]** {TITLE}\n" in body
+    assert "### Summary" not in body and f"\n\n{TITLE}\n\n" in body
     assert report.state is not None and report.state.overview_for == "", "a failed call is not settled"
     world.model.fail_overview = False
     again = world.review()

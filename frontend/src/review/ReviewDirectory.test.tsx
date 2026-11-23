@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ReviewDirectory from "./ReviewDirectory";
-import { InboxRowSignals } from "./ReviewInboxViews";
+import { InboxRowSignals, inboxAxesText, nextActionText } from "./ReviewInboxViews";
 import type { InboxSignals, SavedInboxFilter } from "./types";
 
 const api = vi.hoisted(() => ({
@@ -135,7 +135,7 @@ describe("ReviewDirectory", () => {
           review_path: "/reviews/rev-legacy",
           repo_id: "repo_opaque_hash",
           title: "Legacy change",
-          auto_title: "Snapshot 0: Update README.md",
+          auto_title: "Revision 1: Update README.md",
           title_is_custom: false,
           source_ref: "client:working_tree",
           range_mode: "working_tree",
@@ -153,7 +153,7 @@ describe("ReviewDirectory", () => {
           review_path: "/reviews/rev-open",
           repo_id: "repo-1",
           title: "Open checkout change",
-          auto_title: "Snapshot 3: frontend changes · 5 files",
+          auto_title: "Revision 4: frontend changes · 5 files",
           title_is_custom: false,
           source_ref: "client:working_tree",
           range_mode: "working_tree",
@@ -184,6 +184,38 @@ describe("ReviewDirectory", () => {
     });
   });
 
+  it("reads a review with only a part left for later as still to review, never as ready to finish", async () => {
+    api.fetchReviewDirectory.mockResolvedValue({
+      reviews: [
+        {
+          id: "rev-later",
+          review_path: "/reviews/rev-later",
+          repo_id: "repo-1",
+          title: "Checkout change",
+          auto_title: "Revision 1: checkout",
+          title_is_custom: false,
+          source_ref: "client:working_tree",
+          range_mode: "working_tree",
+          status: "open",
+          revision_number: 0,
+          revision_id: "rr-1",
+          progress: {
+            target_count: 3, reviewed: 2, changed_since_review: 0, needs_changes: 0, unreviewed: 0, unknown: 0, mechanical: 0, later: 1,
+          },
+          updated_at: "2026-09-15T20:00:00Z",
+          created_at: "2026-09-15T19:00:00Z",
+        },
+      ],
+      status: "open",
+      query: "",
+      next_cursor: "",
+    });
+    render(<ReviewDirectory />);
+
+    expect(await screen.findByText("1 left")).toBeTruthy();
+    expect(screen.queryByText("Ready to finish")).toBeNull();
+  });
+
   it("loads the shared review directory and preserves the local fragment on review links", async () => {
     render(<ReviewDirectory />);
 
@@ -206,7 +238,9 @@ describe("ReviewDirectory", () => {
     expect(screen.getByText("lemoncrow-dev")).toBeTruthy();
     expect(screen.getByText("agentic-review")).toBeTruthy();
     expect(screen.getByText("feat/agentic-review")).toBeTruthy();
-    expect(screen.getByText("/home/me/Projects/leanchain")).toBeTruthy();
+    // The full path is on hover, not on the card.
+    expect(screen.queryByText("/home/me/Projects/leanchain")).toBeNull();
+    expect(screen.getByRole("link", { name: "Open Open checkout change" }).getAttribute("title")).toContain("/home/me/Projects/leanchain/lemoncrow-dev/.lc-worktrees/agentic-review");
     expect(screen.getByText("2 left")).toBeTruthy();
     expect(screen.getByText(/3\/5 reviewed/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Open checkout change" }).getAttribute("href")).toBe(
@@ -264,7 +298,7 @@ describe("ReviewDirectory", () => {
     render(<ReviewDirectory />);
     await waitFor(() => expect(screen.getByText("Hinted workspace")).toBeTruthy());
 
-    expect(screen.getAllByText("demo").length).toBe(2);
+    expect(screen.getAllByText("demo").length).toBe(1);
     expect(screen.queryByText("branch")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
   });
@@ -272,11 +306,11 @@ describe("ReviewDirectory", () => {
   it("saves a custom title, shows the current automatic title beneath it, and can restore auto", async () => {
     api.updateReviewTitle.mockResolvedValueOnce({
       title: "My review",
-      auto_title: "Snapshot 3: frontend changes · 5 files",
+      auto_title: "Revision 4: frontend changes · 5 files",
       title_is_custom: true,
     }).mockResolvedValueOnce({
-      title: "Snapshot 3: frontend changes · 5 files",
-      auto_title: "Snapshot 3: frontend changes · 5 files",
+      title: "Revision 4: frontend changes · 5 files",
+      auto_title: "Revision 4: frontend changes · 5 files",
       title_is_custom: false,
     });
     render(<ReviewDirectory />);
@@ -286,10 +320,10 @@ describe("ReviewDirectory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.getByText("My review")).toBeTruthy());
     expect(api.updateReviewTitle).toHaveBeenCalledWith("repo-1", "rev-open", "My review");
-    expect(screen.getByText("Auto: Snapshot 3: frontend changes · 5 files")).toBeTruthy();
+    expect(screen.getByText("Auto: Revision 4: frontend changes · 5 files")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Rename My review" }));
     fireEvent.click(screen.getByRole("button", { name: "Use auto" }));
-    await waitFor(() => expect(screen.getByText("Snapshot 3: frontend changes · 5 files")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Revision 4: frontend changes · 5 files")).toBeTruthy());
     expect(api.updateReviewTitle).toHaveBeenCalledWith("repo-1", "rev-open", "");
   });
   it("offers deletion only for archived reviews and requires confirmation", async () => {
@@ -403,7 +437,7 @@ describe("ReviewDirectory", () => {
     expect(screen.getByText("Your turn: Decide whether to merge")).toBeTruthy();
     // Full readiness remains inspectable without turning every row into a state dashboard.
     expect(screen.getByTestId("inbox-readiness-detail")).toHaveTextContent("Your review complete");
-    expect(screen.getByTestId("inbox-readiness-detail")).toHaveTextContent("Team review not applicable");
+    expect(screen.getByTestId("inbox-readiness-detail")).not.toHaveTextContent("Team review");
     expect(screen.getByTestId("inbox-readiness-detail")).toHaveTextContent("Merge not ready");
     expect(screen.getByTestId("inbox-attention").getAttribute("title")).toBe(
       "You own the next action +10: Decide whether to merge\nImpact +13: priority high, criticality high",
@@ -510,5 +544,51 @@ describe("InboxRowSignals blocking actions", () => {
     expect(screen.queryByTestId("inbox-blocking")).toBeNull();
     rerender(<InboxRowSignals signals={signals({ next_action: idle })} />);
     expect(screen.queryByTestId("inbox-blocking")).toBeNull();
+  });
+});
+
+describe("inboxAxesText", () => {
+  it("shows only the states that apply: no team or merge line on a solo local review", () => {
+    const axes = {
+      your_review: { state: "not_started" },
+      team_review: { state: "not_applicable" },
+      scm: { state: "not_connected" },
+    } as InboxSignals["axes"];
+    expect(inboxAxesText(axes)).toEqual(["Your review not started"]);
+    const hosted = { ...axes, team_review: { state: "waiting" }, scm: { state: "ready" } } as InboxSignals["axes"];
+    expect(inboxAxesText(hosted)).toEqual(["Your review not started", "Team review waiting", "Merge ready"]);
+  });
+
+  it("names who a team review waits on by stored display name, else by the id", () => {
+    const waiting = {
+      your_review: { state: "complete" },
+      team_review: { state: "waiting", waiting_on: ["agent_review", "user_sam"] },
+      scm: { state: "not_connected" },
+    } as InboxSignals["axes"];
+    expect(inboxAxesText(waiting)).toEqual(["Your review complete", "Team review waiting on agent review, sam"]);
+    expect(inboxAxesText(waiting, { agent_review: "Review agent" })).toEqual([
+      "Your review complete",
+      "Team review waiting on Review agent, sam",
+    ]);
+  });
+});
+
+describe("InboxRowSignals names", () => {
+  const waiting = {
+    owner_ids: ["agent_billing", "user_sam"],
+    for_me: false,
+    my_reasons: [],
+    reasons: [],
+  };
+
+  it("reads the row's stored display names for the next-action owners, falling back to the id", () => {
+    const row = signals({ next_action: waiting, principal_names: { agent_billing: "Billing agent" } });
+    expect(nextActionText(row)).toBe("Waiting on Billing agent, sam");
+    render(<InboxRowSignals signals={row} />);
+    expect(screen.getByText("Waiting on Billing agent, sam")).toBeTruthy();
+  });
+
+  it("is unchanged for a row without names", () => {
+    expect(nextActionText(signals({ next_action: waiting }))).toBe("Waiting on agent billing, sam");
   });
 });

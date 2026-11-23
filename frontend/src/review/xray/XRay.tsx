@@ -1,65 +1,75 @@
-import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, RefreshCw, ScanSearch, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Pause, Play, RefreshCw, ScanSearch } from "lucide-react";
 
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ToggleGroup } from "../../components/ui/toggle-group";
+import { classifyFocus } from "../flowKeymap";
 import type { ReviewMapGraph, ReviewMapSelection, ReviewTarget } from "../types";
-import { SIDE_LABEL, buildXRay, type XRay as XRayModel, type XRayFlow, type XRaySide, type XRayStep } from "./xrayModel";
+import { LensCanvas, LensStack, LineSample, cardGlyph, type LensSelection } from "./XRayCanvas";
+import { CardPanel, EdgePanel, type PanelHandlers } from "./XRayPanel";
+import { buildChangeLens, buildFocusLens, lensView, type LensCard, type LensEdge } from "./xrayLens";
+import type { XRay as XRayModel, XRayFlow, XRaySide, XRayStep } from "./xrayModel";
 import "./xray.css";
 
 export interface XRayProps {
   graph: ReviewMapGraph;
   flow?: XRayFlow | null;
   targets?: readonly ReviewTarget[] | null;
+  /** The file whose path is zoomed into; "" draws the whole change. */
   rootId: string;
   side: XRaySide;
-  /** The Snapshot this walk was opened on; when the graph shows another, the walk is stale. */
+  /** The Snapshot this X-Ray was opened on; when the graph shows another, it is stale. */
   walkSnapshot: string;
   onSideChange(side: XRaySide): void;
-  /** Re-roots the X-Ray on another step ("X-Ray from here"). */
+  /** Zooms into a file's path, or back out to the whole change with "". */
   onRootChange(nodeId: string): void;
-  /** Rebuilds a stale walk on the Snapshot shown now. */
+  /** Rebuilds a stale X-Ray on the Snapshot shown now. */
   onRebuild(): void;
-  /** Jumps to exact code (a node or a relationship's site) through the host's own source navigation. */
+  /** Jumps to exact code (a file or a relationship's site) through the host's own source navigation. */
   onOpenSource(selection: ReviewMapSelection): void;
-  onClose(): void;
-  /** N04: challenge the selected step's claim; without it no Challenge control renders. */
+  /** N04: challenge a step's claim on the zoomed-in path; without it no Challenge control renders. */
   onChallenge?(step: XRayStep, xray: XRayModel): void;
-  /** Opens the recorded run behind a traced link (the host's checks view for the step's code); without it the trace is text. */
+  /** Opens the recorded run behind a traced arrow; without it the trace is text. */
   onOpenEvidence?(selection: ReviewMapSelection): void;
+  /** Where a reviewer goes for more than static arrows (the Map's Data path); without it no call to action renders. */
+  onOpenDataPath?(): void;
+  /** The behavior changes the host recorded on these files. */
+  renderBehavior?(paths: string[], scope: "file" | "arrow"): ReactNode;
+  /** How many recorded behavior changes name this file, for the card's marker. */
+  behaviorCount?(path: string): number;
 }
 
 const SIDE_OPTIONS = [
-  { value: "before", label: "Before", title: "The base: relationships before this change" },
-  { value: "after", label: "After", title: "This Snapshot: relationships after this change" },
+  { value: "before", label: "Before", title: "The base: the picture before this change" },
+  { value: "after", label: "After", title: "This revision: the picture after this change" },
 ];
+
+/** Below this the lanes stack as lists: a canvas narrower than two lanes reads worse than a list. */
+const STACK_BELOW = 720;
+const PULSE_MS = 1500;
+const PLAY_MS = 2400;
 
 function plural(count: number, one: string, many = one + "s"): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function truncationWords(xray: XRayModel): string[] {
-  const { truncation, bounds } = xray;
-  return [
-    truncation.depth ? `${plural(truncation.depth, "link")} past depth ${bounds.depth}` : "",
-    truncation.branching ? `${plural(truncation.branching, "sibling link")} over ${bounds.branching} per step` : "",
-    truncation.total ? `${plural(truncation.total, "step")} over the ${bounds.steps}-step bound` : "",
-    truncation.consumers ? `${plural(truncation.consumers, "more caller")}` : "",
-    truncation.joins ? `${plural(truncation.joins, "link")} into steps already shown` : "",
-  ].filter(Boolean);
+/** Reduced motion unless the browser says otherwise; without `matchMedia` (tests, old engines) nothing moves. */
+function useReducedMotion(): boolean {
+  const query = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const [reduced, setReduced] = useState(() => (query ? query.matches : true));
+  useEffect(() => {
+    if (!query) return;
+    const update = () => setReduced(query.matches);
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, [query]);
+  return reduced;
 }
 
 /**
- * Behavioral X-Ray: one focused path from a changed file -- what reaches it,
- * what it calls, and where it meets storage or hands off to a queue or another
- * service -- on the Before or After side. Links read as possible/reachable
- * unless this Snapshot's recorded run observed them, and only those observed
- * in order move.
+ * Behavioral X-Ray as a picture: the whole change in lanes by layer, or one file's path zoomed in, on the Before or
+ * After side. An arrow is solid only when this Snapshot's recorded run observed it on the side shown; a dot runs
+ * along those in their recorded order. Every other arrow is dashed: a relationship in the code, not an execution.
  */
 export default function XRay({
   graph,
@@ -72,295 +82,345 @@ export default function XRay({
   onRootChange,
   onRebuild,
   onOpenSource,
-  onClose,
   onChallenge,
   onOpenEvidence,
+  onOpenDataPath,
+  renderBehavior,
+  behaviorCount,
 }: XRayProps) {
-  const xray = useMemo(
-    () => buildXRay({ graph, flow, targets, rootId, side, walkSnapshot }),
-    [flow, graph, rootId, side, targets, walkSnapshot],
+  const diagram = useMemo(
+    () => (rootId ? buildFocusLens({ graph, flow, targets, rootId, walkSnapshot }) : buildChangeLens({ graph, flow, targets, walkSnapshot })),
+    [flow, graph, rootId, targets, walkSnapshot],
   );
-  const [reduced] = useState(prefersReducedMotion);
-  const all = useMemo(() => [...xray.consumers, ...xray.steps], [xray]);
-  const [selectedKey, setSelectedKey] = useState("");
-  // A new walk (side, root, Snapshot) starts on its entry point.
-  useEffect(() => setSelectedKey(xray.steps[0]?.key ?? ""), [xray]);
-  const selected = all.find((step) => step.key === selectedKey) ?? xray.steps[0] ?? null;
-  const truncated = truncationWords(xray);
+  const view = useMemo(() => lensView(diagram, side), [diagram, side]);
+  const reduced = useReducedMotion();
+  const ready = view.status === "ready";
+
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const measure = () => setWidth(stage.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [ready]);
+  const stacked = width > 0 && width < STACK_BELOW;
+
+  const [selection, setSelection] = useState<LensSelection>(null);
+  const [walk, setWalk] = useState<{ index: number; playing: boolean } | null>(null);
+  // A new picture (zoom, root, Snapshot) starts unselected; a side switch keeps what is still drawn.
+  useEffect(() => { setSelection(null); setWalk(null); }, [diagram]);
+  useEffect(() => {
+    setWalk(null);
+    setSelection((current) => {
+      if (!current) return current;
+      const present = current.kind === "card" ? view.cards.some((card) => card.id === current.id) : view.edges.some((edge) => edge.pair === current.id);
+      return present ? current : null;
+    });
+  }, [view]);
+
+  const steps = view.steps;
+  const step = walk ? steps[Math.min(walk.index, steps.length - 1)] ?? null : null;
+  const startCard = steps[0]?.cardId ?? view.cards.find((card) => card.kind === "node")?.id ?? "";
+  const defaultCard = diagram.mode === "focus" ? diagram.rootId : startCard;
+  const shown: LensSelection = step ? { kind: "card", id: step.cardId } : selection ?? (defaultCard ? { kind: "card", id: defaultCard } : null);
+  const selectedCard = shown?.kind === "card" ? view.cards.find((card) => card.id === shown.id) ?? null : null;
+  const selectedEdge = shown?.kind === "edge" ? view.edges.find((edge) => edge.pair === shown.id) ?? null : null;
+
+  const revealPanel = useCallback(() => {
+    if (stacked) panelRef.current?.scrollIntoView?.({ block: "start", behavior: reduced ? "auto" : "smooth" });
+  }, [stacked, reduced]);
+  const chooseCard = useCallback((card: LensCard) => {
+    setWalk(null);
+    // On the whole change a file opens its path; a fold, or any card on a zoomed-in path, shows its details.
+    if (diagram.mode === "change" && card.kind === "node") {
+      onRootChange(card.nodeId);
+      return;
+    }
+    setSelection({ kind: "card", id: card.id });
+    revealPanel();
+  }, [diagram.mode, onRootChange, revealPanel]);
+  const chooseEdge = useCallback((edge: LensEdge) => {
+    setWalk(null);
+    setSelection({ kind: "edge", id: edge.pair });
+    revealPanel();
+  }, [revealPanel]);
+
+  // The walkthrough: play steps on its own, W steps by hand, Escape stops.
+  const advance = useCallback(() => {
+    if (!steps.length) return;
+    setWalk((current) => (!current ? { index: 0, playing: false } : { index: Math.min(steps.length - 1, current.index + 1), playing: false }));
+  }, [steps.length]);
+  const togglePlay = () => {
+    if (!steps.length) return;
+    setWalk((current) => {
+      if (!current) return { index: 0, playing: true };
+      if (current.playing) return { ...current, playing: false };
+      return { index: current.index >= steps.length - 1 ? 0 : current.index, playing: true };
+    });
+  };
+  useEffect(() => {
+    if (!walk?.playing) return;
+    if (walk.index >= steps.length - 1) {
+      setWalk({ ...walk, playing: false });
+      return;
+    }
+    const timer = setTimeout(() => setWalk({ index: walk.index + 1, playing: true }), PLAY_MS);
+    return () => clearTimeout(timer);
+  }, [walk, steps.length]);
+  useEffect(() => {
+    if (!ready) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && classifyFocus({ tagName: target.tagName, isContentEditable: target.isContentEditable, role: target.getAttribute("role") }) === "field") return;
+      if (document.querySelector("[role=dialog]")) return;
+      if ((event.key === "w" || event.key === "W") && !event.shiftKey) {
+        event.preventDefault();
+        advance();
+      } else if (event.key === "Escape" && walk) {
+        event.preventDefault();
+        setWalk(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ready, advance, walk]);
+
+  // The moving dot: along each arrow observed in order, one after another; on the walkthrough's arrow when it is one.
+  const inOrder = useMemo(
+    () => view.edges.filter((edge) => edge.observed && edge.sequence !== null).sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.key.localeCompare(b.key)),
+    [view.edges],
+  );
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (reduced || !inOrder.length || stacked) return;
+    const timer = setInterval(() => setTick((value) => value + 1), PULSE_MS);
+    return () => clearInterval(timer);
+  }, [reduced, inOrder.length, stacked]);
+  const activeEdge = step?.edgeKey ? view.edges.find((edge) => edge.key === step.edgeKey) ?? null : null;
+  const pulse = reduced || stacked
+    ? null
+    : walk
+      ? activeEdge && activeEdge.observed && activeEdge.sequence !== null ? { key: activeEdge.key, tick } : null
+      : inOrder.length ? { key: inOrder[tick % inOrder.length].key, tick } : null;
+
+  const handlers: PanelHandlers = {
+    onOpenSource,
+    onFocus: (nodeId) => { if (nodeId) onRootChange(nodeId); },
+    onSelectCard: (id) => { setWalk(null); setSelection({ kind: "card", id }); },
+    onSelectEdge: (pair) => { setWalk(null); setSelection({ kind: "edge", id: pair }); },
+    onOpenEvidence,
+    onChallenge: onChallenge && diagram.walks
+      ? (card) => {
+        const walked = diagram.walks?.[side];
+        const own = card.steps?.[side];
+        if (walked && own) onChallenge(own, walked);
+      }
+      : undefined,
+    renderBehavior,
+  };
+
+  const sideWord = side === "before" ? "Before" : "After";
+  const summary = diagram.mode === "change"
+    ? [plural(diagram.totals.changed, "changed file"), diagram.totals.context ? plural(diagram.totals.context, "unchanged neighbour") : "", `${plural(view.edges.length, "arrow")} on ${sideWord}`, view.edges.length ? `${view.observed} observed` : ""]
+    : [plural(view.cards.filter((card) => card.kind === "node").length, "file"), `${plural(view.edges.length, "arrow")} on ${sideWord}`, view.edges.length ? `${view.observed} observed` : ""];
+  const others = view.cards.filter((card) => card.place === "other");
+  const notes = diagram.notMeasured.length + diagram.degraded.length + diagram.bounded.length;
+  const draw = { diagram, view, side, selection: shown, active: step ? { cardId: step.cardId, edgeKey: step.edgeKey } : null, pulse, behaviorCount, onCard: chooseCard, onEdge: chooseEdge };
 
   return (
-    <section className="xr-root" aria-label="Behavioral X-Ray" data-testid="xray" data-side={side} data-status={xray.status}>
+    <section
+      className="xr-root"
+      aria-label="Behavioral X-Ray"
+      data-testid="xray"
+      data-side={side}
+      data-status={view.status}
+      data-mode={diagram.mode}
+      data-layout={stacked ? "stack" : "canvas"}
+    >
       <header className="xr-header">
-        <ScanSearch size={16} aria-hidden="true" className="shrink-0 text-subtle" />
-        <div className="min-w-0 flex-1">
-          <h3 className="text-label font-semibold text-foreground">
-            Behavioral X-Ray <span className="font-mono font-normal text-subtle">{`from ${xray.rootTitle}`}</span>
-          </h3>
-          <p className="text-caption text-muted-foreground" data-testid="xray-side-label">{SIDE_LABEL[side]}</p>
+        <div className="xr-heading-row">
+          <ScanSearch size={16} aria-hidden="true" className="shrink-0 text-subtle" />
+          <nav className="xr-crumbs" aria-label="X-Ray level">
+            {diagram.mode === "focus" ? (
+              <>
+                <Button variant="ghost" size="compact" data-testid="xray-whole-change" onClick={() => onRootChange("")} icon={<ArrowLeft size={14} />}>
+                  Whole change
+                </Button>
+                <span className="xr-crumb-sep" aria-hidden="true">/</span>
+                <h3 className="xr-crumb-current font-mono" data-testid="xray-root-title">{`${diagram.rootTitle} · its path`}</h3>
+              </>
+            ) : (
+              <h3 className="xr-crumb-current">Whole change</h3>
+            )}
+          </nav>
+          {ready && <span className="xr-summary" data-testid="xray-summary">{summary.filter(Boolean).join(" · ")}</span>}
         </div>
-        <ToggleGroup
-          aria-label="Side of the change"
-          variant="segment"
-          options={SIDE_OPTIONS}
-          value={side}
-          onChange={(value) => onSideChange(value === "before" ? "before" : "after")}
-        />
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close the X-Ray">
-          <X size={14} />
-        </Button>
+        <div className="xr-controls">
+          <ToggleGroup
+            aria-label="Side of the change"
+            variant="segment"
+            options={SIDE_OPTIONS}
+            value={side}
+            onChange={(value) => onSideChange(value === "before" ? "before" : "after")}
+          />
+          {ready && (
+            <Button
+              variant="outline"
+              size="xs"
+              data-testid="xray-walk-play"
+              disabled={!steps.length}
+              tooltip={steps.length ? "Step through the picture: observed calls first, then reading order (W)" : ""}
+              onClick={togglePlay}
+              icon={walk?.playing ? <Pause size={14} /> : <Play size={14} />}
+            >
+              {walk ? (walk.playing ? "Pause" : "Play") : "Walk through"}
+            </Button>
+          )}
+        </div>
       </header>
 
-      {xray.status !== "ready" ? (
-        <div className="xr-notice" role="status" data-testid="xray-status">
-          <p>{xray.statusNote}</p>
-          {xray.status === "stale" && (
-            <Button variant="outline" size="xs" onClick={onRebuild} icon={<RefreshCw size={14} />}>Rebuild on this Snapshot</Button>
+      {ready && (
+        <div className="xr-subbar">
+          <ul className="xr-legend" aria-label="How to read the picture" data-testid="xray-legend">
+            <li><span className="xr-glyph" data-tone="added">+</span>added</li>
+            <li><span className="xr-glyph" data-tone="changed">~</span>changed</li>
+            <li><span className="xr-glyph" data-tone="removed">−</span>removed</li>
+            <li><span className="xr-glyph" data-tone="unchanged">=</span>unchanged</li>
+            <li><LineSample line="solid" tone="unchanged" />observed in a run</li>
+            <li><LineSample line="dashed" tone="unchanged" />static</li>
+            {!reduced && inOrder.length > 0 && <li><span className="xr-dot-sample" aria-hidden="true" />recorded order</li>}
+          </ul>
+          {view.caveat && (
+            <p className="xr-caveat" data-testid="xray-caveat" data-observed={view.observed}>
+              <span>{view.caveat.text}</span>
+              {view.caveat.action === "data_path" && onOpenDataPath && (
+                <Button
+                  variant="link"
+                  size="compact"
+                  className="text-caption"
+                  data-testid="xray-caveat-action"
+                  tooltip="The Map's Data path traces sources to sinks in the code. A recorded run of this revision is what makes an arrow solid here."
+                  onClick={onOpenDataPath}
+                >
+                  Trace data on the Map
+                </Button>
+              )}
+            </p>
           )}
-          {xray.status === "absent" && (
+        </div>
+      )}
+
+      {ready && walk && step && (
+        <div className="xr-walk" data-testid="xray-walk" role="group" aria-label="Walkthrough">
+          <Button variant="ghost" size="icon" aria-label="Previous step" disabled={walk.index === 0} onClick={() => setWalk({ index: Math.max(0, walk.index - 1), playing: false })}>
+            <ChevronLeft size={14} />
+          </Button>
+          <span className="xr-walk-count">{`Step ${walk.index + 1} of ${steps.length}`}</span>
+          <span className="xr-walk-label" data-testid="xray-walk-step" data-basis={step.basis} aria-live="polite">{step.label}</span>
+          <Button variant="ghost" size="icon" aria-label="Next step" disabled={walk.index >= steps.length - 1} onClick={() => setWalk({ index: Math.min(steps.length - 1, walk.index + 1), playing: false })}>
+            <ChevronRight size={14} />
+          </Button>
+          <Button variant="ghost" size="compact" onClick={() => setWalk(null)}>Stop</Button>
+        </div>
+      )}
+
+      {!ready ? (
+        <div className="xr-notice" role="status" data-testid="xray-status">
+          <p>{view.statusNote}</p>
+          {view.status === "stale" && (
+            <Button variant="outline" size="xs" onClick={onRebuild} icon={<RefreshCw size={14} />}>Rebuild on this revision</Button>
+          )}
+          {view.status === "absent" && (
             <Button variant="outline" size="xs" onClick={() => onSideChange(side === "before" ? "after" : "before")}>
               {`Show ${side === "before" ? "After" : "Before"}`}
             </Button>
           )}
-          {xray.notMeasured.length > 0 && <NotMeasured xray={xray} />}
+          {diagram.mode === "focus" && view.status !== "stale" && (
+            <Button variant="ghost" size="xs" onClick={() => onRootChange("")} icon={<ArrowLeft size={14} />}>Whole change</Button>
+          )}
+          {diagram.notMeasured.length > 0 && view.status === "not_measured" && <About diagram={diagram} notes={diagram.notMeasured.length} />}
         </div>
       ) : (
-        <div className="xr-body">
-          <div className="xr-path-column">
-            <p className="xr-order" data-testid="xray-order" data-observed={xray.observedLinks}>{xray.orderNote}</p>
-            <ul className="xr-legend" aria-label="How to read the path">
-              <li><span className="xr-glyph" data-tone="added">+</span>added</li>
-              <li><span className="xr-glyph" data-tone="removed">−</span>removed</li>
-              <li><span className="xr-glyph" data-tone="changed">~</span>changed</li>
-              <li><span className="xr-glyph" data-tone="unchanged">=</span>unchanged</li>
-              <li><span className="xr-line" data-order="observed" aria-hidden="true" />observed</li>
-              <li><span className="xr-line" data-order="reachable" aria-hidden="true" />possible/reachable</li>
-              <li><span className="xr-handoff-chip" aria-hidden="true">⇢</span>handoff, not traced</li>
-            </ul>
-            <p className="xr-diff" data-testid="xray-diff">
-              {[
-                `On this path: ${xray.diff.added} added · ${xray.diff.removed} removed · ${xray.diff.changed} changed`,
-                xray.comparison === "measured" && xray.diff.otherSideOnly
-                  ? `${plural(xray.diff.otherSideOnly, "link")} only in ${side === "before" ? "After" : "Before"}`
-                  : "",
-                xray.diff.notCompared
-                  ? `${plural(xray.diff.notCompared, "link")} from these files not compared with the base${side === "before" ? ", so not drawn here" : ""}`
-                  : "",
-                xray.comparison === "not_measured" ? "Before is not measured on this Map" : "",
-              ].filter(Boolean).join(" · ")}
-            </p>
-
-            {xray.consumers.length > 0 && (
-              <>
-                <h4 className="xr-heading">Reached from</h4>
-                <ol className="xr-steps" data-testid="xray-consumers">
-                  {xray.consumers.map((step) => (
-                    <StepRow key={step.key} step={step} selected={selected?.key === step.key} reduced={reduced} onSelect={setSelectedKey} />
+        <div className="xr-body" data-layout={stacked ? "stack" : "canvas"}>
+          <div className="xr-stage" ref={stageRef}>
+            <div className="xr-scroll">
+              {stacked ? <LensStack {...draw} /> : <LensCanvas {...draw} width={width} />}
+            </div>
+            {others.length > 0 && (
+              <section className="xr-other" aria-label="Docs, config and assets in this change" data-testid="xray-other">
+                <h4 className="xr-lane-label">{`Docs, config & assets · ${others.reduce((sum, card) => sum + (card.folded ? card.folded.count : 1), 0)}`}</h4>
+                <ul>
+                  {others.map((card) => (
+                    <li key={card.id}>
+                      <Button
+                        unstyled
+                        className="xr-other-chip"
+                        data-testid="xray-card"
+                        data-card-id={card.id}
+                        data-kind={card.kind}
+                        data-tone={card.kind === "fold" ? "fold" : card.change}
+                        data-selected={shown?.kind === "card" && shown.id === card.id ? "true" : "false"}
+                        tooltip={card.kind === "node" ? card.path : ""}
+                        onClick={() => { setSelection({ kind: "card", id: card.id }); revealPanel(); }}
+                      >
+                        <span className="xr-glyph" data-tone={card.kind === "fold" ? "fold" : card.change} aria-hidden="true">{cardGlyph(card)}</span>
+                        <span>{card.title}</span>
+                      </Button>
+                    </li>
                   ))}
-                </ol>
-              </>
+                </ul>
+              </section>
             )}
-            <h4 className="xr-heading">Path</h4>
-            <ol className="xr-steps" data-testid="xray-steps">
-              {xray.steps.map((step) => (
-                <StepRow key={step.key} step={step} selected={selected?.key === step.key} reduced={reduced} onSelect={setSelectedKey} />
-              ))}
-            </ol>
-            {truncated.length > 0 && (
-              <p className="xr-truncated" data-testid="xray-truncated">{`Not shown: ${truncated.join(" · ")}`}</p>
-            )}
-            {xray.degraded.length > 0 && (
-              <ul className="xr-degraded" data-testid="xray-degraded">
-                {xray.degraded.map((line) => <li key={line}>{line}</li>)}
-              </ul>
-            )}
-            <NotMeasured xray={xray} />
+            <About diagram={diagram} notes={notes} />
           </div>
-          {selected && (
-            <StepDetail
-              step={selected}
-              isRoot={selected.nodeId === xray.rootId}
-              targetsKnown={Boolean(targets)}
-              onOpenSource={onOpenSource}
-              onRootChange={onRootChange}
-              onChallenge={onChallenge && selected.path ? () => onChallenge(selected, xray) : undefined}
-              onOpenEvidence={onOpenEvidence && selected.path ? () => onOpenEvidence(selected.selection) : undefined}
-            />
-          )}
+          <div className="xr-side" ref={panelRef}>
+            {selectedEdge ? (
+              <EdgePanel edge={selectedEdge} view={view} side={side} handlers={handlers} />
+            ) : selectedCard ? (
+              <CardPanel
+                card={selectedCard}
+                diagram={diagram}
+                view={view}
+                side={side}
+                start={!selection && !step && diagram.mode === "change" && selectedCard.id === startCard}
+                targetsKnown={Boolean(targets)}
+                handlers={handlers}
+              />
+            ) : (
+              <aside className="xr-panel" data-testid="xray-detail">
+                <p className="xr-panel-note">Choose a file or an arrow to see what is known about it.</p>
+              </aside>
+            )}
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function NotMeasured({ xray }: { xray: XRayModel }) {
+function About({ diagram, notes }: { diagram: ReturnType<typeof buildChangeLens>; notes: number }) {
   return (
-    <details className="xr-not-measured" data-testid="xray-not-measured">
-      <summary>{`Not measured · ${xray.notMeasured.length}`}</summary>
+    <details className="xr-about" data-testid="xray-not-measured">
+      <summary>{`About this view · ${plural(notes, "note")}`}</summary>
       <ul>
-        {xray.notMeasured.map((item) => (
+        {diagram.notMeasured.map((item) => (
           <li key={item.key} data-key={item.key}>
             <span className="font-medium text-foreground">{item.label}</span>
             <span>{item.reason}</span>
             <span className="xr-needs">{`Needs: ${item.needs}`}</span>
           </li>
         ))}
+        {diagram.degraded.map((line) => <li key={line} data-testid="xray-degraded">{line}</li>)}
+        {diagram.bounded.map((line) => <li key={line} data-testid="xray-truncated">{line}</li>)}
+        <li>Click a file to open its path, an arrow to see its evidence. W walks through; Escape stops.</li>
       </ul>
     </details>
-  );
-}
-
-function StepRow({ step, selected, reduced, onSelect }: { step: XRayStep; selected: boolean; reduced: boolean; onSelect(key: string): void }) {
-  const link = step.link;
-  const motion = link?.animate && !reduced ? "observed" : "still";
-  return (
-    <li
-      className="xr-step"
-      data-testid="xray-step"
-      data-role={step.role}
-      data-tone={step.mark.tone}
-      data-link-tone={link?.mark.tone ?? ""}
-      data-order={link?.order ?? ""}
-      data-motion={motion}
-      style={{
-        paddingLeft: `${Math.max(0, step.depth) * 14}px`,
-        ...(motion === "observed" && link?.sequence ? { animationDelay: `${Math.min(12, link.sequence) * 140}ms` } : {}),
-      }}
-    >
-      <Button
-        unstyled
-        className="xr-step-button"
-        aria-current={selected ? "step" : undefined}
-        onClick={() => onSelect(step.key)}
-      >
-        {link && (
-          <span className="xr-link" data-order={link.order} title={link.orderLabel}>
-            <span className="xr-glyph" data-tone={link.mark.tone} aria-label={`link ${link.mark.label}`}>{link.mark.glyph}</span>
-            {link.handoff && <span className="xr-handoff-chip" aria-label="handoff, not traced">⇢</span>}
-          </span>
-        )}
-        <span className="xr-glyph" data-tone={step.mark.tone} aria-label={`file ${step.mark.label}`}>{step.mark.glyph}</span>
-        <span className="xr-step-title">{step.title}</span>
-        <span className="xr-step-role">{step.roleLabel}</span>
-        {link && (
-          <span className="xr-step-order" data-testid="xray-step-order">
-            {link.order === "observed" ? (link.sequence ? `observed #${link.sequence}` : "observed") : "possible"}
-          </span>
-        )}
-      </Button>
-      {step.exitLabel && <div className="xr-exit" data-exit={step.exit ?? ""}>{step.exitLabel}</div>}
-    </li>
-  );
-}
-
-function StepDetail({
-  step,
-  isRoot,
-  targetsKnown,
-  onOpenSource,
-  onRootChange,
-  onChallenge,
-  onOpenEvidence,
-}: {
-  step: XRayStep;
-  isRoot: boolean;
-  targetsKnown: boolean;
-  onOpenSource(selection: ReviewMapSelection): void;
-  onRootChange(nodeId: string): void;
-  onChallenge?(): void;
-  onOpenEvidence?(): void;
-}) {
-  const link = step.link;
-  const site = link?.site && link.exactness !== "current_index" && link.exactness !== "unknown" && link.selection?.path ? link.site : null;
-  return (
-    <aside className="xr-detail" aria-label="Selected X-Ray step" data-testid="xray-detail" aria-live="polite">
-      <div className="text-micro uppercase tracking-wide text-muted-foreground">{step.roleLabel}</div>
-      <h4 className="break-all text-label font-semibold text-foreground">{step.title}</h4>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Badge tone="neutral" data-testid="xray-detail-change">{`${step.mark.glyph} ${step.mark.label}`}</Badge>
-        <Badge tone={step.exactness === "snapshot" ? "secondary" : "neutral"}>{step.exactnessLabel}</Badge>
-        {step.boundaries.map((boundary) => (
-          <Badge key={boundary.label} tone="neutral" title={boundary.basis === "name" ? "Recognised from the name only" : "The Review Map's boundary tag"}>
-            {boundary.basis === "name" ? `${boundary.label} · from the name` : boundary.label}
-          </Badge>
-        ))}
-      </div>
-      <span className="break-all font-mono text-caption text-subtle" data-testid="xray-detail-location">{step.locationLabel}</span>
-      <div className="flex flex-wrap gap-1.5">
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={!step.canOpenSource}
-          tooltip={step.canOpenSource ? "" : "Only Snapshot source opens from here; this file is context from the current index."}
-          onClick={() => onOpenSource(step.selection)}
-          icon={<ExternalLink size={14} />}
-        >
-          Open source
-        </Button>
-        {!isRoot && (
-          <Button variant="ghost" size="xs" onClick={() => onRootChange(step.nodeId)} icon={<ScanSearch size={14} />}>
-            X-Ray from here
-          </Button>
-        )}
-        {onChallenge && (
-          <Button variant="ghost" size="xs" onClick={onChallenge}>Challenge</Button>
-        )}
-      </div>
-
-      {link && (
-        <div className="xr-detail-link" data-testid="xray-detail-link" data-order={link.order}>
-          <span className="text-label text-foreground">{link.sentence}</span>
-          <span className="text-muted-foreground">
-            {`Link ${link.mark.label}${link.weights && link.change === "changed" ? ` · ${link.weights.base} → ${link.weights.head} references` : ""} · ${link.exactnessLabel}`}
-          </span>
-          <span className={link.order === "observed" ? "text-emerald-300/90" : "text-muted-foreground"} data-testid="xray-detail-order">{link.orderLabel}</span>
-          {link.handoff && (
-            <span className="text-amber-300/90" data-testid="xray-detail-handoff">
-              {`⇢ ${link.handoff.label}, recognised from the name. Not a direct call: what runs after it is not traced.`}
-            </span>
-          )}
-          {link.landsOn.length > 0 && <span className="font-mono text-subtle">{`Lands on ${link.landsOn.join(", ")}`}</span>}
-          {site && (
-            <Button variant="link" size="compact" className="h-auto self-start p-0 font-mono text-caption" onClick={() => onOpenSource(link.selection)}>
-              {`${site.path}:${site.line}`}
-            </Button>
-          )}
-          {link.trace && (
-            <span className="break-all font-mono text-subtle" data-testid="xray-detail-trace" title={link.trace.recordId || link.trace.evidenceRef}>
-              {`Trace: ${link.trace.callerFn} → ${link.trace.calleeFn} (${link.trace.side}${link.trace.recipe ? ` · ${link.trace.recipe}` : ""}) · ${link.trace.evidenceRef}`}
-            </span>
-          )}
-          {link.trace && onOpenEvidence && (
-            <Button variant="link" size="compact" className="h-auto self-start p-0 text-caption" data-testid="xray-detail-evidence" onClick={onOpenEvidence}>
-              See the recorded run
-            </Button>
-          )}
-        </div>
-      )}
-
-      {step.errorHints.length > 0 && (
-        <div className="text-caption" data-testid="xray-detail-errors">
-          <h5 className="text-micro uppercase tracking-wide text-muted-foreground">Error-handling sites</h5>
-          <ul>
-            {step.errorHints.map((hint) => (
-              <li key={hint.name} className="font-mono text-subtle">
-                {hint.name}
-                <span className="font-sans text-muted-foreground">{hint.basis === "trace" ? " · called in a recorded run" : " · from the name; branch not analysed"}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="text-caption" data-testid="xray-detail-checks">
-        <h5 className="text-micro uppercase tracking-wide text-muted-foreground">Checks linked to this file</h5>
-        {step.checks ? (
-          <span className={step.checks.tone}>{`${step.checks.words.join(" · ")} · across ${plural(step.checks.targets, "review target")}`}</span>
-        ) : targetsKnown ? (
-          <span className="text-amber-300/90">No recorded check is linked to this file. That is not a pass.</span>
-        ) : (
-          <span className="text-muted-foreground">Check links are not available here.</span>
-        )}
-      </div>
-    </aside>
   );
 }

@@ -127,12 +127,12 @@ def fast_lane_decision(
     """Whether this Snapshot's plan may skip the broad AI pass; every blocker is named."""
 
     if trigger != "push":
-        return FastLaneDecision(False, ("the Review opened on this Snapshot",))
+        return FastLaneDecision(False, ("the Review opened on this revision",))
     blockers: list[str] = []
     if signals is None or not signals.prior_snapshot_id:
-        blockers.append("no earlier Snapshot plan to build on")
+        blockers.append("no earlier revision plan to build on")
     elif not signals.prior_broad_pass:
-        blockers.append("the previous Snapshot's plan did not run the broad AI pass")
+        blockers.append("the previous revision's plan did not run the broad AI pass")
     if selection_source != "preset" or base not in FAST_LANE_PRESETS:
         blockers.append(f"depth {base} ({selection_source}) asks for the full plan")
     if ai_mode == "always":
@@ -153,7 +153,7 @@ def fast_lane_decision(
     return FastLaneDecision(
         True,
         (
-            "push with no risk signal, sensitive path or depth floor; the previous Snapshot ran the broad AI "
+            "push with no risk signal, sensitive path or depth floor; the previous revision ran the broad AI "
             "pass, so deterministic checks run and the broad AI pass waits for escalation",
         ),
     )

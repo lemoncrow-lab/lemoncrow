@@ -564,13 +564,18 @@ def test_mark_state_choices_match_the_model() -> None:
     assert _MARK_STATE_CHOICES == MARK_STATES
 
 
+# The plain block a tracked capture prints: one headline in the Reader's words, then the URL.
+_HEADLINE = re.compile(r"^Revision \d+ · \d+ files? · \d+ parts? · \d+ reviewed$", re.MULTILINE)
+_REVIEW_URL = re.compile(r"^Review  (?P<url>\S+/(?P<ref>r/\S+))$", re.MULTILINE)
+
+
 def test_bare_review_does_not_persist_anything(tmp_path: Path) -> None:
     """Constraint 6: ``lc review`` with no flags is what it always was."""
 
     repo_root = _fixture_repo(tmp_path)
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1"])
     assert result.exit_code == 0, result.output
-    assert "REVIEW SESSION" not in result.output
+    assert _HEADLINE.search(result.output) is None
     assert not (tmp_path / "store" / "lemoncrow_reviews.db").exists()
 
 
@@ -578,12 +583,200 @@ def test_track_records_a_session_and_reopens_it_on_the_next_run(tmp_path: Path) 
     repo_root = _fixture_repo(tmp_path)
     first = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--track"])
     assert first.exit_code == 0, first.output
-    assert "REVIEW SESSION" in first.output
+    assert _HEADLINE.search(first.output), first.output
 
-    review_id = first.output.split("REVIEW SESSION")[1].split()[0]
+    found = _REVIEW_URL.search(first.output)
+    assert found, first.output
     second = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--track"])
-    assert review_id in second.output
-    assert "Revision 0" in second.output
+    assert found["ref"] in second.output
+    assert "Revision 1 · " in second.output
+
+
+def test_a_tracked_capture_prints_a_plain_summary_and_keeps_raw_details_in_json(tmp_path: Path) -> None:
+    """One headline in the Reader's words ("parts", Revision counted from 1), then the URL.
+
+    Raw unit counts, unit kinds, the Revision id and the range mode are internal: they stay in ``--json``.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    text = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--no-color"])
+    assert text.exit_code == 0, text.output
+    headline = _HEADLINE.search(text.output)
+    assert headline, text.output
+    assert headline.group(0).startswith("Revision 1 · 1 file · ")
+    assert headline.group(0).endswith(" · 0 reviewed")
+    after = text.output[headline.end() :]
+    assert _REVIEW_URL.search(after), text.output
+    for jargon in (
+        "REVIEW SESSION",
+        "checkpoint rr/",
+        " raw",
+        "document_section",
+        "review areas",
+        "changed target",
+        "working_tree)",
+    ):
+        assert jargon not in text.output, jargon
+
+    as_json = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--json"])
+    state = json.loads(as_json.stderr.strip().splitlines()[-1])
+    assert state["revision_number"] == 0
+    assert state["revision_id"].startswith("rr/")
+    assert state["range_mode"] == "working_tree"
+    assert state["unit_count"] >= state["target_count"] > 1
+    assert state["unit_kinds"]["file"] == state["file_count"] == 1
+
+
+def test_review_help_fits_one_screen_and_help_all_shows_everything(tmp_path: Path) -> None:
+    runner = CliRunner()
+    short = runner.invoke(cli, ["review", "--help"], catch_exceptions=False)
+    assert short.exit_code == 0, short.output
+    lines = short.output.splitlines()
+    assert len(lines) <= 45, short.output
+    for shown in ("--staged", "--json", "--no-open", "--repo-root", "--ai", "--help-all", "status [--json]"):
+        assert shown in short.output, shown
+    for example in ("lc review main...HEAD", "lc review status --json", "lc review --feedback", "--on src/auth.py:L81"):
+        assert example in short.output, example
+    for advanced in ("--mark-state", "--since-my-review", "--max-usd-per-pr", "--reproduce", "verify-record"):
+        assert advanced not in short.output, advanced
+
+    full = runner.invoke(cli, ["review", "--help-all"], catch_exceptions=False)
+    assert full.exit_code == 0, full.output
+    for advanced in ("--mark-state", "--since-my-review", "--max-usd-per-pr", "--reproduce", "verify-record"):
+        assert advanced in full.output, advanced
+    assert "--serve-workspace" not in full.output
+    # Showing everything once must not leave the options visible for the next --help.
+    again = runner.invoke(cli, ["review", "--help"], catch_exceptions=False)
+    assert again.output == short.output
+
+
+def test_status_reports_the_current_review_with_documented_exit_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    none = _invoke(tmp_path, ["status", "--repo-root", str(repo_root)], suppress_default_open=False)
+    assert none.exit_code == 2, none.output
+    assert "No Review found" in none.output
+    none_json = _invoke(tmp_path, ["status", "--repo-root", str(repo_root), "--json"], suppress_default_open=False)
+    assert none_json.exit_code == 2
+    assert json.loads(none_json.stdout)["state"] == "no_review"
+
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    tracked = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track"])
+    assert tracked.exit_code == 0, tracked.output
+    _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--comment", "why 3?", "--on", "src/app.py:L5"],
+    )
+    ref = _REVIEW_URL.search(tracked.output)
+    assert ref, tracked.output
+
+    text = _invoke(tmp_path, ["status", "--repo-root", str(repo_root)], suppress_default_open=False)
+    assert text.exit_code == 1, text.output
+    assert re.search(rf"^Review +{re.escape(ref['ref'])} · open$", text.output, re.MULTILINE), text.output
+    assert re.search(r"^Revision +1$", text.output, re.MULTILINE), text.output
+    assert re.search(r"^Reviewed +0 of \d+ parts$", text.output, re.MULTILINE), text.output
+    # One Risk and one Understanding line, in the Brief's words.
+    assert re.search(r"^Risk +(High|Medium|Low|Not measured) · \S", text.output, re.MULTILINE), text.output
+    assert re.search(r"^Understanding +0 of \d+ (risky )?parts? reviewed$", text.output, re.MULTILINE), text.output
+    assert re.search(r"^Comments +1 unresolved", text.output, re.MULTILINE), text.output
+    assert re.split(r" +", text.output.splitlines()[-1], maxsplit=1) == ["Reader", ref["url"]]
+
+    as_json = _invoke(tmp_path, ["status", "--repo-root", str(repo_root), "--json"], suppress_default_open=False)
+    assert as_json.exit_code == 1
+    status = json.loads(as_json.stdout)
+    assert status["state"] == "not_ready" and status["exit_code"] == 1
+    assert status["review"]["ref"] == ref["ref"]
+    assert status["revision"]["number"] == 0 and status["revision"]["label"] == "Revision 1"
+    assert status["targets"]["total"] > 1 and status["targets"]["reviewed"] == 0
+    assert status["comments"]["unresolved"] == 1
+    assert set(status["feedback"]) == {"unsent", "in_flight", "sent", "addressed"}
+    assert status["work_remains"] is True
+    assert status["reader_url"] == ref["url"]
+    assert isinstance(status["readiness"]["actions"], list)
+    assert status["risk"]["level"] in {"high", "medium", "low", "not_measured"}
+    assert status["understanding"]["reviewed"] == 0 and status["understanding"]["text"].endswith("reviewed")
+
+    named = _invoke(tmp_path, ["status", "--review", ref["ref"], "--json"], suppress_default_open=False)
+    assert json.loads(named.stdout)["review"]["ref"] == ref["ref"]
+
+    usage = _invoke(tmp_path, ["status", "--bogus"], suppress_default_open=False)
+    assert usage.exit_code == 3, usage.output
+    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:9")
+    down = _invoke(tmp_path, ["status", "--repo-root", str(repo_root), "--json"], suppress_default_open=False)
+    assert down.exit_code == 3, down.output
+    assert json.loads(down.stdout)["state"] == "error"
+
+
+def test_status_exit_codes_and_vocabularies_are_one_list() -> None:
+    from lemoncrow_client import review_terminal
+
+    from lemoncrow.core.foundation.paths import AGENT_SESSION_ENVS
+    from lemoncrow.gateway.cli.commands import review_status_cli
+    from lemoncrow.pro.capabilities.review.session_models import ANNOTATION_KINDS, MARK_STATES
+
+    assert review_status_cli._EXIT_ERROR == review_terminal.EXIT_ERROR
+    assert (review_terminal.EXIT_READY, review_terminal.EXIT_NOT_READY, review_terminal.EXIT_NO_REVIEW) == (0, 1, 2)
+    assert review_terminal.MARK_STATES == MARK_STATES
+    assert review_terminal.ANNOTATION_KINDS == ANNOTATION_KINDS
+    assert review_terminal.AGENT_SESSION_ENVS == AGENT_SESSION_ENVS
+
+
+def test_the_installed_client_runs_the_mark_comment_feedback_loop_and_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stdlib client (the installed ``lc``) runs the scriptable loop against the same server as the full CLI."""
+
+    from io import StringIO
+
+    from lemoncrow_client.review import review_main
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    monkeypatch.chdir(repo_root)
+    # The same repository identity `_invoke` gives the full CLI.
+    monkeypatch.setenv("LEMONCROW_SCM_PROVIDER", "fixture")
+    monkeypatch.setenv(
+        "LEMONCROW_SCM_REPO_ID", hashlib.sha256(str(tmp_path.resolve()).encode("utf-8")).hexdigest()[:24]
+    )
+    for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID"):
+        monkeypatch.delenv(name, raising=False)
+
+    def thin(*arguments: str) -> tuple[int, str]:
+        sink = StringIO()
+        code = review_main(list(arguments), sink=sink)
+        return code, sink.getvalue()
+
+    code, out = thin("--working-tree", "--mark", "src/app.py::two", "--no-open")
+    assert code == 0, out
+    assert _HEADLINE.search(out) and " · 1 reviewed" in out, out
+    code, out = thin(
+        "--working-tree", "--comment", "why 3?", "--on", "src/app.py:L5", "--comment-kind", "request_change"
+    )
+    assert code == 0, out
+    assert "COMMENT RECORDED" in out and "src/app.py:L5" in out
+    code, out = thin("--working-tree", "--feedback")
+    assert code == 0, out
+    assert "FEEDBACK BUNDLE" in out and "why 3?" in out
+    code, out = thin("--working-tree", "--marks", "--json")
+    assert code == 0, out
+    document = json.loads(out.splitlines()[-1])
+    assert [mark["label"] for mark in document["state"]["marks"]] == ["src/app.py::two"]
+
+    code, out = thin("status", "--json")
+    assert code == 1, out
+    status = json.loads(out)
+    assert status["targets"]["reviewed"] == 1 and status["comments"]["unresolved"] == 1
+    full = _invoke(tmp_path, ["status", "--json"], suppress_default_open=False)
+    assert json.loads(full.stdout)["review"] == status["review"]
+
+    # Human judgment stays the human's: the agent's own shell may capture and read, never mark or comment.
+    monkeypatch.setenv("CLAUDECODE", "1")
+    code, out = thin("--working-tree", "--mark", "src/app.py")
+    assert code == 2 and "inside an agent session" in out, out
+    code, out = thin("--working-tree", "--feedback", "--no-open")
+    assert code == 0, out
 
 
 def test_marks_made_in_one_invocation_are_visible_in_the_next(tmp_path: Path) -> None:
@@ -603,7 +796,7 @@ def test_a_mark_target_that_matches_nothing_fails_loudly(tmp_path: Path) -> None
     repo_root = _fixture_repo(tmp_path)
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--mark", "src/never.py"])
     assert result.exit_code != 0
-    assert "no review area matches" in result.output
+    assert "no part matches" in result.output
     assert "Traceback" not in result.output
 
 
@@ -664,6 +857,54 @@ def test_marking_by_path_moves_the_target_counters(tmp_path: Path) -> None:
     assert closure["unreviewed_targets"] == 0, closure
 
 
+def test_marking_a_part_later_records_it_unjudged_and_says_it_is_left_for_later(tmp_path: Path) -> None:
+    """`--mark-state later`: counted apart from reviewed, still open at finish, never "nothing outstanding"."""
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    marked = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--mark-state", "later", "--finish", "--json"])
+    assert marked.exit_code == 0, marked.output
+    state = json.loads(marked.stderr.strip().splitlines()[-1])
+    progress = state["target_progress"]
+    assert progress["later"] == progress["target_count"] > 1, progress
+    assert (progress["reviewed"], progress["unreviewed"], progress["needs_changes"]) == (0, 0, 0), progress
+    assert state["stale_marks"] == 0
+    assert set(state["mark_counts"]) == {"later"}
+    closure = state["closure"]
+    assert closure["later_targets"] == closure["target_count"], closure
+    assert (closure["reviewed_targets"], closure["unreviewed_targets"]) == (0, 0), closure
+
+    # The plain output says so in words, and does not claim the review is done.
+    plain = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--mark-state", "later", "--finish"])
+    assert plain.exit_code == 0, plain.output
+    assert " · 0 reviewed" in plain.output
+    assert "left for later" in plain.output
+    assert "nothing outstanding" not in plain.output
+
+    # A later part is judged by marking it: the state moves out of `later`.
+    judged = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--json"])
+    assert judged.exit_code == 0, judged.output
+    after = json.loads(judged.stderr.strip().splitlines()[-1])["target_progress"]
+    assert (after["later"], after["reviewed"]) == (0, after["target_count"])
+
+
+def test_content_moving_under_a_part_left_for_later_makes_nothing_stale(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    marked = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--mark-state", "later", "--json"])
+    assert marked.exit_code == 0, marked.output
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS + "\n\ndef four():\n    return 5\n", encoding="utf-8")
+    moved = _invoke(tmp_path, [*base, "--marks", "--json"])
+    assert moved.exit_code == 0, moved.output
+    state = json.loads(moved.stderr.strip().splitlines()[-1])
+    assert state["stale_marks"] == 0
+    assert state["mark_counts"] == {"later": state["mark_counts"]["later"]} and state["mark_counts"]["later"] > 0
+    assert {mark["content"] for mark in state["marks"]} == {"same"}
+
+
 def test_a_path_mark_names_the_targets_it_landed_on(tmp_path: Path) -> None:
     """Reader spec §29.3: a bare path must not silently mark the whole file.
 
@@ -678,7 +919,7 @@ def test_a_path_mark_names_the_targets_it_landed_on(tmp_path: Path) -> None:
 
     result = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--json"])
     assert result.exit_code == 0, result.output
-    assert "src/app.py: recorded on 3 review targets" in result.output
+    assert "src/app.py: recorded on 3 parts" in result.output
     assert "src/app.py::two" in result.output
     assert "src/app.py::three" in result.output
     assert "src/app.py#0" in result.output
@@ -816,9 +1057,24 @@ def test_since_my_review_names_only_what_the_agent_rewrote(tmp_path: Path) -> No
     assert "src/app.py" in block.split("UNCHANGED REVIEWED")[0]
     assert "src/other.py" not in block.split("UNCHANGED REVIEWED")[0]
     assert "UNCHANGED REVIEWED" in after.output
-    assert "SINCE MY REVIEW  Revision 1  (you last saw Revision 0)" in after.output
+    assert "SINCE MY REVIEW  Revision 2  (you last saw Revision 1)" in after.output
     assert "judgment still valid — nothing to re-read" in after.output
     assert "SINCE MY REVIEW  revision" not in after.output
+
+
+def test_since_my_review_before_any_mark_lists_everything_as_not_reviewed_yet() -> None:
+    """With no last review there is no "new since" it: one honest bucket, not "new 7 / not yet reviewed 0"."""
+
+    from lemoncrow_client.review_terminal import render_frontier
+
+    frontier = {"new": [{"label": "src/app.py"}, {"label": "src/app.py::one"}], "not_yet_reviewed": 1}
+    text = "\n".join(render_frontier(frontier, {"revision_number": 0}))
+
+    assert "SINCE MY REVIEW  Revision 1  (nothing reviewed yet)" in text
+    assert "  not yet reviewed         3" in text
+    assert "NOT REVIEWED YET  (2)" in text
+    assert "NEW SINCE MY LAST REVIEW" not in text
+    assert "changed since my review" not in text
 
 
 def test_since_my_review_reaches_json_consumers_on_stderr(tmp_path: Path) -> None:
@@ -894,6 +1150,7 @@ def test_browser_launcher_never_falls_back_to_links(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("LEMONCROW_NO_BROWSER", raising=False)
     import shutil
     import subprocess
+    import sys
 
     from lemoncrow.gateway.cli.commands import review as review_command
 
@@ -902,6 +1159,7 @@ def test_browser_launcher_never_falls_back_to_links(monkeypatch: pytest.MonkeyPa
     class _Proc:
         pass
 
+    monkeypatch.setattr(sys, "platform", "linux")  # the xdg-open path, on any machine running the test
     monkeypatch.setenv("DISPLAY", ":99")
     monkeypatch.setenv("BROWSER", "links")
     monkeypatch.setattr(
@@ -960,7 +1218,7 @@ def test_existing_review_can_be_listed_and_shown_by_id_without_recapturing(tmp_p
     shown = _invoke(tmp_path, ["--show-review", review_id])
     assert shown.exit_code == 0, shown.output
     assert review_id in shown.output
-    assert "Revision 0" in shown.output
+    assert "Revision 1" in shown.output
     assert f"Revisions   {revision_count}" in shown.output
     after = _invoke(tmp_path, ["--show-review", review_id, "--json"])
     assert json.loads(after.output)["revision_count"] == revision_count
@@ -1131,7 +1389,7 @@ def test_open_reports_meaningful_preparation_progress(tmp_path: Path, monkeypatc
     assert result.exit_code == 0, result.output
     assert "Preparing review…" in result.stderr
     assert "Reading changed files and diff" in result.stderr
-    assert "Loading exact old/new source snapshots" in result.stderr
+    assert "Loading exact old/new source revisions" in result.stderr
     assert "Analyzing callers and change impact in background" not in result.stderr
     assert "Correlating author context in background" not in result.stderr
     assert "Remaining Review context continues in background" in result.stderr
@@ -1141,12 +1399,12 @@ def test_open_reports_meaningful_preparation_progress(tmp_path: Path, monkeypatc
     # A first open publishes a new Review (a later open reports "Creating new snapshot").
     assert "Publishing new review" in result.stderr
     assert "Opening Review Reader" in result.stderr
-    assert "Freezing current snapshot" not in result.stderr
-    assert "Freezing base snapshot in background" not in result.stderr
-    assert "Base snapshot attached" not in result.stderr
+    assert "Freezing current revision" not in result.stderr
+    assert "Freezing base revision in background" not in result.stderr
+    assert "Base revision attached" not in result.stderr
     assert "Loading durable review state" not in result.stderr
     assert "Loading review overview" in result.stderr
-    assert "Loading review targets and marks" in result.stderr
+    assert "Loading parts and marks" in result.stderr
     assert "Loading review comments" in result.stderr
     assert "Review Reader opened" in result.stderr
     assert result.stderr.index("Review Reader opened") < result.stderr.index(
@@ -1189,7 +1447,7 @@ def test_working_tree_review_keeps_other_files_when_assets_are_oversized(
     assert result.exit_code == 0, result.output
     assert "Review Reader opened" in result.stderr
     assert "Remaining Review context continues in background" in result.stderr
-    assert "Base snapshot attached" not in result.stderr
+    assert "Base revision attached" not in result.stderr
 
 
 def test_warm_open_starts_progress_before_reusing_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1219,7 +1477,7 @@ def test_warm_open_starts_progress_before_reusing_packet(tmp_path: Path, monkeyp
     assert opened[0] != first_preparation_url
     assert "Opening Review Reader" in second.stderr
     # The warm path reuses the prepared diff instead of re-reading it.
-    reused = "Prepared diff, source snapshots, and Review targets reused"
+    reused = "Prepared diff, source revisions, and parts reused"
     assert reused in second.stderr
     assert "Reading changed files and diff" not in second.stderr
     assert second.stderr.index("Opening Review Reader") < second.stderr.index(reused)
@@ -1329,6 +1587,7 @@ def test_review_intent_flags_record_linked_intent_after_publishing(
         review_id="r1",
         review_url="http://127.0.0.1:7420/r/1",
         canonical_url="http://127.0.0.1:7420/r/1",
+        pending=(),
         response={"review": {"title": "t"}, "revision": {"id": "rev1", "revision_number": 2}},
     )
     requests: list[tuple[str, str, Any]] = []
@@ -1377,7 +1636,63 @@ def test_review_intent_flags_record_linked_intent_after_publishing(
         refused = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", *bad])
         assert refused.exit_code != 0, bad
     combined = _invoke(tmp_path, ["--repo-root", str(repo_root), "--list-reviews", "--intent", "issue:#1"])
-    assert combined.exit_code != 0 and "require a Snapshot capture" in combined.output
+    assert combined.exit_code != 0 and "require a revision capture" in combined.output
+
+
+def test_review_reports_background_passes_as_pending_in_text_and_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pass handed to the background is pending, never `*_disabled` or `unknown`."""
+
+    from types import SimpleNamespace
+
+    from lemoncrow.gateway.cli.commands import review as review_mod
+    from lemoncrow.pro.capabilities.review import hosted as hosted_mod
+    from lemoncrow.pro.capabilities.review.models import SCHEMA_VERSION, ChangedFile, ReviewPacket
+
+    repo_root = _fixture_repo(tmp_path)
+    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
+    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
+    packet = ReviewPacket(
+        schema_version=SCHEMA_VERSION,
+        generated_at="2026-09-07T12:00:00+00:00",
+        repo_root=str(repo_root),
+        range_mode="working_tree",
+        base_rev="HEAD",
+        head_rev="WORKDIR",
+        base_sha="a" * 40,
+        head_sha="",
+        title="working tree",
+        files=(ChangedFile(path="lib/cache.ts", old_path=None, status="added"),),
+        degraded=("impact_disabled", "non_definition_symbols", "provenance_disabled"),
+    )
+    captured = SimpleNamespace(
+        build=SimpleNamespace(packet=packet),
+        review_id="r1",
+        review_url="http://127.0.0.1:7420/r/1",
+        canonical_url="http://127.0.0.1:7420/r/1",
+        response={"review": {"title": "t"}, "revision": {"id": "rev1", "revision_number": 1}},
+        pending=("impact", "provenance"),
+    )
+    (repo_root / "cache.ts").write_text("export const ttl = 60;\n", encoding="utf-8")
+    monkeypatch.setattr(hosted_mod, "capture_server_review", lambda *args, **kwargs: captured)
+    monkeypatch.setattr(hosted_mod, "server_review_request", lambda *args, **kwargs: {})
+    monkeypatch.setattr(review_mod, "_server_terminal_state", lambda *args, **kwargs: {})
+    monkeypatch.setattr(review_mod, "_render_state", lambda state: "")
+    monkeypatch.setattr(review_mod, "_open_server_review", lambda *args, **kwargs: None)
+
+    text = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--no-color"])
+    assert text.exit_code == 0, text.output
+    assert "Generated with: still preparing, continues in the Reader" in text.stdout
+    assert "Map and caller impact and author attribution: still preparing, continues in the Reader" in text.stdout
+    assert "provenance not collected" not in text.stdout
+    assert "_disabled" not in text.stdout
+
+    as_json = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    payload = json.loads(as_json.stdout)
+    assert payload["pending"] == ["impact", "provenance"]
+    assert payload["degraded"] == ["non_definition_symbols"]
 
 
 def test_review_title_that_the_server_did_not_apply_is_reported(
@@ -1408,6 +1723,7 @@ def test_review_title_that_the_server_did_not_apply_is_reported(
                 review_id="r1",
                 review_url="http://127.0.0.1:7420/r/1",
                 canonical_url="http://127.0.0.1:7420/r/1",
+                pending=(),
                 response={"review": review, "revision": {"id": "rev1", "revision_number": 2}},
             )
             case_monkeypatch.setattr(
@@ -1423,7 +1739,7 @@ def test_review_title_that_the_server_did_not_apply_is_reported(
                 arguments += ["--check", "lint", "--run", "true"]
             result = _invoke(case_tmp_path, arguments)
             assert result.exit_code == 0, result.output
-            note = f'''--title was not applied; the Review this Snapshot joined keeps the title "{review["title"]}"'''
+            note = f'''--title was not applied; the Review this revision joined keeps the title "{review["title"]}"'''
             assert (note in result.stderr) is noted
 
 
@@ -1651,7 +1967,7 @@ def test_comment_records_an_anchored_comment_and_says_where(tmp_path: Path) -> N
     assert "COMMENT RECORDED" in result.output
     assert "request_change" in result.output
     assert "src/app.py:L2" in result.output
-    assert "comments 1 open" in result.output
+    assert "Comments  1 open" in result.output
     assert "not anchored" not in result.output
 
 
@@ -1665,7 +1981,7 @@ def test_comments_lists_what_is_stored_with_its_anchor(tmp_path: Path) -> None:
 
     listed = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--comments"])
     assert listed.exit_code == 0, listed.output
-    assert "ANNOTATIONS" in listed.output
+    assert "COMMENTS" in listed.output
     assert "why 3?" in listed.output
     assert "src/app.py:L2" in listed.output
 
@@ -1678,7 +1994,7 @@ def test_comments_on_a_review_with_none_says_so(tmp_path: Path) -> None:
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--comments"])
 
     assert result.exit_code == 0, result.output
-    assert "ANNOTATIONS" in result.output
+    assert "COMMENTS" in result.output
     assert "none recorded" in result.output
 
 
@@ -2401,3 +2717,24 @@ def test_review_new_and_continue_forward_explicit_lifecycle_controls(
     )
     assert invalid.exit_code != 0
     assert "mutually exclusive" in invalid.output
+
+
+def test_no_browser_mode_takes_the_paired_hand_open_path(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow.gateway.cli.commands import review as review_command
+    from lemoncrow.pro.capabilities.review import hosted as hosted_mod
+
+    monkeypatch.setenv("LEMONCROW_NO_BROWSER", "1")
+    url = "http://127.0.0.1:7420/r/deadbeef"
+    assert review_command._launch_browser_url(url) is False
+
+    monkeypatch.setattr(hosted_mod, "pair_local_review_browser", lambda _config, _path: {"expires_in": 60})
+    config = SimpleNamespace(hosted=False, token="machine-token")
+    assert review_command._open_server_review(url, config=config, review_id="deadbeef", open_browser=True) is False
+
+    captured = capsys.readouterr()
+    assert f"Open {url} within 60 seconds" in captured.err
+    assert url not in captured.out

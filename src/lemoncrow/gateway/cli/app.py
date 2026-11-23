@@ -114,7 +114,7 @@ class ProductShellGroup(click.Group):
                 raise
             raise style.Redirect(
                 f"No such command '{name}'.",
-                "It is a Runtime command:",
+                "It is a Workspaces command:",
                 " ".join(["lc", "rt", *args]),
                 ctx=error.ctx,
             ) from None
@@ -161,7 +161,7 @@ _ORIENTATION: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         "Work",
         (
             ("lc review", "Review the current change (shortcut: lcr)"),
-            ("lc code", "Code with LemonCrow's Hosted coding agent"),
+            ("lc code", "Reserved for the Hosted coding agent; not available yet"),
             ("lc rt map", "Browse this repository's code: folders, symbols, imports"),
             ("lc session", "Cost and savings for each agent session"),
             ("lc rt dashboard", "Spend and savings over the last 7 days"),
@@ -173,7 +173,7 @@ _ORIENTATION: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         "Set up",
         (
             ("lc status", "What is installed and enabled"),
-            ("lc rt", "Runtime: LemonCrow's tools inside your coding agents"),
+            ("lc rt", "Workspaces: LemonCrow's tools inside your coding agents"),
             ("lc doctor", "Check this installation"),
         ),
     ),
@@ -286,7 +286,22 @@ def main() -> None:
 
         raise SystemExit(review_main(sys.argv[1:], sink=sys.stdout))
 
-    argv = _argv_for_program(Path(sys.argv[0]).name, sys.argv[1:])
+    # The terminal verbs belong to the Review client; the Click command would read each one as a revision.
+    program = Path(sys.argv[0]).name
+    review_arguments = (
+        sys.argv[1:]
+        if program == "lcr"
+        else sys.argv[2:] if program in {"lc", "lemoncrow"} and sys.argv[1:2] == ["review"] else []
+    )
+    if review_arguments:
+        from lemoncrow_client.review_verbs import VERBS
+
+        if review_arguments[0] in VERBS:
+            from lemoncrow_client.review import review_main
+
+            raise SystemExit(review_main(review_arguments, sink=sys.stdout))
+
+    argv = _argv_for_program(program, sys.argv[1:])
 
     if argv[:1] == ["dev"]:
         # Development/MCP bootstrap must not record a run in installed state.

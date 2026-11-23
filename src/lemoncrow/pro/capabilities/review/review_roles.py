@@ -235,9 +235,50 @@ def _role_for(path: str, attrs: Mapping[str, str]) -> tuple[ReviewRole, ReviewRo
         role = _normalize_explicit_role(attrs.get(key, ""))
         if role is not None:
             return role, "gitattributes"
-    if attrs.get("linguist-generated") == "set":
+    if attrs.get("linguist-generated") in _TRUE_ATTRIBUTE:
         return "generated", "gitattributes"
     return infer_review_role(path), "inferred"
+
+
+_ATTRIBUTE_CHUNK = 1000
+#: What ``git check-attr`` prints for ``linguist-generated`` and ``linguist-generated=true``. ``false``, ``unset``
+#: (``-linguist-generated``) and anything else do not mark a file.
+_TRUE_ATTRIBUTE = frozenset({"set", "true"})
+
+
+def marked_generated_paths(
+    repo_root: str, base_sha: str, files: Sequence[tuple[str, str | None, str]]
+) -> frozenset[str]:
+    """The changed paths the trusted base marks generated (``linguist-generated`` or an explicit role).
+
+    *files* are ``(path, old_path, status)``. The one fact the ``generated_files`` accepted-by-rule rule needs,
+    and it is only ever true of a file that **existed at the trusted base and was marked there under the name
+    it had then**, and, if renamed, is marked under its new name too: a new file, a copy, or a file renamed into
+    or out of a marked directory is not accepted, so a change cannot get a file accepted by naming it. Read from the trusted base's ``.gitattributes`` only, never from the
+    change under review. The trusted base is the Snapshot's base commit, the same commit repository policy
+    (``.lemoncrow/review.yaml``) is read from for a local capture. Anything unreadable gives nothing: the file
+    stays a quick check rather than being accepted without evidence. Paths go to Git in chunks so a large
+    change never overruns the argument limit.
+    """
+
+    # changed path -> the base-side paths that must ALL be marked. A renamed file needs both its old and its
+    # new name marked, so it can be neither moved into a marked directory nor out of one carrying new code.
+    needs: dict[str, tuple[str, ...]] = {}
+    for path, old_path, status in files:
+        if status in ("modified", "deleted"):
+            needs[path] = (path,)
+        elif status == "renamed" and old_path:
+            needs[path] = (old_path, path)
+    base_paths = sorted({name for names in needs.values() for name in names})
+    marked: set[str] = set()
+    # lc-debt: one `git read-tree` per chunk of paths on every capture; cache by (repo, base_sha) if captures of big
+    # repositories show it. A read that fails or times out marks nothing, which only ever asks a person more.
+    for start in range(0, len(base_paths), _ATTRIBUTE_CHUNK):
+        attributes, _known = _trusted_base_attributes(repo_root, base_sha, base_paths[start : start + _ATTRIBUTE_CHUNK])
+        marked.update(
+            path for path, attrs in attributes.items() if _role_for(path, attrs) == ("generated", "gitattributes")
+        )
+    return frozenset(path for path, names in needs.items() if all(name in marked for name in names))
 
 
 def review_material_projection(

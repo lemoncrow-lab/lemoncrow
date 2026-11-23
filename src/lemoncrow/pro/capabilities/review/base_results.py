@@ -43,10 +43,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult
 from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
 from lemoncrow.pro.capabilities.review.store import DerivedResult
 from lemoncrow.pro.capabilities.review.test_impact import IMPACT_MAP_KIND, IMPACT_MAP_VERSION, ImpactMap
+from lemoncrow.pro.environment.execution import ExecutionResult
 
 BASE_RESULT_KIND: Final[str] = "base_result"
 _STAMP: Final[str] = "v1"
@@ -195,7 +195,7 @@ def publish_shared_base(
     if refusal:
         return refusal
     if evidence.review_id != review_id or evidence.revision_id != revision_id or not evidence.content_hash:
-        return "the evidence is not this Snapshot's"
+        return "the evidence is not this revision's"
     row = DerivedResult(
         review_id=review_id,
         revision_id=revision_id,

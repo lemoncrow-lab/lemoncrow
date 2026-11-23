@@ -148,7 +148,7 @@ def _spa_bundle(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize(
     ("products", "landing", "dashboard_pages"),
-    [(frozenset({"review"}), "/reviews", 404), (frozenset({"review", "dashboard"}), "/home", 200)],
+    [(frozenset({"review"}), "/reviews", 302), (frozenset({"review", "dashboard"}), "/home", 200)],
 )
 def test_runtime_dashboard_pages_are_served_only_with_the_dashboard(
     tmp_path: Path, products: frozenset[str], landing: str, dashboard_pages: int
@@ -174,6 +174,9 @@ async def _exercise_spa_routes(tmp_path: Path, products: frozenset[str], landing
             for path in _RUNTIME_DASHBOARD_PAGES:
                 response = await client.get(f"{url}{path}", allow_redirects=False)
                 assert response.status == dashboard_pages, path
+                if dashboard_pages == 302:
+                    # Review-only never serves a Dashboard page: it sends the link to Reviews.
+                    assert response.headers["Location"] == landing, path
             for path in ("/reviews", "/review", "/reviews/rev_1", "/settings"):
                 assert (await client.get(f"{url}{path}", allow_redirects=False)).status == 200, path
             root = await client.get(f"{url}/", allow_redirects=False)
@@ -309,6 +312,28 @@ def test_product_selection_rejects_empty_environment(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("LEMONCROW_LOCAL_SERVER_PRODUCTS", ",")
     with pytest.raises(ValueError, match="at least one product"):
         _selected_products(None)
+
+
+def test_an_isolated_service_process_takes_the_servers_switch_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Review worker is its own process: it must not keep Python's 5 ms default that `up` replaces."""
+    from lemoncrow_server_core import service_host
+
+    seen: list[float] = []
+
+    async def serve(*_args: object, **_kwargs: object) -> int:
+        seen.append(sys.getswitchinterval())
+        return 0
+
+    monkeypatch.setattr(service_host, "serve_service", serve)
+    before = sys.getswitchinterval()
+    sys.setswitchinterval(0.005)
+    try:
+        assert server_cli.main(["service", "--name", "review", "--state-root", str(tmp_path)]) == 0
+    finally:
+        sys.setswitchinterval(before)
+    assert seen == [pytest.approx(server_cli._SWITCH_INTERVAL_S)]
 
 
 def test_config_rejects_empty_product_set(tmp_path: Path) -> None:

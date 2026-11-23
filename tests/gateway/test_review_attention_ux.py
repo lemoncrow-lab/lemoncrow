@@ -9,6 +9,7 @@ import lemoncrow.pro.capabilities.review.chapters as chapters_mod
 from lemoncrow.pro.capabilities.review.chapters import (
     _dependency_order,
     _intent_chapters,
+    _path_label,
     _scope_label,
     _summary_concept_label,
     build_chapter_lenses,
@@ -22,9 +23,28 @@ from lemoncrow.pro.capabilities.review.review_priority import TargetPriority
 
 def test_multi_scope_commit_is_not_one_fake_concept() -> None:
     assert _scope_label("review") == "Review"
-    assert _scope_label("review-ux") == "Review Ux"
+    assert _scope_label("review-ux") == "Review ux"
     assert _scope_label("review,usage,model") == ""
     assert _scope_label("review/usage") == ""
+
+
+def test_area_label_is_the_path_as_written_never_title_cased() -> None:
+    # A file directly under a top-level directory: the directory, not the file name re-cased.
+    assert _path_label("lib/cache.ts") == "lib/"
+    assert _path_label("invoices/list.ts") == "invoices/"
+    # A nested directory keeps every segment as spelled, up to the depth cap.
+    assert _path_label("src/billing_api/v2/handlers/charge.py") == "src/billing_api/v2/"
+    assert _path_label("src/billing/charge.py") == "src/billing/"
+    # A root-level file is its own area.
+    assert _path_label("setup.py") == "setup.py"
+    assert _path_label("Makefile") == "Makefile"
+    # Generic categories stay generic.
+    assert _path_label("lib/cache.test.ts", "test") == "Tests"
+    assert _path_label("docs/guide.txt") == "Docs"
+    assert _path_label("lib/vendor/x.js") == "Generated / vendored"
+
+    rows = [{"path": "lib/cache.ts", "group": "unreviewed"}, {"path": "invoices/list.ts", "group": "unreviewed"}]
+    assert {chapter["label"] for chapter in _intent_chapters(rows, [])} == {"lib/", "invoices/"}
 
 
 def test_concept_label_truncation_does_not_leave_a_dangling_connector() -> None:
@@ -44,7 +64,7 @@ def test_broad_commit_scope_falls_back_to_human_sized_structure() -> None:
     paths = {str(row["path"]) for row in rows}
     chapters = _intent_chapters(rows, [{"scope": "review", "paths": paths}])
 
-    assert {chapter["label"] for chapter in chapters} == {"Frontend", "Docs"}
+    assert {chapter["label"] for chapter in chapters} == {"frontend/src/review/", "Docs"}
     assert max(chapter["file_count"] for chapter in chapters) == 18
 
 
@@ -59,7 +79,7 @@ def test_dependency_lens_spends_attention_first_when_chapters_are_equally_ready(
 
     ordered = _dependency_order(chapters, {"impact": []})
 
-    assert [chapter["label"] for chapter in ordered[:2]] == ["Infra", "Gateway"]
+    assert [chapter["label"] for chapter in ordered[:2]] == ["src/lemoncrow/infra/", "src/lemoncrow/gateway/"]
 
 
 def test_dependency_lens_respects_dependency_before_attention_priority() -> None:
@@ -79,7 +99,7 @@ def test_dependency_lens_respects_dependency_before_attention_priority() -> None
 
     ordered = _dependency_order(chapters, packet)
 
-    assert [chapter["label"] for chapter in ordered] == ["Docs", "Infra"]
+    assert [chapter["label"] for chapter in ordered] == ["Docs", "src/lemoncrow/infra/"]
 
 
 def test_change_story_prefers_specific_concepts_over_source_area_buckets() -> None:
@@ -125,7 +145,10 @@ def test_large_repository_change_starts_with_grounded_concepts_and_target_progre
         "src/lemoncrow/pro/capabilities/review/session_models.py",
         "src/lemoncrow/pro/capabilities/review/relationships.py",
     ]
-    assert all((root / path).is_file() for path in paths)
+    # The History sheet was retired with the Classic Reader (P8-3): its two paths stay as fixture names for the "Review history"
+    # chapter, which is derived from file names, so they are the only entries not required to exist.
+    retired = {"frontend/src/review/ReviewHistorySheet.tsx", "frontend/src/review/ReviewHistorySheet.test.tsx"}
+    assert all((root / path).is_file() for path in paths if path not in retired)
     rows = [
         {
             "path": path,

@@ -37,9 +37,6 @@ done
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 CODEX_HOME="${CODEX_HOME:-${HOME}/.codex}"
 OPENCODE_CONFIG_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
-# lemoncode is a rebranded opencode fork: only the XDG app dir changed, the
-# config file names (opencode.json/.jsonc) are unchanged.
-LEMONCODE_CONFIG_HOME="${LEMONCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/lemoncode}"
 VSCODE_USER_DIR="${VSCODE_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Code/User}"
 
 has_cmd() { command -v "$1" &> /dev/null; }
@@ -165,17 +162,6 @@ check_opencode() {
     fi
 }
 
-check_lemoncode() {
-    local host="${HOME}/.lemoncrow/bin/lemoncode-host"
-    if [ -x "$host" ]; then
-        echo "installed"
-    elif has_cmd lemoncode; then
-        echo "launcher found, managed host not installed"
-    else
-        echo "not installed"
-    fi
-}
-
 check_pi() {
     if [ -x "${HOME}/.lemoncrow/bin/pi-host" ]; then
         echo "installed"
@@ -262,7 +248,6 @@ CLI_STATUS="$(check_cli)"
 CLAUDE_STATUS="$(check_claude)"
 CODEX_STATUS="$(check_codex)"
 OPENCODE_STATUS="$(check_opencode)"
-LEMONCODE_STATUS="$(check_lemoncode)"
 PI_STATUS="$(check_pi)"
 CURSOR_STATUS="$(check_cursor)"
 COPILOT_STATUS="$(check_copilot)"
@@ -278,7 +263,6 @@ elif [ "$JSON" = true ]; then
     CLAUDE_STATUS="$CLAUDE_STATUS" \
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
-    LEMONCODE_STATUS="$LEMONCODE_STATUS" \
     PI_STATUS="$PI_STATUS" \
     CURSOR_STATUS="$CURSOR_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
@@ -295,7 +279,6 @@ print(json.dumps({
     "claude": os.environ["CLAUDE_STATUS"],
     "codex": os.environ["CODEX_STATUS"],
     "opencode": os.environ["OPENCODE_STATUS"],
-    "lemoncode": os.environ["LEMONCODE_STATUS"],
     "pi": os.environ["PI_STATUS"],
     "cursor": os.environ["CURSOR_STATUS"],
     "copilot": os.environ["COPILOT_STATUS"],
@@ -321,7 +304,6 @@ else
     echo "  Codex           $CODEX_STATUS"
     echo "  OpenCode        $OPENCODE_STATUS"
     echo "  Pi              $PI_STATUS"
-    echo "  LemonCode       $LEMONCODE_STATUS"
     echo "  Cursor          $CURSOR_STATUS"
     echo "  Copilot         $COPILOT_STATUS"
     echo "  Antigravity     $ANTIGRAVITY_STATUS"
@@ -342,7 +324,6 @@ if [ "$WRITE" = true ]; then
     CLAUDE_STATUS="$CLAUDE_STATUS" \
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
-    LEMONCODE_STATUS="$LEMONCODE_STATUS" \
     PI_STATUS="$PI_STATUS" \
     CURSOR_STATUS="$CURSOR_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
@@ -364,7 +345,6 @@ status = {
     "claude": integration_state(os.environ["CLAUDE_STATUS"]),
     "codex": integration_state(os.environ["CODEX_STATUS"]),
     "opencode": integration_state(os.environ["OPENCODE_STATUS"]),
-    "lemoncode": integration_state(os.environ["LEMONCODE_STATUS"]),
     "pi": integration_state(os.environ["PI_STATUS"]),
     "cursor": integration_state(os.environ["CURSOR_STATUS"]),
     "copilot": integration_state(os.environ["COPILOT_STATUS"]),

@@ -5,10 +5,12 @@
 
 **Re-reviewed all 2 files changed since the last review** · Human review required: touches payments code
 
+**Risk: High · authorize is access-control code · and 1 more**
+<sub>Checked on commit aaaaaaa · 3 files, 80 changed lines · Risk is measured from the change and the run record, not a model</sub>
+
 ---
 
-**[Medium impact]** Adds retries and a token check to the checkout client
-<sub>payments code, concurrency or shared state · 3 files, 80 changed lines · from the change itself, not a model</sub>
+Adds retries and a token check to the checkout client
 
 <sub>Re-reviewed 22 changed lines · 1 new · 1 carried forward · 1 fixed since last review</sub>
 
@@ -62,6 +64,13 @@ it, and run the project's tests. If a finding is wrong, say why and leave the co
 
 </details>
 
+### What was not checked
+
+- Tests: no CI run was reported on this commit
+- Not measured: callers of the changed code (no code index)
+- Not measured: which tests exercise the changed code
+- Callers in other repositories: none were searched
+
 <details><summary>1 finding fixed since last review</summary>
 
 - <img alt="Fixed" src="https://lemoncrow.com/badges/fixed.svg?v=1" align="top"> ~~Missing principal accepted~~ — `src/auth.py:12-14` · fixed in 9f8e7d6
@@ -69,4 +78,4 @@ it, and run the project's tests. If a finding is wrong, say why and leave the co
 </details>
 
 ---
-<sub>Reviews (2) · Last reviewed commit: [Retry the checkout call](https://github.com/acme/widgets/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) · Reviewed by [LemonCrow](https://lemoncrow.com)<br>openai/gpt-4o-mini · Auto · this review: 3 model calls, 3.1k tokens, est. $0.0007 · all 2 reviews: 6 model calls, 6.2k tokens, est. $0.0014</sub>
+<sub>Independence: reviewer OpenAI (`gpt-4o-mini`) · author unknown (no coding agent declared in the commits) · **unknown**<br>Reviews (2) · Last reviewed commit: [Retry the checkout call](https://github.com/acme/widgets/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) · Reviewed by [LemonCrow](https://lemoncrow.com)<br>openai/gpt-4o-mini · Auto · this review: 3 model calls, 3.1k tokens, est. $0.0007 · all 2 reviews: 6 model calls, 6.2k tokens, est. $0.0014</sub>

@@ -4,7 +4,7 @@ The original hang was catastrophic backtracking inside ``redact()`` (fixed in
 4a13c8256 and covered by ``tests/core/test_redaction.py``). Two residual gaps
 are covered here:
 
-1. The SQLite-backed opencode/lemoncode importers had **no** size guard: the
+1. The SQLite-backed opencode importers had **no** size guard: the
    500MB ``_SIZE_LIMIT_BYTES`` skip is enforced only by the file-based
    ``import_paths_with_progress``, which those importers never go through. An
    arbitrarily large serialized session therefore fed straight into
@@ -263,24 +263,6 @@ def test_capped_session_artifact_reports_true_original_bytes(
 
     assert artifact.byte_count_original == len(original.encode("utf-8"))
     assert artifact.sha256_original == hashlib.sha256(original.encode("utf-8")).hexdigest()
-
-
-def test_lemoncode_inherits_the_same_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """LemonCode reuses the opencode serializer, so it must inherit the guard.
-
-    Uses many small parts: no single record is oversized, so this exercises the
-    whole-session backstop (and its ``source`` stamp) rather than record eliding.
-    """
-    monkeypatch.setattr(_common, "_MAX_SERIALIZED_SESSION_BYTES", 4096)
-    _make_opencode_db(tmp_path / "opencode.db", tool_output="ok", filler_parts=60)
-
-    out = serialize_opencode_session("huge", tmp_path / "opencode.db", source="lemoncode")
-
-    assert len(out.encode("utf-8")) < 4096 + 512
-    events = [json.loads(line) for line in out.splitlines()]
-    marker = events[-1]
-    assert marker["_type"] == _TRUNCATION_MARKER_TYPE
-    assert marker["source"] == "lemoncode"
 
 
 def test_cursor_ide_session_is_capped(store: StoreBundle, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

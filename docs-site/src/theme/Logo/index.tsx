@@ -5,12 +5,13 @@ import type { Props } from "@theme/Logo";
 
 import styles from "./styles.module.css";
 
-// Same chip + wordmark lockup as landing/src/components/Nav.tsx and
-// Footer.tsx -- kept as inline markup (not an image) so both render
-// identically without shipping a logo asset.
+// Same lemon mark + wordmark lockup as landing/src/components/Nav.tsx:
+// the site favicon (static/img/favicon.svg, identical to the landing's
+// public/favicon.svg) next to the mono wordmark.
 export default function Logo(props: Props): ReactNode {
   const { className, imageClassName, titleClassName, ...propsRest } = props;
   const logoLink = useBaseUrl("/");
+  const mark = useBaseUrl("/img/favicon.svg");
 
   return (
     <Link
@@ -18,12 +19,13 @@ export default function Logo(props: Props): ReactNode {
       className={[styles.brand, className].filter(Boolean).join(" ")}
       {...propsRest}
     >
-      <span
-        className={[styles.chip, imageClassName].filter(Boolean).join(" ")}
-        aria-hidden="true"
-      >
-        {"❯"}
-      </span>
+      <img
+        src={mark}
+        alt=""
+        width={28}
+        height={28}
+        className={[styles.mark, imageClassName].filter(Boolean).join(" ")}
+      />
       <span
         className={[styles.wordmark, titleClassName].filter(Boolean).join(" ")}
       >

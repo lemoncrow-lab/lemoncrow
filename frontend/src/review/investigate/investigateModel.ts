@@ -27,6 +27,8 @@ export const INVESTIGATE_STEPS: readonly { key: InvestigateStep; label: string }
 export interface InvestigateFact {
   label: string;
   value: string;
+  /** The value is a path or code, set in mono; every other fact reads as plain text. */
+  code?: true;
 }
 
 export interface InvestigateInput {
@@ -74,7 +76,7 @@ export function targetFacts(target: ReviewTarget): InvestigateFact[] {
     ? target.end_line > target.start_line ? `${target.start_line}–${target.end_line}` : String(target.start_line)
     : "";
   const facts: InvestigateFact[] = [
-    { label: "Source", value: lines ? `${target.path}:${lines}` : target.path },
+    { label: "Source", value: lines ? `${target.path}:${lines}` : target.path, code: true },
     { label: "Kind", value: target.symbol ? `${target.kind} · ${target.symbol}` : target.kind },
     { label: "Changed", value: `+${target.additions} −${target.deletions}` },
     { label: "Your review", value: STATE_LABEL[target.state] ?? target.state },
@@ -111,7 +113,7 @@ export function investigateModel(input: InvestigateInput): InvestigateModel {
   const facts = targetFacts(target);
   const walk = input.map
     ? { available: true, reason: "" }
-    : { available: false, reason: "This Snapshot has no Map graph to walk, so there is no X-Ray from here." };
+    : { available: false, reason: "This revision has no Map graph to walk, so there is no X-Ray from here." };
   if (!projection) {
     return {
       target,
@@ -120,7 +122,7 @@ export function investigateModel(input: InvestigateInput): InvestigateModel {
       context: null,
       reviewContext: null,
       walk,
-      whatIf: { available: false, targetId: null, reason: "The Review's analysis of this Snapshot is not loaded." },
+      whatIf: { available: false, targetId: null, reason: "The Review's analysis of this revision is not loaded." },
       blindSpots: { items: [], omitted: 0 },
       decisions: [],
     };
@@ -129,10 +131,10 @@ export function investigateModel(input: InvestigateInput): InvestigateModel {
   const reviewContext = investigationContext({ projection, targets, checks, revision });
   const whatIfTarget = whatIfTargetFor(targets, target);
   const whatIf = projection.context === undefined
-    ? { available: false, targetId: null, reason: "What if needs this Snapshot's impact data, which this Review does not carry." }
+    ? { available: false, targetId: null, reason: "What if needs this revision's impact data, which this Review does not carry." }
     : whatIfTarget
       ? { available: true, targetId: whatIfTarget, reason: "" }
-      : { available: true, targetId: null, reason: `No changed function, class, section or dependency in ${target.path} to start from; choose another changed target.` };
+      : { available: true, targetId: null, reason: `No changed function, class, section or dependency in ${target.path} to start from; choose another part.` };
   // The Brief's own model, filtered: the same items, ids and claims, only this target's.
   // lc-debt: rebuilt over the whole Review per target; share one memoized model with the Brief if Reviews grow past the category bound often.
   const spots = blindSpotsModel({

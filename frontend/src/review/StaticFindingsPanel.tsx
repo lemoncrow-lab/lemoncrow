@@ -11,6 +11,7 @@ import {
   type StaticFindingChain,
   type StaticFindingsProjection,
 } from "./staticFindingsApi";
+import { revisionName } from "./revisionLabel";
 
 const SEVERITY_TONE: Record<string, string> = {
   p0: "text-red-300",
@@ -73,10 +74,10 @@ function FindingRow({
         <span>{AUTHORITY_LABEL[finding.authority] ?? finding.authority}</span>
         {finding.state === "stale" && (
           <span className="text-amber-300/80">
-            Earlier Snapshot{finding.snapshot_number != null ? ` ${finding.snapshot_number}` : ""} · not current evidence
+            Earlier {finding.snapshot_number != null ? revisionName(finding.snapshot_number) : "revision"} · not current evidence
           </span>
         )}
-        {!finding.in_snapshot && <span>outside this Snapshot</span>}
+        {!finding.in_snapshot && <span>outside this revision</span>}
         {judged && (
           <span className={judged === "dismissed" ? "text-muted-foreground" : "text-emerald-300/80"}>
             {judged === "dismissed" ? `Dismissed (${(finding.disposition?.reason ?? "").replace(/_/g, " ")})` : "Confirmed"}
@@ -265,7 +266,7 @@ export default function StaticFindingsPanel({
         {stale.length > 0 && (
           <details data-testid="static-findings-stale">
             <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">
-              Earlier Snapshots · {stale.length}
+              Earlier revisions · {stale.length}
             </summary>
             {stale.map((finding) => (
               <FindingRow key={finding.ref} finding={finding} actionable={false} busy={busy} onJudge={() => undefined} />

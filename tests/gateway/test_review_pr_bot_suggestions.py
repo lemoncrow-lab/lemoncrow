@@ -227,7 +227,7 @@ def investigate(**result: Any) -> tuple[str, ConfirmedFinding | None]:
     )
     registry = (
         EvidenceRegistryEntry("target:t1", "target", "the unit", ("t1",), "src/a.py"),
-        EvidenceRegistryEntry("source:new:src/a.py@sha256:abc", "source", "Exact Snapshot source", ("t1",), "src/a.py"),
+        EvidenceRegistryEntry("source:new:src/a.py@sha256:abc", "source", "Exact revision source", ("t1",), "src/a.py"),
         EvidenceRegistryEntry("cross-repo:x", "cross_repository", "elsewhere", ("t1",)),
         EvidenceRegistryEntry("check:ci:unit", "check", "unit tests failed", ("t1",)),
         EvidenceRegistryEntry("artifact:a1", "artifact", "an attached log", ("t1",)),
@@ -743,7 +743,7 @@ def test_github_showing_a_narrower_diff_than_the_snapshot_drops_the_suggestion_n
     report = world.review()
 
     (found,) = report.findings
-    assert found.has_suggestion, "the Snapshot proved it; only GitHub's diff could not hold it"
+    assert found.has_suggestion, "the revision proved it; only GitHub's diff could not hold it"
     (inline,) = world.github.inline()
     assert "suggestion" not in inline["body"]
     (sent,) = world.github.posted_reviews[0]["comments"]

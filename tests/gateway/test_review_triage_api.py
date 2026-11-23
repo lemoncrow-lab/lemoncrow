@@ -459,7 +459,7 @@ def test_real_snapshot_sensitive_paths_lead_reading_list_without_finding_or_extr
         assert any(
             row["priority"]["attention"] == "review_first"
             and any(
-                reason["code"] == "sensitive_path_attention" and "not a verified finding" in reason["detail"]
+                reason["code"] == "sensitive_path_attention" and reason["detail"].endswith("code changed")
                 for reason in row["priority"]["reasons"]
             )
             for row in by_path[path]
@@ -520,7 +520,7 @@ def test_actual_command_outcomes_are_snapshot_pinned_in_reader_overview(tmp_path
     after = after_response.json()
     assert not {"python verify-valid", "python verify-failing"}.intersection(
         {row["name"] for row in after["evidence"]}
-    ), "A command run for the earlier Snapshot must not prove the new one"
+    ), "A command run for the earlier revision must not prove the new one"
 
 
 def test_real_review_brief_surfaces_sourced_decision_questions_and_links_to_code(tmp_path: Path) -> None:
@@ -584,7 +584,7 @@ def test_review_evaluation_timeline_is_snapshot_scoped_and_reports_untrusted_res
             verification_status="PASS",
             attestation_class="lemoncrow_verification",
             stable_key="pytest tests/unit",
-            detail="Observed on first Snapshot",
+            detail="Observed on first revision",
         )
     )
     review.store.add_evidence(
@@ -968,7 +968,12 @@ def test_execution_stage_cannot_be_laundered_into_outer_pass(
     variant: str,
 ) -> None:
     """Even a hash-valid inner receipt cannot certify a contradictory PASS."""
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.capabilities.review.runtime_validation import (
+        ValidationRequest,
+        ValidationScenario,
+        persist_validation_record,
+    )
+    from lemoncrow.pro.environment.execution import (
         EnvironmentFingerprint,
         ExecutionResult,
         ExecutionSubject,
@@ -976,11 +981,6 @@ def test_execution_stage_cannot_be_laundered_into_outer_pass(
         StageOutcome,
         VerificationEnvironment,
         canonical_digest,
-    )
-    from lemoncrow.pro.capabilities.review.runtime_validation import (
-        ValidationRequest,
-        ValidationScenario,
-        persist_validation_record,
     )
 
     review = _review(tmp_path)

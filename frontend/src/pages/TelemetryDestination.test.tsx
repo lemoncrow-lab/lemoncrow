@@ -115,14 +115,49 @@ describe("TelemetryDestinationPanel", () => {
     expect(
       screen.getByText("Set by /etc/lemoncrow/telemetry.toml.")
     ).toBeTruthy();
-    expect(
-      (
-        screen.getByRole("combobox", {
-          name: "Telemetry destination",
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(true);
+    const off = screen.getByRole("radio", { name: "Off" }) as HTMLButtonElement;
+    expect(off.getAttribute("aria-checked")).toBe("true");
+    expect(off.disabled).toBe(true);
+    expect((screen.getByRole("radio", { name: "On" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("combobox", { name: "Telemetry destination" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("turns sharing off and back on with one switch", async () => {
+    const user = userEvent.setup();
+    const posts: unknown[] = [];
+    let current = config();
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { destination: string };
+        posts.push(body);
+        current = body.destination === "off"
+          ? config({ destination: "off", destination_setting: "off", destination_source: "user", destination_url: "" })
+          : config({ destination_source: "user" });
+      }
+      return Promise.resolve(jsonResponse(current));
+    });
+
+    render(<TelemetryDestinationPanel />);
+    expect((await screen.findByRole("radio", { name: "On" })).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Telemetry destination" })).toBeTruthy();
+
+    await user.click(screen.getByRole("radio", { name: "Off" }));
+    expect(await screen.findByText("Nothing leaves this machine.")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Telemetry destination" })).toBeNull();
+
+    await user.click(screen.getByRole("radio", { name: "On" }));
+    expect(await screen.findByText("Daily anonymous rollups go to https://lemoncrow.com.")).toBeTruthy();
+    expect(posts).toEqual([{ destination: "off" }, { destination: "auto" }]);
+  });
+
+  it("cannot turn sharing on while DO_NOT_TRACK or LEMONCROW_TELEMETRY=off is set", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(config({ destination: "off", destination_source: "env", destination_url: "" }))
+    );
+    render(<TelemetryDestinationPanel />);
+    expect(await screen.findByText("Nothing leaves this machine (DO_NOT_TRACK or LEMONCROW_TELEMETRY=off is set).")).toBeTruthy();
+    expect((screen.getByRole("radio", { name: "On" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows the server's reason when a save is refused", async () => {

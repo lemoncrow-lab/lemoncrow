@@ -107,7 +107,13 @@ def message_edit_scopes(events: list[Any]) -> dict[int, tuple[str, ...]]:
         if not isinstance(payload, dict):
             continue
         edit = event.get("kind") == "file_edit"
-        output = event.get("kind") == "agent_message" and payload.get("role") == "assistant"
+        # A host's reported review is a tool result, not a reply: it does not end
+        # the reply's edit interval.
+        output = (
+            event.get("kind") == "agent_message"
+            and payload.get("role") == "assistant"
+            and payload.get("event") != "ReportedFindings"
+        )
         if not edit and not output:
             continue
         try:
@@ -547,3 +553,160 @@ def capture_session_comment(root: str | Path, payload: dict[str, Any], *, host: 
         if added or checkpoint != data["review_comment_capture"]:
             atomic_write_json(run_file, data)
         return added
+
+
+# ReportFindings carries at most 32 findings; these bound a malformed call only.
+_MAX_REPORTED_FINDINGS = 64
+_MAX_FINDING_TEXT = 8000
+
+
+def _reported_finding(item: dict[str, Any]) -> dict[str, Any] | None:
+    """One host-reported finding in the ingestor's location shape, redacted and bounded."""
+
+    def text(key: str, limit: int = _MAX_FINDING_TEXT) -> str:
+        value = item.get(key)
+        return redact(value.strip())[:limit] if isinstance(value, str) else ""
+
+    summary = text("summary")
+    if not summary:
+        return None
+    path = text("file", 1024)
+    try:
+        line = max(0, int(item.get("line") or 0))
+    except (ValueError, TypeError):
+        line = 0
+    scenario = text("failure_scenario")
+    labels = [
+        f"{name}: {value}"
+        for name, value in (
+            ("Severity", text("severity", 40)),
+            ("Category", text("category", 40)),
+            ("Verdict", text("verdict", 40)),
+        )
+        if value
+    ]
+    body = "\n\n".join(
+        part for part in (summary, f"Failure scenario: {scenario}" if scenario else "", " · ".join(labels)) if part
+    )
+    return {
+        # The same finding re-reported (``--fix`` outcomes) keeps one identity.
+        "key": hashlib.sha256(f"{path}\0{line}\0{summary}".encode()).hexdigest()[:32],
+        "path": path,
+        "line": line,
+        "end_line": line,
+        "title": text("short_summary", 120) or summary.splitlines()[0][:120],
+        "body": body,
+        "severity": text("severity", 40),
+        "outcome": text("outcome", 40),
+    }
+
+
+def _reported_message(host: str, findings: list[dict[str, Any]]) -> str:
+    outcomes: dict[str, int] = {}
+    for finding in findings:
+        if finding["outcome"]:
+            outcomes[finding["outcome"]] = outcomes.get(finding["outcome"], 0) + 1
+    count = f"{len(findings)} finding{'' if len(findings) == 1 else 's'}"
+    head = f"{host.capitalize()} code review: {count}" + (
+        " (" + ", ".join(f"{n} {name.replace('_', ' ')}" for name, n in sorted(outcomes.items())) + ")"
+        if outcomes
+        else ""
+    )
+    rows = [
+        "- "
+        + " · ".join(
+            part
+            for part in (
+                finding["severity"],
+                f"{finding['path']} line {finding['line']}" if finding["line"] else finding["path"],
+                finding["title"],
+                finding["outcome"].replace("_", " "),
+            )
+            if part
+        )
+        for finding in findings
+    ]
+    return "\n".join([head, *(["", *rows] if rows else [])])
+
+
+def capture_reported_findings(
+    root: str | Path, payload: dict[str, Any], *, host: str, review_id: str, revision_id: str
+) -> int:
+    """Retain a host's reported review (Claude ``ReportFindings``) bound to the Snapshot it reviewed.
+
+    The capture already took that Snapshot, so the event names it: an unchanged
+    tree reuses an older Snapshot, which the Stop rule (first Snapshot at or after
+    capture) would never select. Replayed tool calls are deduped by id.
+    """
+
+    sid = str(payload.get("session_id") or "").strip()
+    tool_input = payload.get("tool_input")
+    raw = tool_input.get("findings") if isinstance(tool_input, dict) else None
+    if not sid or not isinstance(raw, list):
+        return 0
+    findings = [
+        finding
+        for item in raw[:_MAX_REPORTED_FINDINGS]
+        if isinstance(item, dict) and (finding := _reported_finding(item)) is not None
+    ]
+    source_id = (
+        str(payload.get("tool_use_id") or "")
+        or hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
+    )
+    identity = hashlib.sha256(f"{host}\0{sid}\0reported\0{source_id}".encode()).hexdigest()
+    root_path = Path(root).expanduser().resolve()
+    run_file = session_dir(root_path, host, sid) / "run.json"
+    workspace = str(payload.get("cwd") or "")
+    with RunFileLock(run_file):
+        if run_file.is_file():
+            data = json.loads(run_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return 0
+        else:
+            data = {
+                "session_id": sid,
+                "agent": host,
+                "workspace_path": workspace,
+                "created_at": datetime.now(UTC).isoformat(),
+                "events": [],
+                "files_touched": [],
+            }
+        events = data.setdefault("events", [])
+        if not isinstance(events, list):
+            return 0
+        if any(
+            isinstance(e, dict)
+            and isinstance(e.get("payload"), dict)
+            and e["payload"].get("visible_turn_id") == identity
+            for e in events
+        ):
+            return 0
+        shared = _context(root_path, workspace, [json.dumps({"findings": findings})])
+        context = {key: value for key, value in shared.items() if key != "_target_paths"}
+        # The report names its own files; it never borrows this turn's edits.
+        context.update(review_id=review_id, revision_id=revision_id, edited_paths=[])
+        message = _reported_message(host, findings)
+        events.append(
+            {
+                "kind": "agent_message",
+                "at": context["captured_at"],
+                "summary": f"assistant: {message[:120]}",
+                "payload": {
+                    "role": "assistant",
+                    "event": "ReportedFindings",
+                    "completed": True,
+                    "visible_turn_id": identity,
+                    "source_id": source_id,
+                    "message": message,
+                    "agent_role": "review",
+                    "model": str(payload.get("model") or ""),
+                    "parent_session_id": "",
+                    "findings": findings,
+                    "review_context": context,
+                },
+            }
+        )
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        run_file.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(run_file, data)
+    return 1

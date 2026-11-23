@@ -48,9 +48,9 @@ PATCH_ID_VERSION = "v1"
 MAX_PATCH_ID_FILE_BYTES = 512 * 1024
 """Hunk text hashed for one file; a larger file is not deterministically classified."""
 MAX_PATCH_ID_FILES = 3000
-"""Files hashed per Snapshot; a larger Snapshot classifies every path as authored."""
+"""Files hashed per revision; a larger revision classifies every path as authored."""
 MAX_PATCH_ID_TOTAL_BYTES = 32 * 1024 * 1024
-"""Hunk text hashed per Snapshot; past it the remaining paths are not classified."""
+"""Hunk text hashed per revision; past it the remaining paths are not classified."""
 
 _CACHE_LIMIT = 256
 
@@ -65,7 +65,7 @@ class PatchIdSet:
 
     by_path: Mapping[str, str | None]
     complete: bool = True
-    """False when a Snapshot bound cut hashing short (the remaining paths are ``None``)."""
+    """False when a revision bound cut hashing short (the remaining paths are ``None``)."""
     reason: str = ""
 
 

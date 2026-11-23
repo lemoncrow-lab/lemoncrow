@@ -597,3 +597,77 @@ def test_agent_on_exit_hook_captures_clean_committed_head_over_http(
     assert '"event": "captured"' in output.getvalue()
     assert len(stub.state.review_captures) == 1
     assert stub.state.review_captures[0]["range"]["mode"] == "commit_range"
+
+
+def _delta_session(config: object) -> object:
+    from lemoncrow_client.review_session import ReviewSession
+
+    session = ReviewSession(config)
+    session.handshake(timeout_s=10.0)
+    session.open_session(timeout_s=10.0)
+    return session
+
+
+def _commit_file(worktree: Path, name: str, data: bytes) -> str:
+    (worktree / name).write_bytes(data)
+    git(worktree, "add", name)
+    git(worktree, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", name)
+    return git(worktree, "rev-parse", "HEAD")
+
+
+def test_delta_sends_files_above_the_index_cap_up_to_the_blob_limit(
+    config: object, stub: object, worktree: Path, state_dir: Path
+) -> None:
+    session = _delta_session(config)
+    cap = session.state.content_size_cap
+    for name, size in (("at-cap.bin", cap), ("over-cap.bin", cap + 1), ("at-limit.bin", session.state.max_blob_bytes)):
+        head = _commit_file(worktree, name, name.encode().ljust(size, b"x"))
+    built = snapshot(worktree, head, DeltaCursor.load(worktree, state_dir))
+
+    session.open_delta_snapshot(built.entries, source_revision=head, payload=built.payload, timeout_s=30.0)
+
+    for name in ("at-cap.bin", "over-cap.bin", "at-limit.bin"):
+        assert built.entries[name].content_digest in stub.state.blobs, name
+
+
+def test_delta_past_the_blob_limit_is_refused_not_dropped(
+    config: object, stub: object, worktree: Path, state_dir: Path
+) -> None:
+    session = _delta_session(config)
+    head = _commit_file(worktree, "past.bin", b"x" * (session.state.max_blob_bytes + 1))
+    built = snapshot(worktree, head, DeltaCursor.load(worktree, state_dir))
+
+    with pytest.raises(ClientError) as refused:
+        session.open_delta_snapshot(built.entries, source_revision=head, payload=built.payload, timeout_s=30.0)
+    assert refused.value.code == ErrorCode.REQUEST_TOO_LARGE
+    assert not stub.state.blobs
+
+
+def test_delta_against_a_server_without_the_listing_still_opens(
+    config: object, stub: object, worktree: Path, state_dir: Path
+) -> None:
+    stub.state.lists_large_source = False
+    session = _delta_session(config)
+    head = _commit_file(worktree, "over-cap.bin", b"x" * (session.state.content_size_cap + 1))
+    built = snapshot(worktree, head, DeltaCursor.load(worktree, state_dir))
+
+    opened = session.open_delta_snapshot(built.entries, source_revision=head, payload=built.payload, timeout_s=30.0)
+
+    assert opened["view_id"]
+    assert built.entries["over-cap.bin"].content_digest not in stub.state.blobs
+
+
+def test_delta_keeps_asking_until_a_capped_listing_is_exhausted(
+    config: object, stub: object, worktree: Path, state_dir: Path
+) -> None:
+    stub.state.large_source_page = 1
+    session = _delta_session(config)
+    size = session.state.content_size_cap + 1
+    for name in ("one.bin", "two.bin", "three.bin"):
+        head = _commit_file(worktree, name, name.encode().ljust(size, b"x"))
+    built = snapshot(worktree, head, DeltaCursor.load(worktree, state_dir))
+
+    session.open_delta_snapshot(built.entries, source_revision=head, payload=built.payload, timeout_s=30.0)
+
+    for name in ("one.bin", "two.bin", "three.bin"):
+        assert built.entries[name].content_digest in stub.state.blobs, name

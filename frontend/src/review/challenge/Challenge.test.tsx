@@ -111,7 +111,7 @@ describe("Challenge drawer", () => {
     expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
   });
 
-  it("reads as stale on a new Snapshot and loads nothing to run", async () => {
+  it("reads as stale on a new revision and loads nothing to run", async () => {
     const view = projection();
     const claim = question(view, "q-dup");
     const next = { ...view, revision_id: "rev-next" };

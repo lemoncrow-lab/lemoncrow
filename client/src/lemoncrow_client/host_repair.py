@@ -208,13 +208,15 @@ def repair_existing() -> int:
     if not os.access(executable, os.X_OK):
         raise RuntimeError("run migration with the installed Runtime Python")
     if not _owned_command(executable, owner):
-        print("Skipping automatic host migration: Runtime is outside the selected installation state.", file=sys.stderr)
+        print(
+            "Skipping automatic host migration: Workspaces is outside the selected installation state.", file=sys.stderr
+        )
         return 0
     paths = [
         home / ".claude.json",
         home / ".cursor" / "mcp.json",
         codex / "config.toml",
-        *[xdg / host / name for host in ("opencode", "lemoncode") for name in ("opencode.json", "opencode.jsonc")],
+        *[xdg / host / name for host in ("opencode",) for name in ("opencode.json", "opencode.jsonc")],
     ]
     status = 0
     try:
@@ -249,9 +251,9 @@ def repair_existing() -> int:
                 and _owned_command(invocation["command"], owner)
             ):
                 pi_integration.refresh()
-                print("Updated existing Pi Runtime extension")
+                print("Updated existing Pi Workspaces extension")
         except (OSError, ValueError, RuntimeError) as exc:
-            print(f"Could not migrate Pi Runtime extension: {exc}", file=sys.stderr)
+            print(f"Could not migrate Pi Workspaces extension: {exc}", file=sys.stderr)
             status = 1
     return status
 

@@ -1248,11 +1248,11 @@ def record_check_ingest(
 
     if ingest.head_sha != revision.head_sha:
         raise IngestConflict(
-            f"result head {ingest.head_sha[:12] or '(none)'} is not this Snapshot's head "
-            f"{revision.head_sha[:12] or '(none)'}; bind it to the Snapshot it ran on"
+            f"result head {ingest.head_sha[:12] or '(none)'} is not this revision's head "
+            f"{revision.head_sha[:12] or '(none)'}; bind it to the revision it ran on"
         )
     if authority.typed and not _snapshot_reusable(revision):
-        raise IngestConflict("a typed attestation needs a clean commit Snapshot with a head SHA")
+        raise IngestConflict("a typed attestation needs a clean commit revision with a head SHA")
     document = ingest.document(authority)
     payload = ingest_payload(ingest, authority)
     identity = [authority.attestation_class, authority.provider, authority.integration_id]

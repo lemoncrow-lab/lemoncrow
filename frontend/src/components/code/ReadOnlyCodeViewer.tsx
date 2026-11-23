@@ -20,18 +20,19 @@ interface ReadOnlyCodeViewerProps {
 
 type Monaco = typeof MonacoApi;
 
-let monacoLoad: Promise<Monaco> | null = null;
+type MonacoModule = typeof import("./monaco");
+let monacoLoad: Promise<MonacoModule> | null = null;
 
-/** Monaco is a large chunk; fetch it once, on first use, and retry after a failed load. */
-function loadMonaco(): Promise<Monaco> {
-  monacoLoad ??= import("./monaco").then(
-    (module) => module.monaco,
-    (error: unknown) => {
-      monacoLoad = null;
-      throw error;
-    },
-  );
-  return monacoLoad;
+/** Load the core once. Additional languages are only fetched for files that need them. */
+function loadMonaco(path: string): Promise<Monaco> {
+  monacoLoad ??= import("./monaco").catch((error: unknown) => {
+    monacoLoad = null;
+    throw error;
+  });
+  return monacoLoad.then(async (module) => {
+    await module.ensureMonacoLanguage(path);
+    return module.monaco;
+  });
 }
 
 let modelSeq = 0;
@@ -52,6 +53,7 @@ export default function ReadOnlyCodeViewer({
   const valueRef = useRef(value);
   valueRef.current = value;
   const [monaco, setMonaco] = useState<Monaco | null>(null);
+  const [readyLanguagePath, setReadyLanguagePath] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const themeName = theme === "dark" ? "lc-dark" : "lc-light";
   // Callers build the range tuple inline; key effects on its numbers, not its identity.
@@ -60,9 +62,14 @@ export default function ReadOnlyCodeViewer({
 
   useEffect(() => {
     let cancelled = false;
-    loadMonaco().then(
+    setReadyLanguagePath(null);
+    setLoadFailed(false);
+    loadMonaco(path).then(
       (api) => {
-        if (!cancelled) setMonaco(api);
+        if (!cancelled) {
+          setMonaco(api);
+          setReadyLanguagePath(path);
+        }
       },
       () => {
         if (!cancelled) setLoadFailed(true);
@@ -71,7 +78,7 @@ export default function ReadOnlyCodeViewer({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [path]);
 
   // Monaco themes are global; set it before the editor is created so it opens in the right one.
   useEffect(() => {
@@ -133,14 +140,14 @@ export default function ReadOnlyCodeViewer({
   // extension or a shebang; the sequence keeps URIs unique across remounts.
   useEffect(() => {
     const editor = editorRef.current;
-    if (!monaco || !editor) return;
+    if (!monaco || !editor || readyLanguagePath !== path) return;
     modelSeq += 1;
     const uri = monaco.Uri.from({ scheme: "inmemory", path: `/${modelSeq}/${path.replace(/^\/+/, "")}` });
     const model = monaco.editor.createModel(valueRef.current, undefined, uri);
     editor.setModel(model);
     editor.updateOptions({ ariaLabel: `${path} (read-only)` });
     return () => model.dispose();
-  }, [monaco, path]);
+  }, [monaco, path, readyLanguagePath]);
 
   useEffect(() => {
     const model = editorRef.current?.getModel();

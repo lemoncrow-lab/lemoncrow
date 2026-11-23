@@ -380,6 +380,8 @@ CAPTURE_OPTIONS: Final[frozenset[str]] = frozenset(
         "review_scope",
         "workspace_branch",
         "capture_intent",
+        "with_workspace",
+        "workspace_root",
     }
 )
 

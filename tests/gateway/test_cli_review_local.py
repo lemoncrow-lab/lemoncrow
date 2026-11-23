@@ -22,6 +22,7 @@ from lemoncrow.pro.capabilities.review import intelligence_runtime
 from lemoncrow.pro.capabilities.review.pr_bot import local
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.render import verdict
+from lemoncrow.pro.capabilities.review.pr_bot.spend import DEFAULT_MAX_USD_PER_PR, MAX_USD_ENV
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state
 from tests.gateway.pr_bot_noise_support import CONFIG, review_yaml
 from tests.gateway.pr_bot_support import (
@@ -112,6 +113,17 @@ def ruled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lab:
     """A repository whose committed ``.lemoncrow/review.yaml`` has a critical rule for ``src/auth.py``: a violation is a P0."""
 
     return make_lab(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": RULE})
+
+
+def test_ai_review_opens_the_reader_unless_told_not_to(lab: Lab) -> None:
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high))\n"})
+    opened = lab.run()
+    assert "No issues found" in opened.stdout or "Findings" in opened.stdout or "LemonCrow review" in opened.stdout
+    assert "/reviews/preparing/" in opened.output
+    terminal_only = lab.run("--no-open", "--fresh")
+    assert "/reviews/preparing/" not in terminal_only.output
+    as_json = lab.run("--json", "--fresh")
+    assert "/reviews/preparing/" not in as_json.output
 
 
 def test_a_change_with_no_code_to_review_and_no_rule_says_that_no_model_was_asked(lab: Lab) -> None:
@@ -567,13 +579,13 @@ def test_no_model_json_says_why_and_exits_3(lab: Lab, monkeypatch: pytest.Monkey
     assert lab.model.calls == []
 
 
-def test_the_kill_switch_is_respected_and_no_model_is_called(lab: Lab) -> None:
-    lab.store.mkdir(parents=True, exist_ok=True)  # `--root` is the LemonCrow root whose settings hold the switch
-    (lab.store / "plugin_settings.json").write_text(json.dumps({"intelligence.enabled": False}))
+def test_a_zero_ai_budget_is_respected_and_no_model_is_called(lab: Lab) -> None:
+    lab.store.mkdir(parents=True, exist_ok=True)  # `--root` is the LemonCrow root whose settings hold the budget
+    (lab.store / "plugin_settings.json").write_text(json.dumps({"intelligence.monthly_budget_usd": 0}))
     lab.write({"src/auth.py": AUTH_BUGGY})
     soft = lab.run()
-    assert soft.exit_code == 3 and "AI review is turned off" in soft.stderr
-    assert "lc settings set intelligence.enabled true" in soft.stderr
+    assert soft.exit_code == 3 and "AI review did not run: AI budget is $0" in soft.stderr
+    assert "lc settings set intelligence.monthly_budget_usd <dollars>" in soft.stderr
     assert lab.run("--strict").exit_code == 2
     assert lab.model.calls == []
 
@@ -585,7 +597,7 @@ def test_a_model_with_no_driver_is_a_wrong_setting_not_a_switched_off_review(lab
     done = lab.run()
     assert done.exit_code == 3 and "requires a pinned driver" in done.stderr
     # The advice fits the cause: it does not send the person to a switch that was never off.
-    assert "intelligence.enabled" not in done.stderr and "turned off" not in done.stderr
+    assert "monthly_budget_usd" not in done.stderr and "did not run" not in done.stderr
     assert "lc settings set intelligence.driver claude" in done.stderr
     assert "lc settings reset intelligence.model" in done.stderr
     assert lab.model.calls == []
@@ -741,6 +753,7 @@ def test_json_is_a_stable_machine_readable_result(ruled: Lab) -> None:
         "findings",
         "coverage",
         "depth",
+        "effort",
         "model",
         "config",
         "usage",
@@ -891,6 +904,29 @@ def test_the_dollar_and_run_budgets_stop_a_scope_from_spending_more(lab: Lab) ->
     assert hard.exit_code == 2 and "Review budget reached: 1 review used of 1 allowed" in hard.stdout
     lab.run("--max-usd-per-pr", "0.0000001")
     assert lab.model.calls == []  # the first review's cost is known (a model in the price table): the cap holds
+
+
+def test_each_local_run_has_the_default_cap_until_it_is_turned_off(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[float, bool]] = []
+
+    class Recording(local.SpendGuard):
+        def __init__(self, cap: float, *, prior: Any = None, **rest: Any) -> None:
+            seen.append((cap, prior is not None))
+            super().__init__(cap, prior=prior, **rest)
+
+    monkeypatch.setattr(local, "SpendGuard", Recording)
+    monkeypatch.setenv(MAX_USD_ENV, "")
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    lab.run("--no-open")
+    lab.run("--no-open", "--fresh")
+    # The default holds each run alone: what the branch spent earlier never uses it up.
+    assert seen == [(DEFAULT_MAX_USD_PER_PR, False), (DEFAULT_MAX_USD_PER_PR, False)]
+    seen.clear()
+    lab.run("--no-open", "--max-usd-per-pr", "5")
+    assert seen == [(5.0, True)]  # a cap that was asked for is on the scope's total
+    seen.clear()
+    lab.run("--no-open", "--fresh", "--max-usd-per-pr", "none")
+    assert seen == []
 
 
 # --------------------------------------------------------------------------- #

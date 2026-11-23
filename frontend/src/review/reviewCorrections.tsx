@@ -7,7 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { ReviewPaletteAction } from "./ReviewCommandPalette";
+import type { ReviewPaletteAction } from "./reviewActionsModel";
 import ReviewFixSheet from "./ReviewFixSheet";
 import ReviewSplitSheet from "./ReviewSplitSheet";
 import {
@@ -111,7 +111,7 @@ export function useReviewCorrections({
             label: "Request split…",
             detail: writable
               ? "Ask the authoring agent for stacked Changes, one per cohort; this Review stays open"
-              : "Available on the current, writable Snapshot",
+              : "Available on the current, writable revision",
             disabled: !writable,
             managesFocus: true,
             run: () => setSplitOpen(true),

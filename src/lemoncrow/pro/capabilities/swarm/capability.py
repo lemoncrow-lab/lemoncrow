@@ -318,7 +318,8 @@ def build_swarm_spec_payload(state: SwarmRunState) -> dict[str, Any]:
     content = _spec_text(state)
     excerpt = content[:4000]
     lines = [line.strip() for line in content.splitlines() if line.strip()]
-    title = lines[0] if lines else Path(state.copied_spec_path).name
+    # A spec usually opens with a Markdown heading; the title is its text, not the "# " marker.
+    title = (lines[0].lstrip("#").strip() or lines[0]) if lines else Path(state.copied_spec_path).name
     return {
         "source_path": state.spec_source_path or state.copied_spec_path,
         "copied_path": state.copied_spec_path,

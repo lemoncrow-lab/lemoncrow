@@ -288,6 +288,7 @@ def local_intelligence_settings() -> dict[str, Any]:
     """
 
     from lemoncrow.core.settings import load_settings
+    from lemoncrow.pro.capabilities.review.ai_budget import BUDGET_SETTING, ai_budget_state
     from lemoncrow.pro.capabilities.review.data_governance import load_data_governance
     from lemoncrow.pro.capabilities.review.fix_agent import settings_root
     from lemoncrow.pro.capabilities.review.intelligence_policy import (
@@ -305,15 +306,20 @@ def local_intelligence_settings() -> dict[str, Any]:
         _LOG.warning("local background budget status failed", exc_info=True)
         background = {"available": False, "reason": "the background budget ledger could not be read"}
     preferences = load_settings(settings_root(), category="intelligence")
+    budget = ai_budget_state()
+    # A stored -1 is "no limit"; the wire says null (the field is empty), as the budget does.
+    preferences[BUDGET_SETTING] = budget.to_wire()["monthly_budget_usd"]
     return {
         "scope": "local",
         "intelligence": {
             **route.to_wire(),
             "editable": True,
             "edit_source": LOCAL_INTELLIGENCE_EDIT_SOURCE,
-            "settings": [*SETTINGS_KEYS.values(), *LOCAL_BACKGROUND_SETTINGS],
+            "settings": [BUDGET_SETTING, *SETTINGS_KEYS.values(), *LOCAL_BACKGROUND_SETTINGS],
         },
         "background": background,
+        # P8-4: the personal AI budget, this month's use and whether a model call may start now.
+        "ai_budget": budget.to_wire(),
         "preferences": {key: preferences[key] for key in _LOCAL_AI_EDIT_KEYS},
         "lifetime": LOCAL_LIFETIME_NOTE,
     }
@@ -321,7 +327,7 @@ def local_intelligence_settings() -> dict[str, Any]:
 
 _LOCAL_AI_EDIT_KEYS: Final[frozenset[str]] = frozenset(
     {
-        "intelligence.enabled",
+        "intelligence.monthly_budget_usd",
         "intelligence.driver",
         "intelligence.model",
         "intelligence.run_on",
@@ -338,7 +344,8 @@ def update_local_intelligence_settings(body: Mapping[str, Any]) -> None:
     Hosted organization/repository policy and provider secrets are never modified.
     This uses the same file and validation logic as the terminal settings command.
     """
-    from lemoncrow.core.settings import coerce, find_by_key, write_setting
+    from lemoncrow.core.settings import coerce, find_by_key, load_settings, unset_setting, write_setting
+    from lemoncrow.pro.capabilities.review.ai_budget import BUDGET_SETTING
     from lemoncrow.pro.capabilities.review.fix_agent import settings_root
 
     if set(body) != {"settings"} or not isinstance(body["settings"], dict):
@@ -353,6 +360,14 @@ def update_local_intelligence_settings(body: Mapping[str, Any]) -> None:
         spec = find_by_key(key)
         if spec is None or not spec.settable:
             raise ValueError("AI setting cannot be changed here")
+        if key == BUDGET_SETTING:
+            # A number of dollars, 0 or more; null is "no limit" (the setting is removed).
+            if raw is not None and (isinstance(raw, bool) or not isinstance(raw, (int, float))):
+                raise ValueError(f"{key} must be a number of dollars, 0 or more, or null for no limit")
+            if raw is not None and not 0 <= raw <= (spec.float_range or (0, 1e9))[1]:
+                raise ValueError(f"{key} must be a number of dollars, 0 or more, or null for no limit")
+            validated[key] = None if raw is None else float(raw)
+            continue
         if spec.type == "bool":
             if not isinstance(raw, bool):
                 raise ValueError(f"{key} must be true or false")
@@ -370,5 +385,15 @@ def update_local_intelligence_settings(body: Mapping[str, Any]) -> None:
             raise ValueError("local AI settings support only Auto or this machine")
         validated[key] = value
     root = settings_root()
+    if {"intelligence.model", "intelligence.driver"} & validated.keys():
+        # Saved, this pair would turn the whole AI route invalid and stop background work.
+        stored = load_settings(root, category="intelligence")
+        model = validated.get("intelligence.model", stored["intelligence.model"])
+        driver = validated.get("intelligence.driver", stored["intelligence.driver"])
+        if model != "auto" and driver == "auto":
+            raise ValueError("choose a provider for this model, or set the model back to auto")
     for key, value in validated.items():
-        write_setting(root, key, value)
+        if value is None:
+            unset_setting(root, key)
+        else:
+            write_setting(root, key, value)

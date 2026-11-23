@@ -80,7 +80,7 @@ def test_local_runtime_is_serverless_lite_and_never_calls_full_engine(tmp_path: 
     bin_dir = Path(env["LEMONCROW_BIN_DIR"])
     assert (bin_dir / "lc").resolve() == (state / "runtime/client/bin/lemoncrow-client").resolve()
     assert not (bin_dir / "lcr").exists()
-    assert "Runtime Lite ready" in result.stdout
+    assert "Workspaces Lite ready" in result.stdout
     assert (state / "runtime/env").read_text() == "LEMONCROW_INSTALL_MODE=lite\n"
 
 
@@ -104,7 +104,7 @@ def test_local_runtime_preserves_review_launcher_and_forwards_agent(tmp_path: Pa
     assert "review:   preserved" in result.stdout
     assert (
         result.stdout.index("Verify installation")
-        < result.stdout.index("Runtime Lite ready")
+        < result.stdout.index("Workspaces Lite ready")
         < result.stdout.index("Next:")
     )
 
@@ -151,7 +151,7 @@ def test_local_runtime_migrates_legacy_server_runtime_before_installing_lite(tmp
 
     assert result.returncode == 0, result.stderr
     assert migration_log.read_text().strip() == "--keep-hosts"
-    assert "Migrating legacy server-backed Runtime to Local Lite" in result.stdout
+    assert "Migrating the legacy server-backed install to Workspaces Lite" in result.stdout
     assert runtime_log.exists()
     assert not engine_log.exists()
     assert (state / "runtime/env").read_text() == "LEMONCROW_INSTALL_MODE=lite\n"

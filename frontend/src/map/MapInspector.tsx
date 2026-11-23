@@ -53,7 +53,8 @@ export function InspectorFacts({
         <div className="min-w-0 flex-1">
           {kicker && <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">{kicker}</div>}
           <h2 className="truncate text-title font-semibold text-foreground" title={titleHint}>{title}</h2>
-          {location && <div className="mt-0.5 truncate font-mono text-caption text-muted-foreground" title={location}>{location}</div>}
+          {/* The path wraps rather than truncates: its tail (file and line range) is the part people read. */}
+          {location && <div className="mt-0.5 break-all font-mono text-caption text-muted-foreground">{location}</div>}
         </div>
         {headerAction}
         {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label={closeLabel}><X size={14} /></Button>}

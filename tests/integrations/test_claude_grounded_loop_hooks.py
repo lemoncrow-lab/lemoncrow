@@ -27,6 +27,7 @@ def test_user_prompt_hook_emits_compaction_nudge_as_ui_only_system_message(
     transcript.write_text(
         json.dumps(
             {
+                "type": "assistant",
                 "message": {
                     "model": "claude-sonnet-4-5",
                     "usage": {
@@ -34,7 +35,7 @@ def test_user_prompt_hook_emits_compaction_nudge_as_ui_only_system_message(
                         "cache_read_input_tokens": 0,
                         "cache_creation_input_tokens": 0,
                     },
-                }
+                },
             }
         )
         + "\n",

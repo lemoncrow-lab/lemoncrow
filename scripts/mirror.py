@@ -12,6 +12,13 @@ Incrementality:
   - First run  : replays ALL commits from root, force-pushes public repo.
   - Later runs : only new commits since watermark, always fast-forward.
 
+One commit per release (the default way to publish):
+  `make release` runs `--resync --message-file`: everything since the last
+  mirror lands as ONE public commit whose message is `Release vX.Y.Z` and that
+  version's CHANGELOG section. A per-commit replay would publish the message of
+  every private commit since the last mirror, including commits whose files all
+  stay private, so it is refused unless `--per-commit` asks for it.
+
 Usage:
     uv run python scripts/mirror.py [options]
 
@@ -23,8 +30,12 @@ Options:
     --source-ref REF    Branch to mirror (default: HEAD)
     --since DEV:PUB     Override watermark as dev_sha:pub_sha (both local)
     --public-remote URL Override public repo URL
-    --resync            Publish paths the allowlist newly allows, as ONE new
-                        commit on top of public HEAD (fast-forward, no rewrite)
+    --resync            Publish the full filtered tree at the source ref as ONE
+                        new commit on top of public HEAD (fast-forward, no rewrite)
+    --message-file FILE With --resync: that commit's message (default: a generic
+                        resync message)
+    --per-commit        Replay each source commit, with its own message; every
+                        run but --resync, --export-dir and --dry-run needs it
     --force             Force-push (use after rebase / source-history rewrite)
     --verbose           Print one line per commit
 
@@ -34,8 +45,8 @@ Allowlist changes need --resync:
   for files that did not also change in that commit -- the public tree would
   silently keep only a fragment of the newly-allowed subtree. `--resync`
   rebuilds the full filtered tree at the source ref and commits the difference
-  in one go. `--force` (full replay from root) also fixes it, but rewrites
-  every public SHA.
+  in one go. `--per-commit --force` (full replay from root) also fixes it, but
+  rewrites every public SHA.
 """
 
 from __future__ import annotations
@@ -75,7 +86,7 @@ PUBLIC_PATH_REWRITES = ((".github/public-workflows", ".github/workflows"),)
 # private repository (for example the marketing site) is therefore never named,
 # cloned or pinned by the public repository, whatever the source `.gitmodules`
 # contains.
-PUBLIC_SUBMODULE_URLS = frozenset({"https://github.com/lemoncrow-lab/lemoncode.git"})
+PUBLIC_SUBMODULE_URLS: frozenset[str] = frozenset()
 GITLINK_MODE = "160000"
 GITMODULES_PATH = ".gitmodules"
 
@@ -672,6 +683,39 @@ def push_lfs_objects(remote_url: str, lfs_oids: set[str], dry_run: bool) -> None
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_RESYNC_MESSAGE = (
+    "mirror: resync public tree with scripts/public-paths.txt\n\n"
+    "Publishes every path the allowlist now allows. Incremental mirroring\n"
+    "only applies the paths each commit touched, so files that became\n"
+    "public without changing were missing from the public tree.\n"
+)
+
+
+def resync_message(message_file: Path | None) -> str:
+    """The message of a ``--resync`` commit: the file's text, or the generic resync message."""
+    if message_file is None:
+        return DEFAULT_RESYNC_MESSAGE
+    message = message_file.read_text(encoding="utf-8").strip()
+    if not message:
+        raise SystemExit(f"--message-file is empty: {message_file}")
+    return message + "\n"
+
+
+def replay_refusal(args: argparse.Namespace) -> str | None:
+    """Why this run may not replay source commits one by one, or None when it may.
+
+    A replay copies each private commit's message to the public repository, even
+    for commits whose files all stay private, so it has to be asked for.
+    """
+    if args.export_dir is not None or args.resync or args.per_commit or args.dry_run:
+        return None
+    return (
+        "refused: a per-commit replay publishes the message of every private commit since the last mirror. "
+        "Publish a release with `make release tag=vX.Y.Z` (one commit), publish the current tree as one "
+        'commit with `make mirror ARGS="--resync"`, or pass --per-commit to replay deliberately.'
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true")
@@ -684,10 +728,23 @@ def main() -> int:
         action="store_true",
         help="Rebuild the full filtered tree and publish it as one fast-forward commit",
     )
+    tree_action.add_argument(
+        "--per-commit",
+        action="store_true",
+        help="Replay each source commit with its own message (publishes every private commit message)",
+    )
+    parser.add_argument("--message-file", type=Path, help="With --resync: the public commit's message")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--export-dir", type=Path, help="Write the filtered public tree of --source-ref here and exit")
     args = parser.parse_args()
+    if args.message_file is not None and not args.resync:
+        parser.error("--message-file goes with --resync")
+    refusal = replay_refusal(args)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 2
+    message = resync_message(args.message_file) if args.resync else None
 
     public_prefixes = load_public_prefixes()
     dev_tip = git("rev-parse", args.source_ref)
@@ -743,12 +800,8 @@ def main() -> int:
             print("Public tree already matches the allowlist; nothing to resync.")
             return 0
         meta = get_commit_metadata(dev_tip)
-        meta["message"] = (
-            "mirror: resync public tree with scripts/public-paths.txt\n\n"
-            "Publishes every path the allowlist now allows. Incremental mirroring\n"
-            "only applies the paths each commit touched, so files that became\n"
-            "public without changing were missing from the public tree.\n"
-        )
+        assert message is not None
+        meta["message"] = message
         new_sha = create_filtered_commit(filtered_tree, [initial_pub_parent], meta)
         if lfs_oids:
             print(f"Found {len(lfs_oids)} LFS object(s) referenced by the resynced tree.")

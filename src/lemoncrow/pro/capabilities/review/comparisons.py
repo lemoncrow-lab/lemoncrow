@@ -257,7 +257,7 @@ class ApiResponseComparator:
     def compare(self, request: ComparisonRequest) -> ImpactScore:
         if request.old.result is None or request.new.result is None:
             raise ValueError("API response comparison requires old and new run results")
-        from lemoncrow.pro.capabilities.review.runtimes import api_response_diff_score
+        from lemoncrow.pro.environment.runners import api_response_diff_score
 
         score = api_response_diff_score(request.old.result, request.new.result)
         if score.status_changed:

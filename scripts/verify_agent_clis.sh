@@ -2,9 +2,8 @@
 # verify_agent_clis.sh — Verify LemonCrow installation across all agent CLIs
 #
 # Runs verification for each host. Each host uses its dedicated verify_<host>.sh
-# wrapper when one exists (verify_claude.sh, verify_codex.sh, verify_copilot.sh,
-# verify_opencode.sh, verify_lemoncode.sh); otherwise it falls back to install_<host>.sh, which runs
-# its own post-install checks (e.g. antigravity).
+# wrapper when one exists; otherwise the installer runs its own post-install
+# checks (e.g. antigravity).
 # Hosts that were skipped (CLI absent) do not count as failures.
 #
 # Options:
@@ -32,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 declare -A RESULTS
-HOSTS=(claude codex opencode lemoncode copilot antigravity cursor hermes)
+HOSTS=(claude codex opencode copilot antigravity cursor hermes)
 
 for host in "${HOSTS[@]}"; do
     echo ""

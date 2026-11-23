@@ -77,6 +77,45 @@ def test_a_direct_browser_load_of_activity_is_the_app_shell_like_runs(tmp_path: 
     assert {"/activity", "/activity/{tail:.*}", "/runs", "/runs/{tail:.*}"} <= served
 
 
+def test_a_direct_load_of_every_redesigned_review_address_is_the_app_shell(tmp_path: Path) -> None:
+    """A deep link into the flow's screens (SPEC 3.1) is served as the app shell, not an API 401 or a 404.
+
+    The server needs no per-screen route: ``/r/{tail:.*}`` and ``/settings/{tail:.*}`` already take every
+    address below them, and pairing can be armed for any of them.
+    """
+
+    from lemoncrow_server_core.local_review import LocalReviewSurface
+
+    bundle = tmp_path / "dist"
+    bundle.mkdir()
+    (bundle / "index.html").write_text("<!doctype html><div id=root></div>", encoding="utf-8")
+    surface = LocalReviewSurface(tmp_path / "store", port=45999, frontend_dir=bundle)
+    flow = (
+        "/r/shop",
+        "/r/shop/one",
+        "/r/shop/one/can_view_order",
+        "/r/shop/all",
+        "/r/shop/map",
+        "/r/shop/preview/pricing",
+        "/r/shop/wrap",
+        "/r/shop/done",
+        "/r/shop/rev/2",
+        "/r/shop/second",
+    )
+    settings = tuple(
+        f"/settings/{section}"
+        for section in ("reading", "ai", "notifications", "keyboard", "look", "more", "policy", "org")
+    )
+    for page in (*flow, *settings):
+        assert surface.is_ui_path(page), page
+        assert surface.is_public_path(page), page
+    # The address is the page's, not a way into the API.
+    for api in ("/api/r/shop/one", "/v1/r/shop/one", "/rx/shop/one", "/review-flow/one"):
+        assert not surface.is_ui_path(api), api
+    served = {route.path for route in surface.route_defs() if route.method == "GET"}
+    assert {"/r/{tail:.*}", "/rr/{tail:.*}", "/reviews", "/review"} <= served
+
+
 def test_review_location_metadata_identifies_checkout(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -95,6 +134,66 @@ def test_review_location_metadata_identifies_checkout(tmp_path: Path) -> None:
     assert metadata["worktree_root"] == str(repo.resolve())
     assert metadata["branch"]
     assert metadata["revision"]
+
+
+def test_kept_checkout_metadata_always_matches_git(tmp_path: Path, monkeypatch) -> None:
+    """The cross-request checkout cache answers what Git answers after every HEAD or ref move, and asks Git once
+    per move, not once per read (worktree, detached HEAD, packed refs and a non-Git directory included)."""
+
+    import lemoncrow_server_core.local_review_service as review_service
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "<redacted-email>")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "a.txt").write_text("1\n", encoding="utf-8")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-qm", "one")
+    worktree = tmp_path / "linked"
+    _git(repo, "worktree", "add", "-q", "-b", "side", str(worktree))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    asked: list[Path] = []
+    real = review_service._review_location_metadata
+
+    def counted(root: Path) -> dict[str, object]:
+        asked.append(root)
+        return real(root)
+
+    monkeypatch.setattr(review_service, "_review_location_metadata", counted)
+    kept = review_service._CheckoutLocations()
+    roots = [repo.resolve(), worktree.resolve(), plain.resolve()]
+
+    def check(moved: str) -> None:
+        asked.clear()
+        for root in roots:
+            assert kept.describe(root) == real(root), moved
+        assert set(asked) <= set(roots), moved
+        before = len(asked)
+        for root in roots:
+            assert kept.describe(root) == real(root), moved
+        # A second read asks Git again only for the directory with no stamp.
+        assert asked[before:] == [plain.resolve()], moved
+
+    check("fresh")
+    (repo / "a.txt").write_text("2\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "two")
+    check("commit on main")
+    _git(repo, "switch", "-q", "-c", "topic")
+    check("branch switch")
+    _git(repo, "switch", "-q", "--detach", "HEAD~1")
+    check("detached HEAD")
+    _git(repo, "switch", "-q", "main")
+    _git(repo, "pack-refs", "--all")
+    check("packed refs")
+    (worktree / "b.txt").write_text("b\n", encoding="utf-8")
+    _git(worktree, "add", "b.txt")
+    _git(worktree, "commit", "-qm", "side")
+    check("commit in the linked worktree")
+    _git(repo, "update-ref", "refs/heads/main", "HEAD~1")
+    check("ref moved without touching HEAD")
 
 
 def test_review_list_reuses_checkout_metadata_without_leaking_branch_hints(tmp_path: Path, monkeypatch) -> None:
@@ -299,7 +398,7 @@ def test_snapshot_file_progress_reaches_the_capture_client(tmp_path: Path, monke
     monkeypatch.setattr(local, "derive_units", slow_derivation)
     seen = []
     asyncio.run(_exercise_identity_upgrade(tmp_path, progress=lambda stage, detail: seen.append((stage, detail))))
-    assert any(stage == "publish" and "Building review targets · 1/1 files" in detail for stage, detail in seen)
+    assert any(stage == "publish" and "Finding changed parts · 1/1 files" in detail for stage, detail in seen)
     assert any(stage == "publish_done" for stage, _ in seen)
 
 
@@ -371,6 +470,28 @@ async def _exercise_identity_upgrade(tmp_path: Path, progress=None) -> None:
         await server.stop()
 
 
+def test_automatic_title_names_the_changed_symbols_and_carries_no_revision_number() -> None:
+    session = SimpleNamespace(title="working tree")
+    revision = SimpleNamespace(revision_number=2)
+
+    def packet(*symbols: tuple[str, str], files: int = 2) -> dict[str, object]:
+        return {
+            "title": "working tree",
+            "files": [{"path": f"app/f{n}.py", "status": "modified"} for n in range(files)],
+            "symbols": [{"symbol_name": name, "change": change} for name, change in symbols],
+        }
+
+    shop = packet(("order_total", "modified"), ("apply_discount", "modified"), ("can_view_order", "modified"))
+    assert _automatic_review_title(session, revision, shop) == "Change order_total, apply_discount and can_view_order"
+    assert _automatic_review_title(session, revision, packet(("a", "modified"), ("b", "modified"))) == "Change a and b"
+    assert _automatic_review_title(session, revision, packet(("a", "added"), ("a", "added"))) == "Add a"
+    assert _automatic_review_title(session, revision, packet(("a", "deleted"))) == "Remove a"
+    many = packet(*((f"f{n}", "modified") for n in range(4)))
+    assert _automatic_review_title(session, revision, many) == "app: 2 files"
+    assert _automatic_review_title(session, revision, packet()) == "app: 2 files"
+    assert "Snapshot" not in _automatic_review_title(session, revision, {"title": "working tree", "files": []})
+
+
 def test_review_title_tracks_snapshot_and_custom_name_can_be_cleared(tmp_path: Path) -> None:
     session = SimpleNamespace(title="working tree")
     first = SimpleNamespace(revision_number=1)
@@ -391,7 +512,7 @@ def test_review_title_tracks_snapshot_and_custom_name_can_be_cleared(tmp_path: P
                 ],
             },
         )
-        == "Snapshot 0: Update frontend/src/App.tsx"
+        == "Update frontend/src/App.tsx"
     )
     assert (
         _automatic_review_title(
@@ -404,7 +525,7 @@ def test_review_title_tracks_snapshot_and_custom_name_can_be_cleared(tmp_path: P
                 ],
             },
         )
-        == "Snapshot 1: Update server/app.py"
+        == "Update server/app.py"
     )
 
     reviews = LocalReviewRepository(tmp_path / "reviews")
@@ -669,7 +790,7 @@ async def _exercise_review(tmp_path: Path) -> None:
         assert rows[0]["repo_id"] == captured.repo_id
         assert rows[0]["revision_number"] == 0
         assert rows[0]["revision_number"] == 0
-        assert rows[0]["title"].startswith("Snapshot 0: Update frontend/src/review/ReviewReader.tsx")
+        assert rows[0]["title"].startswith("Update frontend/src/review/ReviewReader.tsx")
         assert rows[0]["auto_title"] == rows[0]["title"]
         assert rows[0]["title_is_custom"] is False
         assert rows[0]["project"] == "repo"
@@ -694,7 +815,7 @@ async def _exercise_review(tmp_path: Path) -> None:
             body={"title": "Review reader update"},
         )
         assert named["title"] == "Review reader update"
-        assert named["auto_title"].startswith("Snapshot 0: Update")
+        assert named["auto_title"].startswith("Update")
         assert named["title_is_custom"] is True
         renamed_rows = await asyncio.to_thread(server_review_rows, config)
         assert renamed_rows[0]["title"] == "Review reader update"
@@ -1358,6 +1479,112 @@ async def _exercise_review_only_checkout(tmp_path: Path) -> None:
             assert (target / "frontend" / "app.js").read_text() == "frozen after"
         finally:
             session.close()
+
+    try:
+        await asyncio.to_thread(flow)
+    finally:
+        await server.stop()
+
+
+_OWNED_BASE = "import os\n\nREQUIRE_AUTH = True\nALLOWED = ['admin']\n\ndef keep():\n    return 1\n"
+_OWNED_HEAD = "import os\n\ndef added(x):\n    return x + 1\n\ndef keep():\n    return 1\n"
+
+
+def test_a_live_capture_without_base_blobs_keeps_the_verdict_on_a_part_that_owns_deleted_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A capture that carries a source-state identity reads the base text a deleted row is anchored to itself.
+
+    The client sends no ``old_blobs`` on this path. If the server read none, the part that owns the deleted
+    ``REQUIRE_AUTH`` and ``ALLOWED`` rows would hash an unanchored digest, not the occurrence in the base file. The
+    verdicts alone cannot tell the two apart (a recapture with no base blobs keeps the recorded fingerprint), so the
+    test also asserts that the server read the base text of ``a.py`` on each capture.
+    """
+
+    from lemoncrow_server_core import local_reviews
+
+    read: list[dict[str, str]] = []
+    real = local_reviews.load_old_blobs
+
+    def spy(*args, **kwargs) -> dict[str, str]:
+        found = real(*args, **kwargs)
+        read.append(dict(found))
+        return found
+
+    monkeypatch.setattr(local_reviews, "load_old_blobs", spy)
+    monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
+    asyncio.run(_exercise_owned_deleted_text_recapture(tmp_path))
+    # Each capture read the base text the deleted rows are anchored to. Without it the part hashes an unanchored digest,
+    # and the recorded fingerprint the recapture keeps (``carry_recorded_anchors``) would hide that from the verdicts.
+    assert len(read) == 2 and all(blobs == {"a.py": _OWNED_BASE} for blobs in read), read
+
+
+async def _exercise_owned_deleted_text_recapture(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.revisions import compute_frontier
+    from lemoncrow.pro.capabilities.review.sources.local import mark_unit
+    from lemoncrow.pro.capabilities.review.units import owns_deleted_text
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "<redacted-email>")
+    _git(repo, "config", "user.name", "Owned")
+    (repo / "a.py").write_text(_OWNED_BASE, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "initial")
+    (repo / "a.py").write_text(_OWNED_HEAD, encoding="utf-8")
+
+    server, state = build_local_server(
+        LocalServerConfig(listen_port=0, state_root=tmp_path / "state", local_no_auth=True, allow_local_fs=True)
+    )
+    url = await server.start()
+    config = load_config(
+        {
+            "LEMONCROW_URL": url,
+            "LEMONCROW_INSTALL_MODE": "local",
+            "LEMONCROW_HOME": str(tmp_path / "client"),
+            "LEMONCROW_LOCAL_FS": "1",
+            "HOME": str(tmp_path),
+        },
+        cwd=repo,
+    )
+
+    def capture():
+        return capture_server_review(
+            config,
+            repo,
+            resolve_rev_range(repo, working_tree=True),
+            store_root=tmp_path / "client-store",
+            session_id=None,
+            limit=200,
+            with_impact=False,
+            with_provenance=False,
+        )
+
+    def flow() -> None:
+        first = capture()
+        store = state.review_repository.store(first.repo_id)
+        session = store.get_session(first.review_id)
+        revision = store.latest_revision(first.review_id)
+        assert session is not None and revision is not None
+        owners = [unit for unit in store.list_units(revision.id) if owns_deleted_text(unit.content_fingerprint)]
+        assert owners, "the fixture must produce a part that owns the deleted rows"
+        for unit in owners:
+            mark_unit(store, session, revision, unit, state="reviewed")
+
+        # An edit in the same file elsewhere: the file is derived again, so the part's fingerprint is recomputed.
+        (repo / "a.py").write_text(_OWNED_HEAD.replace("return 1", "return 2"), encoding="utf-8")
+        second = capture()
+        assert second.review_id == first.review_id
+        latest = store.latest_revision(second.review_id)
+        assert latest is not None and latest.id != revision.id
+        units = store.list_units(latest.id)
+        frontier = compute_frontier(
+            session.id, "local", latest, units, store.list_marks(session.id, reviewer_id="local")
+        )
+        states = {entry.unit_key: entry.state for entry in frontier.entries}
+        for unit in owners:
+            assert states[unit.unit_key] == "reviewed", (unit.unit_key, states)
 
     try:
         await asyncio.to_thread(flow)

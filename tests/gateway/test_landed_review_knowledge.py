@@ -209,8 +209,8 @@ def test_unproven_merge_and_wrong_snapshot_cannot_publish_decision_history(tmp_p
                 descendant=True,
             ),
         )
-    with pytest.raises(ValueError, match="exact current Review Snapshot"):
-        _landed(store, session.id, "not-this-Snapshot")
+    with pytest.raises(ValueError, match="exact current Review revision"):
+        _landed(store, session.id, "not-this-revision")
     wrong_merge = MergeObservation(
         source="provider_subject",
         provider="github",

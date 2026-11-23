@@ -228,6 +228,38 @@ def test_commit_orders_submodule_before_parent_and_records_its_head(workspace: W
     assert "nothing to commit" in text
 
 
+def test_a_checkout_inside_a_repository_is_never_part_of_its_changes(workspace: Workspace) -> None:
+    ws = workspace
+    git(ws.alpha, "worktree", "add", "-q", "-b", "side", "wt")
+    git(ws.alpha, "clone", "-q", str(ws.remotes / "beta.git"), "cloned")
+    (ws.alpha / "empty").mkdir()
+    git(ws.alpha / "empty", "init", "-q")
+
+    # Only checkouts inside it: the repository has no change, so no step touches it.
+    code, text = lc("status", "--root", str(ws.root), "--json")
+    assert code == 0, text
+    alpha = next(row for row in json.loads(text)["members"] if row["path"] == "alpha")
+    assert alpha["changed"] is False and alpha["untracked"] == 0
+    assert alpha["nested"] == ["cloned", "empty", "wt"]
+    assert lc("status", "--root", str(ws.root))[1].count("checkouts inside it, left out: cloned, empty, wt") == 1
+    assert lc("branch", "feat", "--root", str(ws.root))[0] == 0
+    assert branch_of(ws.alpha) == "main"
+    assert "nothing to commit" in lc("commit", "-m", "x", "--root", str(ws.root), "--only", "alpha")[1]
+    assert git(ws.alpha, "rev-list", "--count", "HEAD") == "1"
+
+    # A real change alongside them: the commit holds the change and no submodule nothing could clone.
+    (ws.alpha / "real.txt").write_text("real\n")
+    (ws.alpha / "dir with space").mkdir()
+    (ws.alpha / "dir with space" / "more.txt").write_text("more\n")
+    code, text = lc("commit", "-m", "real", "--root", str(ws.root), "--only", "alpha")
+    assert code == 0, text
+    assert "left out checkouts inside it: cloned, empty, wt" in text
+    tree = git(ws.alpha, "ls-tree", "-r", "HEAD")
+    assert "160000" not in tree
+    assert {line.split("\t")[1] for line in tree.splitlines()} == {"README.md", "real.txt", "dir with space/more.txt"}
+    assert git(ws.alpha, "status", "--porcelain", "--", "real.txt") == ""
+
+
 def test_commit_refuses_detached_head_and_does_not_commit_the_parent_pointer(workspace: Workspace) -> None:
     ws = workspace
     (ws.core / "c.txt").write_text("core change\n")

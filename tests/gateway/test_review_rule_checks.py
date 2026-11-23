@@ -55,7 +55,7 @@ def _rule(stable_key: str = "auth-required", *, paths: tuple[str, ...] = ("src/a
         stable_key=stable_key,
         instruction=kwargs.pop("instruction", "Authentication must be enforced before privileged behavior."),
         path_scope=paths,
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class=kwargs.pop("trust_class", "trusted_base_repository"),
         source_identity="base:review.yaml",
         source_location=".lemoncrow/review.yaml",

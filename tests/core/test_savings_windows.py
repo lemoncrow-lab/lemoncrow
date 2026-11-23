@@ -14,6 +14,26 @@ import pytest
 from lemoncrow.core.capabilities import savings_summary as ss
 
 
+def test_lite_rows_price_avoided_calls_from_measured_context() -> None:
+    """Lite has no price table: its rows carry ctx/output and the reader prices them."""
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
+
+    model = "claude-opus-4-5-20251101"
+    row = {"tool": "read", "tokens": 0, "calls": 2, "model": model, "ctx_tokens": 90_000, "avg_output_tokens": 400}
+    pricing = get_model_pricing(ss.resolve_model_id(model))
+    assert pricing is not None
+    expected = pricing.request_cost_usd(cache_read_tokens=180_000, output_tokens=800, cache_write_tokens=800)
+    _tokens, _usd, calls, calls_usd, _unpriced = ss._price_savings_row(row)
+    assert calls == 2
+    assert calls_usd == pytest.approx(expected, abs=1e-6)
+    assert calls_usd > 0
+    # A price stored at write time (the full server) is never re-priced.
+    assert ss._price_savings_row({**row, "calls_usd": 0.5})[3] == 0.5
+    # Unmeasured context or an unknown model prices nothing rather than guessing.
+    assert ss._price_savings_row({**row, "ctx_tokens": 0})[3] == 0.0
+    assert ss._price_savings_row({**row, "model": ""})[3] == 0.0
+
+
 def test_window_aggregate_folds_routing_and_read_into_saved_usd(tmp_path: Path) -> None:
     sid = "11111111-1111-1111-1111-111111111111"
     sdir = tmp_path / "sessions" / sid
@@ -146,11 +166,12 @@ def test_daily_rollup_de_duplicates_partitions_that_land_on_different_days(
     agree only when every partition of a resumed session posts on the SAME day
     -- the transcript path, which re-buckets the same turns onto the same
     turn-days. The ``session_end`` path writes each partition's cumulative
-    snapshot on that partition's own Stop day, and that is the ordinary shape:
-    ``session_dir`` searches back only ``search_days``, so a session resumed
-    later mints a new partition on a later day while the old one stops
-    receiving rows and keeps its own snapshot where it was, and
-    ``stop.py`` writes the whole session's running total into each new one.
+    snapshot on that partition's own Stop day, and stores written before
+    ``session_dir`` reused older partitions hold that shape: it searched back
+    only ``search_days``, so a session resumed later minted a new partition on
+    a later day while the old one stopped receiving rows and kept its own
+    snapshot where it was, and ``stop.py`` wrote the whole session's running
+    total into each new one.
 
     Three such partitions still rolled up to $4,374.92 against the window's
     $2,585.81 -- the original 2x, entirely unmitigated.

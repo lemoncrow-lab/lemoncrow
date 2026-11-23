@@ -652,49 +652,51 @@ export interface SavingsToolAggregate {
   live_saved_usd: number;
 }
 
+/** One proof row as `/v1/savings/summary` sends it in `session_proof[].items`; the optional fields are not sent today. */
 export interface SavingsProofItem {
   session_id: string;
   turn_index: number;
   tool_name: string;
   lever: string;
-  model: string;
-  input_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  output_tokens: number;
+  model?: string;
+  input_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  output_tokens?: number;
   actual_tokens: number;
   naive_tokens: number;
   saved_tokens: number;
   actual_cost_usd: number;
   baseline_cost_usd: number;
   saved_cost_usd: number;
-  lever_savings: Record<string, number>;
+  lever_savings?: Record<string, number>;
   created_at: string;
-  source: string;
+  source?: string;
 }
 
+/** One `session_proof` entry; the server always sends the required fields (see test_savings_api.py). */
 export interface SavingsProofSession {
   session_id: string;
   trace_id?: string | null;
   agent: string;
   task: string;
-  status: string;
+  status?: string;
   trace_confidence?: string | null;
   capture_sources?: string[];
   missing_surfaces?: string[];
-  created_at: string;
+  created_at?: string;
   tracked_tool_calls: number;
-  actual_tokens: number;
-  naive_tokens: number;
+  actual_tokens?: number;
+  naive_tokens?: number;
   saved_tokens: number;
-  actual_cost_usd: number;
-  baseline_cost_usd: number;
+  actual_cost_usd?: number;
+  baseline_cost_usd?: number;
   saved_cost_usd: number;
   live_calls_saved: number;
-  live_time_saved_ms: number;
-  live_saved_usd: number;
+  live_time_saved_ms?: number;
+  live_saved_usd?: number;
   items: SavingsProofItem[];
-  has_ledger: boolean;
+  has_ledger?: boolean;
   note?: string;
 }
 
@@ -753,7 +755,7 @@ export interface SavingsBenchmark {
   model: string;
   n_prompts: number;
   total_tokens_baseline: number;
-  total_tokens_lc: number;
+  total_tokens_lemoncrow: number;
   tokens_saved: number;
   reduction_pct: number;
   total_cost_baseline_usd: number;
@@ -1333,6 +1335,8 @@ export interface SessionSummary {
   vendor: string;
   started_model?: string | null;
   cost_status?: "recorded" | "estimated" | "unavailable";
+  /** "unavailable": no savings were measured, so `total_lemoncrow_savings_usd` is not a real zero. */
+  savings_status?: "recorded" | "unavailable";
   usage_measurement_source?: string;
   actual_cost_source?: string;
   agent_settings?: Record<string, any>;
@@ -1401,7 +1405,7 @@ export interface SessionReport extends SessionSummary {
 
 export interface MemoryFact {
   fact_id: string;
-  vendor: "claude" | "codex" | "gemini" | "copilot" | "opencode" | "lemoncode";
+  vendor: "claude" | "codex" | "gemini" | "copilot" | "opencode";
   source_path: string;
   source_kind: string;
   content: string;
@@ -1468,6 +1472,8 @@ export interface ReportContent {
   run_id: string;
   generated_at: string;
   markdown: string;
+  /** "text" for a plain report.txt (aligned columns), "markdown" for the summary fallback; absent on older servers. */
+  format?: "text" | "markdown";
   files: string[];
 }
 

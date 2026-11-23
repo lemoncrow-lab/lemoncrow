@@ -9,7 +9,7 @@ LemonCrow supports three Claude Code installation modes:
 
 1. **Marketplace/plugin install (normal):** `lc rt enable claude` registers the local LemonCrow marketplace source and installs `lemoncrow@lemoncrow`.
 2. **Dev/source checkout:** run Claude directly with `claude --plugin-dir /path/to/lemoncrow/integrations/claude/plugin` when developing the plugin without changing the installed marketplace copy.
-3. **MCP-only fallback:** the LemonCrow tool connection can still be registered without relying on plugin-only features. This keeps the core Runtime tools available, but plugin agents, workflows, Mods, and lifecycle hooks are not all present.
+3. **MCP-only fallback:** the LemonCrow tool connection can still be registered without relying on plugin-only features. This keeps the core Workspaces tools available, but plugin agents, workflows, Mods, and lifecycle hooks are not all present.
 
 The bundled Claude agents use plugin namespacing. For example, the coding agent is exposed as `/lemoncrow:code` using the colon namespace form.
 

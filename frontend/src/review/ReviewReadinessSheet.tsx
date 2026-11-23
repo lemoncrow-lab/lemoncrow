@@ -9,6 +9,9 @@ import { webHref } from "./safeLinks";
 import { baseOnlyNote } from "./movementLabels";
 import ReviewEvidenceFacts, { type ReviewEvidenceFact, type ReviewEvidenceFactState } from "./ReviewEvidenceFacts";
 import ReviewPremergeChecks, { type PremergeActions } from "./ReviewPremergeChecks";
+import { type PrincipalLabeler, usePrincipalLabel } from "./plainWords";
+import { laterCount } from "./answerModel";
+import { judgedParts } from "./vocabulary";
 import type {
   EvidenceRow,
   ReviewAutoApprovalState,
@@ -22,6 +25,8 @@ import type {
   ReviewProgress,
   ReviewRelationshipInfo,
 } from "./types";
+import { revisionName } from "./revisionLabel";
+import { fmtWhen } from "../lib/format";
 
 export type ReviewReadinessTone = "neutral" | "amber" | "rose" | "sky";
 
@@ -103,11 +108,11 @@ export function deriveReviewReadiness({
       id: `evidence:${item.name}`,
       label: item.name,
       detail: item.detail || (item.status === "PASS"
-        ? "This check completed successfully for the current Snapshot."
+        ? "This check completed successfully for the current revision."
         : item.status === "FAIL"
-          ? "This check reported a failure for the current Snapshot."
+          ? "This check reported a failure for the current revision."
           : item.status === "NOT_RUN"
-            ? "This check did not run for the current Snapshot."
+            ? "This check did not run for the current revision."
             : "The result of this check could not be determined."),
       source: item.source || "verification",
       state: factState(item.status),
@@ -136,7 +141,7 @@ export function deriveReviewReadiness({
       evidenceFacts.push({
         id: "evidence:not-run-summary",
         label: `${verification.not_run} check${verification.not_run === 1 ? "" : "s"} did not run`,
-        detail: "These checks did not run for the current Snapshot.",
+        detail: "These checks did not run for the current revision.",
         source: "verification",
         state: "not_run",
       });
@@ -155,33 +160,33 @@ export function deriveReviewReadiness({
     evidenceFacts.push({
       id: "evidence:stale-artifacts",
       label: `${staleArtifacts} stale artifact${staleArtifacts === 1 ? "" : "s"}`,
-      detail: "These artifacts belong to older source and are not current verification.",
+      detail: "These results came from older code, so they do not count for this revision.",
       source: "artifact",
       state: "stale",
     });
   }
-  const unjudged = progress.unreviewed + progress.unknown;
+  const unjudged = progress.unreviewed + progress.unknown + laterCount(progress);
   if (unjudged > 0) {
     blockers.push({
       id: "unjudged",
-      label: `${unjudged} review area${unjudged === 1 ? "" : "s"} need judgment`,
-      detail: "Current review areas with no durable human judgment yet.",
+      label: `${unjudged} part${unjudged === 1 ? "" : "s"} need judgment`,
+      detail: "Nobody has marked these parts Reviewed or Needs changes yet.",
       tone: "amber",
     });
   }
   if (progress.changed_since_review > 0) {
     blockers.push({
       id: "changed",
-      label: `${progress.changed_since_review} review area${progress.changed_since_review === 1 ? "" : "s"} changed since review`,
-      detail: "Previous judgments no longer match the current content fingerprint.",
+      label: `${progress.changed_since_review} part${progress.changed_since_review === 1 ? "" : "s"} changed since review`,
+      detail: "The code changed after these parts were judged, so they need another look.",
       tone: "sky",
     });
   }
   if (progress.needs_changes > 0) {
     blockers.push({
       id: "needs-changes",
-      label: `${progress.needs_changes} review area${progress.needs_changes === 1 ? "" : "s"} need changes`,
-      detail: "The reviewer explicitly asked for changes on these review areas.",
+      label: `${progress.needs_changes} part${progress.needs_changes === 1 ? "" : "s"} need changes`,
+      detail: "The reviewer explicitly asked for changes on these parts.",
       tone: "rose",
     });
   }
@@ -238,8 +243,8 @@ export function deriveReviewReadiness({
     : blockers[0]?.label ?? "Review is blocked.";
 
   if (currentOutcome?.outcome === "lgtm") {
-    label = ready ? "LGTM · ready" : `LGTM · ${blockers.length} blocker${blockers.length === 1 ? "" : "s"}`;
-    detail = currentOutcome.summary || "Current Snapshot has an LGTM verdict.";
+    label = ready ? "Approved · ready" : `Approved · ${blockers.length} blocker${blockers.length === 1 ? "" : "s"}`;
+    detail = currentOutcome.summary || "Current revision is approved.";
   } else if (currentOutcome?.outcome === "comment" && ready) {
     label = "Reviewed · ready";
     detail = currentOutcome.summary || "Review completed without an overall approval verdict.";
@@ -248,7 +253,7 @@ export function deriveReviewReadiness({
     detail = currentOutcome.summary || "The current reviewer verdict requests changes.";
   } else if (outcome?.stale && ready) {
     label = "Ready for re-verdict";
-    detail = `Previous ${outcome.outcome === "lgtm" ? "LGTM" : outcome.outcome.replaceAll("_", " ")} applies to an older Snapshot.`;
+    detail = `Previous ${outcome.outcome === "lgtm" ? "approval" : outcome.outcome.replaceAll("_", " ")} applies to an older revision.`;
   }
 
   return {
@@ -258,7 +263,8 @@ export function deriveReviewReadiness({
     blockers,
     evidenceFacts,
     targetCount: progress.target_count,
-    reviewedTargets: progress.reviewed,
+    // Reviewed or Needs changes: a judged part counts as reviewed; Needs changes keeps its own counter.
+    reviewedTargets: judgedParts(progress),
     changedSinceReview: progress.changed_since_review,
     baseOnlyNote: baseOnlyNote(movement),
     needsChanges: progress.needs_changes,
@@ -286,7 +292,7 @@ function landingConditionClass(condition: ReviewLandingCondition): string {
 }
 
 function instantLabel(value: string): string {
-  return value.replace("T", " ").replace(/Z$/, " UTC");
+  return fmtWhen(value);
 }
 
 /** Freshness of the external observations a condition relies on, as one caption line. */
@@ -337,18 +343,28 @@ export function autoApprovalText(approval: ReviewAutoApprovalState | undefined, 
   if (approval.state === "approved") return `Approved by organization policy on ${name}. Branch protection still applies.`;
   if (approval.state === "approving") return `Approved by organization policy; delivery to ${name} is owed and retried.`;
   if (approval.state === "withdrawn") return approval.detail || "The policy approval was withdrawn.";
-  if (approval.state === "stale") return "Approved an earlier Snapshot; this one is decided again.";
+  if (approval.state === "stale") return "Approved an earlier revision; this one is decided again.";
   if (approval.state === "unknown") return approval.detail || "Policy approval state unavailable.";
   if (approval.eligible === false && approval.blocking?.length) return `Not auto-approved: ${approval.blocking.join(" · ")}`;
   if (approval.eligible === true) return "Eligible for policy approval.";
   return "";
 }
 
-function followUpText(record: ReviewBreakGlassRecord): string {
+function followUpText(record: ReviewBreakGlassRecord, principalName: PrincipalLabeler): string {
   const follow = record.follow_up;
-  if (follow.state === "completed") return `Follow-up review by ${follow.completed_by || "a reviewer"}`;
+  if (follow.state === "completed") return `Follow-up review by ${principalName(follow.completed_by)}`;
   const due = follow.due_at ? instantLabel(follow.due_at) : "unknown";
   return follow.state === "overdue" ? `Follow-up review overdue (was due ${due})` : `Follow-up review due ${due}`;
+}
+
+/** Conditions with nothing left to do; a waived one stays in view (a person bypassed it). */
+const SETTLED_CONDITION_STATES = new Set(["pass", "not_applicable"]);
+
+/** "3 met · 2 not required" for the folded conditions line. */
+export function settledSummary(conditions: readonly ReviewLandingCondition[]): string {
+  const met = conditions.filter((condition) => condition.state === "pass").length;
+  const notRequired = conditions.length - met;
+  return [met > 0 ? `${met} met` : "", notRequired > 0 ? `${notRequired} not required` : ""].filter(Boolean).join(" · ");
 }
 
 function LandingConditionIcon({ condition }: { condition: ReviewLandingCondition }) {
@@ -365,6 +381,7 @@ export default function ReviewReadinessSheet({
   landingBusy = false,
   landingError = "",
   readOnly = false,
+  finished = false,
   extraSections,
   verificationExtras,
   automation,
@@ -380,6 +397,8 @@ export default function ReviewReadinessSheet({
   landingBusy?: boolean;
   landingError?: string;
   readOnly?: boolean;
+  /** The review is finished: only then is Merge when ready offered. An armed merge stays visible either way. */
+  finished?: boolean;
   extraSections?: ReactNode;
   /** Rendered inside the existing Verification subsection (e.g. the manual checklist). */
   verificationExtras?: ReactNode;
@@ -395,6 +414,7 @@ export default function ReviewReadinessSheet({
   onCancelLanding?(): void;
   onClose(): void;
 }) {
+  const principalName = usePrincipalLabel();
   const verificationBlockers = new Set(["failed-checks", "unresolved-checks"]);
   const yourReviewBlockers = new Set([
     "unjudged",
@@ -426,6 +446,40 @@ export default function ReviewReadinessSheet({
   const approvalText = landing ? autoApprovalText(landing.landing.auto_approval, landing.landing.provider) : "";
   const scmText = landing ? scmLandingText(landing.landing.scm, landing.landing.provider) : "";
   const breakGlass = landing?.landing.break_glass ?? [];
+  const openConditions = landing?.conditions.filter((condition) => !SETTLED_CONDITION_STATES.has(condition.state)) ?? [];
+  const settledConditions = landing?.conditions.filter((condition) => SETTLED_CONDITION_STATES.has(condition.state)) ?? [];
+  // "Merge when ready" only where a provider can merge, or there is merge state to show.
+  const mergeBoxShown = Boolean(landing && (
+    landing.landing.supported
+    || landing.landing.armed
+    || landing.landing.state === "merged"
+    || landing.landing.provider_cancel === "pending"
+    || landingError
+  ));
+  const renderCondition = (condition: ReviewLandingCondition) => (
+    <div key={condition.id} className="flex gap-2.5 py-2.5">
+      <LandingConditionIcon condition={condition} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2">
+          <span className={`text-caption font-medium ${landingConditionClass(condition)}`}>{conditionLabel(condition)}</span>
+          {condition.owner === "scm" && <Badge tone="secondary" className="text-muted-foreground">Provider</Badge>}
+          {condition.state === "waived" && <Badge tone="secondary" className="text-amber-300/80">waived by a human</Badge>}
+        </div>
+        {conditionLabel(condition) !== condition.label && (
+          <div className="mt-0.5 text-caption text-muted-foreground">{condition.label}</div>
+        )}
+        <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{condition.detail}</div>
+        {conditionFreshness(condition) && (
+          <div className="mt-0.5 font-mono text-caption leading-4 text-muted-foreground">{conditionFreshness(condition)}</div>
+        )}
+        {webHref(condition.url) && (
+          <a href={webHref(condition.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
+            Open requirement <ExternalLink size={14} />
+          </a>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -453,10 +507,10 @@ export default function ReviewReadinessSheet({
               ? "Merged"
               : landing.ready
               ? landing.landing.supported
-                ? "Ready to merge"
+                ? finished || landing.landing.armed ? "Ready to merge" : "Ready to merge once finished"
                 : "Review ready · merge unavailable"
               : `Not ready · ${landing.blocker_count} condition${landing.blocker_count === 1 ? "" : "s"}`}
-            <span className="ml-2 font-mono text-muted-foreground">Snapshot {landing.snapshot_number}</span>
+            <span className="ml-2 font-mono text-muted-foreground">{revisionName(landing.snapshot_number)}</span>
           </div>
         ) : (
           <div className={cn(SHEET_LEDE_CLASS, model.ready ? "text-emerald-300" : "text-muted-foreground")} title={model.detail}>{model.label}</div>
@@ -503,7 +557,7 @@ export default function ReviewReadinessSheet({
                 <div className="flex items-center gap-2 text-caption">
                   <span className="text-muted-foreground">Latest outcome</span>
                   <span className="font-medium capitalize text-foreground">{model.outcome.outcome.replaceAll("_", " ")}</span>
-                  {model.outcome.stale && <Badge tone="secondary" className="text-amber-300">older Snapshot</Badge>}
+                  {model.outcome.stale && <Badge tone="secondary" className="text-amber-300">older revision</Badge>}
                 </div>
                 {model.outcome.summary && <div className="mt-1 text-caption leading-4 text-muted-foreground">{model.outcome.summary}</div>}
               </div>
@@ -557,32 +611,18 @@ export default function ReviewReadinessSheet({
                   ))}
                 </div>
               )}
-              {landing && <div className="divide-y divide-border border-y border-border">
-                {landing.conditions.map((condition) => (
-                  <div key={condition.id} className="flex gap-2.5 py-2.5">
-                    <LandingConditionIcon condition={condition} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2">
-                        <span className={`text-caption font-medium ${landingConditionClass(condition)}`}>{conditionLabel(condition)}</span>
-                        {condition.owner === "scm" && <Badge tone="secondary" className="text-muted-foreground">Provider</Badge>}
-                        {condition.state === "waived" && <Badge tone="secondary" className="text-amber-300/80">waived by a human</Badge>}
-                      </div>
-                      {conditionLabel(condition) !== condition.label && (
-                        <div className="mt-0.5 text-caption text-muted-foreground">{condition.label}</div>
-                      )}
-                      <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{condition.detail}</div>
-                      {conditionFreshness(condition) && (
-                        <div className="mt-0.5 font-mono text-caption leading-4 text-muted-foreground">{conditionFreshness(condition)}</div>
-                      )}
-                      {webHref(condition.url) && (
-                        <a href={webHref(condition.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
-                          Open requirement <ExternalLink size={14} />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              {landing && openConditions.length > 0 && <div className="divide-y divide-border border-y border-border">
+                {openConditions.map(renderCondition)}
               </div>}
+              {landing && settledConditions.length > 0 && (
+                // Met or not required: nothing to do, so one line; the detail is one click away.
+                <details data-testid="readiness-settled-conditions" className="mt-2 text-meta">
+                  <summary className="cursor-pointer select-none text-subtle">{settledSummary(settledConditions)}</summary>
+                  <div className="mt-1 divide-y divide-border border-y border-border">
+                    {settledConditions.map(renderCondition)}
+                  </div>
+                </details>
+              )}
 
               {approvalText && (
                 <div data-testid="readiness-auto-approval" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-caption">
@@ -641,7 +681,7 @@ export default function ReviewReadinessSheet({
                 </div>
               )}
 
-              {landing && <div className="mt-4 rounded-md border border-border/80 bg-muted/25 p-3">
+              {landing && mergeBoxShown && <div className="mt-4 rounded-md border border-border/80 bg-muted/25 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-caption font-semibold text-foreground">Merge when ready</div>
@@ -690,6 +730,10 @@ export default function ReviewReadinessSheet({
                       <UiButton variant="ghost" size="compact" type="button" disabled={landingBusy} onClick={onCancelLanding}>
                         {landingBusy ? "Cancelling…" : "Cancel merge when ready"}
                       </UiButton>
+                    ) : !finished ? (
+                      <span data-testid="readiness-merge-after-finish" className="text-caption text-muted-foreground">
+                        Finish review first; Merge when ready is offered once the review is finished.
+                      </span>
                     ) : (
                       <UiButton
                         variant="ghost"
@@ -702,7 +746,7 @@ export default function ReviewReadinessSheet({
                         {landingBusy ? "Enabling…" : landing.landing.semantic_stale ? "Re-enable merge when ready" : "Merge when ready"}
                       </UiButton>
                     )}
-                    {!landing.ready && landing.armable && !landing.landing.armed && (
+                    {finished && !landing.ready && landing.armable && !landing.landing.armed && (
                       <span className="text-caption text-muted-foreground">Provider conditions may still be pending; the provider waits for them.</span>
                     )}
                   </div>
@@ -716,7 +760,7 @@ export default function ReviewReadinessSheet({
                   {breakGlass.map((record) => (
                     <div key={record.id} className="mt-1.5 leading-4">
                       <div className="text-foreground">
-                        {record.actor_id} bypassed {record.bypassed.map((row) => row.label || row.id).join(", ") || "no condition"}
+                        {principalName(record.actor_id, "Someone")} bypassed {record.bypassed.map((row) => row.label || row.id).join(", ") || "no condition"}
                       </div>
                       <div className="text-muted-foreground">{record.reason}</div>
                       {webHref(record.incident_url) && (
@@ -725,7 +769,7 @@ export default function ReviewReadinessSheet({
                         </a>
                       )}
                       <div className={record.follow_up.state === "overdue" ? "text-red-300" : record.follow_up.state === "completed" ? "text-emerald-300" : "text-amber-300"}>
-                        {followUpText(record)}
+                        {followUpText(record, principalName)}
                       </div>
                     </div>
                   ))}

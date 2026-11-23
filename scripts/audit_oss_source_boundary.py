@@ -143,7 +143,12 @@ PROVIDER_SEAMS = {
         {"lemoncrow_enterprise_runtime.code_intelligence.provider", "lemoncrow_enterprise_runtime"}
     ),
     "lemoncrow.core.capabilities.private_runtime_provider": frozenset({"lemoncrow.gateway.cli.coding_engine"}),
+    # The command registry adds `lc workspaces` (the private Workspaces server) only when it imports; a public
+    # build has no such command.
+    "lemoncrow.gateway.cli.commands": frozenset({"lemoncrow.gateway.cli.commands.workspaces_server"}),
     "lemoncrow_server_core.index.semantic": frozenset({"lemoncrow_server.semantic", "lemoncrow_server"}),
+    # Hosted Workspaces verifies its entitlement with the private plane, and refuses to start configured without it.
+    "lemoncrow.pro.workspaces.entitlement": frozenset({"lemoncrow_enterprise_licensing"}),
 }
 # Release/source audits must name the private distributions they reject. Their
 # imports are still checked; only the private-module-string rule is waived.

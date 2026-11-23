@@ -249,7 +249,7 @@ describe("ReviewChangeProposalComposer", () => {
     );
 
     expect(screen.getByText(/if user and user\.active/)).toBeTruthy();
-    expect(screen.getByText("based on Snapshot 1")).toBeTruthy();
+    expect(screen.getByText("based on Revision 2")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Apply suggestion" }));
     expect(onApply).toHaveBeenCalledTimes(1);
   });
@@ -302,8 +302,8 @@ describe("ReviewChangeProposalComposer", () => {
 
     expect(screen.queryByText("Ready to apply")).toBeNull();
     expect(screen.getByText("Saved proposal")).toBeTruthy();
-    expect(screen.getByText(/can only be applied from the latest Snapshot/)).toBeTruthy();
-    expect(screen.getByText("based on Snapshot 0")).toBeTruthy();
+    expect(screen.getByText(/can only be applied from the latest revision/)).toBeTruthy();
+    expect(screen.getByText("based on Revision 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Apply suggestion" })).toBeNull();
 
     view.rerender(<ReviewChangeProposalComposer {...props} proposal={saved} quickEdit allowApply />);

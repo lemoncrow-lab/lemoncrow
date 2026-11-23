@@ -2437,7 +2437,7 @@ def _persist_findings(
             fields: dict[str, object] = {
                 "anchor": candidate.anchor,
                 "anchor_method": candidate.anchor_method,
-                "anchor_detail": "AI finding revalidated against the current Snapshot",
+                "anchor_detail": "AI finding revalidated against the current revision",
             }
             if existing.state in {"orphaned", "obsolete"}:
                 fields["state"] = "open"
@@ -2472,7 +2472,7 @@ def _persist_findings(
                 revision.id,
                 candidate.anchor_method,
                 "relocated",
-                "AI finding semantic identity revalidated on this Snapshot",
+                "AI finding semantic identity revalidated on this revision",
                 candidate.anchor,
             )
             ids.append(existing.id)

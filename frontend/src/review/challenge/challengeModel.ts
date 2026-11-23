@@ -7,6 +7,7 @@
 // unknown) stays separate from what it says about the claim. Evidence can
 // falsify a claim; nothing here approves a Review. Claim text is data: it is
 // quoted, never followed, and never changes what would run.
+import { revisionName } from "../revisionLabel";
 import type { AssumptionRow } from "../assumptions/assumptionsModel";
 import type { BlindSpotItem } from "../blindSpots/blindSpotsModel";
 import type { CheckDifferential, CheckRecipesProjection, CheckRecommendation, CheckVerdict } from "../checkRecipesApi";
@@ -314,7 +315,7 @@ export function claimFromXRayStep(step: XRayStep, xray: XRay, targets: readonly 
     sources,
     snapshotIdentity: xray.snapshot,
     trace: link && link.order === "observed" && link.trace && xray.side === "after"
-      ? { evidenceRef: link.trace.evidenceRef || link.trace.recordId, detail: `A recorded run on this Snapshot called ${link.trace.callerFn} → ${link.trace.calleeFn}${link.trace.recipe ? ` (${link.trace.recipe})` : ""}.` }
+      ? { evidenceRef: link.trace.evidenceRef || link.trace.recordId, detail: `A recorded run on this revision called ${link.trace.callerFn} → ${link.trace.calleeFn}${link.trace.recipe ? ` (${link.trace.recipe})` : ""}.` }
       : null,
   });
 }
@@ -409,15 +410,15 @@ function candidateFor(
   stale: boolean,
 ): ChallengeCandidate {
   const none = (reason: string): ChallengeCandidate => ({ kind: "inspect_only", reason });
-  if (stale) return none("This claim was read on another Snapshot. Challenge it again on the Snapshot shown now.");
+  if (stale) return none("This claim was read on another revision. Challenge it again on the revision shown now.");
   if (value.hypothetical) return none("A hypothetical is not current code: a check would exercise the code as it is, not the change imagined here.");
-  if (context.historical) return none("This is an earlier Snapshot; checks run only on the current one.");
+  if (context.historical) return none("This is an earlier revision; checks run only on the current one.");
   if (!input.canRun) return none("This view is read-only, so no check can be requested from it.");
   if (input.recipes.state === "loading") return { kind: "loading" };
   if (input.recipes.state === "unavailable") return none(`Check recipes are unavailable: ${input.recipes.reason}`);
   const recipes = input.recipes.value;
-  if (recipes.revision_id !== context.revision_id) return none("Refused: the check plan returned is for a different Snapshot.");
-  if (recipes.historical) return none("This is an earlier Snapshot; checks run only on the current one.");
+  if (recipes.revision_id !== context.revision_id) return none("Refused: the check plan returned is for a different revision.");
+  if (recipes.historical) return none("This is an earlier revision; checks run only on the current one.");
   if (recipes.recipes.length === 0) {
     return none(recipes.base_state === "provisional"
       ? "The trusted base is not readable yet, so no check recipe is resolved."
@@ -425,7 +426,7 @@ function candidateFor(
   }
   const plan = input.runPlan.state === "ready" && input.runPlan.value.revision_id === context.revision_id ? input.runPlan.value : null;
   const picked = pickRecommendation(value, recipes, plan);
-  if (!picked) return none("No check in this Snapshot's run plan names this claim or covers its source.");
+  if (!picked) return none("No check in this revision's run plan names this claim or covers its source.");
   const { rec, relation } = picked;
   if (!rec.can_run_now) return none(`${rec.title} is not runnable now: ${rec.reason || rec.run_plan_status.replaceAll("_", " ")}.`);
   const recipe = recipes.recipes.find((row) => row.id === rec.recipe_id);
@@ -458,8 +459,8 @@ function candidateFor(
       scope: `${scope}${rec.coverage === "unknown" ? " · test-impact coverage unknown" : ""}${entry?.sides ? ` · sides: ${entry.sides}` : ""}`,
       selectedTests: rec.selected_tests_sample.slice(0, 10),
       authorization: [
-        `Runs only when you confirm, on Snapshot ${context.snapshot_number ?? "?"}, through this Review's existing check-recipe executor.`,
-        "The server re-checks the current Snapshot, run-plan admission, the trusted-base recipe digest and the compute budget, and refuses otherwise. Nothing is retried.",
+        `Runs only when you confirm, on ${context.snapshot_number != null ? revisionName(context.snapshot_number) : "this revision"}, through this Review's existing check-recipe executor.`,
+        "The server re-checks the current revision, run-plan admission, the trusted-base recipe digest and the compute budget, and refuses otherwise. Nothing is retried.",
         rec.manual_authorization_required ? "This entry needs manual authorization: confirming here is that authorization." : "",
       ].filter(Boolean).join(" "),
       cost,
@@ -472,7 +473,7 @@ export function observationFromRun(run: ChallengeRun, value: ChallengeClaim, cur
   const base = { basis: "consented_run" as const, evidenceId: run.differential?.evidence_id ?? "", snapshotIdentity: run.snapshotIdentity, stale: run.snapshotIdentity !== currentIdentity };
   if (run.error) return { ...base, outcome: "could_not_run", checkOutcome: null, reason: `The executor refused or failed: ${run.error}` };
   if (run.responseRevisionId !== run.revisionId) {
-    return { ...base, outcome: "could_not_run", checkOutcome: null, evidenceId: "", reason: "Refused: the executor answered for a different Snapshot, so its result is not used." };
+    return { ...base, outcome: "could_not_run", checkOutcome: null, evidenceId: "", reason: "Refused: the executor answered for a different revision, so its result is not used." };
   }
   const checkOutcome = run.verdict ? lower(run.verdict) : "unknown";
   const result = run.differential;
@@ -493,17 +494,17 @@ export function observationFromRun(run: ChallengeRun, value: ChallengeClaim, cur
   }
   if (value.stance === "asserts") {
     return checkOutcome === "pass"
-      ? { ...base, outcome: "supported", checkOutcome, reason: "The check this claim names passed on this Snapshot." }
-      : { ...base, outcome: "contradicted", checkOutcome, reason: "The check this claim names failed on this Snapshot." };
+      ? { ...base, outcome: "supported", checkOutcome, reason: "The check this claim names passed on this revision." }
+      : { ...base, outcome: "contradicted", checkOutcome, reason: "The check this claim names failed on this revision." };
   }
-  if (checkOutcome === "pass") return { ...base, outcome: "contradicted", checkOutcome, reason: "The check this claim names passed on this Snapshot, so the problem it alleges did not reproduce." };
+  if (checkOutcome === "pass") return { ...base, outcome: "contradicted", checkOutcome, reason: "The check this claim names passed on this revision, so the problem it alleges did not reproduce." };
   if (unit === "introduced_failure" || unit === "new" || result?.base_verdict === "PASS") {
-    return { ...base, outcome: "supported", checkOutcome, reason: "The check this claim names fails on this Snapshot and passes on the base (or is new)." };
+    return { ...base, outcome: "supported", checkOutcome, reason: "The check this claim names fails on this revision and passes on the base (or is new)." };
   }
   if (result?.base_verdict === "FAIL" || unit === "pre_existing_failure") {
     return { ...base, outcome: "inconclusive", checkOutcome, reason: "The check fails on the base too, so the failure is not shown to come from this change." };
   }
-  return { ...base, outcome: "inconclusive", checkOutcome, reason: "The check fails on this Snapshot, but the base was not compared." };
+  return { ...base, outcome: "inconclusive", checkOutcome, reason: "The check fails on this revision, but the base was not compared." };
 }
 
 const PROOF_OUTCOME = /\bProof:\s*(supported|contradicted|inconclusive|could_not_run)\b/i;
@@ -523,7 +524,7 @@ function recordedProof(value: ChallengeClaim, proofs: readonly StaticFinding[], 
     if (!match) continue;
     const base = { basis: "recorded_proof" as const, evidenceId: finding.evidence_id, snapshotIdentity: context.snapshot_identity, stale: false };
     if (context.head_sha && finding.head_sha && finding.head_sha !== context.head_sha) {
-      return { ...base, outcome: "could_not_run", checkOutcome: null, reason: `Refused: the recorded proof ran on commit ${finding.head_sha.slice(0, 12)}, not this Snapshot's head.` };
+      return { ...base, outcome: "could_not_run", checkOutcome: null, reason: `Refused: the recorded proof ran on commit ${finding.head_sha.slice(0, 12)}, not this revision's head.` };
     }
     return {
       ...base,

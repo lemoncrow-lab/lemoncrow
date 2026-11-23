@@ -198,7 +198,7 @@ describe("CheckRecipesPanel", () => {
     expect(failures).not.toHaveTextContent("independently verified execution");
   });
 
-  it("opens only authenticated evidence from the exact Review and Snapshot", async () => {
+  it("opens only authenticated evidence from the exact Review and revision", async () => {
     api.fetchCheckRecipes.mockResolvedValue(projection({
       observed_regressions: { schema_version: 1, rows: [{
         recipe_id: "unit", subject: "tests.test_calc::test_mul", test_path: "tests/test_calc.py",
@@ -219,13 +219,13 @@ describe("CheckRecipesPanel", () => {
     await userEvent.click(button);
     const detail = await screen.findByTestId("regression-evidence-detail");
     expect(detail).toHaveTextContent("Stored differential");
-    expect(detail).toHaveTextContent("Snapshot 2");
+    expect(detail).toHaveTextContent("Revision 3");
     expect(evidenceApi.fetchReviewEvidence).toHaveBeenCalledWith("review-1", "revision-2");
     await userEvent.click(screen.getByRole("button", { name: "Inspect evidence for tests.test_calc::test_mul" }));
     expect(screen.queryByTestId("regression-evidence-detail")).toBeNull();
   });
 
-  it("does not show wrong-Snapshot or wrong-Review evidence as current proof", async () => {
+  it("does not show wrong-revision or wrong-Review evidence as current proof", async () => {
     api.fetchCheckRecipes.mockResolvedValue(projection({
       observed_regressions: { schema_version: 1, rows: [{
         recipe_id: "unit", subject: "test:checkout", test_path: "test_checkout.py", differential_evidence_id: "evidence-1",
@@ -239,7 +239,7 @@ describe("CheckRecipesPanel", () => {
     }] });
     render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
     await userEvent.click(await screen.findByRole("button", { name: "Inspect evidence for test:checkout" }));
-    expect(await screen.findByText(/exact Snapshot evidence is unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/exact revision evidence is unavailable/)).toBeInTheDocument();
     expect(screen.queryByText("Old proof")).toBeNull();
   });
 
@@ -386,7 +386,7 @@ describe("CheckRecipesPanel", () => {
       "Ran 2 of 9 test files selected by test impact: selected by the trusted base's import graph",
     );
     expect(within(unitCard).getByTestId("check-economy-base")).toHaveTextContent("head passed: the base runs only to classify a head failure");
-    expect(within(unitCard).getByTestId("check-economy-reused")).toHaveTextContent("Head reused from Snapshot 1: inputs unchanged (90 s not re-run)");
+    expect(within(unitCard).getByTestId("check-economy-reused")).toHaveTextContent("Head reused from Revision 2: inputs unchanged (90 s not re-run)");
 
     const lintCard = screen.getByTestId("check-result-lint");
     // A full run says why it was not narrowed.
@@ -448,7 +448,7 @@ describe("CheckRecipesPanel", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Proof requested as feedback for the agent");
   });
 
-  it("is read-only on a historical Snapshot and shows head-side recipe edits as future policy", async () => {
+  it("is read-only on a historical revision and shows head-side recipe edits as future policy", async () => {
     api.fetchCheckRecipes.mockResolvedValue(
       projection({
         historical: true,
@@ -495,7 +495,7 @@ describe("trusted check recommendations", () => {
     const format = {
       ...proposed, entry_id: "checks.recipe:fmt", recipe_id: "fmt", title: "Formatter",
       previous_verdict: "", prior_snapshot_verdict: "FAIL",
-      reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
+      reason: "Previous revision had FAIL; this revision has no corresponding check result",
       selection_mode: "all" as const, selected_test_count: 0, selected_tests_sample: [],
       coverage: "not_applicable" as const,
     };
@@ -518,7 +518,7 @@ describe("trusted check recommendations", () => {
     expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.recipe:fmt", false, "revision-1");
   });
 
-  it("does not attribute correction when provenance is missing, unverifiable or from another Snapshot", async () => {
+  it("does not attribute correction when provenance is missing, unverifiable or from another revision", async () => {
     api.fetchCheckRecipes.mockResolvedValue(projection({
       recommended_checks: { schema_version: 1, previous_revision_id: "revision-1", recommendations: [{ ...proposed, prior_snapshot_verdict: "FAIL" }], omitted: 0, policy: "Manual only" },
     }));
@@ -559,14 +559,14 @@ describe("trusted check recommendations", () => {
     expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.test", false);
   });
 
-  it("re-verifies a previous Snapshot failure with an explicit fresh, source-bound run", async () => {
+  it("re-verifies a previous revision failure with an explicit fresh, source-bound run", async () => {
     api.fetchCheckRecipes.mockResolvedValue(projection({
       recipes: RECIPES,
       recommended_checks: {
         schema_version: 1, previous_revision_id: "revision-1",
         recommendations: [{
           ...proposed, previous_verdict: "", prior_snapshot_verdict: "FAIL",
-          reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
+          reason: "Previous revision had FAIL; this revision has no corresponding check result",
         }], omitted: 0, policy: "Manual only",
       },
     }));
@@ -576,7 +576,7 @@ describe("trusted check recommendations", () => {
     });
     render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
     const suggestions = await screen.findByTestId("check-recommendations");
-    expect(suggestions).toHaveTextContent("Previous Snapshot had FAIL");
+    expect(suggestions).toHaveTextContent("Previous revision had FAIL");
     expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
     await userEvent.click(within(suggestions).getByRole("button", { name: "Reverify fresh" }));
     expect(api.postCheckRecipesRun).toHaveBeenCalledWith(
@@ -675,7 +675,7 @@ describe("trusted check recommendations", () => {
     expect(api.postCheckRecipesRun).toHaveBeenCalledTimes(2);
     expect(api.fetchCheckRecipes).toHaveBeenCalledTimes(2);
   });
-  it("stops before another run if a response belongs to another Snapshot", async () => {
+  it("stops before another run if a response belongs to another revision", async () => {
     const suggestions = ["checks.test", "checks.recipe:fmt"].map((entry, index) => ({
       ...proposed, entry_id: entry, recipe_id: String(index),
       previous_verdict: "", prior_snapshot_verdict: "UNKNOWN",
@@ -701,7 +701,7 @@ describe("trusted check recommendations", () => {
       "button", { name: "Reverify 2 trusted checks" },
     ));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "Stopped after 0/2 checks: the check returned a different Snapshot",
+      "Stopped after 0/2 checks: the check returned a different revision",
     );
     expect(api.postCheckRecipesRun).toHaveBeenCalledTimes(1);
   });

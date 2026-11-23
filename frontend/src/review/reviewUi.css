@@ -1,7 +1,15 @@
 /* Review is a product surface of its own. Keep dashboard/terminal-era globals out. */
+/* The flow screens scroll the window under a sticky 52px top bar and sticky bottom bars: anchors, j/k and
+   scrollIntoView land clear of both. Programmatic scrolls stay instant, as they were in the old inner scroll box. */
+html:has(.review-app) {
+  scroll-padding-top: 60px;
+  scroll-padding-bottom: 72px;
+  scroll-behavior: auto;
+}
+
 .review-app {
-  --review-ui-font: "Red Hat Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --review-code-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --review-ui-font: Inter, "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
+  --review-code-font: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --review-border: rgb(var(--n-800) / 0.85);
   --review-surface: rgb(var(--surface-raised));
   --review-muted: rgb(var(--n-400));
@@ -199,18 +207,22 @@
 }
 
 .review-target-header { min-height: 34px; padding: 4px 8px; font-size: var(--fs-label); }
-.review-target-coverage { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-caption); color: var(--review-muted); }
+/* Name, summary and reason wrap instead of truncating: a part header is read, not scanned. */
+.review-target-coverage { min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-caption); color: var(--review-muted); }
 
+/* A tall part's end-of-part shortcut: quiet until pointed at. Pointer-only (its
+   buttons are out of the tab order and hidden from assistive tech); the
+   header above owns the announced controls. */
 .review-target-end-actions {
   display: flex;
-  min-height: 24px;
+  min-height: 28px;
   width: 100%;
   align-items: center;
   justify-content: flex-end;
-  gap: 1px;
+  gap: 2px;
   border-top: 1px solid rgb(var(--n-800) / 0.45);
-  padding: 1px 4px;
-  opacity: 0.28;
+  padding: 2px 4px;
+  opacity: 0.55;
   transition: opacity 120ms ease, background-color 120ms ease;
 }
 .review-target-end-actions:hover,
@@ -218,12 +230,13 @@
   background: rgb(var(--surface-tint) / 0.35);
   opacity: 1;
 }
-.review-target-end-label {
-  margin-right: 3px;
-  font-size: var(--fs-micro);
+.review-target-end-name {
+  margin-right: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--review-code-font);
+  font-size: var(--fs-caption);
   color: rgb(var(--n-500));
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* The sticky dock is the one visible horizontal scrollbar for Review diffs.
@@ -785,6 +798,21 @@
     padding: 0 2px;
     font-size: var(--fs-label);
   }
+  /* The status line sits under the views in the header, in words ("0/3 reviewed · tests not run"),
+     so it is not a permanent slot in the bottom navigation. */
+  .review-reader-statusline {
+    display: flex;
+    min-width: 0;
+    padding: 0 8px 6px;
+  }
+  .review-reader-statusline > button {
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .review-reader-title { font-size: var(--fs-heading); }
   .review-reader-authorship,
   .review-reader-revision { display: none; }
@@ -802,8 +830,9 @@
   /* Context / Ask own the whole content area on a phone: one full-height
      secondary panel at a time, never a sliver beside the Brief. */
   .review-secondary-rail {
-    position: absolute !important;
+    position: fixed !important;
     inset: 0 !important;
+    height: auto !important;
     z-index: 50 !important;
     width: 100% !important;
     border-left-width: 0 !important;
@@ -826,6 +855,7 @@
   .review-target-header { flex-wrap: wrap; }
   .review-target-header > div:first-child { flex-basis: 100%; }
   .review-target-header > div:last-child { margin-left: auto; }
+  .review-target-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
   .review-annotations { padding: 8px 6px; }
   .review-thread-heading, .review-thread-content, .review-composer { padding: 8px; }
   .review-composer-shortcut { display: none; }

@@ -213,6 +213,10 @@ _TEST_PATH: Final[re.Pattern[str]] = re.compile(
     r"|_test\.[a-z]+$|\.(?:test|spec)\.[a-z]+$|(?:^|/)[^/]+Tests?\.(?:java|kt|cs|swift|scala)$"
 )
 _MAX_FILE_BYTES: Final[int] = 256 * 1024
+# A file read whole to place a change in its blocks (the batch guard): the size limit of what is handed over.
+_WHOLE_FILE_BYTES: Final[int] = 4 * 1024 * 1024
+# ... and of all of them together, so what is held in memory is bounded before the guard's own budget applies.
+_WHOLE_TOTAL_BYTES: Final[int] = 32 * 1024 * 1024
 
 
 def is_secret_path(path: str) -> bool:
@@ -1287,6 +1291,73 @@ def old_source_reader(store: Any, revision: Any, repo_root: Path) -> Callable[[s
         return completed.stdout.decode("utf-8", errors="replace")
 
     return read
+
+
+def old_sources(store: Any, revision: Any, repo_root: Path, paths: Sequence[str]) -> dict[str, str]:
+    """Base-side text of many files at once, the way :func:`old_source_reader` reads one.
+
+    The Snapshot's own base-side tree answers what it holds; the rest comes from the base commit through one
+    ``git cat-file --batch`` instead of one ``git show`` per file. A file that cannot be had is left out. Never raises.
+    """
+
+    from lemoncrow.pro.capabilities.review.ask import exact_revision_sources
+
+    wanted = tuple(dict.fromkeys(path for path in paths if path))
+    try:
+        found = dict(exact_revision_sources(store, revision, paths=wanted, side="old"))
+    except Exception:
+        found = {}
+    base = str(getattr(revision, "base_sha", "") or "")
+    rest = [path for path in wanted if path not in found and not is_secret_path(path) and "\n" not in path]
+    if not base or not rest:
+        return found
+    import subprocess
+
+    from lemoncrow.pro.capabilities.review.git_env import git_environment
+
+    def run(mode: str, lines: Sequence[str]) -> bytes | None:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(repo_root), "cat-file", mode],
+                input="".join(f"{line}\n" for line in lines).encode("utf-8"),
+                capture_output=True,
+                check=False,
+                timeout=30,
+                env=git_environment(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout if done.returncode == 0 else None
+
+    # First what each path is and how big (one line each, no content); then the content of the blobs that fit.
+    # A path that names a tree, a submodule or nothing does not stop the ones after it.
+    sizes = run("--batch-check", [f"{base}:{path}" for path in rest])
+    if sizes is None:
+        return found
+    chosen: list[tuple[str, str]] = []
+    total = 0
+    for path, line in zip(rest, sizes.decode("utf-8", errors="replace").split("\n"), strict=False):
+        fields = line.split(" ")
+        if len(fields) != 3 or fields[1] != "blob" or not fields[2].isdigit():
+            continue
+        if int(fields[2]) <= _WHOLE_FILE_BYTES and total + int(fields[2]) <= _WHOLE_TOTAL_BYTES:
+            chosen.append((path, fields[0]))
+            total += int(fields[2])
+    out = run("--batch", [oid for _, oid in chosen]) if chosen else None
+    if out is None:
+        return found
+    at = 0
+    for path, _ in chosen:
+        end = out.find(b"\n", at)
+        header = out[at:end].split(b" ") if end >= 0 else []
+        if len(header) != 3 or not header[2].isdigit():
+            break  # out of step with the answers: keep what was read
+        size = int(header[2])
+        payload = out[end + 1 : end + 1 + size]
+        at = end + 1 + size + 1
+        if header[1] == b"blob" and len(payload) == size and b"\0" not in payload[:8192]:
+            found[path] = payload.decode("utf-8", errors="replace")
+    return found
 
 
 def path_allowed(path: str, rules: Sequence[ContentAccessRule], route_trust: ModelRouteTrust) -> bool:

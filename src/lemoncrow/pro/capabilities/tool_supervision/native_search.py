@@ -175,8 +175,9 @@ def _grep_line_numbers(
 ) -> dict[str, list[int]] | None:
     """Return {abs_path: [1-based line nos]} via ``grep -rn``. None = error / timeout."""
     assert _GREP_BIN is not None
-    # -Z: NUL after the filename so a path containing ':' is parsed unambiguously.
-    cmd: list[str] = [_GREP_BIN, "-rn", "-H", "-Z"]
+    # --null: NUL after the filename so a path containing ':' is parsed unambiguously
+    # (-Z means --decompress in BSD grep, which macOS ships).
+    cmd: list[str] = [_GREP_BIN, "-rn", "-H", "--null"]
     if ignore_case:
         cmd.append("-i")
     for g in glob_patterns:

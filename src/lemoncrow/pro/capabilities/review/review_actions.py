@@ -89,7 +89,7 @@ CODE_CHANGING_KINDS: Final[frozenset[str]] = frozenset(
     }
 )
 CROSS_CHANGE_KINDS: Final[frozenset[str]] = frozenset({"revert", "fix_forward"})
-"""Post-merge actions (P15-OBS): their result is a new Change linked both ways, never a Snapshot of this one."""
+"""Post-merge actions (P15-OBS): their result is a new Change linked both ways, never a revision of this one."""
 
 SubjectKind = Literal[
     "ai_finding",
@@ -428,7 +428,7 @@ class ReviewAction:
     review_id: str
     kind: ReviewActionKind
     source_revision_id: str
-    """The Snapshot the action was prepared against; its row lives under it."""
+    """The revision the action was prepared against; its row lives under it."""
     route: ActionRoute
     status: ReviewActionStatus
     created_by: str
@@ -650,7 +650,7 @@ def finding_exclusion(
     if disposition in {"dismissed", "fixed", "superseded_stale"}:
         return out("not_unresolved", f"already {disposition.replace('_', ' ')}")
     if state == "orphaned" or not anchored:
-        return out("stale_anchor", "no longer anchored on the current Snapshot; revalidate it first")
+        return out("stale_anchor", "no longer anchored on the current revision; revalidate it first")
     if in_flight:
         return out("action_in_flight", "a fix for it is already in flight")
     return None
@@ -842,7 +842,7 @@ def render_handoff(document: HandoffDocument) -> str:
             "",
             "Make the changes in this workspace and run the relevant verification. Do not push, force-push or open "
             "pull requests unless the reviewer directive asks for it. LemonCrow captures your work as a new "
-            "Snapshot for human re-review; nothing you do marks an item resolved.",
+            "Revision for human re-review; nothing you do marks an item resolved.",
         ]
     )
     rendered = "\n".join(lines).rstrip() + "\n"
@@ -864,8 +864,10 @@ def action_identity(
     items: Sequence[HandoffItem | ActionSubject],
     directive: str,
     change_description: str = "",
+    actor: str = "",
 ) -> str:
-    """Digest of everything a prepared action depends on, excluding its retry attempt."""
+    """Digest of everything a prepared action depends on, excluding its retry attempt. ``actor`` is who asks: two
+    people preparing the same fix are two actions, so one's id is never the other's."""
 
     def item_document(item: HandoffItem | ActionSubject) -> dict[str, Any]:
         if isinstance(item, HandoffItem):
@@ -885,6 +887,7 @@ def action_identity(
         "items": [item_document(item) for item in items],
         "directive": text_digest(directive),
         "change": text_digest(change_description),
+        **({"actor": actor} if actor else {}),
     }
     return text_digest(json.dumps(document, sort_keys=True, separators=(",", ":")))
 
@@ -1280,12 +1283,12 @@ def action_catalog(inputs: CatalogInputs) -> tuple[ActionAvailability, ...]:
     return (
         gate(
             "fix_all",
-            "" if inputs.open_findings else "no open findings on this Snapshot",
+            "" if inputs.open_findings else "no open findings on this revision",
             subjects=inputs.open_findings,
         ),
         gate(
             "fix_ci_failure",
-            "" if inputs.failing_checks else "no failing check is recorded on this Snapshot",
+            "" if inputs.failing_checks else "no failing check is recorded on this revision",
             subjects=inputs.failing_checks,
         ),
         gate("update_tests", ""),
@@ -1300,7 +1303,7 @@ def action_catalog(inputs: CatalogInputs) -> tuple[ActionAvailability, ...]:
         ),
         gate(
             "apply_suggestion",
-            inputs.source_mutation_reason or ("" if inputs.proposals else "no open suggestion on this Snapshot"),
+            inputs.source_mutation_reason or ("" if inputs.proposals else "no open suggestion on this revision"),
             subjects=inputs.proposals,
         ),
         gate(

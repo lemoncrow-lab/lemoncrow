@@ -91,7 +91,7 @@ def test_a_review_that_failed_with_an_error_is_a_confused_face_and_the_error_sti
     world.origin.push(FIRST_PUSH)
 
     def broken(*args: Any, **kwargs: Any) -> Any:
-        raise engine.AiStageError("the Snapshot has no persisted effective run plan")
+        raise engine.AiStageError("the revision has no persisted effective run plan")
 
     monkeypatch.setattr(engine, "run_ai_stage", broken)
     with pytest.raises(Exception, match="persisted effective run plan"):

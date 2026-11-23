@@ -130,6 +130,26 @@ def test_mirror_private_boundary_contract() -> None:
     ):
         assert mirror.is_public(f"client/tests/{name}", prefixes) is False
     assert mirror.is_public("tests/core/test_embedder_factory.py", prefixes) is True
+    "case: test_workspaces_server_never_reaches_public_mirror"
+    "The server is offered only as Workspaces Cloud or within Enterprise; Lite and the client stay public."
+    prefixes = mirror.load_public_prefixes()
+    server = [path for path in _tracked_files() if path.startswith("src/lemoncrow/pro/workspaces/")]
+    assert server and not [path for path in server if mirror.is_public(path, prefixes)]
+    for path in (
+        "src/lemoncrow/gateway/cli/commands/workspaces_server.py",
+        "src/lemoncrow/pro/capabilities/review/sources/workspaces.py",
+        "enterprise/deploy/workspaces/README.md",
+    ):
+        assert mirror.is_public(path, prefixes) is False, path
+    assert mirror.is_public("client/src/lemoncrow_client/task_server.py", prefixes) is True
+    importers = subprocess.run(
+        ["git", "grep", "-lE", r"lemoncrow\.pro\.workspaces\b|review\.sources(\.| import )workspaces\b", "--", "*.py"],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    leaked = sorted(path for path in importers if mirror.is_public(path, prefixes))
+    assert not leaked, f"public files import the private Workspaces server: {leaked}"
 
 
 def test_mirror_public_build_contract() -> None:
@@ -191,11 +211,7 @@ def test_mirror_public_build_contract() -> None:
     assert mirror.public_output_path(".github/public-workflows/tests.yml") == ".github/workflows/tests.yml"
     assert mirror.public_output_path(".github/public-workflows") == ".github/workflows"
     assert mirror.public_output_path("src/lemoncrow/__init__.py") == "src/lemoncrow/__init__.py"
-    "case: test_public_gitmodules_names_only_published_public_gitlinks"
-    source = '[submodule "landing"]\n\tpath = landing\n\turl = git@github.com:lemoncrow-lab/landing.git\n[submodule "lemoncode"]\n\tpath = lemoncode\n\turl = https://github.com/lemoncrow-lab/lemoncode.git\n\tbranch = dev\n'
-    rendered = mirror.public_gitmodules(source, {"lemoncode"})
-    assert "landing" not in rendered
-    assert "url = https://github.com/lemoncrow-lab/lemoncode.git" in rendered
+    source = '[submodule "landing"]\n\tpath = landing\n\turl = git@github.com:lemoncrow-lab/landing.git\n'
     assert mirror.public_gitmodules(source, set()) == ""
 
 
@@ -274,7 +290,6 @@ _PRIVATE_TREES = (
     "signatures",
     "release",
     "reports",
-    "lemoncode",
 )
 _SECRET_RE = "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-ant-[A-Za-z0-9-]{40,}|sk-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|AIza[0-9A-Za-z_-]{35}"
 _VERIFIED_SYNTHETIC = frozenset(
@@ -315,11 +330,16 @@ _SCRIPT_DIR_REFERENCE = re.compile("\\$\\{?SCRIPT_DIR\\}?/([\\w-]+\\.(?:py|sh))"
 _GUARDED_UNPUBLISHED_REFERENCES = frozenset(
     {
         ("benchmarks/review_live_runtime.py", "enterprise/server/src"),
+        ("client/tests/test_usage.py", "docs/status/capabilities.toml"),
+        ("server/tests/test_local_inbox_speed.py", "evals/performance/slo.toml"),
         ("tests/gateway/test_review_engine_artifact.py", ".github/public-workflows"),
+        # Vocabulary scanning skips absent roots, including this private enterprise tree.
+        ("tests/gateway/test_review_vocabulary.py", "enterprise/server/src/lemoncrow_server"),
         ("tests/gateway/test_review_gate_h_hardening.py", "enterprise/server"),
         ("tests/gateway/test_review_gate_h_hardening.py", "enterprise/server/Dockerfile"),
         ("tests/gateway/test_trust_inventory.py", "docs/status/capabilities.toml"),
         ("tests/test_make_lifecycle.py", ".github/public-workflows/release.yml"),
+        ("tests/test_release_signing.py", ".github/public-workflows/release.yml"),
     }
 )
 _MARKDOWN_LINK = re.compile("\\]\\(([^)\\s]+)\\)")

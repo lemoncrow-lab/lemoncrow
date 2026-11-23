@@ -27,7 +27,7 @@ from lemoncrow.pro.capabilities.review.run_plan import (
 from tests.gateway.test_review_run_plan_api import _fake_ai, _post, _review
 
 ORG = SettingOrigin("organization", "organization policy")
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 
 
 def _settings(org: dict[str, Any] | None = None, repo: dict[str, Any] | None = None) -> EffectiveRunSettings:
@@ -162,7 +162,10 @@ def _requested(
 ) -> tuple[RunPlan, dict[str, Any]]:
     inputs = _inputs(settings, tuple(changed), **kwargs)
     plan = amend_run_plan(
-        build_run_plan(inputs), inputs, usage=BudgetUsage(), manual=[ManualPick("ai.investigators", depth)]  # type: ignore[arg-type]
+        build_run_plan(inputs),
+        inputs,
+        usage=BudgetUsage(),
+        manual=[ManualPick("ai.investigators", depth)],  # type: ignore[arg-type]
     )
     return plan, explain_depth_request(depth, plan, settings.floors, inputs.required_scope)
 
@@ -235,7 +238,7 @@ def test_local_ai_review_request_below_the_floor_is_raised_with_the_reason(
     assert response.status_code == 200, response.text
     answer = response.json()["ai_review"]["depth_request"]
     assert (answer["requested"], answer["effective"], answer["state"]) == ("quick", "thorough", "raised")
-    assert "min_effort floor thorough for src/** (base Snapshot .lemoncrow/review.yaml)" in answer["reason"]
+    assert "min_effort floor thorough for src/** (base revision .lemoncrow/review.yaml)" in answer["reason"]
     # What executes is the raised depth, never the request.
     assert calls[0]["effort"] == calls[0]["stage_plan"].effort == "thorough"
     persisted = load_run_plan(review.store, review.revision_id)

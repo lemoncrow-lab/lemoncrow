@@ -422,7 +422,9 @@ def _human_judgments(store: Any, review_id: str, repo_id: str) -> list[SourceRef
 
     refs: list[SourceRef] = []
     for event in store.list_review_mark_events(review_id):
-        if event.event_kind == "judgment" and event.actor_type == "human":
+        # "Decide later" is recorded as a judgment event but is not one: setting a part aside is neither a first
+        # review nor a re-review.
+        if event.event_kind == "judgment" and event.actor_type == "human" and event.to_state != "later":
             refs.append(
                 SourceRef(
                     review_id, repo_id, "mark_event", event.id, event.revision_id, event.created_at, "Target judgment"

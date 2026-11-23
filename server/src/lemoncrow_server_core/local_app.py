@@ -7,13 +7,14 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import shutil
 import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
@@ -21,10 +22,12 @@ from pathlib import Path
 from typing import Any, Final
 
 from aiohttp import web
+from lemoncrow_client import usage
 
 from lemoncrow.pro.capabilities.review.gitdiff import RevRange
 from lemoncrow.pro.capabilities.review.models import oversized_diff_reason, review_packet_from_dict
 from lemoncrow.pro.capabilities.review.review_plan import review_brief_enabled
+from lemoncrow.pro.capabilities.review.workspace_impact import WORKSPACE_ENV, collect_workspace_impact, packet_rows
 
 from .app import (
     HEADER_HOST,
@@ -70,7 +73,7 @@ from .local_review_service import (  # noqa: F401 -- the title/location helpers 
     _public_snapshot_number,
     _review_location_metadata,
 )
-from .local_reviews import LocalReviewReader, LocalReviewRepository
+from .local_reviews import LocalReviewReader, LocalReviewRepository, note_artifact_write
 from .protocol import CAPTURE_OPTIONS, require_capture_mode, require_packet_schema, review_capabilities
 from .result_reuse import ResultReuseValidator
 from .review_derivation import derive_review_packet_from_views, gitlinks_from_wire, review_range_from_wire
@@ -100,6 +103,9 @@ _SAFE_BROWSER_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD", "OPTION
 #: The loopback server captures client-built packets and derives packets from
 #: the client's own synced base/head Views (``derive_packet``, as ``lcr`` sends).
 LOCAL_CAPTURE_MODES: Final[frozenset[str]] = frozenset({"derived", "packet"})
+#: How long a capture waits for its workspace scan, so the first read of the Brief has the answer. A longer scan (a
+#: cold one of a large folder) finishes on its own thread and then adds the answer to the visible Snapshot.
+_WORKSPACE_SCAN_WAIT_S: Final[float] = 20.0
 _DIGEST: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
 # What a service may ask of the index this process owns: read-only lookups.
 _CODE_INTELLIGENCE_METHODS: Final[frozenset[str]] = frozenset(
@@ -456,12 +462,18 @@ class LocalServerApp(CoreServerRoutes):
         request[REQUEST_ID_KEY] = request.headers.get(HEADER_REQUEST_ID, "").strip() or f"req_{uuid.uuid4().hex}"
         self._in_flight += 1
         self._idle.clear()
+        started = time.monotonic()
+        status = 500
         try:
             response = await handler(request)
+            status = response.status
         finally:
             self._in_flight -= 1
             if self._in_flight == 0:
                 self._idle.set()
+            feature = usage.classify_reader_request(request.method, request.path)
+            if feature is not None:
+                usage.record(feature, surface="reader", ok=status < 400, seconds=time.monotonic() - started)
         if not response.prepared:
             response.headers[HEADER_REQUEST_ID] = request[REQUEST_ID_KEY]
         return response
@@ -683,10 +695,34 @@ class LocalServerApp(CoreServerRoutes):
         if self.services is not None:
             await self.services.stop()
 
+    async def _refuse_agent_judgment(self, request: web.Request) -> None:
+        """Refuse a write that records the reviewer's judgment or settings when a coding-agent process made it."""
+
+        if not is_judgment_request(request.method, request.path):
+            return
+        host = await asyncio.to_thread(peer_agent_host, request.transport)
+        if host is None:
+            # lc-debt: fail-open where the caller cannot be resolved
+            # (unsupported platform, restricted /proc, and on macOS a caller
+            # that closes before lsof sees it); the CLI guard still applies
+            # there. Upgrade: an OS peer-credential lookup.
+            _LOG.debug("review judgment caller unresolved; allowing %s %s", request.method, request.path)
+        elif host:
+            raise ServerError(
+                ErrorCode.FORBIDDEN,
+                "this records human review judgment and cannot come from a coding-agent process "
+                f"({host}); use the Review Reader or your own terminal",
+                action=AgentAction.ABANDON,
+            )
+
     def _served_by(
         self, service: str, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
     ) -> Callable[[web.Request], Awaitable[web.StreamResponse]]:
         async def route(request: web.Request) -> web.StreamResponse:
+            # These routes are matched before the Reader's catch-all, so its judgment guard never sees them. Only the
+            # personal settings are guarded here; no other route in the table is a judgment (is_judgment_request).
+            if self._principal(request).auth_method != self.browser_principal.auth_method:
+                await self._refuse_agent_judgment(request)
             if self.services is not None:
                 return await self.services.forwarder(service)(request)
             return await handler(request)
@@ -837,14 +873,30 @@ class LocalServerApp(CoreServerRoutes):
                 loop.call_soon_threadsafe(progress.update, {"detail": detail})
 
             async def run() -> tuple[int, dict[str, Any]]:
-                return 201, await self._in_worker(self._review_capture_sync, principal, repo_id, assembled, report)
+                return 201, await self._capture_then_warm(principal, repo_id, assembled, report)
 
             job_id = self.review_capture_jobs.submit(owner, run, progress=progress)
             # A small capture often finishes in <250ms. Do not impose a fixed
             # one-second delay before the first readiness check.
             return json_response({"job_id": job_id, "state": "running", "poll_after_s": 0.1}, status=202)
-        captured = await self._in_worker(self._review_capture_sync, principal, repo_id, assembled)
+        captured = await self._capture_then_warm(principal, repo_id, assembled)
         return json_response(captured, status=201)
+
+    async def _capture_then_warm(
+        self,
+        principal: Principal,
+        repo_id: str,
+        assembled: dict[str, Any],
+        report: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        held: list[Any] = []
+        captured = await self._in_worker(self._review_capture_sync, principal, repo_id, assembled, report, held)
+        if held:
+            # The capture is the durable event: derive the Reader's products now, in the
+            # background, so opening the Review URL reads prepared results.
+            session, revision_id = held[0]
+            self.review_service.schedule_capture_warm(repo_id, session, revision_id)
+        return captured
 
     async def review_capture_job(self, request: web.Request) -> web.StreamResponse:
         principal = self._principal(request)
@@ -860,7 +912,12 @@ class LocalServerApp(CoreServerRoutes):
         return json_response({"job_id": job_id, "state": "failed", "error": payload, "status": status})
 
     def _review_capture_sync(
-        self, principal: Principal, repo_id: str, body: dict[str, Any], progress: Callable[[str], None] | None = None
+        self,
+        principal: Principal,
+        repo_id: str,
+        body: dict[str, Any],
+        progress: Callable[[str], None] | None = None,
+        captured_into: list[Any] | None = None,
     ) -> dict[str, Any]:
         if progress is not None:
             progress("Validating snapshot source")
@@ -883,6 +940,7 @@ class LocalServerApp(CoreServerRoutes):
         base_gitlinks: dict[str, str] = {}
         head_gitlinks: dict[str, str] = {}
         with_impact = True
+        with_workspace = False
         if derive_packet:
             # The server builds the packet from the Views, exactly as hosted does;
             # a client-built packet or source blob alongside would be ambiguous.
@@ -897,16 +955,17 @@ class LocalServerApp(CoreServerRoutes):
             base_gitlinks, head_gitlinks = gitlinks_from_wire(
                 require_object(body, "gitlinks") if body.get("gitlinks") is not None else {}
             )
-            with_impact_raw = body.get("with_impact", True)
-            if not isinstance(with_impact_raw, bool):
+            with_impact = _capture_flag(body, "with_impact", default=True)
+            with_workspace = _capture_flag(body, "with_workspace", default=False)
+        else:
+            if body.get("with_workspace") is True:
+                # A client-built packet already carries its own workspace slice.
                 raise ServerError(
                     ErrorCode.PAYLOAD_INVALID,
-                    "with_impact must be a boolean",
-                    details={"field": "with_impact"},
+                    "with_workspace applies only to a server-derived capture",
+                    details={"field": "with_workspace"},
                     action=AgentAction.FIX_REQUEST,
                 )
-            with_impact = with_impact_raw
-        else:
             packet_raw = require_object(body, "packet")
             require_packet_schema(packet_raw)
             blobs_raw = require_object(body, "new_blobs")
@@ -1010,6 +1069,8 @@ class LocalServerApp(CoreServerRoutes):
                 # The identity LocalReviewRepository records for the repository.
                 repo_root=f"local:{repo_id}",
             ).packet
+
+        local_grant = self._local_fs_grants.get((principal.org_id, view_id))
 
         if base_view_id:
             base_size_limit = self.config.limits.max_indexed_content_bytes
@@ -1146,7 +1207,6 @@ class LocalServerApp(CoreServerRoutes):
         supplied_title = supplied_title.strip()
         if len(supplied_title) > 120 or any(ord(char) < 32 for char in supplied_title):
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "title must be at most 120 characters on one line")
-        local_grant = self._local_fs_grants.get((principal.org_id, view_id))
         worktree_root = str(local_grant.root) if local_grant is not None else ""
         worktree_key = (
             hashlib.sha256(f"{worktree_root}\0{review_scope}".encode("utf-8", errors="surrogateescape")).hexdigest()[
@@ -1191,7 +1251,18 @@ class LocalServerApp(CoreServerRoutes):
             self.review_repository.set_review_checkout_root(repo_id, capture.session.id, local_grant.root)
         if workspace_branch:
             self.review_repository.set_workspace_branch_hint(repo_id, capture.session.id, workspace_branch)
+        if with_workspace and with_impact and local_grant is not None:
+            self._publish_workspace_impact(
+                repo_id,
+                capture.session.id,
+                capture.revision.id,
+                local_grant.root,
+                packet_rows(packet.files),
+                body.get("workspace_root"),
+            )
         review = self.review_service.review_session_wire(repo_id, capture.session)
+        if captured_into is not None:
+            captured_into.append((capture.session, capture.revision.id))
         return {
             "review": review,
             "revision": {
@@ -1202,6 +1273,38 @@ class LocalServerApp(CoreServerRoutes):
             },
             "revision_created": capture.revision_created,
         }
+
+    def _publish_workspace_impact(
+        self,
+        repo_id: str,
+        review_id: str,
+        revision_id: str,
+        checkout: Path,
+        rows: Sequence[tuple[str, str | None, tuple[str, str] | None]],
+        named_root: object,
+    ) -> None:
+        """Add the other repositories this change reaches to its Snapshot, in place.
+
+        In place because a capture of unchanged bytes keeps its Snapshot, whatever that Snapshot was made without. The
+        packet is derived on a scratch copy, so the repositories can only be found around the checkout this client
+        proved it holds (same user, same machine); the shell's ``LEMONCROW_WORKSPACE_ROOT`` arrives as ``named_root``.
+        """
+
+        root = named_root.strip() if isinstance(named_root, str) else ""
+        environ = {**os.environ, WORKSPACE_ENV: root} if root else None
+
+        def publish() -> None:
+            found = collect_workspace_impact(checkout, rows, environ=environ)
+            try:
+                self.review_repository.attach_workspace_impact(
+                    repo_id=repo_id, review_id=review_id, revision_id=revision_id, found=found
+                )
+            except (ServerError, OSError, RuntimeError, ValueError) as exc:
+                _LOG.warning("workspace impact not added to Snapshot %s: %s", revision_id, exc)
+
+        scan = threading.Thread(target=publish, name="lc-review-workspace-publish", daemon=True)
+        scan.start()
+        scan.join(_WORKSPACE_SCAN_WAIT_S)
 
     async def review_attach_base(self, request: web.Request) -> web.StreamResponse:
         """Attach the exact old-side tree after a Review is already visible.
@@ -1261,6 +1364,8 @@ class LocalServerApp(CoreServerRoutes):
             for path, entry in membership.items()
         }
         store.write_source_tree_artifact(session.id, revision.id, old_source_tree, side="old")
+        # Reads cached before the attach (the capture warm-up's targets, whose batch guards read the old side) are stale.
+        note_artifact_write(store)
         return {
             "review_id": session.id,
             "revision_id": revision.id,
@@ -1355,17 +1460,9 @@ class LocalServerApp(CoreServerRoutes):
                 "supported",
             ),
             (
-                "lemoncode",
-                "LemonCode",
-                "Public managed LemonCode host; Hosted execution chooses its frontend separately.",
-                ("lemoncode",),
-                (home / ".lemoncrow" / "bin" / "lemoncode-host", home / ".lemoncrow" / "bin" / "lemoncode-host.json"),
-                "supported",
-            ),
-            (
                 "pi",
                 "Pi",
-                "Default LemonCrow-managed coding frontend.",
+                "The Pi coding agent, managed by LemonCrow. Start a session with `lc with pi`.",
                 (),
                 (home / ".lemoncrow" / "hosts" / "pi-host.json",),
                 "supported",
@@ -1470,22 +1567,6 @@ class LocalServerApp(CoreServerRoutes):
                     "Prompt plugin",
                     "Prompt-time LemonCrow nudge plugin.",
                     (xdg / "opencode" / "plugins" / "lemoncrow-nudge.js",),
-                    "file",
-                ),
-            ),
-            "lemoncode": (
-                (
-                    "binary",
-                    "Managed host",
-                    "LemonCode rollback host binary managed by LemonCrow.",
-                    (home / ".lemoncrow" / "bin" / "lemoncode-host",),
-                    "file",
-                ),
-                (
-                    "metadata",
-                    "Release metadata",
-                    "Installed LemonCode host release metadata.",
-                    (home / ".lemoncrow" / "bin" / "lemoncode-host.json",),
                     "file",
                 ),
             ),
@@ -1774,7 +1855,7 @@ class LocalServerApp(CoreServerRoutes):
 
         self._principal(request)
         if not self.config.dashboard_enabled or self.dashboard_service is None:
-            raise web.HTTPNotFound(text="the LemonCrow Dashboard is not enabled")
+            raise web.HTTPNotFound(text="the local dashboard is not enabled")
         if self.services is not None:
             return await self.services.forwarder(SERVICE_DASHBOARD)(request)
         return await self.dashboard_service.handle(request)
@@ -1795,23 +1876,8 @@ class LocalServerApp(CoreServerRoutes):
                     "decide it in the Review Reader in your browser",
                     action=AgentAction.ABANDON,
                 )
-        elif principal.auth_method != self.browser_principal.auth_method and is_judgment_request(
-            request.method, request.path
-        ):
-            host = await asyncio.to_thread(peer_agent_host, request.transport)
-            if host is None:
-                # lc-debt: fail-open where the caller cannot be resolved
-                # (unsupported platform, restricted /proc, and on macOS a caller
-                # that closes before lsof sees it); the CLI guard still applies
-                # there. Upgrade: an OS peer-credential lookup.
-                _LOG.debug("review judgment caller unresolved; allowing %s %s", request.method, request.path)
-            elif host:
-                raise ServerError(
-                    ErrorCode.FORBIDDEN,
-                    "this records human review judgment and cannot come from a coding-agent process "
-                    f"({host}); use the Review Reader or your own terminal",
-                    action=AgentAction.ABANDON,
-                )
+        elif principal.auth_method != self.browser_principal.auth_method:
+            await self._refuse_agent_judgment(request)
         tail = str(request.match_info.get("tail") or "")
         review_roots = ("reviews", "revisions", "annotations", "evidence", "proposals")
         if any(tail == root or tail.startswith(f"{root}/") for root in review_roots) or tail == "compare":
@@ -1859,6 +1925,25 @@ class LocalServerApp(CoreServerRoutes):
                         web.get("/usage", ui),
                     ]
                 )
+            else:
+                # Review-only: a Dashboard link (an old bookmark, the docs) lands on Reviews, not a bare 404.
+                to_landing = self.review_surface.home
+                app.add_routes(
+                    [
+                        web.get(path, to_landing)
+                        for path in (
+                            "/home",
+                            "/activity",
+                            "/activity/{tail:.*}",
+                            "/runs",
+                            "/runs/{tail:.*}",
+                            "/code",
+                            "/knowledge",
+                            "/knowledge/{tail:.*}",
+                            "/usage",
+                        )
+                    ]
+                )
         product_routes: list[web.RouteDef] = [web.get("/api/local/system", self.local_system_status)]
         if self.config.dashboard_enabled:
             product_routes.append(web.get("/api/local/integrations", self.local_integrations))
@@ -1887,14 +1972,24 @@ class LocalServerApp(CoreServerRoutes):
         elif self.config.dashboard_enabled:
             product_routes.append(web.route("*", "/api/{tail:.*}", self.legacy_dashboard_api))
         app.add_routes(product_routes)
+        if self.config.review_enabled:
+            app.on_startup.append(self._review_flow_startup)
         app.on_shutdown.append(self._on_shutdown)
         return app
+
+    async def _review_flow_startup(self, app: web.Application) -> None:
+        del app
+        if self.services is not None:
+            # The isolated Review worker dispatches delayed sends, in the process that answers the Reader API.
+            return
+        await self.review_reader.start_flow_send_worker()
 
     async def _on_shutdown(self, app: web.Application) -> None:
         del app
         if not self.draining:
             self.begin_drain()
             await self.wait_drained(self.config.shutdown_timeout_s)
+        await self.review_reader.stop_flow_send_worker()
         await self.review_capture_jobs.close(self.config.shutdown_timeout_s)
         index_worker = getattr(self, "index_worker", None)
         if index_worker is not None:
@@ -1930,6 +2025,18 @@ def build_local_app(
         clock=clock,
     )
     return state, state.build()
+
+
+def _capture_flag(body: Mapping[str, Any], name: str, *, default: bool) -> bool:
+    value = body.get(name, default)
+    if not isinstance(value, bool):
+        raise ServerError(
+            ErrorCode.PAYLOAD_INVALID,
+            f"{name} must be a boolean",
+            details={"field": name},
+            action=AgentAction.FIX_REQUEST,
+        )
+    return value
 
 
 def _isolated_services(config: LocalServerConfig) -> LocalServices:

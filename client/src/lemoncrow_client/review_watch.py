@@ -175,7 +175,7 @@ def watch_main(
         sink.write(
             "Usage: lcr watch [--staged] [--once] [--include-clean-head] [--json] [--no-impact] "
             "[--interval SECONDS] [--settle SECONDS]\n"
-            "Continuously capture settled changes without Runtime/MCP. "
+            "Continuously capture settled changes without Workspaces/MCP. "
             "Ctrl-C stops; no background service is installed.\n"
         )
         return 0

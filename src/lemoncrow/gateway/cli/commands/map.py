@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import urllib.parse
-import webbrowser
 from pathlib import Path
 from typing import Any
 
 import click
+from lemoncrow_client.browser import launch_browser_url
 
 from lemoncrow.gateway.cli import style
 
@@ -20,7 +20,7 @@ def map_cmd(ctx: click.Context, open_browser: bool) -> None:
 
     Folders and files with their symbol counts, each file's symbols, what it
     imports and what imports it, symbol source, and symbol search, read from
-    the local Runtime Lite index. Off a terminal it prints the overview.
+    the local Workspaces Lite index. Off a terminal it prints the overview.
     Press o on a file or symbol to open it in $VISUAL / $EDITOR.
     """
     from lemoncrow.core.foundation.paths import WorkspaceNotRegisteredError, resolve_workspace_root
@@ -103,7 +103,8 @@ def _open_dashboard_code(root: Path, repo: Path) -> None:
 
     click.echo(f"{style.accent('◆')} Opening the code map: {url}")
     arm_local_browser_url(url)
-    webbrowser.open(url)
+    if not launch_browser_url(url):
+        click.echo(f"(could not open a browser; open {url} manually.)", err=True)
 
 
 __all__ = ["map_cmd"]

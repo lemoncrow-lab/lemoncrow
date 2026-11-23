@@ -13,8 +13,10 @@ import {
 import { cx } from "../../components/WorkbenchUI";
 import { useRuntimeCapabilities } from "../../lib/RuntimeCapabilities";
 import { getFileEditInfo, InlineFileDiff, SideBySideDiff } from "./DiffView";
-import { fmtUsd, fmtTok, parseAt } from "../../lib/format";
+import { fmtUsdRate, fmtTok, fmtWhen, parseAt } from "../../lib/format";
+import { toolLabel } from "../../lib/labels";
 import { LONG_OUTPUT_THRESHOLD, getNormName } from "./helpers";
+import { statusLabel } from "../../lib/labels";
 
 const TEXT_EXTENSIONS = new Set([
   "c",
@@ -232,7 +234,7 @@ function TodoCard({ turn }: { turn: ConversationEntry }) {
               )}
               {todo.status && (
                 <span className="rounded-md border border-amber-900/40 bg-background/60 px-2 py-0.5 font-mono text-caption uppercase tracking-tag text-amber-300">
-                  {todo.status}
+                  {statusLabel(todo.status)}
                 </span>
               )}
             </div>
@@ -490,8 +492,8 @@ function ToolConversationCard({
           <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
             Tool Call
           </div>
-          <div className="mt-1 text-heading font-semibold text-foreground">
-            {turn.tool_name || getNormName(turn)}
+          <div className="mt-1 text-heading font-semibold text-foreground" title={turn.tool_name || undefined}>
+            {turn.tool_name ? toolLabel(turn.tool_name) : getNormName(turn)}
           </div>
         </div>
       </div>
@@ -527,10 +529,16 @@ export function ConversationTurn({
   turn,
   forceExpand,
   compact = false,
+  hideModel = false,
+  hideSource = false,
 }: {
   turn: ConversationEntry;
   forceExpand: boolean;
   compact?: boolean;
+  /** The model is the same as the turn before (or the header's): don't repeat it on every event. */
+  hideModel?: boolean;
+  /** The source log is the same as the turn before: don't repeat it on every event. */
+  hideSource?: boolean;
 }) {
   const isUser = turn.kind === "user_message";
   const isAgent = turn.kind === "agent_message";
@@ -550,7 +558,7 @@ export function ConversationTurn({
     ? forceExpand || internalExpanded
     : forceExpand || internalExpanded || !isLong;
   const showExpandToggle = isThinking ? true : isLong;
-  const toolDisplayName = turn.tool_name || getNormName(turn);
+  const toolDisplayName = turn.tool_name ? toolLabel(turn.tool_name) : getNormName(turn);
   const fileEditInfo = isTool ? getFileEditInfo(turn) : null;
   const showArtifactLabel = shouldShowArtifactLabel(turn);
 
@@ -588,11 +596,11 @@ export function ConversationTurn({
             {turnKindLabel(turn)}
           </span>
           {toolDisplayName && isTool && !isTodo && !isSubagent && (
-            <span className="truncate text-label normal-case tracking-normal text-amber-300">
+            <span className="truncate text-label normal-case tracking-normal text-foreground" title={turn.tool_name || undefined}>
               {toolDisplayName}
             </span>
           )}
-          {turn.model && <ModelPill model={turn.model} />}
+          {turn.model && !hideModel && <ModelPill model={turn.model} />}
           {turn.count && turn.count > 1 && (
             <span className="border border-border bg-muted/60 px-2 py-0.5 text-caption text-muted-foreground">
               ×{turn.count}
@@ -603,7 +611,7 @@ export function ConversationTurn({
               subagent
             </span>
           )}
-          {showArtifactLabel && (
+          {showArtifactLabel && !hideSource && (
             <span className="truncate text-caption font-normal normal-case tracking-normal text-muted-foreground">
               source · {turn.artifact_label}
             </span>
@@ -611,8 +619,7 @@ export function ConversationTurn({
         </div>
 
         <div className="flex items-center gap-3">
-          {turn.cost &&
-            turn.cost > 0 &&
+          {typeof turn.cost === "number" && turn.cost > 0 &&
             (() => {
               const tok = turn.tokens as Record<string, number> | undefined;
               const totalTok = tok
@@ -622,12 +629,13 @@ export function ConversationTurn({
                   (tok.cache_write ?? 0)
                 : 0;
               return (
-                <div className="text-caption font-semibold tracking-tight text-red-300">
-                  - {fmtUsd(turn.cost)}
+                <div
+                  className="text-caption font-semibold normal-case tracking-tight text-muted-foreground"
+                  title="What this turn cost"
+                >
+                  {fmtUsdRate(turn.cost)}
                   {totalTok > 0 && (
-                    <span className="ml-1 font-normal text-red-300">
-                      ({fmtTok(totalTok)})
-                    </span>
+                    <span className="font-normal"> · {fmtTok(totalTok)} tokens</span>
                   )}
                 </div>
               );
@@ -635,22 +643,22 @@ export function ConversationTurn({
           {turn.saved &&
             ((turn.saved.tokens ?? 0) > 0 || (turn.saved.calls ?? 0) > 0) && (
               <span
-                className="text-caption font-semibold tracking-tight text-emerald-300"
+                className="text-caption font-semibold tracking-tight text-ok"
                 title={`LemonCrow saved ${turn.saved.tokens.toLocaleString()} tokens${turn.saved.calls > 0 ? ` and ${turn.saved.calls} call${turn.saved.calls === 1 ? "" : "s"}` : ""}${turn.saved.usd > 0 ? ` (≈ $${turn.saved.usd.toFixed(4)} at the model's input rate)` : ""}`}
               >
                 ↓{" "}
                 {turn.saved.usd > 0
-                  ? fmtUsd(turn.saved.usd)
+                  ? fmtUsdRate(turn.saved.usd)
                   : `${fmtTok(turn.saved.tokens)} tok`}
                 {turn.saved.tokens > 0 && (
-                  <span className="ml-1 font-normal text-emerald-300">
+                  <span className="ml-1 font-normal text-ok">
                     ({fmtTok(turn.saved.tokens)})
                   </span>
                 )}
               </span>
             )}
           <span className="font-normal tracking-tight text-muted-foreground transition-colors group-hover:text-subtle">
-            {parseAt(turn.at)?.toLocaleTimeString() ?? ""}
+            {turn.at ? fmtWhen(parseAt(turn.at)) : ""}
           </span>
         </div>
       </div>
@@ -694,7 +702,7 @@ export function ConversationTurn({
           <div
             className={cx(
               isThinking
-                ? "text-body italic leading-relaxed tracking-tight text-cyan-200/40"
+                ? "text-body leading-relaxed text-muted-foreground"
                 : isUser || isAgent
                   ? "text-heading leading-7 text-foreground"
                   : "font-mono text-body leading-relaxed tracking-tight text-subtle"
@@ -723,11 +731,11 @@ export function ConversationTurn({
               >
                 {internalExpanded ? (
                   <>
-                    Shrink <ChevronUp size={14} />
+                    Show less <ChevronUp size={14} />
                   </>
                 ) : (
                   <>
-                    Expand ({turn.content?.length || 0} chars){" "}
+                    {isThinking ? "Show reasoning" : "Show all"}{" "}
                     <ChevronDown size={14} />
                   </>
                 )}

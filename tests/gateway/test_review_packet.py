@@ -383,8 +383,9 @@ def test_intent_to_add_exclusion_is_visible_in_the_rendered_review(tmp_path: Pat
     )
     rendered = render_review(packet, no_color=True)
 
-    assert "intent_to_add_excluded:1" in rendered
-    assert "`git add -N` paths hold no staged content" in rendered
+    assert "1 `git add -N` path(s) hold no staged content and are left out" in rendered
+    # The terminal names the fallback in words; the raw code stays in `--json`.
+    assert "intent_to_add_excluded" not in rendered
     assert "src/promised.py" not in rendered
 
 
@@ -972,8 +973,8 @@ def test_symbol_only_startup_and_impact_enrichment_preserve_review_unit_identity
     source_ready = attach_changed_symbols(root, base)
     enriched = attach_impact(root, rng, source_ready)
 
-    before = derive_units(source_ready.packet, source_ready.blobs.new)
-    after = derive_units(enriched.packet, enriched.blobs.new)
+    before = derive_units(source_ready.packet, source_ready.blobs.new, old_blobs=source_ready.blobs.old)
+    after = derive_units(enriched.packet, enriched.blobs.new, old_blobs=enriched.blobs.old)
     before_identity = {
         unit.unit_key: (
             unit.kind,

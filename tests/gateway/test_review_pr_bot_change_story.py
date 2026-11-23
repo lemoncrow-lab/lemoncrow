@@ -120,7 +120,7 @@ def test_the_fixture_covers_every_ordering_rule_it_claims_to() -> None:
 def test_the_walkthrough_walks_the_change_in_the_reviews_order_and_counts_the_findings_on_each_step() -> None:
     text = walkthrough(story_of_case(CASES[0]))
     assert text.split("\n") == [
-        "**Change Story**",
+        "**Walkthrough**",
         "",
         "<sub>Ordered by recorded dependencies between changed files, dependents first. This is not a runtime order."
         "</sub>",
@@ -354,7 +354,7 @@ def test_the_section_is_the_diagram_its_legend_then_the_walkthrough() -> None:
     drawn = draw(_story_delta(), links=LINKS)
     assert drawn is not None and drawn.story is not None
     section = drawn.section
-    order = [section.index(mark) for mark in ("```mermaid", "solid: in this commit", "**Change Story**")]
+    order = [section.index(mark) for mark in ("```mermaid", "solid: in this commit", "**Walkthrough**")]
     assert order == sorted(order)
     assert section.endswith(diagram_module.SECTION_CLOSE)
     assert drawn.state == digest_of(section)
@@ -506,11 +506,11 @@ def test_a_pull_request_summary_walks_its_change_under_the_diagram_with_links_an
     world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     report = world.review()
 
-    assert report.state is not None and "**Change Story**" in report.summary
+    assert report.state is not None and "**Walkthrough**" in report.summary
     head = report.state.head_sha
     assert f". [`src/cache.py`]({REPO}/blob/{head}/src/cache.py) · entry point · changed" in report.summary
     assert re.search(r"\n\d\. → \[`auth\.py`\]\(" + re.escape(f"{REPO}/blob/{head}/src/auth.py"), report.summary)
-    assert report.summary.index("**Change Story**") < report.summary.index(diagram_module.SECTION_CLOSE)
+    assert report.summary.index("**Walkthrough**") < report.summary.index(diagram_module.SECTION_CLOSE)
     assert ET.fromstring(target.read_text(encoding="utf-8")).tag == f"{_SVG_NS}svg"
 
 
@@ -537,7 +537,7 @@ def test_the_walkthrough_counts_the_runs_findings_and_follows_a_model_diagram_to
 
     head = world.origin.head
     assert "Sketched by the model from the diff" in report.summary, "the model's diagram is the one drawn"
-    assert "**Change Story**" in report.summary
+    assert "**Walkthrough**" in report.summary
     step = next(line for line in report.summary.splitlines() if f"/blob/{head}/src/cache.py)" in line)
     assert "· 1 P1 finding" in step, step
     assert "P1 finding" in target.read_text(encoding="utf-8"), "the artifact is written with the run's findings"

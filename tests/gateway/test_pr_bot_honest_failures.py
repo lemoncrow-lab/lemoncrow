@@ -68,6 +68,11 @@ KEY = "sk-ant-api03-ThisIsTheSecretKey0123456789"
             ("did not answer in the format",),
         ),
         ("RuntimeError: provider unavailable", "other", ("model calls failed", "see the workflow log")),
+        (
+            "ReviewSnapshotUnavailable: the new side could not be read from the mirror: timed out",
+            "snapshot",
+            ("snapshot could not be rebuilt, so no model was asked", "see the workflow log"),
+        ),
     ],
 )
 def test_each_failure_is_named_with_its_cause_and_its_fix(error: str, kind: str, fragments: tuple[str, ...]) -> None:
@@ -90,6 +95,7 @@ _TERMINAL_ERRORS = {
     "overloaded": "litellm.APIConnectionError: connection reset",
     "json": "LiteLLM returned invalid JSON, also after one retry",
     "other": "RuntimeError: provider unavailable",
+    "snapshot": "ReviewSnapshotUnavailable: the review snapshot could not be rebuilt: big.bin was not captured",
 }
 
 

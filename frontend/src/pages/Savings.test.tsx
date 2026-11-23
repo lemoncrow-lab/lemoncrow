@@ -156,7 +156,7 @@ describe("Savings page", () => {
                 model: "test-model",
                 n_prompts: 2,
                 total_tokens_baseline: 1000,
-                total_tokens_lc: 600,
+                total_tokens_lemoncrow: 600,
                 tokens_saved: 400,
                 reduction_pct: 40.0,
                 total_cost_baseline_usd: 0.02,
@@ -182,14 +182,12 @@ describe("Savings page", () => {
 
     renderSavings();
 
-    expect(
-      await screen.findByText("Tracked Proof Reduction")
-    ).toBeInTheDocument();
-    expect(await screen.findByText("51.9%")).toBeInTheDocument();
-    expect(await screen.findByText("Manual verification")).toBeInTheDocument();
-    expect(
-      await screen.findByText("Excluded Compact Output Rows")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Cost reduction")).toBeInTheDocument();
+    // Plain language up top; the audit numbers sit behind a disclosure.
+    expect(await screen.findByText("How this figure is worked out")).toBeInTheDocument();
+    expect(screen.queryByText(/statusline\/CLI reconciliation/)).not.toBeInTheDocument();
+    expect(screen.getByText("Details for auditing the total").closest("details")).not.toHaveAttribute("open");
+    expect(await screen.findByText("Left out of the headline")).toBeInTheDocument();
     expect(await screen.findByText("Per-lever savings")).toBeInTheDocument();
     expect(await screen.findByText("Top savings sources")).toBeInTheDocument();
     expect(await screen.findByText("Per-tool cost proof")).toBeInTheDocument();
@@ -343,5 +341,120 @@ describe("Savings page", () => {
         /This session only has persisted context-budget rows\./
       )
     ).toBeInTheDocument();
+  });
+
+  it("renders the exact shape the server sends (core/service/api.py) without crashing", async () => {
+    const user = userEvent.setup();
+    // Field for field what /v1/savings/summary returns for one context-budget session:
+    // session_proof entries carry no status/created_at, items no model/source, benchmark uses total_tokens_lemoncrow.
+    const serverShape = {
+      window_days: 7,
+      total_naive_tokens: 1000,
+      total_actual_tokens: 600,
+      reduction_pct: 40.0,
+      per_lever: { batch_edit: 400 },
+      by_day: [{ day: "2026-04-12", naive: 1000, actual: 600 }],
+      saved_usd: 0.0012,
+      saved_pct: 100.0,
+      would_have_cost_usd: 0.0012,
+      actually_cost_usd: 0.0,
+      tracked_actual_cost_usd: 0.009,
+      tracked_baseline_cost_usd: 0.0102,
+      tracked_saved_cost_usd: 0.0012,
+      total_calls: 0,
+      live_calls_saved: 2,
+      live_time_saved_ms: 50000,
+      live_saved_usd: 1.66278,
+      ops_saved_usd: 0,
+      carry_usd: 0,
+      carry_tokens: 0,
+      read_saved_usd: 0,
+      total_saved_usd: 0.0012,
+      ledger_tokens_saved: 0,
+      ledger_calls_saved: 0,
+      routing_saved_usd: 0,
+      top_sources: [{ lever: "batch_edit", tool_name: "edit", calls_saved: 2, tokens_saved: 400, cost_saved_usd: 0.0012, time_saved_ms: 50000 }],
+      cost_only_sources: [],
+      latest_benchmark: {
+        session_id: "bench", model: "m", n_prompts: 2,
+        total_tokens_baseline: 1000, total_tokens_lemoncrow: 600, tokens_saved: 400, reduction_pct: 40,
+        total_cost_baseline_usd: 0.02, total_cost_lemoncrow_usd: 0.012, cost_saved_usd: 0.008,
+        total_time_baseline_ms: 2000, total_time_lemoncrow_ms: 1500, time_saved_ms: 500,
+        baseline_success_rate: 1, lemoncrow_success_rate: 1,
+      },
+      tracked_tool_calls: 1,
+      cost_basis: "context_budget",
+      tool_aggregates: [],
+      session_proof: [
+        {
+          session_id: "run-live-1",
+          agent: "codex",
+          task: "ship it",
+          saved_tokens: 400,
+          saved_cost_usd: 0.0012,
+          tracked_tool_calls: 1,
+          live_calls_saved: 2,
+          items: [
+            {
+              session_id: "run-live-1", turn_index: 0, tool_name: "mcp__lc__edit", lever: "batch_edit",
+              actual_tokens: 600, naive_tokens: 1000, saved_tokens: 400,
+              actual_cost_usd: 0.009, baseline_cost_usd: 0.0102, saved_cost_usd: 0.0012,
+              created_at: "2026-04-12T10:00:00Z",
+            },
+          ],
+        },
+      ],
+      coverage_gaps: [],
+      verification: {},
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/savings/summary")) return Promise.resolve(jsonResponse(serverShape));
+      if (url.includes("/api/ledgers/run-live-1")) return Promise.resolve(jsonResponse({ session_id: "run-live-1" }));
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    renderSavings();
+
+    expect(await screen.findByText(/LemonCrow-enabled 600/)).toBeInTheDocument();
+    expect(screen.getByText("ship it")).toBeInTheDocument();
+    expect(screen.getByText("Tool Turns").nextSibling).toHaveTextContent("1");
+    expect(screen.getByText("Live Calls Saved").nextSibling).toHaveTextContent("2");
+    await user.click(screen.getByRole("button", { name: "Inspect evidence details" }));
+    expect(await screen.findAllByText("Edit")).not.toHaveLength(0);
+  });
+
+  it("survives a server that leaves the counters out, showing a dash or zero instead of crashing", async () => {
+    // An older server: no tracked_tool_calls / live_calls_saved anywhere, and a benchmark without token totals.
+    const partial = {
+      window_days: 7,
+      total_naive_tokens: 1000,
+      total_actual_tokens: 600,
+      reduction_pct: 40.0,
+      per_lever: { batch_edit: 400 },
+      by_day: [{ day: "2026-04-12", naive: 1000, actual: 600 }],
+      saved_usd: 0.0012,
+      total_calls: 0,
+      top_sources: [],
+      cost_only_sources: [],
+      latest_benchmark: { session_id: "bench", model: "m", n_prompts: 2, reduction_pct: 40 },
+      cost_basis: "context_budget",
+      tool_aggregates: [],
+      session_proof: [{ session_id: "run-old-1", agent: "codex", task: "old server", saved_tokens: 400, items: [] }],
+      coverage_gaps: [],
+      verification: {},
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/savings/summary")) return Promise.resolve(jsonResponse(partial));
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
+
+    renderSavings();
+
+    expect(await screen.findByText("old server")).toBeInTheDocument();
+    expect(screen.getByText("Tool Turns").nextSibling).toHaveTextContent("0");
+    expect(screen.getByText("Live Calls Saved").nextSibling).toHaveTextContent("0");
+    expect(screen.getByText(/LemonCrow-enabled —/)).toBeInTheDocument();
   });
 });

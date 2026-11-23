@@ -7,7 +7,9 @@
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Bookmark, Trash2 } from "lucide-react";
 
-import { Button } from "../components/ui/button";
+import { Link } from "react-router-dom";
+import { Button, buttonVariants } from "../components/ui/button";
+import { cn } from "../lib/utils";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
 import type {
@@ -17,6 +19,8 @@ import type {
   InboxWorkflowState,
   SavedInboxFilter,
 } from "./types";
+import { plainCode, principalLabel, type PrincipalNames } from "./plainWords";
+import { secondSignatureText } from "./home/homeModel";
 
 export const INBOX_VIEW_OPTIONS: readonly { id: InboxView; label: string }[] = [
   { id: "all", label: "All" },
@@ -229,13 +233,17 @@ function axisLabel(map: Record<string, string>, state: string): string {
   return map[state] ?? state.replaceAll("_", " ");
 }
 
-export function inboxAxesText(axes: InboxAxes): [string, string, string] {
-  const waiting = axes.team_review.waiting_on?.length ? ` on ${axes.team_review.waiting_on.join(", ")}` : "";
-  return [
-    `Your review ${axisLabel(YOUR_REVIEW, axes.your_review.state)}`,
-    `Team review ${axisLabel(TEAM_REVIEW, axes.team_review.state)}${axes.team_review.state === "waiting" ? waiting : ""}`,
-    `Merge ${axisLabel(MERGE, axes.scm.state)}`,
-  ];
+/** The review's own states, leaving out an axis that does not apply (no team on a solo review, no merge target
+ * without source control) so a local row never shows "Team review not applicable · Merge not connected". */
+export function inboxAxesText(axes: InboxAxes, storedNames?: PrincipalNames): string[] {
+  const names = [...new Set((axes.team_review.waiting_on ?? []).map((id) => principalLabel(id, "", undefined, storedNames)))];
+  const waiting = names.length ? ` on ${names.join(", ")}` : "";
+  const lines = [`Your review ${axisLabel(YOUR_REVIEW, axes.your_review.state)}`];
+  if (axes.team_review.state !== "not_applicable") {
+    lines.push(`Team review ${axisLabel(TEAM_REVIEW, axes.team_review.state)}${axes.team_review.state === "waiting" ? waiting : ""}`);
+  }
+  if (axes.scm.state !== "not_connected") lines.push(`Merge ${axisLabel(MERGE, axes.scm.state)}`);
+  return lines;
 }
 
 function workflowTone(state: InboxSignals["workflow"]["state"]): string {
@@ -246,9 +254,10 @@ function workflowTone(state: InboxSignals["workflow"]["state"]): string {
 }
 
 export function nextActionText(signals: InboxSignals): string {
+  const storedNames = signals.principal_names;
   const next = signals.next_action;
-  if (next.for_me) return `Your turn: ${next.my_reasons[0]?.fact || next.my_reasons[0]?.kind || "needs you"}`;
-  if (next.owner_ids.length) return `Waiting on ${next.owner_ids.join(", ")}`;
+  if (next.for_me) return `Your turn: ${next.my_reasons[0]?.fact || plainCode(next.my_reasons[0]?.kind) || "needs you"}`;
+  if (next.owner_ids.length) return `Waiting on ${[...new Set(next.owner_ids.map((id) => principalLabel(id, "", undefined, storedNames)))].join(", ")}`;
   return "";
 }
 
@@ -260,7 +269,7 @@ export function attentionExplanation(signals: InboxSignals): string {
  * The full readiness axes and attention score stay available to assistive/diagnostic
  * inspection without making every reviewer learn the Inbox scoring model. */
 export function InboxRowSignals({ signals }: { signals: InboxSignals }) {
-  const axes = inboxAxesText(signals.axes);
+  const axes = inboxAxesText(signals.axes, signals.principal_names);
   const next = nextActionText(signals);
   const priority = signals.priority.level;
   const attention = attentionExplanation(signals);
@@ -283,6 +292,13 @@ export function InboxRowSignals({ signals }: { signals: InboxSignals }) {
           </span>
         )}
       </div>
+      {signals.second_signature?.for_me ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2" data-testid="inbox-second-signature">
+          <span className="font-semibold text-p1">Needs your second signature</span>
+          <span className="text-muted-foreground">{secondSignatureText(signals.second_signature)}</span>
+          <Link to={signals.second_signature.path} data-testid="inbox-second-review" className={cn(buttonVariants({ variant: "brand", size: "sm" }), "")}>Review</Link>
+        </div>
+      ) : null}
       {next && <div className="mt-0.5 truncate text-muted-foreground" title={next}>{next}</div>}
       {blocking && (
         <div className="mt-0.5 truncate text-muted-foreground" data-testid="inbox-blocking" title={blocking}>{blocking}</div>
@@ -290,7 +306,7 @@ export function InboxRowSignals({ signals }: { signals: InboxSignals }) {
       <span className="sr-only" data-testid="inbox-readiness-detail">{axes.join(" · ")}</span>
       {signals.attention.factors.length > 0 && (
         <span className="sr-only" data-testid="inbox-attention" title={attention}>
-          Attention details available
+          {`Ranked by: ${signals.attention.factors.map((factor) => factor.label).join(", ")}`}
         </span>
       )}
     </div>

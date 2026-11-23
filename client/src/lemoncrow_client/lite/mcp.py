@@ -50,10 +50,13 @@ from ..workspace_members import (
     recorded_commits,
     resolve_root,
 )
-from ..worktrees import LinkedWorktree, WorktreeCatalog, _path_values
-from .index import LiteIndex, LiteIndexProgress, LiteIndexReport, LiteIndexUpgradeRequired, ProgressCallback
+from ..worktrees import LinkedWorktree, WorktreeCatalog, WorktreeRoute, _path_values
+from .bash_search_upgrade import bash_code_search_args, bash_code_search_batch_args, bash_source_search_redirect
+from .index import LiteIndex, LiteIndexProgress, LiteIndexReport, LiteIndexUpgradeRequired, ProgressCallback, _tokens
 from .policy import LITE_VISIBLE_TOOLS, LOCAL_LITE_TOOLS
+from .savings import SavingsLedger
 from .semantic import LiteSemanticClient, fuse_ranked_paths, is_semantic_intent_query
+from .workspace_search_plan import choose_first_wave, normalize_member_ranks
 
 SERVER_NAME: Final[str] = "lemoncrow-runtime-lite"
 SERVER_VERSION: Final[str] = "1"
@@ -76,6 +79,25 @@ _SNIPPET_FILES: Final[int] = 3
 _INSTRUCTION_REPOS: Final[int] = 40
 #: Member indexes built at once, so one large repository does not hold the rest back.
 _BUILD_WORKERS: Final[int] = 2
+#: One session-wide reader pool, shared by all concurrent workspace search calls.
+_SEARCH_READERS: Final[int] = 4
+#: Members one code_search greps when their indexes cannot answer; the rest are named as not searched.
+_GREP_FALLBACK_REPOS: Final[int] = 8
+_NO_MATCHES: Final[Mapping[str, str]] = {"type": "text", "text": "no matches"}
+_SOURCE_DISCOVERY_POLICY: Final[str] = (
+    "Git source discovery: code_search first; combine terms. Known files: read. "
+    "Do not combine source grep/rg with unrelated Bash commands: use code_search separately. "
+    "Read-only source grep may be redirected to code_search; exact shell output uses Bash. "
+    "Bash remains for Git, tests, logs/processes and non-Git search. Index misses fall back to grep. "
+)
+#: What an index raises when it cannot answer; code_search then answers from the files.
+_INDEX_FAILURES: Final[tuple[type[Exception], ...]] = (
+    LiteIndexUpgradeRequired,
+    OSError,
+    RuntimeError,
+    sqlite3.Error,
+    ValueError,
+)
 _LOCAL_EXECUTORS: Final[dict[str, Any]] = {
     "bash": local_shell.run_bash,
     "edit": local_editing.run_edit,
@@ -93,13 +115,40 @@ def _workspace_root(environment: Mapping[str, str]) -> Path:
     # level), never as a folder in grep mode next to an unused index.
     root = resolve_root(Path(explicit) if explicit else Path.cwd())
     if not root.is_dir():
-        raise RuntimeError(f"Runtime Lite workspace is not a directory: {root}")
+        raise RuntimeError(f"Workspaces Lite workspace is not a directory: {root}")
     return root
 
 
 def _state_root(environment: Mapping[str, str]) -> Path:
     explicit = environment.get("LEMONCROW_HOME", "").strip()
     return Path(explicit).expanduser().resolve() if explicit else (Path.home() / ".lemoncrow").resolve()
+
+
+def _search_limit(arguments: Mapping[str, Any]) -> int:
+    requested = arguments.get("limit", arguments.get("max_files", 8))
+    return max(1, min(32, requested)) if isinstance(requested, int) and not isinstance(requested, bool) else 8
+
+
+def _search_scopes(paths: object) -> list[str]:
+    if isinstance(paths, str):
+        return [paths]
+    if isinstance(paths, (list, tuple)) and paths:
+        return [str(path) for path in paths]
+    return ["."]
+
+
+def _failure_reason(exc: Exception) -> str:
+    return "index_upgrade_required" if isinstance(exc, LiteIndexUpgradeRequired) else "index_failed"
+
+
+def _mark_fallback(result: dict[str, Any], reason: str, matches: int) -> dict[str, Any]:
+    """Tag an answer that came from grep; ``call`` writes the tag into the usage trace."""
+    metrics = result.get("_lc_metrics")
+    merged = dict(metrics) if isinstance(metrics, Mapping) else {}
+    merged.update({"grep_fallback": 1, "grep_fallback_matches": matches})
+    result["_lc_fallback"] = reason
+    result["_lc_metrics"] = merged
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +226,7 @@ class _BuildQueue:
 
         with self._cond:
             if self._closed:
-                raise RuntimeError("Runtime Lite is shutting down")
+                raise RuntimeError("Workspaces Lite is shutting down")
             future = state.ready
             if future is None or (future.done() and (future.cancelled() or future.exception() is not None)):
                 future = Future()
@@ -328,6 +377,7 @@ _LITE_SCHEMA_OVERRIDES: Final[dict[str, dict[str, Any]]] = {
                 ]
             },
             "limit": {"type": "integer", "minimum": 1, "maximum": 32},
+            "coverage": {"type": "string", "enum": ["complete", "fast"], "default": "complete"},
         },
     },
     "relations": {
@@ -385,14 +435,14 @@ def _surface() -> list[dict[str, Any]]:
             continue
         raw = source.get(name)
         if not isinstance(raw, dict):
-            raise RuntimeError(f"Runtime Lite tool missing shared schema: {name}")
+            raise RuntimeError(f"Workspaces Lite tool missing shared schema: {name}")
         schema = _LITE_SCHEMA_OVERRIDES.get(name, raw.get("inputSchema"))
         if not isinstance(schema, dict):
-            raise RuntimeError(f"Runtime Lite tool has invalid schema: {name}")
+            raise RuntimeError(f"Workspaces Lite tool has invalid schema: {name}")
         description = str(raw.get("description") or "")
         if name == "relations":
             description = (
-                "Basic local symbol relationships from the Runtime Lite index. "
+                "Basic local symbol relationships from the Workspaces Lite index. "
                 "kind=self|usages|imports is exact/basic; callers/callees are bounded lexical approximations."
             )
         elif name == "graph":
@@ -403,6 +453,12 @@ def _surface() -> list[dict[str, Any]]:
                 "with evidence and confidence; kind=impact lists the repositories a change reaches "
                 "(paths: root-relative changed files; none = working-tree changes). "
                 "Advanced graph/lineage analytics are hosted."
+            )
+        elif name == "code_search":
+            description = "FIRST for Git source discovery; combine terms. Index misses use grep. " + description
+        elif name == "bash":
+            description = (
+                "Use code_search for Git source discovery; Bash for exact shell output and operations. " + description
             )
         tools.append({"name": name, "description": description, "inputSchema": schema})
     return tools
@@ -424,6 +480,12 @@ class LiteMcp:
         self._repos_lock = threading.Lock()
         self._repo_progress: dict[str, LiteIndexProgress] = {}
         self._builds = _BuildQueue(self._prepare_repo, workers=_BUILD_WORKERS) if self._workspace is not None else None
+        # Bounded fanout is shared across calls, never one new executor per query.
+        self._search_readers = (
+            ThreadPoolExecutor(max_workers=_SEARCH_READERS, thread_name_prefix="lc-workspace-search")
+            if self._workspace is not None
+            else None
+        )
         self._catalog = WorktreeCatalog(self.repo_root)
         self._children: OrderedDict[Path, _LiteWorkspace] = OrderedDict()
         self._children_lock = threading.Lock()
@@ -444,7 +506,12 @@ class LiteMcp:
         # One stdio process serves one host session; its calls are the local
         # usage record (same schema as the full client's trace, site "lite").
         self.session_id = f"lite_{secrets.token_hex(8)}"
+        # Failed code_search -> grep is one-way until a successful indexed search.
+        self._bash_search_fallback_active = False
         self._traces = ClientTraceWriter(_state_root(self.environment) / "runtime", env=self.environment)
+        # The host session's savings.jsonl, which the stop hook, statusline and
+        # savings reports read (the same rows the full server wrote).
+        self._savings = SavingsLedger(_state_root(self.environment), self.environment, self.repo_root)
         self._prepare_thread: threading.Thread | None = None
         self._prepare_error: Exception | None = None
         self._prepare_progress: LiteIndexProgress | None = None
@@ -491,6 +558,11 @@ class LiteMcp:
                     pass
             self._refresh_futures[root] = self._refresh_executor.submit(index.refresh_if_needed)
 
+    def _forget_refreshes(self, roots: Sequence[Path]) -> None:
+        with self._refresh_futures_lock:
+            for root in roots:
+                self._refresh_futures.pop(root, None)
+
     def _worktree_workspace(self, worktree: LinkedWorktree) -> _LiteWorkspace:
         root = worktree.root.resolve()
         with self._children_lock:
@@ -506,7 +578,8 @@ class LiteMcp:
         candidate = self._new_workspace(root)
         candidate.index.adopt_prepared()
 
-        evicted: _LiteWorkspace | None = None
+        evicted: list[_LiteWorkspace] = []
+        gone: list[Path] = []
         discard: _LiteWorkspace | None = None
         with self._children_lock:
             workspace = self._children.pop(root, None)
@@ -515,13 +588,18 @@ class LiteMcp:
             else:
                 discard = candidate
             self._children[root] = workspace
+            # A checkout removed since (lc task finish, git worktree remove, rm -rf) is closed when the next one
+            # opens, not kept until it ages out. Its overlay went with it, and its index cannot recreate the path.
+            gone = [other for other in self._children if other != root and not (other / ".git").exists()]
+            evicted.extend(self._children.pop(other) for other in gone)
             while len(self._children) > _MAX_WORKTREE_INDEXES:
-                _old_root, evicted = self._children.popitem(last=False)
+                evicted.append(self._children.popitem(last=False)[1])
 
         if discard is not None:
             close_background(discard.memory)
-        if evicted is not None:
-            close_background(evicted.memory)
+        for old in evicted:
+            close_background(old.memory)
+        self._forget_refreshes(gone)
         self._start_semantic_prepare(root)
         return workspace
 
@@ -530,15 +608,20 @@ class LiteMcp:
     def _require_workspace(self) -> WorkspaceCatalog:
         workspace = self._workspace
         if workspace is None:
-            raise RuntimeError("Runtime Lite is not serving member repositories")
+            raise RuntimeError("Workspaces Lite is not serving member repositories")
         return workspace
 
     def _repo_index(self, repo: WorkspaceRepo) -> _RepoIndex:
         """The session's state for one checkout, created on first use."""
 
+        gone: list[Path] = []
         with self._repos_lock:
             state = self._repos.get(repo.root)
             if state is None:
+                # Checkouts removed since (a finished task's worktree) are dropped when a new one opens.
+                gone = [root for root in self._repos if not (root / ".git").exists()]
+                for root in gone:
+                    del self._repos[root]
                 if repo.root == self.repo_root and self._git_workspace:
                     # The root repository is a member and keeps the main index.
                     state = _RepoIndex(repo=repo, index=self._main.index, context=self._main.context)
@@ -554,12 +637,13 @@ class LiteMcp:
                     )
                     state = _RepoIndex(repo=repo, index=LiteIndex(repo.root, stale_while_refresh=True), context=context)
                 self._repos[repo.root] = state
-            return state
+        self._forget_refreshes(gone)
+        return state
 
     def _ensure_prepared(self, state: _RepoIndex, *, urgent: bool) -> Future[Any]:
         builds = self._builds
         if builds is None:
-            raise RuntimeError("Runtime Lite is not serving member repositories")
+            raise RuntimeError("Workspaces Lite is not serving member repositories")
         return builds.submit(state, urgent=urgent)
 
     def _prepare_repo(self, state: _RepoIndex) -> LiteIndexReport:
@@ -706,53 +790,103 @@ class LiteMcp:
         failed: Sequence[tuple[_RepoIndex, Exception]],
         *,
         truncated: bool,
+        skipped: Sequence[str] = (),
     ) -> dict[str, Any]:
         return {
             "searched": [state.repo.relpath for state in ready],
             "building": [state.repo.relpath for state in building],
             "failed": [state.repo.relpath for state, _exc in failed],
+            "skipped": list(skipped),
             "truncated": truncated,
-            "complete": not (building or failed or truncated),
+            "complete": not (building or failed or truncated or skipped),
         }
 
     def _workspace_search(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         query = str(arguments.get("query") or "")
         if not query.strip():
             raise ValueError("code_search requires a non-empty query")
-        requested = arguments.get("limit", arguments.get("max_files", 8))
-        limit = max(1, min(32, requested)) if isinstance(requested, int) and not isinstance(requested, bool) else 8
+        coverage = arguments.get("coverage", "complete")
+        if coverage not in ("complete", "fast"):
+            raise ValueError("coverage must be complete or fast")
+        limit = _search_limit(arguments)
         targets, loose, truncated = self._workspace_targets(arguments.get("paths"))
-        ready, building, failed = self._await_repos(
-            [state for state, _scopes in targets.values()], urgent=bool(arguments.get("paths"))
-        )
+        entries = list(targets.values())
+        # The fast planner is OPT-IN and never narrows a caller's explicit paths.
+        # For security/release/impact reviews, complete is the default.
+        deferred: list[_RepoIndex] = []
+        first = [state for state, _scopes in entries]
+        fast = coverage == "fast" and not arguments.get("paths") and len(first) > 8
+        if fast:
+            names = set(choose_first_wave(query, [state.repo for state in first]))
+            deferred = [state for state in first if state.repo.relpath not in names]
+            first = [state for state in first if state.repo.relpath in names]
 
-        items: list[dict[str, Any]] = []
+        rank_groups: list[tuple[WorkspaceRepo, list[dict[str, Any]]]] = []
         tails: list[list[str]] = []
         related: list[list[dict[str, Any]]] = []
-        for state in ready:
-            repo = state.repo
-            payload = state.index.search(query, paths=targets[repo.root][1], limit=limit)
-            for raw in payload.get("files", []) or []:
-                if isinstance(raw, Mapping):
-                    item = dict(raw)
-                    item["path"] = repo.prefixed(str(item.get("path") or ""))
-                    item["repo"] = repo.relpath
-                    items.append(item)
-            tails.append([repo.prefixed(str(path)) for path in payload.get("candidate_files", []) or []])
-            related.append(
-                [
-                    {**dict(symbol), "path": repo.prefixed(str(symbol.get("path") or ""))}
-                    for symbol in payload.get("related_symbols", []) or []
-                    if isinstance(symbol, Mapping)
-                ]
-            )
-            self._schedule_index_refresh(repo.root, state.index)
+        answered: list[_RepoIndex] = []
+        empty: list[_RepoIndex] = []
+        building: list[_RepoIndex] = []
+        failed: list[tuple[_RepoIndex, Exception]] = []
 
-        # lc-debt: per-member scores are merged as if comparable. Every member
-        # uses the same deterministic fusion formula, but its BM25 terms are
-        # relative to that member's corpus; upgrade path is rank-normalized
-        # fusion or root-wide term statistics.
-        items.sort(key=lambda item: (-float(item.get("score") or 0.0), str(item["path"])))
+        def indexed(state: _RepoIndex) -> tuple[_RepoIndex, Mapping[str, Any] | None, Exception | None]:
+            try:
+                payload = state.index.search(query, paths=targets[state.repo.root][1], limit=limit)
+            except _INDEX_FAILURES as exc:
+                return state, None, exc
+            return state, payload, None
+
+        def search_wave(states: Sequence[_RepoIndex]) -> None:
+            ready, waiting, errors = self._await_repos(states, urgent=bool(arguments.get("paths")))
+            building.extend(waiting)
+            failed.extend(errors)
+            readers = self._search_readers
+            results = (
+                list(readers.map(indexed, ready))
+                if readers is not None and len(ready) > 1
+                else [indexed(state) for state in ready]
+            )
+            for state, payload, error in results:
+                if error is not None:
+                    failed.append((state, error))
+                    continue
+                assert payload is not None
+                repo = state.repo
+                answered.append(state)
+                if not payload.get("files"):
+                    # LiteIndex.search obtained this on the SAME SQLite read.
+                    # Only a legacy/mocked index needs a second read.
+                    index_empty = payload.get("index_empty")
+                    if index_empty is None:
+                        index_empty = state.index.is_empty()
+                    if index_empty:
+                        empty.append(state)
+                hits: list[dict[str, Any]] = []
+                for raw in payload.get("files", []) or []:
+                    if isinstance(raw, Mapping):
+                        item = dict(raw)
+                        item["path"] = repo.prefixed(str(item.get("path") or ""))
+                        item["repo"] = repo.relpath
+                        hits.append(item)
+                rank_groups.append((repo, hits))
+                tails.append([repo.prefixed(str(path)) for path in payload.get("candidate_files", []) or []])
+                related.append(
+                    [
+                        {**dict(symbol), "path": repo.prefixed(str(symbol.get("path") or ""))}
+                        for symbol in payload.get("related_symbols", []) or []
+                        if isinstance(symbol, Mapping)
+                    ]
+                )
+                self._schedule_index_refresh(repo.root, state.index)
+
+        search_wave(first)
+        # Fast mode never claims that a miss in the first wave proves there
+        # are no matches elsewhere. Expand to exhaustive search on a miss.
+        if deferred and not any(hits for _repo, hits in rank_groups):
+            search_wave(deferred)
+            deferred = []
+
+        items = normalize_member_ranks(rank_groups, query)
         files = items[:limit]
         for rank, item in enumerate(files, start=1):
             if rank > _SNIPPET_FILES:
@@ -764,32 +898,93 @@ class LiteMcp:
                 break
             if path not in candidates:
                 candidates.append(path)
+
+        # Members the index cannot answer for are grepped, up to a bound: each is a
+        # full walk of its files. Whatever is left is named as not searched.
+        # lc-debt: a healthy member with zero hits is not grepped here (single-repo
+        # code_search does grep it), since a miss would walk every member; upgrade
+        # path is a bounded parallel walk.
+        needing_grep: list[tuple[_RepoIndex, str, str]] = [
+            *((state, _failure_reason(exc), str(exc)) for state, exc in failed),
+            *((state, "index_building", "") for state in building),
+            *((state, "index_empty", "") for state in empty),
+        ]
+        unsearched = needing_grep[_GREP_FALLBACK_REPOS:]
+        notes = self._workspace_notes(
+            [state for state, reason, _detail in unsearched if reason == "index_building"],
+            [
+                (state, RuntimeError(detail or reason))
+                for state, reason, detail in unsearched
+                if reason != "index_building"
+            ],
+            truncated=truncated,
+        )
+        if deferred:
+            names = ", ".join(state.repo.relpath for state in deferred)
+            notes.append(
+                "[lc:workspace_partial] Fast search is not exhaustive. Skipped: "
+                + names
+                + ". Use coverage=complete for the whole workspace."
+            )
+        grep_blocks: list[Mapping[str, Any]] = []
+        grep_reasons: dict[str, str] = {}
+        grep_groups: dict[tuple[str, str], list[str]] = {}
+        grep_matches = 0
+        for state, reason, detail in needing_grep[:_GREP_FALLBACK_REPOS]:
+            repo = state.repo
+            scopes = [repo.prefixed(scope) for scope in targets[repo.root][1] or ["."]]
+            try:
+                found, matches = self._grep_answer(self.context, query, scopes, limit, walk_root=repo.root)
+            except (ClientError, OSError, RuntimeError, ValueError) as exc:
+                notes.append(f"[lc:lite_failed] {_display(repo)} was not searched: {exc}")
+                continue
+            grep_groups.setdefault((reason, detail), []).append(_display(repo))
+            grep_blocks.extend(found)
+            grep_reasons[repo.relpath] = reason
+            grep_matches += matches
+        # One notice per cause: a failure every member shares is said once.
+        for (reason, detail), names in grep_groups.items():
+            notice = f"[lc:index_fallback reason={reason}] {', '.join(names)}: literal grep results, not ranked."
+            notes.append(f"{notice} {detail}" if detail else notice)
+
         payload = {
             "query": query,
             "files": files,
             "candidate_files": candidates,
             "related_symbols": _round_robin(related)[:12],
             "lite": True,
-            "workspace": self._coverage(ready, building, failed, truncated=truncated),
+            "workspace": {
+                **self._coverage(
+                    answered,
+                    building,
+                    failed,
+                    truncated=truncated,
+                    skipped=[state.repo.relpath for state in deferred],
+                ),
+                "coverage": coverage,
+                "grep_fallback": grep_reasons,
+            },
         }
 
         blocks: list[Mapping[str, Any]] = []
-        notes = self._workspace_notes(building, failed, truncated=truncated)
         if notes:
             blocks.append({"type": "text", "text": "\n".join(notes)})
-        if ready:
+        if files or (answered and not grep_reasons):
             blocks.append({"type": "text", "text": self._search_markdown(payload)})
         for scope in loose:
             # A path in no repository (a non-Git root's own files) has no index.
             blocks.append({"type": "text", "text": f"[no git: literal grep {scope}]"})
-            local = local_search.run_grep(
-                self.context,
-                {"regex": re.escape(query), "path": scope, "file_limit": limit, "i": True},
-            )
-            blocks.extend(local.content)
+            found, matches = self._grep_answer(self.context, query, [scope], limit)
+            blocks.extend(found or (_NO_MATCHES,))
+            grep_matches += matches
+        blocks.extend(grep_blocks)
+        if grep_reasons and not files and not grep_blocks:
+            blocks.append(_NO_MATCHES)
         if not blocks:
             blocks.append({"type": "text", "text": "No member repositories to search."})
-        return self._success(blocks, structured=payload, is_error=not ready and not loose)
+        result = self._success(blocks, structured=payload, is_error=not answered and not loose and not grep_reasons)
+        fallback = next(iter(grep_reasons.values()), "no_git" if loose else "")
+        return _mark_fallback(result, fallback, grep_matches) if fallback else result
 
     def _workspace_relations(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
         symbol = str(arguments.get("symbol") or "").strip()
@@ -967,6 +1162,8 @@ class LiteMcp:
             # Linked worktrees of the root repository route as they always have.
             routed = self._catalog.route(arguments, active=None)
             if routed.worktree is not None:
+                if name == "code_search":
+                    return self._indexed_or_grep(routed)
                 worktree = self._worktree_workspace(routed.worktree)
                 result = self._call_workspace(worktree, name, routed.arguments)
                 self._schedule_refresh(worktree)
@@ -1023,13 +1220,13 @@ class LiteMcp:
         listed = ", ".join(names) + (f", and {len(members) - len(shown)} more" if len(members) > len(shown) else "")
         if membership.git_root:
             parts = [
-                "Local-only Runtime Lite for this Git repository (listed as .) and its checked-out submodules: "
+                "Local-only Workspaces Lite for this Git repository (listed as .) and its checked-out submodules: "
                 f"{len(members)} repositories, each with its own history and index: {listed}.",
                 "Paths are relative to the repository root, including paths into submodules.",
             ]
         else:
             parts = [
-                "Local-only Runtime Lite for a folder of Git repositories (the folder itself is not one): "
+                "Local-only Workspaces Lite for a folder of Git repositories (the folder itself is not one): "
                 f"{len(members)} repositories, each with its own history and index: {listed}.",
                 "Paths are relative to this folder (<repository>/<path>); its own loose files are grep-only.",
             ]
@@ -1051,8 +1248,8 @@ class LiteMcp:
             "code_search without paths searches every listed repository; paths=<repository or folder> narrows it. "
             "Run git with bash cwd=<repository>; `lc workspace status|branch|commit|push|pr` does the same step in "
             "every changed repository at once (submodules first, one linked pull request per repository). "
-            "graph kind=workspace shows which repositories depend on which; kind=impact shows which ones the "
-            "uncommitted changes (or paths=<changed files>) reach."
+            "`lc workspace graph` shows which repositories depend on which; `lc workspace impact [PATH ...]` shows "
+            "which ones the uncommitted changes (or the named root-relative files) reach."
         )
         if any(member.parent is not None for member in members):
             parts.append(
@@ -1161,9 +1358,9 @@ class LiteMcp:
         else:
             detail = f"finishing, {seen.elapsed_s:.0f}s elapsed"
         return (
-            f"[lc:index_building] Runtime Lite is building this repository's index in the background ({detail}). "
-            "code_search, relations, graph and read symbol= need it: retry shortly. "
-            "read files, grep, edit and bash work now.\n"
+            f"[lc:index_building] Workspaces Lite is building this repository's index in the background ({detail}). "
+            "relations, graph and read symbol= need it: retry shortly. "
+            "code_search answers by grep until then; read files, grep, edit and bash work now.\n"
             "retryable=true action=retry"
         )
 
@@ -1178,6 +1375,8 @@ class LiteMcp:
             # next progress report and rolls back, bounded like the main build.
             self._prepare_stop.set()
             builds.close(_PREPARE_STOP_WAIT_S)
+        if self._search_readers is not None:
+            self._search_readers.shutdown(wait=True, cancel_futures=True)
         self._refresh_executor.shutdown(wait=True, cancel_futures=False)
         self._semantic.close()
         semantic_thread = self._semantic_prepare_thread
@@ -1223,7 +1422,11 @@ class LiteMcp:
         result: LocalResult = executor(workspace.context, arguments)
         if name in _MUTATING_OR_UNKNOWN_TOOLS:
             workspace.index.mark_dirty()
-        return self._success(result.content, structured=result.structured, is_error=result.is_error)
+        answer = self._success(result.content, structured=result.structured, is_error=result.is_error)
+        saved = {"tokens_saved": result.tokens_saved, "calls_saved": result.calls_saved}
+        if any(saved.values()):
+            answer["_lc_metrics"] = {key: value for key, value in saved.items() if value}
+        return answer
 
     def _confine_read_files(self, workspace: _LiteWorkspace, files: object) -> None:
         if not isinstance(files, Sequence) or isinstance(files, (str, bytes)):
@@ -1264,14 +1467,20 @@ class LiteMcp:
                 )
                 blocks.extend(local.content)
         files = arguments.get("files")
+        calls_saved = 0
         if files:
             self._confine_read_files(workspace, files)
             local = local_search.read_from_disk(workspace.context, {"files": files})
             blocks.extend(local.content)
+            calls_saved = local.calls_saved
         if not blocks and not structured:
             local = local_search.read_from_disk(workspace.context, arguments)
             blocks.extend(local.content)
-        return self._success(blocks, structured=structured or None)
+            calls_saved = local.calls_saved
+        result = self._success(blocks, structured=structured or None)
+        if calls_saved:
+            result["_lc_metrics"] = {"calls_saved": calls_saved}
+        return result
 
     @staticmethod
     def _search_markdown(payload: Mapping[str, Any]) -> str:
@@ -1308,27 +1517,132 @@ class LiteMcp:
             )
         return rendered
 
+    def _grep_answer(
+        self,
+        context: LocalContext,
+        query: str,
+        scopes: Sequence[str],
+        limit: int,
+        *,
+        walk_root: Path | None = None,
+    ) -> tuple[list[Mapping[str, Any]], int]:
+        """What the index would have answered, read from the files: (blocks, matches).
+
+        code_search queries usually combine terms, and as one literal string those
+        match nothing, which would cost the agent another call. So one walk looks for
+        the whole query and each term, and keeps the files holding the most of them.
+        ``blocks`` is empty when nothing matched and no bound cut the search short.
+        """
+        whole = query.strip()
+        patterns = {text.lower(): re.escape(text) for text in (whole, *_tokens(whole))}
+        arguments = {
+            "regex": "|".join(patterns.values()),
+            "file_limit": limit,
+            "i": True,
+            "mode": "ranked_map" if len(patterns) > 1 else "with_content",
+        }
+        blocks: list[Mapping[str, Any]] = []
+        matches = 0
+        incomplete = False
+        for scope in scopes:
+            context.resolve(scope)
+            local = local_search.run_grep(
+                context, {**arguments, "path": scope}, walk_root=walk_root, rank_terms=tuple(patterns)
+            )
+            structured = local.structured or {}
+            found = int(structured.get("matches") or 0)
+            if found:
+                blocks.extend(local.content)
+            matches += found
+            incomplete = incomplete or bool(structured.get("incomplete"))
+        if incomplete:
+            # A bound is not an answer: "no matches" here would be a false negative.
+            blocks.append(
+                {"type": "text", "text": "[lc:grep_partial] Stopped before every file was read; narrow paths."}
+            )
+        return blocks, matches
+
+    def _grep_fallback(
+        self, context: LocalContext, arguments: Mapping[str, Any], reason: str, detail: str = ""
+    ) -> dict[str, Any]:
+        """Answer code_search from the files and say so. The call succeeds: nothing to retry."""
+        query = str(arguments.get("query") or "")
+        blocks, matches = self._grep_answer(
+            context, query, _search_scopes(arguments.get("paths")), _search_limit(arguments)
+        )
+        notice = f"[lc:index_fallback reason={reason}] Literal grep results, not ranked index results."
+        result = self._success(
+            ({"type": "text", "text": f"{notice} {detail}" if detail else notice}, *(blocks or (_NO_MATCHES,))),
+            structured={
+                "query": query,
+                "files": [],
+                "candidate_files": [],
+                "related_symbols": [],
+                "lite": True,
+                "mode": "grep",
+                "fallback_reason": reason,
+                "matches": matches,
+            },
+        )
+        return _mark_fallback(result, reason, matches)
+
+    def _checkout_context(self, root: Path) -> LocalContext:
+        environment = {**self.environment, "LEMONCROW_WORKSPACE_ROOT": str(root)}
+        return LocalContext(
+            config=_local_config(root, environment),
+            repo_root=root,
+            sync=None,
+            environment=environment,
+            memory=self.memory,
+        )
+
+    def _indexed_or_grep(self, routed: WorktreeRoute) -> dict[str, Any]:
+        """code_search from the index, or from the files when the index cannot answer.
+
+        A failed, building or empty index, or a search that finds nothing, ends in
+        an answer rather than something the agent must retry or work around. The
+        usage trace records which one it was (``lc runtime search-stats``).
+        """
+        arguments = routed.arguments
+        if not str(arguments.get("query") or "").strip():
+            raise ValueError("query must not be empty")
+        worktree = routed.worktree
+        context = self.context if worktree is None else self._checkout_context(worktree.root.resolve())
+        answer: dict[str, Any]
+        try:
+            if worktree is None and self._await_index() is not None:
+                answer = self._grep_fallback(context, arguments, "index_building")
+            else:
+                workspace = self._main if worktree is None else self._worktree_workspace(worktree)
+                answer = self._call_workspace(workspace, "code_search", arguments)
+                self._schedule_refresh(workspace)
+                payload = answer.get("structuredContent")
+                if isinstance(payload, Mapping) and not (
+                    payload.get("files") or payload.get("candidate_files") or payload.get("related_symbols")
+                ):
+                    reason = "index_empty" if workspace.index.is_empty() else "no_index_matches"
+                    index_metrics = answer.get("_lc_metrics")
+                    answer = self._grep_fallback(context, arguments, reason)
+                    if isinstance(index_metrics, Mapping):
+                        answer["_lc_metrics"] = {**index_metrics, **answer["_lc_metrics"]}
+        except _INDEX_FAILURES as exc:
+            answer = self._grep_fallback(context, arguments, _failure_reason(exc), str(exc))
+        return answer if worktree is None else self._with_worktree_header(answer, worktree)
+
     def _call_without_git(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         notice = "[no git: literal grep]"
         if name == "code_search":
-            import re
-
             query = str(arguments.get("query") or "")
             if not query.strip():
                 raise ValueError("code_search requires a non-empty query")
-            paths = arguments.get("paths") or ["."]
-            scopes = [paths] if isinstance(paths, str) else list(paths)
-            requested = arguments.get("limit", 8)
-            limit = max(1, min(32, requested)) if isinstance(requested, int) and not isinstance(requested, bool) else 8
-            blocks: list[Mapping[str, Any]] = [{"type": "text", "text": notice}]
-            for scope in scopes:
-                self.context.resolve(str(scope))
-                local = local_search.run_grep(
-                    self.context,
-                    {"regex": re.escape(query), "path": str(scope), "file_limit": limit, "i": True},
-                )
-                blocks.extend(local.content)
-            return self._success(blocks, structured={"mode": "grep", "reason": "not a Git repository"})
+            blocks, matches = self._grep_answer(
+                self.context, query, _search_scopes(arguments.get("paths")), _search_limit(arguments)
+            )
+            result = self._success(
+                ({"type": "text", "text": notice}, *(blocks or (_NO_MATCHES,))),
+                structured={"mode": "grep", "reason": "not a Git repository"},
+            )
+            return _mark_fallback(result, "no_git", matches)
         if name in {"relations", "graph", "blame"} or (name == "read" and arguments.get("symbol")):
             return self._success(
                 (
@@ -1467,7 +1781,7 @@ class LiteMcp:
                 ({"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)},),
                 structured=payload,
             )
-        raise AssertionError(f"unhandled Runtime Lite tool: {name}")
+        raise AssertionError(f"unhandled Workspaces Lite tool: {name}")
 
     def call(
         self,
@@ -1479,11 +1793,57 @@ class LiteMcp:
         started_at = datetime.now(UTC)
         started = time.perf_counter()
         result = dict(self._call(name, arguments))
+        if name == "code_search":
+            evidence = result.get("structuredContent")
+            missing = not isinstance(evidence, Mapping) or not any(
+                evidence.get(key) for key in ("files", "candidate_files", "related_symbols")
+            )
+            # A failed or empty code_search permits shell grep as a one-way
+            # fallback; the Bash adapter will never re-upgrade that fallback.
+            self._bash_search_fallback_active = bool(result.get("isError") or missing)
         raw_metrics = result.pop("_lc_metrics", {})
+        fallback = str(result.pop("_lc_fallback", ""))
         metrics = dict(raw_metrics) if isinstance(raw_metrics, Mapping) else {}
         metrics["queue_wait_ms"] = max(0.0, queue_wait_ms)
-        self._record(name, arguments, started_at, started, result, metrics=metrics)
+        if name == "bash":
+            # Count shell commands containing rg/grep without persisting the command
+            # in metrics (including when the ordinary trace is redacted).
+            command = arguments.get("command")
+            commands = [command] if isinstance(command, str) else command if isinstance(command, list) else []
+            if any(isinstance(part, str) and re.search(r"(?<![\w-])(?:rg|grep)(?![\w-])", part) for part in commands):
+                metrics["bash_rg_grep"] = 1
+        self._record_savings(name, result, metrics)
+        self._record(name, arguments, started_at, started, result, metrics=metrics, degraded_reason=fallback)
         return result
+
+    def _record_savings(self, name: str, result: Mapping[str, Any], metrics: dict[str, Any]) -> None:
+        """Write this call's measured savings to the host session's ledger.
+
+        Executors measure their own (``tokens_saved``/``calls_saved``). A
+        code_search answer, asked for or upgraded from Bash, is measured here
+        from what the model was shown, once per top-level call.
+        """
+        try:
+            tool = name
+            evidence = result.get("structuredContent")
+            searched = name == "code_search" or bool(metrics.get("bash_to_code_search"))
+            if searched and isinstance(evidence, Mapping) and not result.get("isError"):
+                tool = "code_search"
+                shown = "\n".join(
+                    str(block.get("text") or "") for block in result.get("content") or () if isinstance(block, Mapping)
+                )
+                tokens, calls = self._savings.code_search_savings(evidence, shown, self.repo_root)
+                if tokens:
+                    metrics["tokens_saved"] = int(metrics.get("tokens_saved") or 0) + tokens
+                if calls:
+                    metrics["calls_saved"] = int(metrics.get("calls_saved") or 0) + calls
+            self._savings.record(
+                tool,
+                tokens=int(metrics.get("tokens_saved") or 0),
+                calls=int(metrics.get("calls_saved") or 0),
+            )
+        except Exception:  # a savings row must never fail a tool call
+            return
 
     def _record(
         self,
@@ -1494,6 +1854,7 @@ class LiteMcp:
         result: Mapping[str, Any],
         *,
         metrics: Mapping[str, int | float],
+        degraded_reason: str = "",
     ) -> None:
         if not self._traces.enabled:
             return
@@ -1506,8 +1867,8 @@ class LiteMcp:
                 duration_ms=round((time.perf_counter() - started) * 1000),
                 site="lite",
                 is_error=bool(result.get("isError")),
-                degraded=False,
-                degraded_reason="",
+                degraded=bool(degraded_reason),
+                degraded_reason=degraded_reason,
                 output_chars=sum(
                     len(str(block.get("text") or ""))
                     for block in result.get("content") or ()
@@ -1523,10 +1884,103 @@ class LiteMcp:
     def _call(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if name not in LOCAL_LITE_TOOLS:
             return {
-                "content": [{"type": "text", "text": f"[lc:tool_unknown] Runtime Lite does not expose {name!r}"}],
+                "content": [{"type": "text", "text": f"[lc:tool_unknown] Workspaces Lite does not expose {name!r}"}],
                 "isError": True,
             }
         try:
+            if name == "bash":
+                # A series of read-only source lookups needs neither a shell nor
+                # exact stdout. Do not touch mixed commands (tests, logs, git,
+                # redirects, counters, substitutions): they must run as written.
+                batch = (
+                    bash_code_search_batch_args(arguments, self.repo_root)
+                    if not self._bash_search_fallback_active
+                    else None
+                )
+                if batch:
+                    blocks: list[dict[str, Any]] = []
+                    found: list[Mapping[str, Any]] = []
+                    for number, (label, search_args) in enumerate(batch, start=1):
+                        answer = self._call("code_search", search_args)
+                        evidence = answer.get("structuredContent")
+                        if (
+                            answer.get("isError")
+                            or not isinstance(evidence, Mapping)
+                            or not any(evidence.get(key) for key in ("files", "candidate_files", "related_symbols"))
+                        ):
+                            break
+                        found.append(evidence)
+                        blocks.append({"type": "text", "text": f"[indexed source lookup {number}] {label}".strip()})
+                        blocks.extend(answer.get("content") or [])
+                    if len(found) == len(batch):
+                        blocks.insert(0, {"type": "text", "text": "[lc:auto_upgraded bash batch -> code_search]"})
+                        result = self._success(
+                            blocks,
+                            structured={
+                                "searches": found,
+                                "files": [item for evidence in found for item in (evidence.get("files") or [])],
+                                "candidate_files": [
+                                    item for evidence in found for item in (evidence.get("candidate_files") or [])
+                                ],
+                                "related_symbols": [
+                                    item for evidence in found for item in (evidence.get("related_symbols") or [])
+                                ],
+                            },
+                        )
+                        result["_lc_metrics"] = {
+                            "bash_to_code_search": 1,
+                            "bash_search_batch_parts": len(batch),
+                        }
+                        return result
+                    # A failed or empty indexed lookup runs the original shell
+                    # *once*; never retry it through the upgrade path.
+                    self._bash_search_fallback_active = True
+                upgraded = bash_code_search_args(arguments, self.repo_root)
+                if upgraded is not None and not self._bash_search_fallback_active:
+                    # Same-call upgrade. Empty or failed index: run Bash once
+                    # below; never deny or recursively route the fallback.
+                    answer = self._call("code_search", upgraded)
+                    evidence = answer.get("structuredContent")
+                    has_hits = isinstance(evidence, Mapping) and any(
+                        evidence.get(key) for key in ("files", "candidate_files", "related_symbols")
+                    )
+                    if not answer.get("isError") and has_hits:
+                        blocks = list(answer.get("content") or [])
+                        blocks.insert(0, {"type": "text", "text": "[lc:auto_upgraded bash -> code_search]"})
+                        answer["content"] = blocks
+                        metrics = answer.get("_lc_metrics")
+                        answer["_lc_metrics"] = {
+                            **(dict(metrics) if isinstance(metrics, Mapping) else {}),
+                            "bash_to_code_search": 1,
+                        }
+                        return answer
+                    self._bash_search_fallback_active = True
+                if (
+                    not self._bash_search_fallback_active
+                    and self.environment.get("LEMONCROW_BASH_SOURCE_POLICY", "strict").lower() != "off"
+                    and bash_source_search_redirect(arguments, self.repo_root)
+                ):
+                    # Reject only read-only source discovery: no commands were
+                    # executed, so Claude can safely split this into indexed
+                    # search and independent shell operations. Exact shell
+                    # consumers, tests, side effects and log filters pass through.
+                    result = self._success(
+                        (
+                            {
+                                "type": "text",
+                                "text": (
+                                    "[lc:code_search_required] This read-only Bash source lookup was NOT executed. "
+                                    "Call code_search for Git source discovery (combine related terms), "
+                                    "then read known files and run any non-search shell commands separately. "
+                                    "For genuinely exact shell output, append '# lc:allow-shell-search' "
+                                    "to the command to opt out."
+                                ),
+                            },
+                        ),
+                        is_error=True,
+                    )
+                    result["_lc_metrics"] = {"bash_source_search_redirect": 1}
+                    return result
             if name == "graph" and arguments.get("kind") in {"workspace", "impact"}:
                 # Cross-repository edges come from the members' files, not an index.
                 return self._dependency_graph(arguments)
@@ -1538,6 +1992,8 @@ class LiteMcp:
             # subagents can share this MCP process, so sticky routing would let one
             # caller silently redirect another caller's relative/pathless request.
             routed = self._catalog.route(arguments, active=None)
+            if name == "code_search":
+                return self._indexed_or_grep(routed)
             if routed.worktree is None and self._needs_index(name, routed.arguments):
                 pending = self._await_index()
                 if pending is not None:
@@ -1594,11 +2050,12 @@ class LiteMcp:
                             self._workspace_instructions()
                             if self._workspace is not None
                             else (
-                                "Local-only Runtime Lite for this Git worktree. "
+                                "Local-only Workspaces Lite for this Git worktree. "
                                 if self._git_workspace
-                                else "Local-only Runtime Lite. No Git: code_search uses literal grep; Git/index tools unavailable. "
+                                else "Local-only Workspaces Lite. No Git: code_search uses literal grep; Git/index tools unavailable. "
                             )
                         )
+                        + _SOURCE_DISCOVERY_POLICY
                         + "No hosted connection, account, upload, daemon, or listening port is used."
                     ),
                 },

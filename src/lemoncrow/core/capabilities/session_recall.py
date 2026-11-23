@@ -209,8 +209,6 @@ def _load_opencode(session_id: str, db_path: Path) -> list[str]:
     from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
     # source= stamps the truncation marker (#38). This candidate set is built
-    # from the OpenCode data root specifically; LemonCode has its own root and
-    # must pass source="lemoncode" if it is ever indexed here.
     return _snippets_from_turns(
         parse_session_turns(serialize_opencode_session(session_id, db_path, source="opencode"), "opencode")
     )

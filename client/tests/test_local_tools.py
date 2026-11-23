@@ -9,6 +9,7 @@ source.
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
 import os
@@ -351,14 +352,15 @@ def test_bash_refuses_a_cwd_outside_the_worktree_and_temp_roots(context: LocalCo
 
 
 def test_bash_write_policy_keeps_standard_tmp_when_tmpdir_is_custom(
-    context: LocalContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    context: LocalContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from lemoncrow_client.kit import command_policy
 
     custom_tmp = context.repo_root / "custom-tmp"
     custom_tmp.mkdir()
     monkeypatch.setattr(command_policy.tempfile, "gettempdir", lambda: str(custom_tmp))
-    target = tmp_path / "scratch.txt"
+    # /tmp itself, not pytest's tmp_path: on macOS that lives under TMPDIR (/var/folders/...), which is patched away.
+    target = Path("/tmp") / "scratch.txt"
 
     decision = command_policy.classify_command(
         f"cat > {target}", allowed_write_roots=[context.repo_root], cwd=context.repo_root
@@ -378,7 +380,8 @@ def test_the_package_never_starts_a_detached_session() -> None:
     offenders = [
         path.relative_to(PACKAGE_ROOT).as_posix() for path in iter_modules() if "start_new_session" in code_only(path)
     ]
-    assert offenders == []
+    # browser.py opens the person's own browser on request, as stdlib webbrowser does (test_packaging_audit pins it).
+    assert offenders == ["browser.py"]
 
 
 # --------------------------------------------------------------------------- #
@@ -797,6 +800,37 @@ def test_read_from_disk_refuses_a_symbol_lookup_rather_than_approximating_one(
     with pytest.raises(ClientError) as caught:
         run(context, "read_from_disk", {"symbol": "alpha"})
     assert caught.value.code is ErrorCode.SERVER_SESSION_UNAVAILABLE
+
+
+def test_read_from_disk_returns_an_image_as_an_image_block_after_its_header(
+    context: LocalContext,
+) -> None:
+    """The read tool says images come back viewable; text-only would hide them."""
+    pixels = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    (context.repo_root / "pkg/shot.png").write_bytes(pixels)
+    result = run(context, "read_from_disk", {"files": ["pkg/alpha.py", "pkg/shot.png", "pkg/beta.py:L4"]})
+    kinds = [block["type"] for block in result.content]
+    assert kinds == ["text", "image", "text"]
+    assert result.content[0]["text"].endswith("## pkg/shot.png")
+    assert "def alpha" in result.content[0]["text"]
+    assert result.content[1] == {"type": "image", "data": base64.b64encode(pixels).decode(), "mimeType": "image/png"}
+    assert "4\tdef beta():" in result.content[2]["text"]
+    assert result.structured == {"files": 3, "source": "disk"}
+
+
+def test_read_from_disk_sends_an_image_larger_than_the_text_cap(
+    context: LocalContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No size cap on images: the model provider decides what it accepts."""
+    from lemoncrow_client.localtools import search
+
+    pixels = b"\xff\xd8" + b"0" * 64
+    (context.repo_root / "pkg/big.jpg").write_bytes(pixels)
+    monkeypatch.setattr(search, "_MAX_FILE_BYTES", 32)
+    result = run(context, "read_from_disk", {"files": ["pkg/big.jpg"]})
+    assert [block["type"] for block in result.content] == ["text", "image"]
+    assert result.content[0]["text"] == "## pkg/big.jpg"
+    assert result.content[1] == {"type": "image", "data": base64.b64encode(pixels).decode(), "mimeType": "image/jpeg"}
 
 
 def test_read_from_disk_reports_a_missing_file_without_failing_the_batch(

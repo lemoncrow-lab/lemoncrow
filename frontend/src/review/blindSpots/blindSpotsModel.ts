@@ -7,6 +7,7 @@
 import { readinessGaps } from "../investigation/impactReadiness";
 import type { InvestigationContext } from "../investigation/investigationContext";
 import type { ReviewProjection, ReviewProjectionDecision, ReviewTarget } from "../types";
+import { revisionName } from "../revisionLabel";
 
 export type BlindSpotState = "known" | "nothing_open" | "not_measured" | "not_applicable";
 
@@ -52,6 +53,8 @@ export interface BlindSpotCategory {
   items: BlindSpotItem[];
   /** Items beyond the per-category bound, counted, never silently dropped. */
   omitted: number;
+  /** The count in this category's own unit: "3 to check", or "7 call sites in 2 files" for consumers. */
+  countText: string;
 }
 
 export interface BlindSpotsModel {
@@ -84,11 +87,11 @@ const LABEL: Record<BlindSpotCategoryKey, string> = {
   untested_hypotheses: "Untested claims and hypotheses",
   missing_traces: "Changed code no recorded run reached",
   external_handoffs: "Uncertain external handoffs",
-  checks: "Stale or failed checks",
+  checks: "Check results",
   index_coverage: "Incomplete analysis coverage",
   uninspected_regions: "Important code not yet reviewed",
   unresolved_human: "Unresolved comments and decisions",
-  snapshot_reopened: "Reopened by a new Snapshot",
+  snapshot_reopened: "Reopened by a new revision",
 };
 
 const EVIDENCE_CATEGORIES: ReadonlySet<BlindSpotCategoryKey> = new Set([
@@ -108,6 +111,33 @@ const CLAIM_TEXT: Record<string, string> = {
 };
 
 const REOPENED_VALIDITY: ReadonlySet<string> = new Set(["implementation_changed_since_acceptance", "needs_reconsideration"]);
+
+type CheckGap = "failed" | "stale" | "not_run" | "no_result";
+
+function checkGap(draft: Draft): CheckGap {
+  if (draft.kind === "stale") return "stale";
+  if (draft.kind === "target_fail" || draft.ref.startsWith("FAIL:") || (draft.kind === "count" && draft.ref === "fail")) return "failed";
+  if (draft.kind === "receipt") return draft.title.startsWith("Run record rejected") ? "failed" : "no_result";
+  if (draft.kind === "target_unknown" || draft.ref.startsWith("UNKNOWN:") || (draft.kind === "count" && draft.ref === "unknown")) return "no_result";
+  return "not_run";
+}
+
+const CHECK_GAP_WORDS: Record<CheckGap, string> = {
+  failed: "failed",
+  stale: "are out of date",
+  not_run: "did not run",
+  no_result: "have no result",
+};
+
+/** The checks row says what its rows are: a check that simply did not run is not "stale or failed". */
+function checksLabel(drafts: readonly Draft[]): string {
+  const gaps = (["failed", "stale", "not_run", "no_result"] as const).filter((gap) => drafts.some((draft) => checkGap(draft) === gap));
+  if (gaps.length === 0) return LABEL.checks;
+  if (gaps.length === 1 && gaps[0] === "failed") return "Failed checks";
+  const words = gaps.map((gap) => CHECK_GAP_WORDS[gap]);
+  const joined = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
+  return `Checks that ${joined}`;
+}
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
@@ -135,7 +165,7 @@ class Builder {
   category(
     key: BlindSpotCategoryKey,
     drafts: readonly Draft[],
-    options: { scope?: string; notMeasured?: string[]; notApplicable?: string; extraOmitted?: number } = {},
+    options: { scope?: string; notMeasured?: string[]; notApplicable?: string; extraOmitted?: number; countText?: string } = {},
   ): BlindSpotCategory {
     const seen = new Set<string>();
     const items: BlindSpotItem[] = [];
@@ -153,6 +183,7 @@ class Builder {
         : options.scope
           ? "nothing_open"
           : "not_measured";
+    const omitted = Math.max(0, items.length - MAX_ITEMS_PER_CATEGORY) + (options.extraOmitted ?? 0);
     return {
       key,
       label: LABEL[key],
@@ -161,7 +192,8 @@ class Builder {
       notMeasured,
       notApplicable: options.notApplicable ?? "",
       items: items.slice(0, MAX_ITEMS_PER_CATEGORY),
-      omitted: Math.max(0, items.length - MAX_ITEMS_PER_CATEGORY) + (options.extraOmitted ?? 0),
+      omitted,
+      countText: options.countText ?? `${Math.min(items.length, MAX_ITEMS_PER_CATEGORY) + omitted} to check`,
     };
   }
 
@@ -222,10 +254,10 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
   // 1. Consumers: unchanged callers/consumers of changed targets nobody has reviewed yet.
   const impact = projection.context ?? null;
   if (noTargets) {
-    categories.push(build.category("unexamined_consumers", [], { notApplicable: "No changed code targets." }));
+    categories.push(build.category("unexamined_consumers", [], { notApplicable: "No changed parts." }));
   } else if (!impact) {
     categories.push(build.category("unexamined_consumers", [], {
-      notMeasured: ["This Review projection carries no caller or consumer inventory for changed targets."],
+      notMeasured: ["This review has no record of who calls or uses the changed code."],
     }));
   } else {
     const byId = new Map(targets.map((target) => [target.target_id, target]));
@@ -237,6 +269,8 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
     let unchanged = 0;
     let omitted = 0;
     let unlisted = 0;
+    const files = new Set<string>();
+    let callsOnly = true;
     for (const group of impact.consumers) {
       omitted += group.omitted;
       unlisted += group.unlisted_callers;
@@ -244,13 +278,15 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
         if (site.in_patch) continue;
         unchanged += 1;
         if (settled(group.target_ids)) continue;
+        files.add(site.path);
+        callsOnly = callsOnly && site.kind === "caller";
         const where = site.line > 0 ? `${site.path}:${site.line}` : site.path;
         const what = group.symbol ? `${site.kind === "caller" ? "Calls" : "Uses"} ${group.symbol}` : "Depends on the change";
         consumers.push({
           kind: site.kind,
           ref: `${group.key}:${where}:${site.symbol || site.snippet}`,
           title: site.symbol ? `${where} · ${site.symbol}` : where,
-          detail: `${what}${group.path ? ` in ${group.path}` : ""}; not changed by this PR${site.uncertainty ? ` · ${site.uncertainty}` : ""}`,
+          detail: `${what}${group.path ? ` in ${group.path}` : ""}; not part of this change${site.uncertainty ? ` · ${site.uncertainty}` : ""}`,
           // A file-level join is not proven to belong to one target, so it stays Review level.
           targetIds: group.join === "exact" || group.target_ids.length === 1 ? group.target_ids : [],
         });
@@ -260,13 +296,19 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
     const notMeasured = gaps.map((gap) => `${gap.title}: no known consumer is not the same as no consumer.`);
     if (unlisted > 0) notMeasured.push(`${plural(unlisted, "caller")} the index counted are not listed (in changed files, same-named, or past the search cap).`);
     if (impact.consumers_omitted > 0) notMeasured.push(`${plural(impact.consumers_omitted, "changed symbol")} with consumers not listed (past the bound).`);
-    categories.push(build.category("unexamined_consumers", consumers, {
+    const category = build.category("unexamined_consumers", consumers, {
       scope: consumers.length > 0 || gaps.length === 0
-        ? `${plural(unchanged, "unchanged consumer")} recorded by this Snapshot's impact pass`
+        ? `${plural(unchanged, "unchanged consumer")} ${impact.readiness.source === "checkout_search" ? "found by searching the code" : "recorded by this revision's impact pass"}`
         : undefined,
       notMeasured,
       extraOmitted: omitted,
-    }));
+    });
+    // Sites and files are different counts: say which one this is, so it cannot contradict "called from 1 file".
+    const sites = category.items.length + category.omitted;
+    const unit = callsOnly ? "call site" : "use";
+    // Past the bound the unlisted sites' files are unknown, so only the lower bound on sites is stated.
+    category.countText = omitted > 0 ? `at least ${plural(sites, unit)}` : `${plural(sites, unit)} in ${plural(files.size, "file")}`;
+    categories.push(category);
   }
 
   // 2. Claims not observed, stated limits, and open questions or AI hypotheses.
@@ -305,24 +347,24 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
   }
   categories.push(build.category("untested_hypotheses", hypotheses, {
     scope: `${plural(projection.claims.length, "claim")}, ${plural(concernCount, "stated limit")}, ${plural(projection.questions.length, "open question")}`,
-    notMeasured: ["Branch coverage: runs record which targets executed, not which branches."],
+    notMeasured: ["Branch coverage: runs record which parts executed, not which branches."],
   }));
 
   // 3. Changed code that no recorded run reached.
   if (!behavior) {
     categories.push(build.category("missing_traces", [], {
-      notMeasured: ["No execution coverage is recorded for this Snapshot, so whether the change ran is unknown."],
+      notMeasured: ["No execution coverage is recorded for this revision, so whether the change ran is unknown."],
     }));
   } else if (!behavior.execution_ran) {
     categories.push(build.category("missing_traces", [{
       kind: "no_run",
       ref: "snapshot",
-      title: "No recorded run on this Snapshot",
+      title: "No recorded run on this revision",
       detail: "Nothing in this change was executed by a recorded run.",
-    }], { scope: "Recorded runs on this Snapshot" }));
+    }], { scope: "Recorded runs on this revision" }));
   } else if (!behavior.coverage) {
     categories.push(build.category("missing_traces", [], {
-      notMeasured: ["Runs were recorded, but not which changed targets they reached."],
+      notMeasured: ["Runs were recorded, but not which parts they reached."],
     }));
   } else {
     const coverage = behavior.coverage;
@@ -333,7 +375,7 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
       detail: `No recorded run reached ${row.path}.`,
       targetIds: [row.target_id],
     })), {
-      scope: `${coverage.exercised} of ${plural(coverage.changed_targets, "changed target")} ran in ${plural(coverage.runs, "recorded run")}`,
+      scope: `${coverage.exercised} of ${plural(coverage.changed_targets, "part")} ran in ${plural(coverage.runs, "recorded run")}`,
       extraOmitted: Math.max(0, coverage.never_executed_count - coverage.never_executed.length),
     }));
   }
@@ -341,7 +383,7 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
   // 4. External handoffs no evidence verified.
   if (!behavior) {
     categories.push(build.category("external_handoffs", [], {
-      notMeasured: ["No behavior or integration evidence is recorded for this Snapshot."],
+      notMeasured: ["No behavior or integration evidence is recorded for this revision."],
     }));
   } else {
     const handoffs: Draft[] = [];
@@ -387,7 +429,7 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
   const snapshotRefs = context.checks.filter((check) => check.origin !== "claim_evidence");
   for (const check of snapshotRefs) {
     if (check.status === "PASS") continue;
-    checks.push({ kind: "check", ref: `${check.status}:${check.key}`, title: `${statusWords[check.status]}: ${check.key}`, detail: "Recorded on this Snapshot.", targetIds: check.target_ids });
+    checks.push({ kind: "check", ref: `${check.status}:${check.key}`, title: `${statusWords[check.status]}: ${check.key}`, detail: "Recorded on this revision.", targetIds: check.target_ids });
   }
   const staleKeys = new Set<string>();
   for (const check of context.checks) {
@@ -397,17 +439,17 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
       checks.push({
         kind: "stale",
         ref: check.key,
-        title: `Evidence from an earlier Snapshot: ${check.key}`,
-        detail: check.snapshot_number !== null ? `Recorded on Snapshot ${check.snapshot_number}; not re-run on this one.` : "Not re-run on this Snapshot.",
+        title: `Evidence from an earlier revision: ${check.key}`,
+        detail: check.snapshot_number !== null ? `Recorded on ${revisionName(check.snapshot_number)}; not re-run on this one.` : "Not re-run on this revision.",
         targetIds: check.target_ids,
       });
     } else if (check.status !== "PASS") {
-      checks.push({ kind: "linked", ref: `${check.status}:${check.key}`, title: `${statusWords[check.status]}: ${check.key}`, detail: "Linked to a claim on this Snapshot.", targetIds: check.target_ids });
+      checks.push({ kind: "linked", ref: `${check.status}:${check.key}`, title: `${statusWords[check.status]}: ${check.key}`, detail: "Linked to a claim on this revision.", targetIds: check.target_ids });
     }
   }
   for (const key of projection.delta?.stale_evidence ?? []) {
     if (staleKeys.has(key)) continue;
-    checks.push({ kind: "stale", ref: key, title: `Evidence superseded by this Snapshot: ${key}`, detail: "Recorded on an earlier Snapshot." });
+    checks.push({ kind: "stale", ref: key, title: `Evidence superseded by this revision: ${key}`, detail: "Recorded on an earlier revision." });
   }
   for (const action of projection.actions) {
     if (action.id.startsWith("decision:") || action.id.startsWith("behavior:")) continue;
@@ -440,32 +482,41 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
   const recorded = recordedRows || snapshotRefs.length || (checkCounts ? checkCounts.pass + checkCounts.fail + checkCounts.not_run + checkCounts.unknown : 0);
   if (snapshotChecksKnown && snapshotRefs.length === 0 && checkCounts) {
     // Counts without rows: name the totals at Review level.
-    if (checkCounts.fail) checks.push({ kind: "count", ref: "fail", title: `${plural(checkCounts.fail, "check")} failed`, detail: "Recorded on this Snapshot." });
-    if (checkCounts.not_run) checks.push({ kind: "count", ref: "not_run", title: `${plural(checkCounts.not_run, "check")} did not run`, detail: "Recorded on this Snapshot." });
-    if (checkCounts.unknown) checks.push({ kind: "count", ref: "unknown", title: `${plural(checkCounts.unknown, "check")} without a result`, detail: "Recorded on this Snapshot." });
+    if (checkCounts.fail) checks.push({ kind: "count", ref: "fail", title: `${plural(checkCounts.fail, "check")} failed`, detail: "Recorded on this revision." });
+    if (checkCounts.not_run) checks.push({ kind: "count", ref: "not_run", title: `${plural(checkCounts.not_run, "check")} did not run`, detail: "Recorded on this revision." });
+    if (checkCounts.unknown) checks.push({ kind: "count", ref: "unknown", title: `${plural(checkCounts.unknown, "check")} without a result`, detail: "Recorded on this revision." });
   }
   if (snapshotChecksKnown && recorded === 0) {
-    checks.push({ kind: "none", ref: "snapshot", title: "No check recorded on this Snapshot", detail: "Nothing here is verified by a recorded run." });
+    checks.push({ kind: "none", ref: "snapshot", title: "No check recorded on this revision", detail: "Nothing here is verified by a recorded run." });
   }
-  categories.push(build.category("checks", checks, snapshotChecksKnown
-    ? { scope: `${plural(recorded, "recorded check")} on this Snapshot` }
-    : {
-      scope: projection.claims.some((claim) => claim.evidence.length > 0) ? "Claim-linked evidence only" : undefined,
-      notMeasured: ["Snapshot-wide check results are not loaded in this view."],
-    }));
+  categories.push({
+    ...build.category("checks", checks, snapshotChecksKnown
+      ? { scope: `${plural(recorded, "recorded check")} on this revision` }
+      : {
+        scope: projection.claims.some((claim) => claim.evidence.length > 0) ? "Claim-linked evidence only" : undefined,
+        notMeasured: ["Check results for this revision are not loaded in this view."],
+      }),
+    label: checksLabel(checks),
+  });
 
   // 6. Analysis that covered only part of the change.
   const index: Draft[] = [];
   const total = projection.coverage.target_count;
   if (targets.length < total) {
-    index.push({ kind: "targets", ref: "loaded", title: `Only ${targets.length} of ${plural(total, "changed target")} are loaded`, detail: "The rest are not analyzed in this view." });
+    index.push({ kind: "targets", ref: "loaded", title: `Only ${targets.length} of ${plural(total, "part")} are loaded`, detail: "The rest are not analyzed in this view." });
   }
   if (projection.coverage.unresolved_refs > 0) {
-    index.push({ kind: "refs", ref: "unresolved", title: `${plural(projection.coverage.unresolved_refs, "author reference")} could not be matched`, detail: "They name code this Snapshot does not contain." });
+    index.push({ kind: "refs", ref: "unresolved", title: `${plural(projection.coverage.unresolved_refs, "author reference")} could not be matched`, detail: "They name code this revision does not contain." });
   }
   const inventory = behavior?.static_inventory;
+  // The same limit reaches here from the producer, the inventory and the register: name it once, without the producer id.
+  const registerNote = inventory?.register.note ?? "";
+  const named = new Set<string>();
   for (const line of [...(behavior?.degraded ?? []), ...(inventory?.degraded ?? [])]) {
-    index.push({ kind: "degraded", ref: line, title: line, detail: "Reported as degraded for this Snapshot." });
+    const title = line.replace(/^[a-z_]+(?:\.[a-z_]+)+: /, "");
+    if (named.has(title) || (registerNote && title.includes(registerNote))) continue;
+    named.add(title);
+    index.push({ kind: "degraded", ref: line, title, detail: "Reported as degraded for this revision." });
   }
   if (inventory) {
     const state = inventory.register.state ?? "";
@@ -487,12 +538,12 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
     }
   }
   categories.push(build.category("index_coverage", index, noTargets
-    ? { notApplicable: "No changed code targets." }
+    ? { notApplicable: "No changed parts." }
     : {
       scope: impact
-        ? `${targets.length} of ${plural(total, "changed target")} loaded; code index ${impact.readiness.index_status}`
-        : `${targets.length} of ${plural(total, "changed target")} loaded`,
-      notMeasured: impact ? [] : ["Code-graph index readiness is not carried by this projection; the Map reports it."],
+        ? `${targets.length} of ${plural(total, "part")} loaded; ${impact.readiness.source === "checkout_search" ? "callers searched in this revision" : `code index ${impact.readiness.index_status}`}`
+        : `${targets.length} of ${plural(total, "part")} loaded`,
+      notMeasured: impact ? [] : ["This review does not say how complete the code index is; the Map shows it."],
     }));
 
   // 7. Review-first code nobody has reviewed yet.
@@ -500,7 +551,7 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
     ? target.priority.attention === "review_first"
     : target.attention_level === "high");
   categories.push(build.category("uninspected_regions", important
-    .filter((target) => target.state === "unreviewed" || target.state === "unknown")
+    .filter((target) => target.state === "unreviewed" || target.state === "unknown" || target.state === "later")
     .map((target) => ({
       kind: "target",
       ref: target.target_id,
@@ -508,8 +559,8 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
       detail: target.priority?.reasons[0]?.detail || "Ranked review first; not reviewed yet",
       targetIds: [target.target_id],
     })), noTargets
-    ? { notApplicable: "No changed code targets." }
-    : { scope: important.length > 0 ? `${plural(important.length, "review-first target")}` : "No target is ranked review first" }));
+    ? { notApplicable: "No changed parts." }
+    : { scope: important.length > 0 ? `${plural(important.length, "review-first part")}` : "No part is ranked review first" }));
 
   // 8. Open comments and decisions (reopened decisions are listed under 9 instead).
   const human: Draft[] = [];
@@ -532,13 +583,13 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
     });
   }
   categories.push(build.category("unresolved_human", human, {
-    scope: `Comments on ${plural(targets.length, "target")} and ${plural(projection.decisions.length, "decision")}`,
+    scope: `Comments on ${plural(targets.length, "part")} and ${plural(projection.decisions.length, "decision")}`,
   }));
 
   // 9. Judgments a newer Snapshot reopened; accepted, unaffected judgments stay out.
   const delta = projection.delta;
   if (delta === null || (delta === undefined && projection.snapshot_number === 0)) {
-    categories.push(build.category("snapshot_reopened", [], { notApplicable: "First Snapshot: no earlier judgment to reopen." }));
+    categories.push(build.category("snapshot_reopened", [], { notApplicable: "First revision: no earlier judgment to reopen." }));
   } else {
     const drafts: Draft[] = [...reopened].map(([key, decision]) => ({
       kind: "decision",
@@ -546,7 +597,7 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
       title: decision?.question || `Decision reopened: ${key}`,
       detail: decision?.state?.changed_inputs.length
         ? `Accepted earlier; changed: ${decision.state.changed_inputs.join(", ")}`
-        : decision?.stale ? "Written for earlier content" : "Accepted on an earlier Snapshot; its inputs changed",
+        : decision?.stale ? "Written for earlier content" : "Accepted on an earlier revision; its inputs changed",
       targetIds: decision?.target_ids ?? [],
       decision,
     }));
@@ -559,8 +610,8 @@ export function blindSpotsModel(input: BlindSpotsInput): BlindSpotsModel {
       drafts.push({ kind: "behavior", ref: row.behavior_key, title: `Behavior changed since review: ${row.title}`, detail: row.summary || row.kind_label, targetIds: row.target_ids });
     }
     categories.push(build.category("snapshot_reopened", drafts, delta
-      ? { scope: `Compared with Snapshot ${delta.since_snapshot}` }
-      : { notMeasured: ["This projection does not say what changed since the previous Snapshot."] }));
+      ? { scope: `Compared with ${revisionName(delta.since_snapshot)}` }
+      : { notMeasured: ["This projection does not say what changed since the previous revision."] }));
   }
 
   const count = (state: BlindSpotState) => categories.filter((category) => category.state === state).length;

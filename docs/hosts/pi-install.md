@@ -1,6 +1,6 @@
-# Pi in LemonCrow Runtime
+# Pi in LemonCrow Workspaces
 
-Pi is a public coding-agent host supported by LemonCrow. It is not a paid Runtime mode and it is not hidden behind Hosted or Enterprise.
+Pi is a public coding-agent host supported by LemonCrow. It is not a paid Workspaces mode and it is not hidden behind Hosted or Enterprise.
 
 LemonCrow manages a reviewed, pinned Pi binary through the public `lc rt host` surface:
 
@@ -29,17 +29,17 @@ The downloaded executable remains at `~/.lemoncrow/bin/pi-host`.
 `lc rt host remove --engine pi --yes` removes the executable and LemonCrow’s Pi
 registration; uninstalling LemonCrow also removes its Pi integration.
 
-## Relationship to Runtime Lite
+## Relationship to Workspaces Lite
 
-Pi is a coding agent, just like Claude Code, Codex, OpenCode, and LemonCode. The public Pi host lifecycle is therefore part of the open-source Runtime distribution.
+Pi is a coding agent, just like Claude Code, Codex, and OpenCode. The public Pi host lifecycle is therefore part of the open-source Workspaces distribution.
 
-`lc with pi` launches the normal Pi agent with LemonCrow Runtime Lite tools. It reuses the installed extension when present and otherwise loads a temporary extension without writing Pi settings. Pi keeps its own provider/model/session behavior; this is not LemonCrow-owned execution. Installing or using Pi this way does not turn on Hosted Runtime or require a Pro plan.
+`lc with pi` launches the normal Pi agent with LemonCrow Workspaces Lite tools. It reuses the installed extension when present and otherwise loads a temporary extension without writing Pi settings. Pi keeps its own provider/model/session behavior; this is not LemonCrow-owned execution. Installing or using Pi this way does not turn on hosted retrieval or require a Pro plan.
 
 ## Relationship to Hosted `lc code`
 
-`lc code` is LemonCrow's Hosted owned-agent entry point. Hosted Runtime may use Pi as one implementation/frontend choice, but that does not make Pi itself private. The private boundary is LemonCrow's hosted execution, routing, policy, budgets, cache orchestration, and advanced intelligence—not the Pi binary.
+`lc code` is reserved for LemonCrow's hosted coding agent, which is not yet available. LemonCrow's hosted execution may use Pi as one implementation/frontend choice, but that does not make Pi itself private. The private boundary is LemonCrow's hosted execution, routing, policy, budgets, cache orchestration, and advanced intelligence—not the Pi binary.
 
-A Pro plan grants access to Hosted Runtime. Enterprise Runtime can place the same class of private LemonCrow execution in customer-controlled or dedicated infrastructure.
+A Pro plan grants access to hosted retrieval. Enterprise Workspaces can place the same class of private LemonCrow execution in customer-controlled or dedicated infrastructure.
 
 ## Internal managed-mode qualification
 

@@ -440,7 +440,7 @@ def test_handoff_delimits_every_untrusted_origin_as_data_and_cannot_redefine_pol
             "fix_all",
             "act-1",
             "reviewer-1",
-            "Snapshot 0",
+            "Revision 1",
             items=items,
             change_description=INJECTIONS["pr_text"],
         )
@@ -450,7 +450,7 @@ def test_handoff_delimits_every_untrusted_origin_as_data_and_cannot_redefine_pol
             "fix_all",
             "act-1",
             "reviewer-1",
-            "Snapshot 0",
+            "Revision 1",
             items=(HandoffItem(_subject("x"), "ai_finding", "A nil check is missing."),),
             change_description="Fix auth",
         )
@@ -477,7 +477,7 @@ def test_reviewer_directive_is_the_only_instruction_and_stays_outside_data() -> 
         "fix",
         "act-2",
         "reviewer-1",
-        "Snapshot 1",
+        "Revision 2",
         items=(HandoffItem(_subject("f"), "ai_finding", "finding text"),),
         directive="Prefer a guard clause over a try/except.",
     )
@@ -949,7 +949,7 @@ def test_preferred_agent_is_honestly_unavailable_when_unset_invalid_or_not_insta
     refused = review.post("actions/preview", {**body, "route": "preferred_agent"})
     assert refused.status_code == 409 and refused.json()["detail"] == "opencode CLI is not installed"
 
-    with pytest.raises(ValueError, match="choices: claude, codex, opencode, lemoncode"):
+    with pytest.raises(ValueError, match="choices: claude, codex, opencode"):
         write_setting(root, FIX_AGENT_SETTING, "vim")
     assert load_raw(root)[FIX_AGENT_SETTING] == "opencode"
     # A hand-edited value is reported as invalid, never guessed at.
@@ -972,14 +972,26 @@ class _FakeProcess:
     def wait(self, timeout: float | None = None) -> int:
         raise subprocess.TimeoutExpired("fake", timeout or 0)
 
+    def __enter__(self) -> _FakeProcess:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        # subprocess.Popen.__exit__ closes its pipes and waits for the child; the fake has neither,
+        # and its wait() only models "still running" for timed waits, so exit is a no-op.
+        return None
+
 
 def test_fix_uses_the_same_command_line_and_gates_as_human_feedback_delivery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     review = _review(tmp_path)
     argv: list[list[str]] = []
+    real_popen = subprocess.Popen
 
-    def popen(command: list[str], **_kwargs: Any) -> _FakeProcess:
+    def popen(command: list[str], **kwargs: Any) -> Any:
+        # Only the agent CLI is faked; git (the caller search) and other tools run for real.
+        if not str(command[0]).startswith("/opt/fake/"):
+            return real_popen(command, **kwargs)
         argv.append(list(command))
         return _FakeProcess()
 
@@ -1109,6 +1121,8 @@ def test_malicious_finding_bot_repo_and_pr_text_cannot_redefine_fixer_policy(
         "sandbox_workspace_write.network_access=false",
         "s-codex",
     ]
+    # The launch under test is recorded and asserted; the benign review below only needs real git.
+    monkeypatch.setattr(delivery_module.subprocess, "Popen", real_popen)
     benign_review = _review(tmp_path / "benign")
     _write(benign_review.repo_root, "src/session.py", _SESSION + "\n# a normal comment\n")
     benign_source = benign_review.refresh()
@@ -1501,7 +1515,7 @@ def test_a_scoped_correction_rerun_never_satisfies_required_work_it_did_not_run(
     # evidence rule: a stale PASS is shown, never counted) ...
     browser = after.get("browser-regression")
     assert browser is not None and (browser["state"], browser["reason"]) == ("pending", "not_run")
-    assert "No current PASS for Snapshot" in browser["detail"] and "Untouched smoke" in browser["detail"]
+    assert "No current PASS for Revision" in browser["detail"] and "Untouched smoke" in browser["detail"]
     scenario_rows = {
         (row["state"], row["status"])
         for row in review.get("verification").json()["checks"]

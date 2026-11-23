@@ -205,7 +205,7 @@ describe("SessionExplorerDetail", () => {
     // than either tool call by more than the 2s window) never matches
     // anything and is never skipped, so it permanently blocks the queue and
     // no later savings badge for this tool ever appears.
-    expect(await screen.findByText(/\$0\.020/)).toBeInTheDocument();
+    expect(await screen.findByText(/\$0\.02\b/)).toBeInTheDocument();
   });
 
   it("shows a neutral zero duration instead of a runaway value when a turn timestamp is missing, and relabels cache-read cost", async () => {
@@ -386,7 +386,7 @@ describe("SessionExplorerDetail", () => {
       Promise.resolve(String(input).includes("/api/v1/sessions/sess-raw") ? jsonResponse(report) : new Response("not found", { status: 404 })));
 
     const { unmount } = render(<SessionExplorerDetail sessionId="sess-raw" />);
-    expect(await screen.findByRole("link", { name: /Raw Link/ })).toHaveAttribute("href", "/api/raw-artifacts/art-1/content");
+    expect(await screen.findByRole("link", { name: /Session log/ })).toHaveAttribute("href", "/api/raw-artifacts/art-1/content");
     unmount();
 
     render(
@@ -395,7 +395,7 @@ describe("SessionExplorerDetail", () => {
       </RuntimeCapabilitiesProvider>
     );
     expect(await screen.findByText("Execution Detail")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Raw Link/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Session log/ })).toBeNull();
   });
 
   it("says the run is unavailable when no report, trace or ledger loads", async () => {
@@ -405,5 +405,16 @@ describe("SessionExplorerDetail", () => {
 
     expect(await screen.findByText("This run is not available.")).toBeInTheDocument();
     expect(screen.queryByText("Execution Detail")).not.toBeInTheDocument();
+  });
+
+  it("says the run is unavailable when the ledger route answers an unknown id with not_found", async () => {
+    // The real server: /v1/sessions and /v1/traces 404, /ledgers/<id> answers 200 {status: "not_found"}.
+    mockFetch({ "/api/ledgers/no-such-run": jsonResponse({ session_id: "no-such-run", status: "not_found" }) });
+
+    render(<SessionExplorerDetail sessionId="no-such-run" />);
+
+    expect(await screen.findByText("This run is not available.")).toBeInTheDocument();
+    expect(screen.queryByText("Execution Detail")).not.toBeInTheDocument();
+    expect(screen.queryByText(/@unknown/)).not.toBeInTheDocument();
   });
 });

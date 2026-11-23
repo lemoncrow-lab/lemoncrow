@@ -406,9 +406,9 @@ def test_ingestion_binds_to_the_exact_snapshot_and_a_replay_is_one_observation(t
     revision = _latest(review)
     assert revision.head_sha and not revision.dirty
 
-    with pytest.raises(IngestConflict, match="not this Snapshot's head"):
+    with pytest.raises(IngestConflict, match="not this revision's head"):
         _typed(review, revision, status="PASS", head_sha="b" * 40)
-    with pytest.raises(IngestConflict, match="clean commit Snapshot"):
+    with pytest.raises(IngestConflict, match="clean commit revision"):
         _typed(review, replace(revision, dirty=True), status="PASS")
 
     first, created = _typed(review, revision, status="PASS")
@@ -985,7 +985,7 @@ def test_an_eligible_push_runs_checks_and_skips_only_the_broad_ai_pass_visibly(t
     _push(review, "src/report.py", _CHANGED + "\n# second follow-up\n")
     consecutive = _get(review, "run-plan")["plan"]
     assert consecutive["fast_lane"]["eligible"] is False
-    assert consecutive["fast_lane"]["reasons"] == ["the previous Snapshot's plan did not run the broad AI pass"]
+    assert consecutive["fast_lane"]["reasons"] == ["the previous revision's plan did not run the broad AI pass"]
     assert _entry(consecutive, "ai.investigators")["status"] == "run"
 
     _push(review, "src/auth_tokens.py", "TOKEN = 'x'\n")
@@ -1039,7 +1039,7 @@ def test_the_ingest_api_bounds_and_validates_its_input(tmp_path: Path, monkeypat
     review = _review(tmp_path)
     revision = _latest(review)
     wrong_head = _ingest_sarif(review, _sarif(_result("x")), head_sha="d" * 40)
-    assert wrong_head.status_code == 409 and "not this Snapshot's head" in wrong_head.json()["detail"]
+    assert wrong_head.status_code == 409 and "not this revision's head" in wrong_head.json()["detail"]
     assert _ingest_sarif(review, {"version": "2.0.0"}).status_code == 422
     assert _ingest_sarif(review, _sarif(), category="astrology").status_code == 422
     assert _ingest_sarif(review, _sarif(), format="junit").status_code == 422

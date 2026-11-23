@@ -192,10 +192,12 @@ export function whatIfModel(input: WhatIfInput): WhatIfModel {
           }
           visits += 1;
           const kind: WhatIfRowKind = TEST_PATH.test(site.path) ? "test" : caller ? "caller" : "consumer";
-          const origin: WhatIfOrigin = site.in_patch || !caller ? "actual" : "simulated";
+          // A plain reference (a function handed to something else) depends on the target just as a call does.
+          const uses = caller || site.impact_kind === "reference";
+          const origin: WhatIfOrigin = site.in_patch || !uses ? "actual" : "simulated";
           const subject = group.symbol || target.symbol || target.path;
           const reason = origin === "simulated"
-            ? `Calls ${subject}; if ${scenario.label.toLowerCase()}, it ${scenario.effect}.`
+            ? `${caller ? "Calls" : "Uses"} ${subject}; if ${scenario.label.toLowerCase()}, it ${scenario.effect}.`
             : site.in_patch
               ? `Calls ${subject} and was changed in this PR too.`
               : `This PR's actual change reaches it (${site.impact_kind.replaceAll("_", " ")}).`;
@@ -241,7 +243,7 @@ export function whatIfModel(input: WhatIfInput): WhatIfModel {
 
   const gaps: WhatIfGap[] = [];
   if (!inventory) {
-    gaps.push({ key: "inventory", title: "No caller or consumer inventory", detail: "This Review projection carries no impact data, so reach is unknown." });
+    gaps.push({ key: "inventory", title: "Callers and consumers not recorded", detail: "This review has no impact data, so how far a change reaches is unknown." });
   } else {
     for (const gap of readinessGaps(inventory.readiness)) {
       if (gap.hidesConsumers) gaps.push({ key: gap.key, title: gap.title, detail: `${gap.detail} Callers may exist that are not listed.` });
@@ -254,7 +256,7 @@ export function whatIfModel(input: WhatIfInput): WhatIfModel {
     gaps.push({ key: "candidates", title: `${uncertainRows} ${uncertainRows === 1 ? "row is a candidate" : "rows are candidates"}, not a fact`, detail: "Matched by name or only by file; another definition may be the real target." });
   }
   if (currentIndexRows > 0) {
-    gaps.push({ key: "current_index", title: `${currentIndexRows} ${currentIndexRows === 1 ? "row comes" : "rows come"} from the working index`, detail: "Not proven for this Snapshot." });
+    gaps.push({ key: "current_index", title: `${currentIndexRows} ${currentIndexRows === 1 ? "row comes" : "rows come"} from the working index`, detail: "Not proven for this revision." });
   }
   for (const row of projection.behavior?.targets ?? []) {
     if (!row.target_ids.includes(targetId) || row.unverified_integrations.length === 0) continue;

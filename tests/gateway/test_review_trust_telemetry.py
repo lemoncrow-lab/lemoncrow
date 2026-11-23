@@ -144,7 +144,7 @@ def test_an_observation_never_carries_an_identifier_a_label_or_free_text() -> No
         ("carry_exact_key", "carry_exact_key"),
         ("x" * 64, "x" * 64),  # the longest code that is kept
         ("x" * 65, "other"),  # one past it
-        ("the cited evidence is not on this Snapshot", "other"),
+        ("the cited evidence is not on this revision", "other"),
         ("rev_01HZX-4", "other"),
         ("Carry", "other"),
         ("9lives", "other"),
@@ -192,7 +192,7 @@ def test_a_run_plan_is_observed_as_buckets_check_dispositions_and_unknown_status
             {"entry_id": "checks.tests", "recipe_id": "pytest", "state": "ran", "reason_code": "carry_inputs_changed"},
             {"entry_id": "checks.lint", "recipe_id": "ruff", "state": "ran"},
             {"entry_id": "checks.types", "recipe_id": "mypy", "state": "planned"},
-            {"entry_id": "ai.investigators", "reason": "runs on every Snapshot"},
+            {"entry_id": "ai.investigators", "reason": "runs on every revision"},
         ],
         reuse=[
             {

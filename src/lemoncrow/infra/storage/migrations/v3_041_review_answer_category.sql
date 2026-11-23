@@ -1,0 +1,23 @@
+-- Review redesign P1-2: the structural answer category of a unit.
+--
+-- review_units.answer_category / category_rule: how a person is asked about the unit
+--   (decision | quick_check | accepted_by_rule) and, for accepted_by_rule only, the
+--   rule that accepted it (generated_files | lockfiles). A pure function of the captured
+--   change (review/answer_category.structural_answer), stamped when the revision is
+--   recorded. '' means the unit was stored before the stamp existed; readers then
+--   derive the answer from the unit's own fields and never promote it to accepted_by_rule.
+--   Writer: ReviewStore.add_revision and ReviewStore.update_revision_projection.
+--   Closer: the columns belong to their unit row and go with it (revision deletion
+--   cascades).
+--
+-- Rollback: the COLUMNS are expand-only and default-valued. The previous build names its
+--   own columns and ignores these, so it opens the database and needs no down step.
+-- DOWNGRADE RISK, plainly: this release also adds the `later` ("Decide later") mark state
+--   (review_marks.state and review_mark_events.from_state/to_state are free text, so it needs
+--   no DDL). A build from before this release does not know `later`: it reads such a mark as
+--   a judged, `reviewed` part, so a review with parts left for later can look finished on that
+--   build. Local SQLite is one process on one machine, so the exposure is a deliberate
+--   downgrade of lc on the same machine after using Decide later. Move or reset those marks
+--   (lc review --mark PART --mark-state unreviewed) before downgrading.
+ALTER TABLE review_units ADD COLUMN answer_category TEXT NOT NULL DEFAULT '';
+ALTER TABLE review_units ADD COLUMN category_rule TEXT NOT NULL DEFAULT '';

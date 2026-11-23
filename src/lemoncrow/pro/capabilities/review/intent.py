@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Final, Literal
 
+from lemoncrow_client.review_words import revision_name
+
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence
 
 IntentKind = Literal["issue", "spec", "plan", "incident"]
@@ -432,7 +434,7 @@ class IntentBinding:
     def changed_note(self) -> str:
         if not self.changed:
             return ""
-        where = f"Snapshot {self.bound_snapshot_number}" if self.bound_snapshot_number is not None else "capture"
+        where = revision_name(self.bound_snapshot_number) if self.bound_snapshot_number is not None else "capture"
         if self.deleted:
             return (
                 f"Intent changed since {where}: {self.bound.title or self.ref} was deleted on the provider. "

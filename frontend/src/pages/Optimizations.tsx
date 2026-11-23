@@ -26,7 +26,7 @@ import {
   cx,
 } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
-import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
+import { fmtPct, fmtTok, fmtUsd, fmtUsdRate, fmtWhen } from "../lib/format";
 
 const COMPACTION_LABELS: Record<string, string> = {
   prompt_cache_reorder: "Prompt-cache reorder",
@@ -56,6 +56,16 @@ function fmtPercent(value: number): string {
 function fmtSignedUsd(value: number): string {
   if (value === 0) return "$0.00";
   return `${value > 0 ? "+" : "-"}${fmtUsd(Math.abs(value))}`;
+}
+
+// What the frontier's three estimates mean (optimizer._candidate_for_policy), said on the page, not only on hover.
+const FRONTIER_KEY =
+  "Estimates from replaying your recorded tasks. Est. quality: the advisor's quality score once some tasks go to cheaper models or get shortened context. Response time: relative to 1.00×, lower is faster. Escalated: the share of tasks expected to be handed up to a stronger model.";
+
+/** A setup's name line under its title, only when it says something the title doesn't. */
+function presetLine(name: string, preset: string): string {
+  const label = fmtPolicyLabel(preset);
+  return label.trim().toLowerCase() === name.trim().toLowerCase() ? "" : label;
 }
 
 function fmtPolicyLabel(value: string): string {
@@ -205,7 +215,7 @@ export function CandidateSummaryCard({
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Quality"
+          label="Est. quality"
           value={fmtPercent(candidate.estimated_quality)}
           detail={fmtDeltaPercent(qualityDelta)}
           tone={qualityTone(candidate.estimated_quality)}
@@ -217,18 +227,18 @@ export function CandidateSummaryCard({
           tone={deltaTone(costDelta, true)}
         />
         <MetricCard
-          label="Latency"
-          value={`${candidate.latency_mult.toFixed(2)}x`}
-          detail="relative"
+          label="Response time"
+          value={`${candidate.latency_mult.toFixed(2)}×`}
+          detail="relative to 1.00×; lower is faster"
           tone={deltaTone(
             candidate.latency_mult - currentCandidate.latency_mult,
             true
           )}
         />
         <MetricCard
-          label="Escalation"
+          label="Escalated"
           value={fmtPercent(candidate.escalation_rate)}
-          detail="escalates"
+          detail="of tasks handed up to a stronger model"
           tone={deltaTone(
             candidate.escalation_rate - currentCandidate.escalation_rate,
             true
@@ -304,6 +314,7 @@ export function CandidateOptions({
           <Hint text="Current, recommended, and alternative policy points from the advisor frontier." />
         }
       />
+      <p className="text-body leading-relaxed text-muted-foreground">{FRONTIER_KEY}</p>
 
       <div className="grid gap-4 xl:grid-cols-5">
         {candidates.map((candidate) => {
@@ -329,17 +340,19 @@ export function CandidateOptions({
                 {isCurrent && <Chip tone="neutral">Current</Chip>}
                 {isRecommended && <Chip tone="warning">Recommended</Chip>}
               </div>
-              <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
-                {fmtPolicyLabel(candidate.policy.preset)}
-              </div>
+              {presetLine(candidate.policy.name, candidate.policy.preset) && (
+                <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
+                  {presetLine(candidate.policy.name, candidate.policy.preset)}
+                </div>
+              )}
               <div className="mt-4 text-h3 font-semibold text-foreground">
                 {fmtUsd(candidate.weekly_cost_usd)}
               </div>
               <div className="mt-1 text-body text-muted-foreground">per week</div>
               <div className="mt-4 space-y-2 text-heading text-subtle">
-                <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
-                <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
-                <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
+                <div>Est. quality {fmtPercent(candidate.estimated_quality)}</div>
+                <div>Response time {candidate.latency_mult.toFixed(2)}×</div>
+                <div>Escalated {fmtPercent(candidate.escalation_rate)}</div>
               </div>
             </UiButton>
           );
@@ -430,7 +443,7 @@ function CandidateDetail({
                 <tr className="border-b border-border text-caption uppercase tracking-widest text-muted-foreground">
                   <th className="py-3 pr-4">Compaction type</th>
                   <th className="py-3 pr-4">Enabled</th>
-                  <th className="py-3 text-right">Weekly savings</th>
+                  <th className="py-3 text-right">Weekly savings vs current</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -454,7 +467,8 @@ function CandidateDetail({
                         </Chip>
                       </td>
                       <td className="py-3 text-right font-mono text-subtle">
-                        {fmtUsd(value)}
+                        {/* A negative delta is not a saving: this setup banks less from the lever than the current one does. */}
+                        {value < -0.005 ? `${fmtUsd(-value)} less` : fmtUsd(Math.max(0, value))}
                       </td>
                     </tr>
                   );
@@ -679,7 +693,7 @@ function PolicySandbox({
     <section className="space-y-4">
       <SectionHeader
         eyebrow="Interactive"
-        title="Policy Sandbox"
+        title="Custom tuning"
         action={
           <Hint text="Tune optimization parameters in real-time. Copy the resulting YAML to apply a custom policy." />
         }
@@ -807,7 +821,7 @@ function OptimizationHistory({
             {history.slice(0, 10).map((item, idx) => (
               <tr key={idx} className="hover:bg-muted/45">
                 <td className="px-5 py-3 text-muted-foreground">
-                  {new Date(item.recorded_at).toLocaleDateString()}
+                  {fmtWhen(item.recorded_at)}
                 </td>
                 <td className="px-5 py-3">
                   <Chip tone={confidenceTone(item.confidence)}>
@@ -827,8 +841,8 @@ function OptimizationHistory({
                     {fmtDeltaPercent(item.quality_delta)}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-right font-mono text-emerald-300">
-                  {fmtUsd(item.weekly_savings_usd)}
+                <td className="px-5 py-3 text-right font-mono text-ok">
+                  {fmtSignedUsd(item.weekly_savings_usd)}
                 </td>
               </tr>
             ))}
@@ -896,7 +910,7 @@ function OptimizationComparison({
             <div>
               <div className="text-body text-muted-foreground">Avg Cost</div>
               <div className="text-lead font-semibold text-foreground">
-                {fmtUsd(impact.before.avg_cost_usd)}
+                {fmtUsdRate(impact.before.avg_cost_usd)}
               </div>
             </div>
             <div>
@@ -928,7 +942,7 @@ function OptimizationComparison({
             <div>
               <div className="text-body text-muted-foreground">Avg Cost</div>
               <div className="text-lead font-semibold text-foreground">
-                {fmtUsd(impact.after.avg_cost_usd)}
+                {fmtUsdRate(impact.after.avg_cost_usd)}
               </div>
             </div>
             <div>
@@ -1268,42 +1282,34 @@ export default function Optimizations() {
         <MetricCard
           label="Sessions analysed"
           value={summary.advisor.sessions_analysed.toLocaleString()}
-          detail={`${summary.advisor.replayable_tasks.toLocaleString()} tasks`}
+          detail={`last ${days} days · ${summary.advisor.replayable_tasks.toLocaleString()} replayable tasks`}
           tone="neutral"
         />
-        <div title={summary.advisor.confidence_reason}>
-          <MetricCard
-            label="Confidence"
-            value={fmtPolicyLabel(summary.advisor.confidence)}
-            detail={
-              summary.advisor.has_recommendation
-                ? "hover for caveat"
-                : "not enough history"
-            }
-            tone={confidenceTone(summary.advisor.confidence)}
-          />
-        </div>
+        <MetricCard
+          label="Confidence"
+          value={fmtPolicyLabel(summary.advisor.confidence)}
+          detail={summary.advisor.confidence_reason || (summary.advisor.has_recommendation ? "" : "not enough history")}
+          tone={confidenceTone(summary.advisor.confidence)}
+        />
         <MetricCard
           label="Current weekly cost"
-          value={"-" + fmtUsd(currentCandidate.weekly_cost_usd)}
+          value={fmtUsd(currentCandidate.weekly_cost_usd)}
           detail={currentCandidate.policy.name}
-          tone="destructive"
+          tone="neutral"
         />
-        <div title={summary.advisor.message}>
-          <MetricCard
-            label="Potential weekly savings"
-            value={fmtSignedUsd(summary.advisor.weekly_savings_usd)}
-            detail={
-              summary.advisor.has_recommendation
-                ? fmtDeltaPercent(
-                    -summary.advisor.weekly_savings_usd /
-                      Math.max(summary.advisor.baseline_weekly_cost_usd, 0.0001)
-                  )
-                : "hover for note"
-            }
-            tone={summary.advisor.has_recommendation ? "success" : "warning"}
-          />
-        </div>
+        <MetricCard
+          label="Potential weekly savings"
+          value={fmtUsd(Math.max(0, summary.advisor.weekly_savings_usd))}
+          detail={
+            summary.advisor.has_recommendation
+              ? `${fmtPct(
+                  (100 * Math.max(0, summary.advisor.weekly_savings_usd)) /
+                    Math.max(summary.advisor.baseline_weekly_cost_usd, 0.0001)
+                )} lower weekly cost`
+              : summary.advisor.message
+          }
+          tone={summary.advisor.has_recommendation ? "success" : "warning"}
+        />
       </section>
 
       <section className="space-y-4">
@@ -1314,6 +1320,7 @@ export default function Optimizations() {
             <Hint text="Current, recommended, and alternative policy points from the advisor frontier." />
           }
         />
+        <p className="text-body leading-relaxed text-muted-foreground">{FRONTIER_KEY}</p>
 
         <div className="grid gap-4 xl:grid-cols-5">
           {orderedCandidates.map((candidate) => {
@@ -1345,9 +1352,11 @@ export default function Optimizations() {
                   {isCurrent && <Chip tone="neutral">Current</Chip>}
                   {isRecommended && <Chip tone="warning">Recommended</Chip>}
                 </div>
-                <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
-                  {fmtPolicyLabel(candidate.policy.preset)}
-                </div>
+                {presetLine(candidate.policy.name, candidate.policy.preset) && (
+                  <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
+                    {presetLine(candidate.policy.name, candidate.policy.preset)}
+                  </div>
+                )}
                 {(() => {
                   const savings =
                     summary.advisor.baseline_weekly_cost_usd -
@@ -1406,9 +1415,9 @@ export default function Optimizations() {
                   );
                 })()}
                 <div className="mt-4 space-y-2 text-heading text-subtle">
-                  <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
-                  <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
-                  <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
+                  <div>Est. quality {fmtPercent(candidate.estimated_quality)}</div>
+                  <div>Response time {candidate.latency_mult.toFixed(2)}×</div>
+                  <div>Escalated {fmtPercent(candidate.escalation_rate)}</div>
                 </div>
               </UiButton>
             );
@@ -1425,19 +1434,11 @@ export default function Optimizations() {
             )}
           >
             <div className="text-heading font-semibold text-foreground">
-              Advanced
+              Custom tuning
             </div>
-            <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
-              Custom Tuning
-            </div>
-            <div className="mt-4 text-h3 font-semibold text-foreground">
-              Sandbox
-            </div>
-            <div className="mt-1 text-body text-muted-foreground">
-              Interactive tuning
-            </div>
-            <div className="mt-4 space-y-2 text-heading text-subtle italic">
-              Adjust quality floors, compaction triggers, and routing.
+            <div className="mt-4 text-heading text-subtle">
+              Set your own quality floor, compaction triggers and routing, and
+              see the estimate.
             </div>
           </UiButton>
         </div>

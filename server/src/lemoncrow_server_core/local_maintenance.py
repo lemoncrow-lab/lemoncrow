@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -92,9 +94,13 @@ class LocalMaintenance:
     def _write_state(self, payload: dict[str, Any]) -> None:
         try:
             self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
-            tmp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
-            tmp.replace(self._state_path)
+            tmp = self._state_path.with_name(f".{self._state_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+            try:
+                tmp.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+                tmp.replace(self._state_path)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
         except OSError:
             _LOG.exception("failed to persist local session-import state")
 

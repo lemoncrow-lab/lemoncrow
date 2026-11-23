@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "scripts" / "local_review.sh"
 
@@ -130,7 +132,7 @@ def test_local_review_composes_isolated_engine_client_and_server(tmp_path: Path)
     phases = ["Installing Review engine...", "Installing Review client...", "Starting local Review server..."]
     assert all(phase in result.stdout for phase in phases)
     assert [result.stdout.index(phase) for phase in phases] == sorted(result.stdout.index(phase) for phase in phases)
-    assert "add Runtime: lc runtime enable codex" in result.stdout
+    assert "add Workspaces: lc runtime enable codex" in result.stdout
     assert "add later: local_runtime.sh" not in result.stdout
 
 
@@ -284,3 +286,22 @@ def test_local_review_release_mode_downloads_three_helpers_and_cleans_temp(tmp_p
     assert (state / "bin/lcr").is_file()
     assert (state / "install/scripts/local_server.sh").is_file()
     assert list(temp_root.iterdir()) == []
+
+
+@pytest.mark.parametrize("shell", ["bash", "/bin/bash"])
+def test_release_install_accepts_empty_engine_args(tmp_path: Path, shell: str) -> None:
+    # /bin/bash is Bash 3.2 on macOS; an empty array under nounset must
+    # contribute zero arguments, while build-mode paths retain their quoting.
+    env, _, _, engine_log, review_log, server_log = _fixture(tmp_path)
+    result = subprocess.run(
+        [shell, str(INSTALLER)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ARGS=\n" in engine_log.read_text()
+    assert "ARGS=--url http://127.0.0.1:7420" in review_log.read_text()
+    assert "ARGS=start" in server_log.read_text()

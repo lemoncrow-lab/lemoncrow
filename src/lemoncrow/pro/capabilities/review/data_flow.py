@@ -28,6 +28,7 @@ from typing import Any, Final, Literal, get_args
 from urllib.parse import urlsplit
 
 import yaml
+from lemoncrow_client.review_words import revision_name
 
 from lemoncrow.pro.capabilities.review.capability_catalog import ExecutorLocus
 from lemoncrow.pro.capabilities.review.data_governance import (
@@ -55,6 +56,7 @@ from lemoncrow.pro.capabilities.review.intelligence_policy import (
 from lemoncrow.pro.capabilities.review.intelligence_runtime import (
     AGENT_CLI_DRIVERS,
     ReviewIntelligenceDriver,
+    operator_off_reason,
     resolve_driver_model,
 )
 from lemoncrow.pro.capabilities.review.model_identity import UNREPORTED_DEFAULT_LABEL, ModelIdentity
@@ -459,7 +461,7 @@ def environment_route_facts(
     if not effective.valid:
         disabled = "intelligence policy is invalid: " + "; ".join(effective.errors)
     elif not effective.enabled.value:
-        disabled = f"intelligence is turned off ({effective.enabled.origin.source})"
+        disabled = operator_off_reason(effective)
     if disabled:
         enabled_origin = policy_flow_origin(effective.enabled.origin, layer)
         facts.append(
@@ -940,7 +942,7 @@ def _source_generation_row(out: _Rows, inputs: DataFlowInputs) -> None:
             origin = FlowOrigin("Review trusted-base capture", BUILT_IN)
             out.add("policy.source_generation", subject, "not_set", detail, (origin,))
         return
-    where = f"Review {generation.review_id} Snapshot {generation.snapshot_number}"
+    where = f"Review {generation.review_id} {revision_name(generation.snapshot_number)}"
     origin = FlowOrigin(f"{where} trusted-base capture", "trusted_base_repository")
     if not generation.commit:
         reason = "this Review has no provider-proven trusted base, so trusted-base settings are unknown"
@@ -979,14 +981,14 @@ def _source_rows(out: _Rows, inputs: DataFlowInputs) -> None:
         origin = inputs.store_origin or FlowOrigin(STORE_ROOT_ENV, inputs.environment_layer if root_set else BUILT_IN)
         where = f" (location set by {origin.setting})" if origin.layer != BUILT_IN else " (default location)"
         out.add(
-            "source.storage", "Snapshots and evidence", "fact", f"kept in the store on this machine{where}", (origin,)
+            "source.storage", "Revisions and evidence", "fact", f"kept in the store on this machine{where}", (origin,)
         )
         out.add("source.region", "Storage region", "fact", "this machine; Review uploads nothing itself", (origin,))
         return
     named = ", ".join(hosted.storage_settings) or "none of the storage settings"
     out.add(
         "source.storage",
-        "Snapshots and evidence",
+        "Revisions and evidence",
         "fact",
         f"held by the hosted deployment; storage configured by {named}",
         tuple(FlowOrigin(name, inputs.environment_layer) for name in hosted.storage_settings)
@@ -1049,7 +1051,7 @@ def _intelligence_rows(out: _Rows, inputs: DataFlowInputs, ctx: _Context) -> Flo
             "Agent CLI routes (Ask)",
             cli_status,
             "Ask may start claude, codex or opencode on this machine; each sends what it reads to its own "
-            "provider (external) and may run commands in a disposable copy of the Snapshot",
+            "provider (external) and may run commands in a disposable copy of the revision",
             (_ASK_ORIGIN, *cli_origins),
             cli_reason,
         )
@@ -1252,9 +1254,9 @@ def _recorded_models_row(out: _Rows, inputs: DataFlowInputs) -> None:
     generation = inputs.source_generation
     if generation is None:
         return
-    where = f"Review {generation.review_id} Snapshot {generation.snapshot_number}"
+    where = f"Review {generation.review_id} {revision_name(generation.snapshot_number)}"
     origin = FlowOrigin(f"{where} intelligence runs", "review_record")
-    subject = "Models this Snapshot's runs recorded"
+    subject = "Models this revision's runs recorded"
     if not generation.models:
         out.add("models.recorded", subject, "not_set", f"{where} has no settled intelligence run", (origin,))
         return

@@ -167,7 +167,7 @@ def test_review_plan_author_context_contract() -> None:
                 "source": "author",
                 "kind": "intent",
                 "title": "Keep branch review identity stable",
-                "body": "Keep branch review identity stable across refreshed Snapshots.",
+                "body": "Keep branch review identity stable across refreshed revisions.",
             },
             {
                 "id": "ann-code",
@@ -286,7 +286,7 @@ def test_review_plan_evidence_contract() -> None:
     cited = _claim(_plan(view, checks=[_check("pytest review")]), "item:branch-identity")
     assert (cited.summary, SUMMARY_TEXT[cited.summary]) == ("author_cited", "Author cites these recorded checks")
     assert cited.evidence[0].mapping == "explicit"
-    assert cited.result_line == "1 linked check passed on Snapshot 3"
+    assert cited.result_line == "1 linked check passed on Revision 4"
     failing = _claim(_plan(view, checks=[_check("pytest review", "FAIL")]), "item:branch-identity")
     assert (failing.summary, SUMMARY_TEXT["contradictory"]) == ("contradictory", "Contradictory evidence")
     raw = _guidance()
@@ -306,14 +306,14 @@ def test_review_plan_evidence_contract() -> None:
         _plan(_view(_record(_guidance())), checks=[_check("pytest review", state="stale")]), "item:branch-identity"
     )
     assert claim.summary == "none"
-    assert any("earlier Snapshot" in text for text in claim.limitations)
+    assert any("earlier revision" in text for text in claim.limitations)
     assert claim.evidence[0].state == "stale"
     "case: test_agent_reported_session_evidence_is_labelled_as_such"
     claim = _claim(
         _plan(_view(_record(_guidance())), checks=[_check("pytest review", state="session")]), "item:branch-identity"
     )
     assert claim.summary == "none"
-    assert not any("earlier Snapshot" in text for text in claim.limitations)
+    assert not any("earlier revision" in text for text in claim.limitations)
     assert any("Agent-reported during authoring" in text for text in claim.limitations)
     assert "agent-reported" in claim.evidence[0].relevance
     "case: test_an_inferred_only_failure_is_not_contradictory"
@@ -394,7 +394,7 @@ def test_review_plan_question_contract() -> None:
         True,
         (),
     )
-    assert "browser:checkout failed on Snapshot 3" in question.detail
+    assert "browser:checkout failed on Revision 4" in question.detail
     assert question_reasons([question]) == {}
     optional = _check("Checkout", "FAIL", source_ref="browser:checkout", required=False, kind="browser")
     assert review_questions(TARGETS, _view(), [optional]) == ()

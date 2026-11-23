@@ -50,6 +50,7 @@ from lemoncrow.pro.capabilities.review.record_verify import EXIT_CODES, parse_ke
 from lemoncrow.pro.capabilities.review.review_record import (
     PAYLOAD_TYPE,
     PREDICATE_TYPE,
+    PREDICATE_TYPE_V2,
     STATEMENT_TYPE,
     UNSIGNED_NOTICE,
     SigningIdentity,
@@ -221,7 +222,7 @@ def test_signed_export_verifies_matches_the_store_and_reproduces_its_digest(
     assert sha256_digest(payload) == record["payload_digest"]
     statement = _payload(envelope)
     assert payload == canonical_json(statement)
-    assert statement["_type"] == STATEMENT_TYPE and statement["predicateType"] == PREDICATE_TYPE
+    assert statement["_type"] == STATEMENT_TYPE and statement["predicateType"] == PREDICATE_TYPE_V2
     assert validate_statement(statement) == []
     predicate = statement["predicate"]
     revision = ws.workspace.store.get_revision(ws.latest_id())
@@ -244,9 +245,11 @@ def test_signed_export_verifies_matches_the_store_and_reproduces_its_digest(
     keys = parse_key_set(_local_keys(ws))
     assert verify_record(served.json(), keys=keys).status == "verified"
     listed = ws.status()["records"]
-    assert [row["record_id"] for row in listed] == [record_id]
+    # (Recording the verdict also signed it in the background, so the list may hold that record too.)
+    assert record_id in [row["record_id"] for row in listed]
     activity = ws.workspace.store.list_activity_events(ws.review_id, kinds=("record.exported",))
-    assert len(activity) == 1 and json.loads(activity[0].detail_json)["payload_digest"] == record["payload_digest"]
+    exported_digests = [json.loads(event.detail_json)["payload_digest"] for event in activity]
+    assert record["payload_digest"] in exported_digests
 
     # Rows appended after the record was issued never change what it binds.
     ws.workspace.store.add_evidence(
@@ -268,6 +271,66 @@ def _local_keys(ws: RecordWorkspace) -> dict[str, Any]:
     key = load_user_key(key_path)
     kid = user_key_id(key.public_key())
     return key_set_document([public_key_entry(key.public_key(), key_id=kid, issuer=kid)], issuer=kid)
+
+
+def test_signed_record_binds_structured_after_structure_notes_without_rewriting_v1_history(
+    record_workspace: RecordWorkspace,
+) -> None:
+    ws = record_workspace
+    review_id = ws.review_id
+    units = ws.workspace.store.list_units(ws.latest_id())
+    target = next(item for item in units if item.kind == "symbol" and "refresh" in item.symbol)
+    for state in ("reviewed", "unreviewed"):
+        response = ws.workspace.post(
+            f"/api/reviews/{review_id}/marks", json={"unit_key": target.unit_key, "state": state}
+        )
+        assert response.status_code == 200, response.text
+    comment = ws.workspace.post(
+        f"/api/reviews/{review_id}/annotations",
+        json={
+            "path": target.path,
+            "start_line": 10,
+            "end_line": 10,
+            "side": "additions",
+            "kind": "request_change",
+            "body": "Retain the invalid-session guard",
+            "target_unit_key": target.unit_key,
+            "mark_target": True,
+            "reconsidered_after_structure": True,
+        },
+    )
+    assert comment.status_code == 201, comment.text
+    note_id = comment.json()["annotation"]["id"]
+    ws.opt_in()
+    ws.approve(outcome="changes_requested")
+    signed = ws.export()
+    assert signed.status_code == 201, signed.text
+    assert signed.json()["verification"]["status"] == "verified"
+    assert signed.json()["matches_store"] is True
+    statement = _payload(signed.json()["envelope"])
+    meta = statement["predicate"]["judgments"]["structure_reconsiderations"]
+    assert meta["count"] == 1 and meta["digest"].startswith("sha256:")
+    assert validate_statement(statement) == []
+    assert note_id not in json.dumps(statement), "review records expose only a digest, not human-note contents"
+    # The attested history is frozen at export time. A later note edit must not
+    # rewrite the payload that was already signed, nor stop store reproduction.
+    edited = ws.workspace.patch(f"/api/annotations/{note_id}", json={"body": "Changed after signing"})
+    assert edited.status_code == 200, edited.text
+    from lemoncrow.pro.capabilities.review.review_record import gather_record_facts, judgments_section
+
+    store = ws.workspace.store
+    original = judgments_section(
+        gather_record_facts(
+            store,
+            store.get_session(review_id),
+            store.get_revision(ws.latest_id()),
+            as_of=statement["predicate"]["as_of"],
+        )
+    )
+    assert original == statement["predicate"]["judgments"]
+    tampered = json.loads(json.dumps(statement))
+    tampered["predicate"]["judgments"]["structure_reconsiderations"]["digest"] = "sha256:" + "0" * 64
+    assert tampered["predicate"]["judgments"] != original
 
 
 def test_a_tampered_statement_mismatches_the_store_section_by_section(record_workspace: RecordWorkspace) -> None:
@@ -328,7 +391,7 @@ def test_export_needs_a_decision_on_the_latest_snapshot(record_workspace: Record
     stale = ws.workspace.post(
         f"/api/reviews/{ws.review_id}/record", json={"signing": "unsigned", "expected_revision_id": "rev-old"}
     )
-    assert stale.status_code == 409 and "newer Snapshot" in stale.json()["detail"]
+    assert stale.status_code == 409 and "newer revision" in stale.json()["detail"]
     assert ws.export("sideways").status_code == 400
     assert ws.workspace.store.list_activity_events(ws.review_id, kinds=("record.exported",)) == ()
 
@@ -694,3 +757,263 @@ def test_cited_evidence_ids_reads_back_both_places_a_record_writes_evidence() ->
         "ev-c": ("evidence",),
     }
     assert cited_evidence_ids({}) == {} and cited_evidence_ids({"predicate": "broken"}) == {}
+
+
+# --------------------------------------------------------------------------- #
+# P6-1: v2 sections (parts, AI hints, change) bound to a human record
+# --------------------------------------------------------------------------- #
+
+
+def _ai_hint(ws: RecordWorkspace, line: int) -> str:
+    from lemoncrow.pro.capabilities.review.sources.local import annotate_machine_finding
+
+    store = ws.workspace.store
+    session = store.get_session(ws.review_id)
+    revision = store.latest_revision(ws.review_id)
+    assert session is not None and revision is not None
+    annotation, _created = annotate_machine_finding(
+        store,
+        session,
+        revision,
+        path="src/session.py",
+        start_line=line,
+        end_line=line,
+        body=f"hint on line {line}",
+        title=f"hint {line}",
+        created_by="investigator",
+        created_by_actor="agent",
+        source="ai_review",
+        source_id=f"investigator-{line}",
+        new_text=_CHANGED_SOURCE,
+    )
+    return annotation.id
+
+
+def test_a_human_record_binds_parts_ai_hints_and_the_change_and_each_matches_the_store(
+    record_workspace: RecordWorkspace,
+) -> None:
+    ws = record_workspace
+    targets = ws.workspace.get(f"/api/reviews/{ws.review_id}/targets").json()
+    target = targets["targets"][0]
+    hint_id = _ai_hint(ws, 10)
+    marked = ws.workspace.post(
+        f"/api/reviews/{ws.review_id}/marks",
+        json={"unit_key": target["unit_key"], "state": "needs_changes", "expected_revision_id": ws.latest_id()},
+    )
+    assert marked.status_code == 200, marked.text
+    ws.opt_in()
+    ws.approve(outcome="changes_requested")
+    exported = ws.export()
+    assert exported.status_code == 201, exported.text
+    body = exported.json()
+    statement = _payload(body["envelope"])
+    predicate = statement["predicate"]
+    assert statement["predicateType"] == PREDICATE_TYPE_V2 and predicate["schema_version"] == 2
+    assert validate_statement(statement) == []
+    # Parts: the same answer counts the Overview reports, and the one part answered.
+    assert predicate["parts"]["counts"] == {**targets["answers"]}
+    row = {"unit_key": target["unit_key"], "label": target["label"], "path": target["path"]}
+    # This fixture's one part is a quick check marked Needs a change: listed, never a decision.
+    assert target["answer"]["category"] == "quick_check"
+    assert predicate["parts"]["decisions"] == [] and predicate["parts"]["quick_check_changes"] == [row]
+    assert predicate["parts"]["later"] == 0
+    # AI hints: the one raised on this revision, never marked as a decision.
+    assert predicate["ai_hints"]["basis"] == "raised_on_revision_not_proof_shown"
+    assert [hint["id"] for hint in predicate["ai_hints"]["hints"]] == [hint_id]
+    assert (predicate["ai_hints"]["hints"][0]["start_line"], predicate["ai_hints"]["hints"][0]["end_line"]) == (10, 10)
+    # Change: what the revision captured, certainty included (a working-tree capture names no agent).
+    revision = ws.workspace.store.get_revision(ws.latest_id())
+    assert revision is not None
+    assert predicate["change"] == {
+        "agent_host": revision.provenance_host,
+        "agent_session_id": revision.provenance_session_id,
+        "provenance_certainty": revision.provenance_certainty,
+    }
+    assert {key: body["store"][key] for key in ("parts", "ai_hints", "change", "seen_coverage")} == {
+        "parts": "match",
+        "ai_hints": "match",
+        "change": "match",
+        "seen_coverage": "match",
+    }
+    assert body["reproduced"] is True
+    assert ws.status()["records"][0]["parts_reviewed_one_by_one"] == 0
+
+    # An answer changed after signing mismatches the parts section only; the signature is untouched.
+    unmarked = ws.workspace.post(
+        f"/api/reviews/{ws.review_id}/marks",
+        json={"unit_key": target["unit_key"], "state": "later", "expected_revision_id": ws.latest_id()},
+    )
+    assert unmarked.status_code == 200, unmarked.text
+    again = ws.workspace.get(f"/api/reviews/{ws.review_id}/records/{body['record']['record_id']}/verify").json()
+    assert again["verification"]["status"] == "verified"
+    assert again["store"]["parts"] == "mismatch"
+    assert again["store"]["ai_hints"] == "match" and again["store"]["change"] == "match"
+
+
+def test_parts_section_counts_each_category_and_names_only_what_was_not_confirmed() -> None:
+    from lemoncrow.pro.capabilities.review.review_record import RecordPart, parts_section
+
+    def part(key: str, category: str, state: str, rule: str = "") -> RecordPart:
+        return RecordPart(unit_key=key, label=key, path=f"{key}.py", category=category, state=state, rule=rule)
+
+    section = parts_section(
+        [
+            part("a", "decision", "reviewed"),
+            part("b", "decision", "needs_changes"),
+            part("c", "decision", "later"),
+            part("d", "decision", "changed_since_review"),
+            part("e", "quick_check", "reviewed"),
+            part("f", "quick_check", "unreviewed"),
+            part("g", "quick_check", "needs_changes"),
+            part("h", "quick_check", "later"),
+            part("i", "accepted_by_rule", "unreviewed", rule="lockfiles"),
+            part("j", "accepted_by_rule", "reviewed", rule="generated_files"),
+        ]
+    )
+    assert section["counts"] == {
+        "decision": 4,
+        "quick_check": 4,
+        "accepted_by_rule": 2,
+        "rules": {"generated_files": 1, "lockfiles": 1},
+    }
+    assert [(row["unit_key"], row["state"]) for row in section["decisions"]] == [
+        ("a", "reviewed"),
+        ("b", "needs_changes"),
+        ("c", "later"),
+        ("d", "unanswered"),
+    ]
+    assert [row["unit_key"] for row in section["quick_check_changes"]] == ["g"]
+    assert [row["unit_key"] for row in section["not_confirmed"]] == ["f"]
+    assert section["later"] == 2
+    # Accepted-by-rule parts are counted with their rule and listed nowhere else.
+    listed = {row["unit_key"] for key in ("decisions", "quick_check_changes", "not_confirmed") for row in section[key]}
+    assert "i" not in listed and "j" not in listed
+
+
+def test_a_landing_record_never_carries_the_v2_sections(record_workspace: RecordWorkspace) -> None:
+    ws = record_workspace
+    ws.opt_in()
+    from lemoncrow.pro.capabilities.review.review_record import ReviewDecision
+
+    decision = ReviewDecision(
+        kind="landing",
+        outcome="auto_approved",
+        actor_id="lemoncrow-auto-approval",
+        actor_type="system",
+        decided_at="2026-11-07T09:00:00+00:00",
+        reference="rel-1",
+    )
+    record = ws.app.state.review_record_signer(ws.review_id, signing="auto", decision=decision)
+    statement = _payload(record.envelope)
+    assert statement["predicateType"] == PREDICATE_TYPE and statement["predicate"]["schema_version"] == 1
+    assert not {"parts", "ai_hints", "change", "seen_coverage"} & set(statement["predicate"])
+
+
+def _verify_outcome(ws: RecordWorkspace, record_id: str) -> dict[str, Any]:
+    response = ws.workspace.get(f"/api/reviews/{ws.review_id}/records/{record_id}/verify")
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def test_the_verify_route_names_valid_then_code_changed_when_a_newer_revision_is_captured(
+    record_workspace: RecordWorkspace,
+) -> None:
+    ws = record_workspace
+    ws.opt_in()
+    ws.approve()
+    record_id = ws.export().json()["record"]["record_id"]
+    valid = _verify_outcome(ws, record_id)
+    assert valid["outcome"]["outcome"] == "valid" and valid["outcome"]["code"] == "matches"
+    assert valid["current"]["revision_number"] == valid["record"]["snapshot_number"]
+    # What the dialog's footer and Details read: the signed repository and the plain rows.
+    assert valid["repository"] == _payload(ws.export().json()["envelope"])["predicate"]["review"]["repository"]
+    assert {"Version", "Your verdict", "Signed at", "Signed by"} <= {row["label"] for row in valid["details"]}
+
+    _write(ws.workspace.repo_root, "src/session.py", _CHANGED_SOURCE + "\n# the agent kept going\n")
+    rng = resolve_rev_range(ws.workspace.repo_root, None, working_tree=True)
+    build = build_review_packet_with_blobs(
+        ws.workspace.repo_root, rng, store_root=ws.workspace.store_root, with_patch_text=True
+    )
+    session = ws.workspace.store.get_session(ws.review_id)
+    assert session is not None
+    snapshot_revision(
+        ws.workspace.store, session, ws.workspace.repo_root, rng, store_root=ws.workspace.store_root, build=build
+    )
+    changed = _verify_outcome(ws, record_id)
+    assert changed["outcome"]["outcome"] == "code_changed" and changed["outcome"]["exit_code"] == 4
+    # The signature is untouched by the newer code: only the code check moved.
+    assert changed["verification"]["status"] == "verified"
+
+
+def test_the_verify_route_names_key_not_allowed_when_the_signing_key_is_replaced(
+    record_workspace: RecordWorkspace,
+) -> None:
+    ws = record_workspace
+    ws.opt_in()
+    ws.approve()
+    record_id = ws.export().json()["record"]["record_id"]
+    second = ws.settings_root / "review-signing" / "second-key.pem"
+    generate_user_key(second)
+    write_setting(ws.settings_root, USER_KEY_SETTING, str(second))
+    outcome = _verify_outcome(ws, record_id)["outcome"]
+    assert (outcome["outcome"], outcome["key_problem"], outcome["exit_code"]) == ("key_not_allowed", "not_trusted", 3)
+
+
+def test_a_stored_v1_human_record_and_a_p3_2_era_record_still_reproduce_from_the_store(
+    record_workspace: RecordWorkspace,
+) -> None:
+    """The rebuild keeps the version and sections of the record it reproduces (`shape=`), so older records still match."""
+
+    from lemoncrow.pro.capabilities.review.record_signing import (
+        SignedReviewRecord,
+        persist_record,
+        record_id_for,
+    )
+
+    ws = record_workspace
+    key_path, key_id = ws.opt_in()
+    ws.approve()
+    exported = ws.export().json()
+    statement = _payload(exported["envelope"])
+    assert exported["reproduced"] is True
+    signer = Ed25519RecordSigner(
+        load_user_key(key_path), key_id=key_id, mode="user_key", issuer_kind="local", issuer_id=key_id
+    )
+
+    def stored(mutate: Any) -> str:
+        copy = json.loads(json.dumps(statement))
+        mutate(copy)
+        assert validate_statement(copy) == []
+        payload = canonical_json(copy)
+        digest = sha256_digest(payload)
+        record = SignedReviewRecord(
+            record_id=record_id_for(digest),
+            review_id=ws.review_id,
+            revision_id=ws.latest_id(),
+            payload_digest=digest,
+            signing_state="signed",
+            signing_mode="user_key",
+            key_id=key_id,
+            issued_at=copy["predicate"]["issued_at"],
+            decision_kind="human_outcome",
+            envelope=dsse_envelope(payload, signer),
+            statement=copy,
+        )
+        persist_record(ws.workspace.store, record)
+        return record.record_id
+
+    def as_v1(copy: dict[str, Any]) -> None:
+        copy["predicateType"] = PREDICATE_TYPE
+        copy["predicate"]["schema_version"] = 1
+        for key in ("seen_coverage", "parts", "ai_hints", "change"):
+            copy["predicate"].pop(key, None)
+
+    def as_p3_2_era(copy: dict[str, Any]) -> None:
+        for key in ("parts", "ai_hints", "change"):
+            copy["predicate"].pop(key, None)
+
+    for name, mutate in (("v1", as_v1), ("p3_2_era", as_p3_2_era)):
+        verified = _verify_outcome(ws, stored(mutate))
+        assert verified["verification"]["status"] == "verified", name
+        assert verified["reproduced"] is True, f"{name}: the rebuilt payload must equal the stored one"

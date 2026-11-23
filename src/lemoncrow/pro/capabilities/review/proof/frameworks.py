@@ -1,7 +1,8 @@
 """Which test framework a repository uses, read only from the trusted base commit.
 
 A ``kind: test`` recipe in the base's ``.lemoncrow/review.yaml`` ``check_recipes`` that takes a ``{tests}``
-argument comes first. Otherwise a narrow detection: pytest from the trusted-base manifests (the same rule
+argument comes first, unless the base's ``.lemoncrow/environment.toml`` defines checks (or is invalid): then
+``check_recipes`` is set aside, as for the Review's checks. Otherwise a narrow detection: pytest from the trusted-base manifests (the same rule
 :func:`recipes.discover_recipes` uses), jest or vitest from ``package.json``, ``go test`` from ``go.mod`` and
 ``cargo test`` from ``Cargo.toml``. The pull request's own files never choose the command: the plan and run
 steps both detect from the merge base.
@@ -20,11 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from lemoncrow.pro.capabilities.review.proof import wire
 from lemoncrow.pro.capabilities.review.recipes import (
+    ENVIRONMENT_FILE,
     REPORT_PATH,
     REVIEW_CONFIG_PATH,
     TESTS_PLACEHOLDER,
     discover_recipes,
+    environment_recipes,
     parse_config_recipes,
 )
 
@@ -64,7 +68,8 @@ class GitTree:
         self._paths: tuple[str, ...] | None = None
 
     def _git(self, *args: str) -> subprocess.CompletedProcess[bytes]:
-        return subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, timeout=60, check=False)
+        git = wire.system_executable("git")
+        return subprocess.run([git, "-C", str(self.repo), *args], capture_output=True, timeout=60, check=False)
 
     def paths(self) -> tuple[str, ...]:
         if self._paths is None:
@@ -170,7 +175,13 @@ def detect(tree: GitTree) -> Detection:
     found: dict[str, Framework] = {}
     notes: list[str] = []
     config = tree.read(REVIEW_CONFIG_PATH)
-    if config:
+    environment = tree.read(ENVIRONMENT_FILE)
+    defined, environment_errors = environment_recipes(environment) if environment else ((), ())
+    notes.extend(environment_errors)
+    if config and (defined or environment_errors):
+        why = "is invalid" if environment_errors else "defines the checks"
+        notes.append(f"{REVIEW_CONFIG_PATH} check_recipes set aside: {ENVIRONMENT_FILE} {why}")
+    elif config:
         configured, problems = parse_config_recipes(config)
         notes.extend(f"{REVIEW_CONFIG_PATH}: {problem}" for problem in problems)
         for recipe in configured:

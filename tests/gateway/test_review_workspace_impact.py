@@ -174,6 +174,17 @@ def test_a_repository_with_no_workspace_has_no_slice_and_no_degraded_name(tmp_pa
     assert packet.workspace_impact == {} and not WORKSPACE_NAMES & set(packet.degraded)
 
 
+def test_a_review_from_a_worktree_of_a_member_gets_its_repositorys_slice(projects: Path, tmp_path: Path) -> None:
+    billing = projects / "billing"
+    for worktree in (billing / "inside", projects.parent / "elsewhere"):
+        _git(billing, "worktree", "add", "-q", "-b", worktree.name, str(worktree))
+        _identify(worktree)
+        _write(worktree, BILLING_CHANGED)
+        packet = _packet(worktree, tmp_path, with_workspace=True)
+        assert packet.workspace_impact["repo"] == "billing"
+        assert _reached(packet) == ["bazaar"]
+
+
 def test_a_scan_that_fails_costs_a_degraded_name_never_the_review(
     projects: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -355,6 +366,20 @@ def test_the_reader_receives_every_value_but_the_source_lines() -> None:
     assert reader_payload({"workspace_impact": {}}) == {} == reader_payload(None) == reader_payload({})
 
 
+def test_the_reader_and_the_risk_line_name_the_workspace_as_the_terminal_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", "/home/dev")
+    stored = {"root": "/home/dev/lc-test/ws", "repo": "pricing", "reached": [_hit("storefront")]}
+    assert reader_payload({"workspace_impact": stored})["root"] == "~/lc-test/ws"
+    assert heading(stored).endswith("(~/lc-test/ws, this repository is pricing)")
+    assert reader_payload({"workspace_impact": {**stored, "root": "/srv/ws"}})["root"] == "/srv/ws"
+    assert workspace_impact.risk_clause({"workspace_impact": stored}) == "storefront depends on what changed"
+    hostile = {"workspace_impact": {"reached": [_hit("evil\x1b[2Jname")]}}
+    assert workspace_impact.risk_clause(hostile) == "evil[2Jname depends on what changed"
+    assert (
+        workspace_impact.risk_clause({"workspace_impact": {"reached": []}}) == "" == workspace_impact.risk_clause(None)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # lc review --ai: a person at the command sees it; a git hook never scans
 # --------------------------------------------------------------------------- #
@@ -379,6 +404,28 @@ def test_review_ai_at_the_command_shows_the_reached_repositories_after_the_findi
     assert wire["workspace_impact"]["repo"] == "repo"
     assert [hit["repo"] for hit in wire["workspace_impact"]["reached"]] == ["shop"]
     assert all(row["path"] != "shop/pay.py" for row in wire["findings"])  # never a finding
+
+
+def test_review_ai_lists_only_repositories_that_use_a_changed_file_and_counts_the_rest() -> None:
+    def shown(*hits: dict[str, Any], show_all: bool = False) -> list[str]:
+        report = local.LocalReport(workspace_impact={"root": "/w", "repo": "billing", "reached": list(hits)})
+        return local._workspace_lines(report, lambda text, **_: text, show_all=show_all)
+
+    whole = [{**_hit(name), "direct": False} for name in ("Authward", "Secrets")]
+    assert shown(*whole) == [
+        "Workspace impact  no other repository uses a changed file; 2 repositories depend on this repository as a "
+        "whole (lc workspace impact)",
+        "",
+    ]
+    mixed = shown(_hit("shop"), *whole)
+    assert mixed[0].startswith("Workspace impact  1 other repository can be affected (")
+    assert "  shop  1 hop  high  direct" in mixed and not any("Authward" in line for line in mixed)
+    assert "  2 repositories depend on this repository as a whole, not on a changed file (--all lists them)" in mixed
+    assert "  Authward  1 hop  high  repository-level" in shown(_hit("shop"), *whole, show_all=True)
+    # The Risk line's "depends on what changed" counts the same repositories.
+    assert workspace_impact.risk_clause({"workspace_impact": {"reached": whole}}) == ""
+    reached = {"workspace_impact": {"reached": [_hit("shop"), *whole]}}
+    assert workspace_impact.risk_clause(reached) == "shop depends on what changed"
 
 
 def _recording(monkeypatch: pytest.MonkeyPatch) -> list[Any]:

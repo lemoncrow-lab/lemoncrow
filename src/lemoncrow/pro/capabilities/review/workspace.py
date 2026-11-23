@@ -50,6 +50,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -210,13 +211,27 @@ def write_review_preparation(
         "detail": detail,
         "updated_at": time.time(),
     }
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with contextlib.suppress(OSError):
-        tmp.unlink()
+    _write_private_atomic(path, json.dumps(payload, separators=(",", ":")))
+
+
+def _write_private_atomic(path: Path, text: str) -> None:
+    """Write *text* to *path* via a call-unique 0600 temp file, then replace.
+
+    The temp name is unique per call (pid + uuid), so concurrent writers never
+    share, pre-unlink or clobber each other's temp. O_EXCL still refuses a
+    pre-planted name. A failed write or replace removes only this call's temp.
+    """
+
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        stream.write(json.dumps(payload, separators=(",", ":")))
-    tmp.replace(path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        tmp.replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
 
 
 def read_review_preparation(store_root: Path, review_id: str, preparation_id: str) -> dict[str, Any] | None:
@@ -346,18 +361,9 @@ def write_registration(store_root: Path, repo_root: Path, handle: WorkspaceHandl
         "started_at": handle.started_at,
         "generation": handle.generation,
     }
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    # 0600 at creation, not chmod'ed to 0600 afterwards: the token is in the
-    # very first byte written, so a temp file born at the process umask (0644
-    # under the usual 022) publishes the bearer credential to every local user
-    # for the width of that window -- and the containing directory is
-    # traversable. O_EXCL over an unlinked name also refuses a pre-planted temp.
-    with contextlib.suppress(OSError):
-        tmp.unlink()
-    handle_fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(handle_fd, "w", encoding="utf-8") as stream:
-        stream.write(json.dumps(payload, indent=2))
-    tmp.replace(path)
+    # 0600 at creation (see _write_private_atomic): the token is in the very
+    # first byte written, so a umask-default temp file would expose it.
+    _write_private_atomic(path, json.dumps(payload, indent=2))
     with contextlib.suppress(OSError):
         os.chmod(path, 0o600)
     return path

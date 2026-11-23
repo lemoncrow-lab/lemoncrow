@@ -30,6 +30,7 @@ from lemoncrow.pro.capabilities.review.project_context import (
     ProjectContextBounds,
     ProjectContextRequest,
     ProjectKnowledgeBinding,
+    _summary,
     question_terms,
     retrieve_project_context,
 )
@@ -98,7 +99,7 @@ def _rule(mode: str) -> ContentAccessRule:
     return ContentAccessRule(
         mode=mode,  # type: ignore[arg-type]
         path_scope=("src/vault/keys.py",),
-        origin="base Snapshot .lemoncrow/review.yaml",
+        origin="base revision .lemoncrow/review.yaml",
         trust_class="trusted_base_repository",
         source_identity="base:review.yaml",
     )
@@ -673,7 +674,7 @@ def test_ask_separates_context_classes_and_excludes_denied_knowledge(
     references = [row for row in asked.json()["assistant"]["references"] if row["kind"] == "project_knowledge"]
     assert references and all(row["exactness"] == "historical" for row in references)
     assert any(row.get("review_id") == landed for row in references)
-    assert all("Snapshot" not in row["freshness_label"] or "predates" in row["freshness_label"] for row in references)
+    assert all("Revision" not in row["freshness_label"] or "predates" in row["freshness_label"] for row in references)
 
 
 _TABLES = (
@@ -857,6 +858,60 @@ def test_ask_system_prompt_names_the_history_class_only_when_history_is_present(
     assert "project_knowledge" not in plain and "context_classes" not in plain
     assert with_history.startswith(plain)
     assert "the Snapshot wins" in with_history and "never present it as a fact about this Snapshot" in with_history
+
+
+def test_a_binding_with_git_history_orders_entries_the_chain_cannot(
+    base: tuple[Workspace, ProjectKnowledgeStore, str],
+) -> None:
+    workspace, knowledge, _landed = base
+    asked: list[tuple[set[str], str]] = []
+
+    def order(generations: Any, base_revision: str) -> dict[str, str]:
+        asked.append((set(generations), base_revision))
+        return dict.fromkeys(generations, "after_base")
+
+    def read(generation_order: Any) -> list[dict[str, Any]]:
+        bound = _client(
+            workspace, binding=lambda _s: ProjectKnowledgeBinding(knowledge, REPO, generation_order=generation_order)
+        )
+        body = bound.get(f"/api/reviews/{workspace.review_id}/project-context").json()
+        return [row for row in body["project_context"]["entries"] if row["relation_to_change"] != "unrelated"]
+
+    rows = read(order)
+    assert rows and {row["relation_to_change"] for row in rows} == {"after_base"}
+    assert asked and asked[0][1] == _BASE_REVISION
+
+    def broken(_generations: Any, _base_revision: str) -> dict[str, str]:
+        raise ValueError("base commit is not in this checkout")
+
+    # Git cannot answer: the recorded chain still decides, and nothing fails.
+    assert {row["relation_to_change"] for row in read(broken)} == {"predates"}
+
+
+def test_a_plain_text_list_ranks_below_prose_about_the_same_change(tmp_path: Path) -> None:
+    knowledge = ProjectKnowledgeStore(tmp_path / "ranking.db")
+    paths = ("a/allowlist.txt", "b/guide.md")
+    assert knowledge.apply(
+        build_baseline_projection(
+            _gen("1"),
+            facts=(
+                _path_fact(paths[0], "one\ntwo\nthree", kind="documentation", support="source_document"),
+                _path_fact(paths[1], "How the guide works.", kind="documentation", support="source_document"),
+            ),
+            observed_at="2026-10-01T10:00:00Z",
+        )
+    )
+    request = ProjectContextRequest(purpose="brief", changed_paths=paths, paths=paths)
+    result = retrieve_project_context(ProjectKnowledgeBinding(knowledge, REPO), request)
+    assert [row.entry.subject.key for row in result.entries] == ["b/guide.md", "a/allowlist.txt"]
+
+
+def test_a_summary_starts_at_what_the_document_says() -> None:
+    assert _summary("<!-- cspell:ignore x -->\n\n# Title\nBody", 80) == ("# Title Body", False)
+    assert _summary("---\ntitle: x\n---\n# Title", 80) == ("# Title", False)
+    assert _summary("<!-- only a comment -->", 80) == ("<!-- only a comment -->", False)
+    assert _summary('<div align="center"> <img src="a.png"> # Title', 80) == ("# Title", False)
+    assert _summary("Plain --- text <b>kept</b>", 80) == ("Plain --- text <b>kept</b>", False)
 
 
 # ---------------------------------------------------------------- fix round (adversarial review)

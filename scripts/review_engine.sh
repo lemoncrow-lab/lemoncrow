@@ -106,6 +106,13 @@ find_python() {
         version="$($candidate -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
         case "$version" in 3.12|3.13) command -v "$candidate"; return 0 ;; esac
     done
+    # A uv-managed interpreter (e.g. on Debian 12, which ships 3.11).
+    if command -v uv >/dev/null 2>&1; then
+        for version in 3.13 3.12; do
+            candidate="$(uv python find "$version" 2>/dev/null || true)"
+            [[ -n "$candidate" && -x "$candidate" ]] && { printf '%s\n' "$candidate"; return 0; }
+        done
+    fi
     return 1
 }
 
@@ -153,7 +160,7 @@ verify_archive() {
 }
 
 PYTHON="$(find_python || true)"
-[[ -n "$PYTHON" ]] || { lc_ui_printf '1;31' '%s\n' "review_engine.sh: Python 3.12 or 3.13 is required" >&2; exit 1; }
+[[ -n "$PYTHON" ]] || { lc_ui_printf '1;31' '%s\n' "review_engine.sh: Python 3.12 or 3.13 is required; install one with 'uv python install 3.13' or set LEMONCROW_PYTHON" >&2; exit 1; }
 if [[ -n "${LEMONCROW_RELEASE_BASE_URL:-}" ]]; then
     BASE_URL="${LEMONCROW_RELEASE_BASE_URL%/}"
 elif [[ "$RELEASE_TAG" == "latest" ]]; then

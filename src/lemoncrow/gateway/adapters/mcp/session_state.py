@@ -83,8 +83,12 @@ def mcp_pid_is_live(pid: int) -> bool:
         parts = [part for part in cmdline.read_bytes().split(b"\0") if part]
     except OSError:
         return False
-    text = " ".join(part.decode("utf-8", errors="ignore") for part in parts)
-    return ("lemoncrow" in text or "lc" in text) and "mcp" in text
+    argv = [part.decode("utf-8", errors="ignore") for part in parts]
+    names = {Path(part).name for part in argv}
+    # Reject incidental substring matches (e.g. calculate_mcp).
+    own_executable = bool(names & {"lc", "lemoncrow", "lc.real", "lemoncrow.real"})
+    own_module = any(part == "lemoncrow.gateway.cli" or part.startswith("lemoncrow.gateway.cli.") for part in argv)
+    return (own_executable or own_module) and "mcp" in argv
 
 
 def prune_stale_mcp_sessions(root: Path | None = None) -> int:

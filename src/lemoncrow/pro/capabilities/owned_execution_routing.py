@@ -627,7 +627,7 @@ def _runner_is_available(runner: str) -> bool:
 
 
 def _contract_host_for_runner(runner: str) -> str:
-    if runner in {"claude", "copilot", "codex", "opencode", "lemoncode", "antigravity"}:
+    if runner in {"claude", "copilot", "codex", "opencode", "antigravity"}:
         return runner
     return "claude"
 

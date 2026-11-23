@@ -18,23 +18,7 @@ from click.testing import CliRunner
 
 from lemoncrow.pro.capabilities.review.ai_review import _evidence_label
 from lemoncrow.pro.capabilities.review.api import _evidence
-from lemoncrow.pro.capabilities.review.execution import (
-    ExecutionRecipe,
-    ExecutionResult,
-    ExecutionSubject,
-    ExecutorClass,
-    SinkCapture,
-    StageOutcome,
-    cache_namespace,
-    executor_class_for_locus,
-    executor_satisfies,
-    normalize_executor_requirement,
-    parse_executor_class,
-    readable_cache_namespaces,
-    verification_row,
-)
 from lemoncrow.pro.capabilities.review.hermetic import (
-    DependencyCache,
     HermeticPolicy,
     build_execution_result,
     load_hermetic_policy,
@@ -60,7 +44,6 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     execute_local_surface_validation,
     trusted_policy_digest,
 )
-from lemoncrow.pro.capabilities.review.runtimes import CommandRunner, RunnerRegistry, SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import (
     ReviewEvidence,
     ReviewMark,
@@ -78,6 +61,24 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     load_review_surface_config,
 )
 from lemoncrow.pro.capabilities.review.verification import build_verification_projection
+from lemoncrow.pro.environment.dependency_cache import DependencyCache
+from lemoncrow.pro.environment.execution import (
+    RUN_ON_BY_EXECUTOR_CLASS,
+    ExecutionRecipe,
+    ExecutionResult,
+    ExecutionSubject,
+    ExecutorClass,
+    SinkCapture,
+    StageOutcome,
+    cache_namespace,
+    executor_class_for_locus,
+    executor_satisfies,
+    normalize_executor_requirement,
+    parse_executor_class,
+    readable_cache_namespaces,
+    verification_row,
+)
+from lemoncrow.pro.environment.runners import CommandRunner, RunnerRegistry, SurfaceRunResult
 
 # Secret-shaped values are assembled at runtime so no literal credential lives in the source.
 GITHUB_TOKEN = "ghp_" + "Z1" * 18
@@ -160,7 +161,16 @@ def test_executor_class_mapping_is_fail_closed() -> None:
     # A self-hosted control plane's internal worker is customer compute, not a LemonCrow sandbox.
     assert executor_class_for_locus("managed", operator="customer") is ExecutorClass.CUSTOMER_WORKER
     assert executor_class_for_locus("managed", operator="lemoncrow") is ExecutorClass.MANAGED_SANDBOX
-    assert [item.value for item in ExecutorClass] == ["author_machine", "customer_worker", "managed_sandbox"]
+    assert [item.value for item in ExecutorClass] == [
+        "author_machine",
+        "customer_worker",
+        "managed_sandbox",
+        "workspace_task",
+    ]
+    # A Workspaces task sandbox reports on its own author: never trusted, never planned by Review.
+    assert ExecutorClass.WORKSPACE_TASK.self_attested
+    assert ExecutorClass.WORKSPACE_TASK not in RUN_ON_BY_EXECUTOR_CLASS
+    assert not executor_satisfies("workspace_task", normalize_executor_requirement("trusted"))
 
 
 def test_trusted_reservation_never_accepts_author_machine_or_forged_classes() -> None:
@@ -770,7 +780,7 @@ def test_command_runner_runs_offline_with_recording_sinks_and_typed_redacted_res
         (target / "check.py").write_text(_RUN_SCRIPT, encoding="utf-8")
         return side
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="new")
 
@@ -816,7 +826,11 @@ def test_command_runner_never_shares_host_ipc_or_uts_namespaces(
         source_fingerprint="source",
     )
     context = SurfaceContext(
-        tmp_path, tmp_path / "store", revision, ("ns.py",), load_review_surface_config(tmp_path)  # type: ignore[arg-type]
+        tmp_path,
+        tmp_path / "store",
+        revision,
+        ("ns.py",),
+        load_review_surface_config(tmp_path),  # type: ignore[arg-type]
     )
     surface = ServiceSurfaceProvider().discover(context)[0]
 
@@ -828,7 +842,7 @@ def test_command_runner_never_shares_host_ipc_or_uts_namespaces(
         )
         return side
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
 
     result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="new")
 
@@ -1172,6 +1186,7 @@ def test_reproduce_refuses_without_bubblewrap(tmp_path: Path, monkeypatch: pytes
 
     repo, sha = _committed_repo(tmp_path)
     original = _recorded(repo, sha, tmp_path)
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.hermetic.shutil.which", lambda _name: None)
+    # No bubblewrap on any search path (the sandbox looks on a trusted path, not only $PATH).
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.hermetic.shutil.which", lambda _name, path=None: None)
     with pytest.raises(HermeticUnavailable, match="refusing to run unsandboxed"):
         reproduce_execution(original, repo=repo, store_root=tmp_path / "store")

@@ -565,7 +565,7 @@ def test_symbol_drilldown_refuses_a_node_not_in_the_snapshot(monkeypatch: pytest
         selected_node_id="symbol:not-from-this-snapshot",
     )
     assert payload["graph"]["nodes"] == []
-    assert "not part of this immutable Snapshot" in payload["graph"]["reason"]
+    assert "not part of this immutable revision" in payload["graph"]["reason"]
 
 
 def _context_with_relationships(rows: list[dict[str, object]]) -> dict[str, object]:
@@ -1028,7 +1028,7 @@ def test_file_focus_returns_one_files_full_bounded_neighborhood(monkeypatch: pyt
         selected_node_id="file:not-in-snapshot",
     )
     assert missing["graph"]["nodes"] == []
-    assert "not part of this immutable Snapshot" in missing["graph"]["reason"]
+    assert "not part of this immutable revision" in missing["graph"]["reason"]
 
 
 def test_symbol_callers_without_their_own_span_are_labelled_by_location(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1195,3 +1195,115 @@ def test_legacy_symbol_callees_are_judged_as_calls_out_of_the_focus(monkeypatch:
     assert calls == [("tests/billing/test_invoice.py", "src/billing/invoice.py")]
     assert nodes[graph["edges"][0]["target"]]["label"] == "total_due"
     assert graph["stats"]["filtered_relationships"] == 0
+
+
+def _shop_provider(rows: list[dict[str, object]]) -> SimpleNamespace:
+    readiness = SimpleNamespace(
+        available=True,
+        backend="native",
+        view_id="view",
+        view_revision=1,
+        generation_id="generation",
+        base_revision="",
+        manifest_root="",
+        to_wire=lambda: {"graph": {"state": "ready"}},
+    )
+
+    def file_relationships(paths: tuple[str, ...], *, limit: int) -> dict[str, object]:
+        seeds = set(paths)
+        edges = [row for row in rows if row["source_path"] in seeds or row["target_path"] in seeds]
+        return {"edges": edges, "degraded": False, "truncated": False}
+
+    return SimpleNamespace(readiness=lambda: readiness, file_relationships=file_relationships)
+
+
+def test_shop_change_keeps_every_link_into_each_changed_file() -> None:
+    """The walkthrough repo: views.py calls both changed files; only orders.py has a test.
+
+    The reviewer saw auth.py faded with no incoming links while the Brief said
+    can_view_order is called from views.py. The links reach the payload; the
+    map must carry them to auth.py as well as orders.py.
+    """
+    packet = {
+        "files": [
+            {"path": "app/auth.py", "status": "modified", "category": "production"},
+            {"path": "app/orders.py", "status": "modified", "category": "production"},
+        ],
+        "symbols": [
+            {
+                "symbol_name": "can_view_order",
+                "file_path": "app/auth.py",
+                "start_line": 1,
+                "end_line": 4,
+                "change": "modified",
+            },
+            {
+                "symbol_name": "order_total",
+                "file_path": "app/orders.py",
+                "start_line": 1,
+                "end_line": 2,
+                "change": "modified",
+            },
+            {
+                "symbol_name": "apply_discount",
+                "file_path": "app/orders.py",
+                "start_line": 5,
+                "end_line": 7,
+                "change": "modified",
+            },
+        ],
+        "impact": [],
+        "order": [
+            {"path": "app/orders.py", "rank": 1, "reasons": []},
+            {"path": "app/auth.py", "rank": 2, "reasons": []},
+        ],
+    }
+    rows: list[dict[str, object]] = [
+        _relation("app/views.py", "app/auth.py", "imports", 1, "can_view_order"),
+        _relation("app/views.py", "app/auth.py", "calls", 2, "can_view_order"),
+        _relation("app/views.py", "app/orders.py", "imports", 1, "order_total"),
+        _relation("app/views.py", "app/orders.py", "calls", 3, "order_total"),
+        _relation("tests/test_orders.py", "app/orders.py", "imports", 1, "order_total"),
+        _relation("tests/test_orders.py", "app/orders.py", "calls", 2, "apply_discount"),
+    ]
+
+    payload = build_review_map(
+        review_id="review-shop",
+        revision=_revision(),
+        packet=packet,
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+        code_intelligence=_shop_provider(rows),  # type: ignore[arg-type]
+    )
+
+    graph = payload["graph"]
+    ids = {node["id"]: node["path"] for node in graph["nodes"]}
+    edges = {(ids[edge["source"]], ids[edge["target"]], edge["kind"]) for edge in graph["edges"]}
+    assert ("app/views.py", "app/auth.py", "calls") in edges
+    assert ("app/views.py", "app/auth.py", "imports") in edges
+    assert ("app/views.py", "app/orders.py", "calls") in edges
+    assert ("tests/test_orders.py", "app/orders.py", "calls") in edges
+    # No test links to auth.py: the data the Map marks "no test reaches it" from.
+    assert not any(source.startswith("tests/") and target == "app/auth.py" for source, target, _ in edges)
+    by_path = {node["path"]: node for node in graph["nodes"]}
+    assert by_path["app/auth.py"]["status"] == "changed"
+    assert by_path["app/views.py"]["lane"] == "used_by"
+    assert graph["truncated"] is False
+    assert payload["context"]["source"] == "current_index"
+    assert set(payload["projections"]) == {"change_map", "architecture_delta"}
+
+
+def test_map_says_whether_this_build_can_compare_architecture(monkeypatch: pytest.MonkeyPatch) -> None:
+    import lemoncrow.pro.capabilities.review.architecture_delta as architecture_delta
+
+    monkeypatch.setattr(architecture_delta, "REFERENCE_GRAPH", "lemoncrow.no_such_repository_map_module")
+    payload = build_review_map(
+        review_id="review-shop",
+        revision=_revision(),
+        packet={"files": [{"path": "app/auth.py", "status": "modified"}], "symbols": [], "impact": [], "order": []},
+        targets=(),
+        evidence=(),
+        context_repo_root=None,
+    )
+    assert payload["projections"] == {"change_map": True, "architecture_delta": False}

@@ -1,7 +1,7 @@
 """Structured statusline sidecar shared with rich frontends.
 
 ``statusline.sh`` renders a single pre-formatted ANSI line for Claude Code.
-Frontends that draw their own panel (the LemonCode TUI sidebar) need the same
+Frontends that draw their own status panel need the same
 numbers as *data* instead, so they can theme and lay them out natively.
 
 ``lc code`` picks a snapshot path per run and exports it as

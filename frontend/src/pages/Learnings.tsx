@@ -1,8 +1,11 @@
 import { Select, SelectItem } from "../components/ui/select";
+import { fmtWhen } from "../lib/format";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { useEffect, useState, useMemo, type ReactNode } from "react";
-import { useMatch, useParams, useNavigate } from "react-router-dom";
+import { Link, useMatch, useParams, useNavigate } from "react-router-dom";
+import { CopyId } from "../components/CopyId";
+import { humanize } from "../lib/labels";
 import {
   AlertTriangle,
   Brain,
@@ -16,106 +19,112 @@ import {
   Database,
   GitBranch,
   Scale,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import { api, type Playbook, type PlanRecord, type Cluster } from "../api";
 import {
   Chip,
-  MetricCard,
+  EmptyState,
   PageFrame,
-  SectionHeader,
   ToggleGroup,
 } from "../components/WorkbenchUI";
-import { useProductCapabilities, type ProductFeature } from "../lib/RuntimeCapabilities";
+import { productAvailable, useProductCapabilities } from "../lib/RuntimeCapabilities";
+import { SettingsPolicy } from "../review/settings/SettingsPolicy";
+import { knowledgeSectionServed, sessionDerivedKnowledge, type KnowledgeSection } from "./knowledgeSections";
 import Memory from "./Memory";
 import ProjectKnowledge from "./ProjectKnowledge";
 import Rubrics from "./Rubrics";
+import { SessionLessons } from "./SessionLessons";
 
-type Section = "project" | "blocks" | "memory" | "failures" | "plans" | "rubrics";
-
-const SECTIONS: {
-  id: Section;
-  label: string;
-  icon: React.ElementType;
-  desc: string;
-  feature?: ProductFeature;
-}[] = [
-  {
-    id: "project",
-    label: "Project",
-    icon: GitBranch,
-    desc: "Project Knowledge: what the repository's committed history says",
-    feature: "runtime.project_knowledge",
-  },
-  { id: "blocks", label: "Playbooks", icon: Brain, desc: "Agent playbooks: curated procedures learned from runs" },
-  {
-    id: "memory",
-    label: "Agent Memory",
-    icon: Database,
-    desc: "What your agents recall: pinned + archival memory",
-  },
-  {
-    id: "failures",
-    label: "Failures",
-    icon: AlertTriangle,
-    desc: "Error clusters",
-  },
-  { id: "plans", label: "Plans", icon: ClipboardList, desc: "Plan validation" },
-  { id: "rubrics", label: "Rubrics", icon: Scale, desc: "Verification gates" },
+/**
+ * Knowledge is the four kinds the Project Knowledge legend names, one tab each:
+ * Project Knowledge, Agent Memory, Playbooks and Review rules, plus Checks
+ * (rubrics) where the server keeps them. Plans live under Activity; Failures
+ * stays hidden until /clusters returns real clusters (it always answers []
+ * today, so the tab could only ever claim "running smoothly").
+ */
+const TABS: { id: KnowledgeSection; label: string; icon: React.ElementType; desc: string }[] = [
+  { id: "project", label: "Project Knowledge", icon: GitBranch, desc: "What the repository's committed history says" },
+  { id: "memory", label: "Agent Memory", icon: Database, desc: "What your agents recall across sessions" },
+  { id: "blocks", label: "Playbooks", icon: Brain, desc: "Reusable procedures learned from past runs" },
+  { id: "rules", label: "Review rules", icon: ShieldCheck, desc: "Enforceable policy, kept in the repository's .lemoncrow/review.yaml" },
+  { id: "rubrics", label: "Checks", icon: Scale, desc: "Rubrics agents verify their work against" },
 ];
 
 export default function Learnings() {
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
   const capabilities = useProductCapabilities();
-  // The full-index sections need runtime.knowledge; a local Dashboard serves only
-  // Project Knowledge, so offer only the sections this server can answer.
-  const sections = SECTIONS.filter((s) => capabilities.features[s.feature ?? "runtime.knowledge"]);
+  // Offer only the tabs this server can answer.
+  const tabs = TABS.filter((tab) => knowledgeSectionServed(capabilities, tab.id));
+  // A local Dashboard keeps no memory or playbook store: those tabs read the lessons its sessions recorded.
+  const fromSessions = sessionDerivedKnowledge(capabilities);
   // /knowledge/project is its own (separately gated) route, so it carries no :section.
   const projectRoute = useMatch("/knowledge/project") !== null;
-  const active = (section as Section) || (projectRoute ? "project" : "blocks");
-
-  const setSection = (s: Section) =>
-    navigate(`/knowledge/${s}`, { replace: true });
+  const active = (section as KnowledgeSection) || (projectRoute ? "project" : "memory");
 
   return (
     <PageFrame className="space-y-4">
-      <ToggleGroup
-        aria-label="Knowledge section"
-        variant="underline"
-        size="xs"
-        options={sections.map((s) => ({
-          value: s.id,
-          label: (
-            <span className="flex items-center gap-1.5">
-              <s.icon size={14} />
-              <span>{s.label}</span>
-            </span>
-          ),
-          title: s.desc,
-        }))}
-        value={active}
-        onChange={(value) => setSection(value as Section)}
-      />
+      {/* A one-tab bar says nothing: a hosted workspace without the full index has only Project. */}
+      {tabs.length > 1 && (
+        <ToggleGroup
+          aria-label="Knowledge section"
+          variant="underline"
+          size="xs"
+          options={tabs.map((tab) => ({
+            value: tab.id,
+            label: (
+              <span className="flex items-center gap-1.5">
+                <tab.icon size={14} />
+                <span>{tab.label}</span>
+              </span>
+            ),
+            title: tab.desc,
+          }))}
+          value={active}
+          onChange={(value) => navigate(`/knowledge/${value}`, { replace: true })}
+        />
+      )}
 
       {active === "project" && <ProjectKnowledge />}
-      {active === "blocks" && <BlocksSection />}
-      {active === "memory" && <Memory />}
-      {active === "failures" && <FailuresSection />}
-      {active === "plans" && <PlansSection />}
+      {active === "memory" && (fromSessions ? <SessionLessons shelf="memory" /> : <Memory />)}
+      {active === "blocks" && (fromSessions ? <SessionLessons shelf="playbook" /> : <BlocksSection />)}
+      {active === "rules" && <ReviewRules />}
       {active === "rubrics" && <Rubrics />}
     </PageFrame>
   );
 }
 
+/** Review rules are the repository's .lemoncrow/review.yaml, as Review reads them. */
+function ReviewRules() {
+  const capabilities = useProductCapabilities();
+  if (!productAvailable(capabilities, "review")) {
+    return (
+      <EmptyState
+        title="Review isn't installed here"
+        description="Review rules live in each repository's .lemoncrow/review.yaml. They show here once Review is installed."
+      />
+    );
+  }
+  return <SettingsPolicy />;
+}
+
 // ─── Blocks ───────────────────────────────────────────────────────────────────
 
-function BlocksSection() {
+// Playbook statuses as the store writes them (models.PlaybookStatus); there is no "retired".
+const STATUS_TEXT: Record<string, { label: string; hint: string }> = {
+  active: { label: "In use", hint: "Agents get this playbook when a task matches it." },
+  quarantined: { label: "Paused", hint: "Stopped after failing too often; agents no longer get it." },
+  deprecated: { label: "Retired", hint: "Marked out of date; agents no longer get it." },
+};
+
+export function BlocksSection() {
   const [items, setItems] = useState<Playbook[] | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<
-    "all" | "active" | "retired" | "deprecated"
+    "all" | "active" | "quarantined" | "deprecated"
   >("all");
   const [domainFilter, setDomainFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -152,84 +161,73 @@ function BlocksSection() {
   if (err) return <div className="text-red-300">Error: {err}</div>;
   if (!items) return <div className="text-muted-foreground">Loading…</div>;
 
-  const standingRules = items.filter(
-    (block) => block.domain === "universal" || block.task_types.length >= 3
-  ).length;
-  const highSignal = items.filter(
-    (block) => block.failure_signals.length > 0 || block.failure_count > 0
-  ).length;
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/70 bg-background/60 p-4">
+        <div className="text-heading font-semibold text-foreground">No playbooks yet</div>
+        <p className="mt-1 text-body text-muted-foreground">
+          Playbooks are procedures learned from your agents' past runs. They appear here once
+          some have been learned.
+        </p>
+      </div>
+    );
+  }
+
+  const broad = items.filter((block) => blockScope(block) === "broad").length;
+  const pitfalls = items.filter((block) => blockCarries(block) === "pitfalls").length;
+  const filtering = filter !== "all" || domainFilter !== "all" || search !== "";
 
   return (
     <div className="space-y-4">
-      <section className="grid gap-4 md:grid-cols-4">
-        <MetricCard
-          label="Catalog size"
-          value={String(items.length)}
-          detail="All reviewable procedures in the runtime."
-          tone="warning"
-        />
-        <MetricCard
-          label="Standing rules"
-          value={String(standingRules)}
-          detail="Blocks broad enough to shape many tasks."
-          tone="success"
-        />
-        <MetricCard
-          label="High-signal blocks"
-          value={String(highSignal)}
-          detail="Blocks carrying failure or verification signals."
-          tone="neutral"
-        />
-        <MetricCard
-          label="Visible now"
-          value={String(filtered.length)}
-          detail="Current search + filter result set."
-          tone="neutral"
-        />
-      </section>
+      <p className="text-body text-muted-foreground">
+        {items.length} {items.length === 1 ? "playbook" : "playbooks"} · {broad} {broad === 1 ? "applies" : "apply"}{" "}
+        broadly · {pitfalls} {pitfalls === 1 ? "lists" : "list"} known pitfalls. Each one says when to use it,
+        the steps, how to check the result and what to avoid.
+      </p>
 
-      <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-        <SectionHeader
-          eyebrow="Catalog controls"
-          title="Search by title, id, domain, and operating shape"
-          description="Use the filters to narrow the knowledge base before you open a block. The goal is to find the right procedure quickly, then inspect why it exists."
+      <div className="flex flex-wrap items-center gap-2">
+        <ToggleGroup
+          aria-label="Filter playbooks by status"
+          value={filter}
+          onChange={(value) => setFilter(value as typeof filter)}
+          size="xs"
+          options={[
+            { value: "all", label: "All" },
+            ...(["active", "quarantined", "deprecated"] as const).map((status) => ({
+              value: status,
+              label: STATUS_TEXT[status].label,
+              title: STATUS_TEXT[status].hint,
+            })),
+          ]}
         />
-        <div className="mt-5 flex gap-2 flex-wrap items-center">
-          <ToggleGroup
-            aria-label="Filter learnings by status"
-            value={filter}
-            onChange={(value) => setFilter(value as typeof filter)}
-            size="xs"
-            options={[
-              { value: "all", label: "All" },
-              { value: "active", label: "Active" },
-              { value: "retired", label: "Retired" },
-              { value: "deprecated", label: "Deprecated" },
-            ]}
-          />
-          <Select
-            aria-label="Filter learnings by domain"
-            value={domainFilter}
-            onValueChange={setDomainFilter}
-            uiSize="xs"
-          >
-            <SelectItem value="all">All domains</SelectItem>
-            {domains.map((d) => (
-              <SelectItem key={d} value={d}>
-                {d}
-              </SelectItem>
-            ))}
-          </Select>
-          <UiInput
-            type="search"
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            uiSize="xs"
-            className="ml-auto w-48"
-          />
-        </div>
-      </section>
+        <Select
+          aria-label="Filter playbooks by domain"
+          value={domainFilter}
+          onValueChange={setDomainFilter}
+          uiSize="xs"
+        >
+          <SelectItem value="all">All domains</SelectItem>
+          {domains.map((d) => (
+            <SelectItem key={d} value={d}>
+              {d}
+            </SelectItem>
+          ))}
+        </Select>
+        {filtering && (
+          <span className="text-caption text-muted-foreground">
+            Showing {filtered.length} of {items.length}
+          </span>
+        )}
+        <UiInput
+          type="search"
+          aria-label="Search playbooks"
+          placeholder="Search title, id or domain"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          uiSize="xs"
+          className="ml-auto w-56"
+        />
+      </div>
 
       <div className="space-y-3">
         {filtered.map((b) => (
@@ -243,26 +241,19 @@ function BlocksSection() {
           />
         ))}
         {filtered.length === 0 && (
-          <div className="text-muted-foreground text-heading italic py-4 font-mono">
-            No blocks match the current filters.
+          <div className="py-4 text-body text-muted-foreground">
+            No playbooks match these filters.
           </div>
         )}
       </div>
-
-      <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-        <SectionHeader
-          eyebrow="How to read a block"
-          title="Each card is organized around application, verification, and avoidance"
-          description="LemonCrow treats knowledge entries as explicit procedures: when to apply them, how to execute them, how to verify them, and what dead ends they are meant to prevent."
-        />
-      </section>
     </div>
   );
 }
 
 // ─── Failures ─────────────────────────────────────────────────────────────────
 
-function FailuresSection() {
+/** Hidden from Knowledge until /clusters is wired (it returns [] today); kept for when it is. */
+export function FailuresSection() {
   const [items, setItems] = useState<Cluster[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -319,9 +310,9 @@ function FailuresSection() {
                     {c.domain}
                   </span>
                 </div>
-                <p className="text-body text-muted-foreground">
+                <p className="text-body text-muted-foreground" title={c.id}>
                   {c.trace_ids.length} trace
-                  {c.trace_ids.length !== 1 ? "s" : ""} · {c.id}
+                  {c.trace_ids.length !== 1 ? "s" : ""}
                 </p>
               </div>
             </UiButton>
@@ -395,7 +386,8 @@ function FailuresSection() {
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
-function PlansSection() {
+/** Plan-validation outcomes; shown under Activity (`/activity?type=plans`), each row linking to its session. */
+export function PlansSection() {
   const [items, setItems] = useState<PlanRecord[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -431,9 +423,10 @@ function PlansSection() {
             key={p.trace_id}
             className="border border-border bg-muted/50 overflow-hidden"
           >
+            <div className="flex items-start">
             <UiButton unstyled
               onClick={() => setExpandedId(isExpanded ? null : p.trace_id)}
-              className="w-full px-5 py-4 text-left hover:bg-accent/50 transition-colors flex items-start gap-3"
+              className="min-w-0 flex-1 px-5 py-4 text-left hover:bg-accent/50 transition-colors flex items-start gap-3"
             >
               <span
                 className={`text-caption px-2 py-1 font-mono font-semibold uppercase flex-shrink-0 mt-0.5 ${statusColor}`}
@@ -441,18 +434,26 @@ function PlansSection() {
                 {p.status}
               </span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 min-w-0">
                   <ChevronRight
                     size={14}
-                    className={`text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                    className={`shrink-0 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   />
-                  <span className="font-mono font-semibold text-foreground text-heading">
-                    {p.domain}
+                  <span className="truncate font-semibold text-foreground text-heading">
+                    {p.task || "Untitled task"}
                   </span>
                 </div>
-                <p className="text-body text-muted-foreground truncate">{p.task}</p>
+                <p className="text-body text-muted-foreground truncate">{p.domain ? humanize(p.domain) : ""}</p>
               </div>
             </UiButton>
+              {/* The outcome repeats the session's, so the row itself leads to it. */}
+              <Link
+                to={`/activity/${encodeURIComponent(p.trace_id)}`}
+                className="shrink-0 px-5 py-4 text-body font-medium text-subtle underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Open the session
+              </Link>
+            </div>
             {isExpanded && (
               <div className="border-t border-border bg-background/50 px-5 py-4 space-y-3 text-body">
                 <div>
@@ -461,13 +462,8 @@ function PlansSection() {
                   </div>
                   <p className="text-subtle">{p.task}</p>
                 </div>
-                <div>
-                  <div className="text-caption uppercase tracking-widest text-muted-foreground mb-2 font-mono">
-                    Trace ID
-                  </div>
-                  <code className="font-mono text-muted-foreground bg-background px-2 py-1 block border border-border">
-                    {p.trace_id}
-                  </code>
+                <div className="flex items-center gap-2">
+                  <CopyId value={p.trace_id} label="Trace ID" />
                 </div>
                 <div>
                   <div className="text-caption uppercase tracking-widest text-muted-foreground mb-2 font-mono">
@@ -509,25 +505,32 @@ function PlansSection() {
 
 // ─── Block components (copied from Blocks.tsx) ────────────────────────────────
 
-function blockTier(block: Playbook): string {
-  if (block.domain === "universal" || block.task_types.length >= 3) {
-    return "standing rule";
-  }
-  if (block.failure_signals.length > 0 || block.failure_count > 0) {
-    return "risk pattern";
-  }
-  return "task pattern";
+// Two plain readings of a playbook's fields (they were "tier" and "signal" chips).
+function blockScope(block: Playbook): "broad" | "specific" {
+  return block.domain === "universal" || block.task_types.length >= 3 ? "broad" : "specific";
 }
 
-function blockSeverity(block: Playbook): "high" | "medium" | "low" {
+function blockCarries(block: Playbook): "pitfalls" | "checks" | "steps" {
   if (block.failure_signals.length > 0 || block.dead_ends.length > 1) {
-    return "high";
+    return "pitfalls";
   }
   if (block.verification.length > 0 || block.when_not_to_apply.trim()) {
-    return "medium";
+    return "checks";
   }
-  return "low";
+  return "steps";
 }
+
+const SCOPE_TEXT = { broad: "Applies broadly", specific: "Specific tasks" } as const;
+const CARRIES_TEXT = {
+  pitfalls: "Known pitfalls",
+  checks: "Has checks",
+  steps: "Steps only",
+} as const;
+const CARRIES_HINT = {
+  pitfalls: "Lists failure signs or dead ends to avoid.",
+  checks: "Says how to check the result, or when not to use it.",
+  steps: "Steps without checks or pitfalls.",
+} as const;
 
 function BlockCard({
   block,
@@ -547,7 +550,7 @@ function BlockCard({
         <div className="flex-shrink-0 mt-0.5">
           {block.status === "active" ? (
             <CircleDot size={16} className="text-emerald-300" />
-          ) : block.status === "retired" ? (
+          ) : block.status === "deprecated" ? (
             <CircleDashed size={16} className="text-muted-foreground" />
           ) : (
             <Circle size={16} className="text-red-300" />
@@ -562,27 +565,20 @@ function BlockCard({
             <h3 className="font-semibold text-foreground text-heading">
               {block.title}
             </h3>
-            <StatusBadge status={block.status} />
+            {block.status !== "active" && <StatusBadge status={block.status} />}
             {block.domain && (
               <span className="text-caption px-1.5 py-0.5 bg-accent text-subtle uppercase font-semibold tracking-tight font-mono">
                 {block.domain}
               </span>
             )}
-            <Chip tone="neutral">{blockTier(block)}</Chip>
-            <Chip
-              tone={
-                blockSeverity(block) === "high"
-                  ? "warning"
-                  : blockSeverity(block) === "medium"
-                    ? "info"
-                    : "neutral"
-              }
-            >
-              {blockSeverity(block)} signal
-            </Chip>
-          </div>
-          <div className="text-caption text-muted-foreground font-mono">
-            {block.id}
+            {blockScope(block) === "broad" && <Chip tone="neutral">{SCOPE_TEXT.broad}</Chip>}
+            {blockCarries(block) !== "steps" && (
+              <span title={CARRIES_HINT[blockCarries(block)]}>
+                <Chip tone={blockCarries(block) === "pitfalls" ? "warning" : "info"}>
+                  {CARRIES_TEXT[blockCarries(block)]}
+                </Chip>
+              </span>
+            )}
           </div>
         </div>
       </UiButton>
@@ -598,14 +594,15 @@ function BlockCard({
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     active: "bg-emerald-900/40 text-emerald-300",
-    retired: "bg-border text-muted-foreground",
-    deprecated: "bg-red-900/40 text-red-300",
+    quarantined: "bg-amber-900/40 text-amber-300",
+    deprecated: "bg-border text-muted-foreground",
   };
   return (
     <span
-      className={`text-caption px-1.5 py-0.5 font-semibold uppercase tracking-tight font-mono ${map[status] || map.retired}`}
+      title={STATUS_TEXT[status]?.hint}
+      className={`text-caption px-1.5 py-0.5 font-semibold uppercase tracking-tight font-mono ${map[status] || map.deprecated}`}
     >
-      {status}
+      {STATUS_TEXT[status]?.label ?? status}
     </span>
   );
 }
@@ -635,22 +632,22 @@ function BlockDetail({ block }: { block: Playbook }) {
         <h2 className="text-title font-semibold text-subtle leading-snug">
           {block.title}
         </h2>
-        <div className="font-mono text-caption text-muted-foreground mt-1">
-          {block.id}
+        <div className="mt-1 text-caption text-muted-foreground">
+          <CopyId value={block.id} label="Playbook ID" />
         </div>
         <div className="flex gap-2 mt-1 text-caption text-muted-foreground">
-          <span>Created {new Date(block.created_at).toLocaleString()}</span>
+          <span>Created {fmtWhen(block.created_at)}</span>
           {block.updated_at && (
-            <span>· Updated {new Date(block.updated_at).toLocaleString()}</span>
+            <span>· Updated {fmtWhen(block.updated_at)}</span>
           )}
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <div className="rounded-md border border-border/70 bg-background/60 p-3">
             <div className="text-caption uppercase tracking-widest text-muted-foreground">
-              Tier
+              Scope
             </div>
             <div className="mt-1 text-heading text-foreground">
-              {blockTier(block)}
+              {SCOPE_TEXT[blockScope(block)]}
             </div>
           </div>
           <div className="rounded-md border border-border/70 bg-background/60 p-3">
@@ -665,10 +662,10 @@ function BlockDetail({ block }: { block: Playbook }) {
           </div>
           <div className="rounded-md border border-border/70 bg-background/60 p-3">
             <div className="text-caption uppercase tracking-widest text-muted-foreground">
-              Focus
+              Carries
             </div>
-            <div className="mt-1 text-heading text-foreground">
-              {blockSeverity(block)} signal
+            <div className="mt-1 text-heading text-foreground" title={CARRIES_HINT[blockCarries(block)]}>
+              {CARRIES_TEXT[blockCarries(block)]}
             </div>
           </div>
         </div>

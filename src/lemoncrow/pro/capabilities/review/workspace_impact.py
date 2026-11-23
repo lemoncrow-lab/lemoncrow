@@ -66,10 +66,11 @@ def _outermost_superproject(repo: Path) -> Path:
 def workspace_for(repo_root: Path, environ: Mapping[str, str] | None = None) -> tuple[Path, str] | None:
     """``(workspace root, the repository's member path in it)``, or ``None`` when it has no workspace."""
 
-    from lemoncrow_client.workspace_members import discover_members, git_toplevel, resolve_root
+    from lemoncrow_client.workspace_members import discover_members, git_toplevel, main_checkout, resolve_root
 
     env = os.environ if environ is None else environ
-    repo = repo_root.resolve()
+    # A worktree is never a member; its repository is, and the change's paths are the same in both.
+    repo = main_checkout(repo_root.resolve())
     candidates: list[Path] = []
     explicit = env.get(WORKSPACE_ENV, "").strip()
     if explicit:
@@ -187,13 +188,16 @@ def packet_rows(files: Iterable[Any]) -> list[tuple[str, str | None, tuple[str, 
 def reader_payload(packet: Mapping[str, Any] | None) -> dict[str, Any]:
     """A stored packet's slice as the Review Reader receives it; ``{}`` when it has none.
 
-    Every value but the source lines: each link's ``detail`` (a line of another repository's file) is left out.
+    Every value but the source lines: each link's ``detail`` (a line of another repository's file) is left out. The
+    root is home-shortened (``~/...``), as the terminal section prints it.
     """
 
     found = packet.get("workspace_impact") if isinstance(packet, Mapping) else None
     if not isinstance(found, Mapping) or not found:
         return {}
     payload = dict(found)
+    if isinstance(found.get("root"), str):
+        payload["root"] = _home(found["root"])
     reached: list[Any] = []
     for hit in found.get("reached") or []:
         if not isinstance(hit, Mapping):
@@ -243,6 +247,24 @@ def heading(payload: Mapping[str, Any]) -> str:
         return _CONTROL.sub("", f"no other repository depends on what changed ({where})")
     count = len(reached)
     return _CONTROL.sub("", f"{count} other {'repository' if count == 1 else 'repositories'} can be affected ({where})")
+
+
+def risk_clause(packet: Mapping[str, Any] | None) -> str:
+    """``storefront depends on what changed``, for a Low Risk line that would otherwise read as "nothing outside".
+
+    Empty when the packet's slice reached no other repository through a changed path: one that depends on this
+    repository only as a whole (``direct`` false) does not depend on what changed. Reach stays out of the Risk level.
+    """
+
+    found = packet.get("workspace_impact") if isinstance(packet, Mapping) else None
+    if not isinstance(found, Mapping):
+        return ""
+    reached = [hit for hit in found.get("reached") or [] if isinstance(hit, Mapping) and hit.get("direct")]
+    if not reached:
+        return ""
+    who = str(reached[0].get("repo", "")) if len(reached) == 1 else ""
+    text = f"{who} depends" if who else f"{len(reached)} other repositories depend"
+    return _CONTROL.sub("", f"{text} on what changed")
 
 
 def impact_lines(payload: Mapping[str, Any], *, show_all: bool = False) -> list[str]:
@@ -304,5 +326,6 @@ __all__ = [
     "impact_lines",
     "packet_rows",
     "reader_payload",
+    "risk_clause",
     "workspace_for",
 ]

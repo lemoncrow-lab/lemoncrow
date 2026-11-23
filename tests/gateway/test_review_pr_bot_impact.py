@@ -19,7 +19,7 @@ import pytest
 from lemoncrow.pro.capabilities.review.pr_bot import impact
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.impact import Impact, RiskRow, assess, risk_rows, signals_for
-from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state, with_state
+from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state, strip_state, with_state
 from tests.gateway.pr_bot_noise_support import CONFIG, clear_noise_env, review_yaml
 from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, FIRST_PUSH, World, build_world, one_call_per_file
 
@@ -401,21 +401,21 @@ def summary(world: World) -> str:
 
 
 LABEL = re.compile(r"\*\*\[((?:Low|Medium|High) impact)\]\*\*")
-FROM_THE_CHANGE = " · from the change itself, not a model"
 
 
 def impact_line(world: World) -> str:
-    """The impact as the summary says it, in two lines (``**[Low impact]** <sentence>`` and, under it, the reasons), read
-    back as ``**Low impact** · <reasons> <sub>(from the change itself, not a model)</sub>``."""
+    """The impact the summary carries, read back from its hidden state as ``**Low impact** · <reasons and size>``.
 
-    lines = summary(world).split("\n")
-    (index,) = [i for i, row in enumerate(lines) if LABEL.match(row)]
-    label = LABEL.match(lines[index])
-    assert label is not None
-    reasons = lines[index + 1]
-    assert reasons.startswith("<sub>") and reasons.endswith(FROM_THE_CHANGE + "</sub>"), reasons
-    inner = reasons.removeprefix("<sub>").removesuffix(FROM_THE_CHANGE + "</sub>")
-    return f"**{label[1]}** · {inner} <sub>(from the change itself, not a model)</sub>"
+    The label is kept for tools (the state, ``--json``, the human review line) and never shown: the comment shows the
+    Risk line instead.
+    """
+
+    body = summary(world)
+    assert not LABEL.search(strip_state(body)), "the impact label is not shown"
+    state = parse_state(body)
+    weighed = Impact.from_state(state.impact if state is not None else "")
+    assert weighed is not None
+    return f"**{weighed.label}** · {weighed.summary()}"
 
 
 def risks_block(world: World) -> list[str]:
@@ -427,17 +427,20 @@ def risks_block(world: World) -> list[str]:
 def test_a_plain_change_is_low_impact_and_the_summary_says_how_it_knows(world: World) -> None:
     world.origin.push({"src/plain.py": "VALUE = 2\n"})
     report = world.review()
-    assert (
-        impact_line(world)
-        == "**Low impact** · 1 file, 2 changed lines <sub>(from the change itself, not a model)</sub>"
-    )
+    assert impact_line(world) == "**Low impact** · 1 file, 2 changed lines"
     lines = summary(world).split("\n")
     assert lines[3] == "<h2>No issues found</h2>", "the verdict in words comes first"
     assert lines[5] == "**The one changed file reviewed** · No extra human review flagged"
+    # Under the verdict, the Risk line by the Reader's rule (the capture had no code index, so the Action searched the
+    # head commit for callers: none) and what it covers; after the rule, one sentence (the title when no overview was
+    # made).
+    assert lines[7] == "**Risk: Low · no sensitive code, outside callers, removed safeguards or unrun tests found**"
+    assert lines[8] == (
+        f"<sub>Checked on commit {report.head_sha[:7]} · 1 file, 2 changed lines · "
+        "Risk is measured from the change and the run record, not a model</sub>"
+    )
     rule = lines.index("---")
-    assert (
-        lines[rule + 2] == "**[Low impact]** Widgets"
-    ), "after a rule, the impact label, then one sentence (the title when no overview was made)"
+    assert rule > 8 and lines[rule + 2] == "Widgets"
     assert report.to_wire()["impact"] == {
         "level": "low",
         "label": "Low impact",
@@ -454,12 +457,30 @@ def test_an_auth_change_raises_the_label_and_a_migration_does_too_and_both_make_
     world.origin.push({"src/auth.py": AUTH_BUGGY.replace("  # BUG: lets a missing principal through", "")})
     world.review()
     assert impact_line(world).startswith("**Medium impact** · security-sensitive code · 1 file,")
+    # The Risk line is the Reader's rule: an access-control path is High on its own, whatever else was measured.
+    risk = next(line for line in summary(world).split("\n") if line.startswith("**Risk: "))
+    assert risk.startswith("**Risk: High · authorize is access-control code"), risk
 
     world.origin.push({"db/migrations/0002_add_plan.sql": MIGRATION}, "add a migration")
     world.review()
     assert impact_line(world).startswith(
         "**High impact** · security-sensitive code, persistence or a migration · 2 files,"
     )
+
+
+def test_callers_the_action_found_at_the_head_make_the_risk_high_when_no_check_ran(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caller = "from src.cache import remember\n\n\ndef handle(key):\n    remember(key, 1)\n"
+    made = build_world(tmp_path, monkeypatch, {**FILES, "src/api.py": caller})
+    made.origin.push({"src/cache.py": CACHE_CLEAN})
+    made.review()
+    lines = summary(made).split("\n")
+    risk = next(line for line in lines if line.startswith("**Risk: "))
+    assert risk == "**Risk: High · remember is called from src/api.py and no check ran on this revision**"
+    # Callers were measured, so What was not checked does not say they were not.
+    unchecked = lines[lines.index("### What was not checked") :]
+    assert not any("Not measured: callers" in line or "which tests exercise" in line for line in unchecked)
 
 
 def test_a_migration_alone_is_medium_and_the_reason_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -596,8 +617,7 @@ def test_a_summary_written_before_the_label_existed_is_rewritten_once_on_a_rerun
     (row,) = world.github.summary_comments()
     state = parse_state(str(row["body"]))
     assert state is not None
-    old = re.sub(r"\n\*\*\[\w+ impact\]\*\*[^\n]*\n<sub>[^\n]*</sub>\n", "\n", str(row["body"]))
-    row["body"] = with_state(old, replace(state, impact=""))
+    row["body"] = with_state(str(row["body"]), replace(state, impact=""))
     assert "impact" not in str(row["body"]).split("<!-- lemoncrow:state")[0]
 
     world.model.reset()
@@ -621,9 +641,12 @@ def test_a_state_with_a_forged_impact_reads_as_none(world: World) -> None:
 def test_the_guide_states_the_impact_rule_and_the_risks_list() -> None:
     guide = (Path(__file__).resolve().parents[2] / "docs" / "setup" / "github-action.md").read_text(encoding="utf-8")
     for phrase in (
-        "### Impact and the risks examined",
-        "**[High impact]**, **[Medium impact]** or **[Low impact]**",
-        "from the change itself, not a model",
+        "### Risk, impact and the risks examined",
+        "Risk is measured from the change and the run record, not a model",
+        "`High impact`, `Medium impact` or `Low impact`",
+        "It is no longer shown in the comment",
+        "### What was not checked",
+        "Independence: unknown (not assessed on this run)",
         "| a path your policy marks `critical` or `high`",
         "High is 4 points or more, Medium 2 or 3, Low 0 or 1",
         "ever an input to an approval, the check or `fail-on`",

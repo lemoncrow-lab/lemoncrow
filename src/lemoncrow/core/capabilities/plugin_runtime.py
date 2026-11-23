@@ -764,7 +764,7 @@ def _merge_session_start_stdout(*items: Any) -> dict[str, Any] | str:
 
 def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant: bool) -> str:
     """Stash (dormant) or restore (active) the LemonCrow agent files for Codex/
-    OpenCode/LemonCode so a dormant session degrades to the host's BUILTIN agent.
+    OpenCode so a dormant session degrades to the host's BUILTIN agent.
 
     Layer-2 parity with Claude (which pops the ``agent`` host-setting): Codex and
     OpenCode instead select their agent from files on disk
@@ -777,11 +777,9 @@ def reset_host_agents_for_dormancy(host: str, workspace: str | Path, *, dormant:
     never raises. Effect is next-session (the host reads agents at start); the
     MCP server hiding all tools (Layer 1) covers the current session.
     """
-    # lemoncode shares opencode's workspace dir (the fork did not rebrand it).
     rel = {
         "codex": (".codex", "agents"),
         "opencode": (".opencode", "agents"),
-        "lemoncode": (".opencode", "agents"),
     }.get(host)
     if rel is None:
         return "noop"
@@ -823,15 +821,6 @@ def _opencode_config_home() -> Path:
         return Path(env)
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "opencode"
-
-
-def _lemoncode_config_home() -> Path:
-    """Global LemonCode config dir; the fork rebranded the XDG app name only."""
-    env = os.environ.get("LEMONCODE_CONFIG_HOME")
-    if env:
-        return Path(env)
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "lemoncode"
 
 
 def _swap_global_skills(skills_dir: Path, *, dormant: bool) -> str:
@@ -905,7 +894,7 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
     """Reliably swap GLOBAL-mode LemonCrow surfaces in/out for dormancy.
 
     Global installs write wholly-LemonCrow-owned files under the host CONFIG HOME
-    ($CODEX_HOME, $OPENCODE_CONFIG_HOME, $LEMONCODE_CONFIG_HOME), so — unlike a project's own AGENTS.md,
+    ($CODEX_HOME, $OPENCODE_CONFIG_HOME), so — unlike a project's own AGENTS.md,
     which is soft-gated — we edit/move them directly. Each surface is idempotent
     and independent, so a partial or crashed run self-heals on the next call:
 
@@ -913,7 +902,6 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
       the $CODEX_HOME/AGENTS.md managed block (regenerated from source).
     - opencode: $OPENCODE_CONFIG_HOME/agents/lemoncrow.* stash (no global
       AGENTS.md / skills bundle is installed for opencode).
-    - lemoncode: the same, under $LEMONCODE_CONFIG_HOME.
 
     Every step no-ops when its target is absent, so a workspace-only install is
     untouched. Best-effort; never raises into a hook.
@@ -930,8 +918,6 @@ def reset_lemoncrow_global_dormancy(host: str, *, dormant: bool) -> str:
             )
         if host == "opencode":
             return "agents:" + _stash_agent_files(_opencode_config_home() / "agents", dormant=dormant)
-        if host == "lemoncode":
-            return "agents:" + _stash_agent_files(_lemoncode_config_home() / "agents", dormant=dormant)
         return "noop"
     except Exception:
         return "error"
@@ -1220,12 +1206,7 @@ def _opencode_workspace_root(payload: dict[str, Any], *, host: str = "opencode")
     cwd = str(payload.get("cwd") or "").strip()
     if cwd:
         return cwd
-    host_name = host.strip().lower() or "opencode"
-    native_root = (
-        os.environ.get("LEMONCODE_WORKSPACE_ROOT")
-        if host_name == "lemoncode"
-        else os.environ.get("OPENCODE_WORKSPACE_ROOT")
-    )
+    native_root = os.environ.get("OPENCODE_WORKSPACE_ROOT")
     return native_root or os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
 
 
@@ -1332,7 +1313,7 @@ def build_opencode_user_prompt_output(
                 f"{review_context}\n"
                 "</lemoncrow_review_feedback>"
             )
-            # Internal adapter metadata. The OpenCode/LemonCode wrapper strips
+            # Internal adapter metadata. The OpenCode wrapper strips
             # this before emitting hook JSON and acknowledges only after stdout
             # has been flushed successfully.
             output["_lemoncrow_review_inbox_ids"] = [item.id for item in messages]
@@ -1851,16 +1832,10 @@ def _opencode_visible_reply_blocks(session_id: str, *, host: str = "opencode") -
         return []
     host_name = host.strip().lower() or "opencode"
     try:
+        from lemoncrow.core.capabilities.session_replay import _opencode_db_path
         from lemoncrow.gateway.hosts.session_parsers.opencode import serialize_opencode_session
 
-        if host_name == "lemoncode":
-            from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
-
-            db_path = default_lemoncode_db_path()
-        else:
-            from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-            db_path = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
+        db_path = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
         if not db_path.exists():
             return []
         serialized = serialize_opencode_session(session_id, db_path, source=host_name)
@@ -1883,7 +1858,7 @@ def _opencode_visible_reply_blocks(session_id: str, *, host: str = "opencode") -
 
 
 def _opencode_prose_output_tokens(session_id: str, *, host: str = "opencode") -> int:
-    """Reply-prose tokens for visible OpenCode/LemonCode assistant text only."""
+    """Reply-prose tokens for visible OpenCode assistant text only."""
     return prose_output_tokens(_opencode_visible_reply_blocks(session_id, host=host))
 
 
@@ -2084,15 +2059,9 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any], *, hos
     continue_prompt = str(verify.get("reason") or "") if verify.get("decision") == "block" else ""
     state = update_session_stats(root, normalized)
     from lemoncrow.core.capabilities.host_usage import opencode_usage_calls, persist_host_usage
+    from lemoncrow.core.capabilities.session_replay import _opencode_db_path
 
-    if host_name == "lemoncode":
-        from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
-
-        usage_db = default_lemoncode_db_path()
-    else:
-        from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-        usage_db = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
+    usage_db = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
     with suppress(OSError, ValueError, sqlite3.Error):
         usage_calls = opencode_usage_calls(session_id, usage_db, host=host_name)
         persist_host_usage(

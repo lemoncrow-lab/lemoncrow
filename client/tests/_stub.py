@@ -77,6 +77,9 @@ class StubState:
     token: str = TOKEN
     content_size_cap: int = CONTENT_SIZE_CAP
     allow_local_fs: bool = False
+    #: Off models a server from before ``include_large_source``.
+    lists_large_source: bool = True
+    large_source_page: int = 5000
     #: Tools that answer ``{need: [...]}`` once before succeeding.
     miss_once: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: Tools that answer ``{need: [...]}`` every time, however often the client
@@ -465,10 +468,15 @@ class _Handler(BaseHTTPRequestHandler):
         declared = {str(row["content_digest"]) for row in state.manifest.values()}
         answer = [digest for digest in asked if digest in declared and digest in outstanding]
         undeclared = [digest for digest in asked if digest not in declared]
-        self._send(
-            200,
-            {"missing_digests": answer + undeclared, "outstanding_digests": sorted(outstanding)},
-        )
+        payload: dict[str, Any] = {"missing_digests": answer + undeclared, "outstanding_digests": sorted(outstanding)}
+        if body.get("include_large_source") is True and state.lists_large_source:
+            payload["large_source"] = [
+                {"content_digest": str(row["content_digest"]), "path": path, "size": int(row.get("size", 0))}
+                for path, row in sorted(state.manifest.items())
+                if state.content_size_cap < int(row.get("size", 0)) <= 8 * 1024 * 1024
+                and str(row["content_digest"]) not in state.blobs
+            ][: state.large_source_page]
+        self._send(200, payload)
 
     def _blobs(self, body: Mapping[str, Any]) -> None:
         state = self.state

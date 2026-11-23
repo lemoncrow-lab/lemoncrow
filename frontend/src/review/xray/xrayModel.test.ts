@@ -23,7 +23,7 @@ describe("buildXRay", () => {
     // The added settlement queue is an async handoff, not a traced call chain.
     expect(head.get("settle")).toMatchObject({ role: "handoff", exit: "handoff" });
     expect(head.get("settle")?.link).toMatchObject({ change: "added", order: "reachable", animate: false, handoff: { kind: "async" } });
-    expect(head.get("provider")).toMatchObject({ role: "handoff", roleLabel: "Remote handoff" });
+    expect(head.get("provider")).toMatchObject({ role: "handoff", roleLabel: "Calls another service" });
     expect(head.has("backoff")).toBe(false);
     expect(after.diff).toEqual({ added: 2, removed: 0, changed: 1, otherSideOnly: 1, notCompared: 0 });
     expect(head.get("retry")?.checks?.targets).toBe(1);
@@ -58,7 +58,7 @@ describe("buildXRay", () => {
     expect(before.diff).toMatchObject({ otherSideOnly: 1, notCompared: 1 });
   });
 
-  it("invalidates a walk opened on an older Snapshot, and says when Before is not measured", () => {
+  it("invalidates a walk opened on an older revision, and says when Before is not measured", () => {
     const { graph, flow } = INVESTIGATION_MAP_FIXTURES.paymentRetryMap();
     expect(graphSnapshot(graph)).toBe("review-pay@rev-pay-1");
     const stale = buildXRay({ graph, flow, rootId: "retry", side: "after", walkSnapshot: "review-pay@rev-pay-0" });
@@ -88,5 +88,36 @@ describe("buildXRay", () => {
     expect(Math.max(...xray.steps.map((step) => step.depth))).toBeLessThanOrEqual(xray.bounds.depth);
     expect(xray.truncation.branching).toBeGreaterThan(0);
     expect(xray.truncation.depth + xray.truncation.total).toBeGreaterThan(0);
+  });
+
+  it("lists a caller once however many relationships tie it, and reads a remote handoff from the file's own name", () => {
+    const ids = { review: "r", revision: "v" };
+    const graph: ReviewMapGraph = {
+      level: "architecture",
+      focus: null,
+      truncated: false,
+      nodes: [
+        fixtureMapNode(ids, "root", "server/inbox.py"),
+        fixtureMapNode(ids, "service", "server/service.py"),
+        fixtureMapNode(ids, "wire", "server/http/wire.py"),
+        fixtureMapNode(ids, "usage", "client/src/acme_client/usage.py"),
+        fixtureMapNode(ids, "remote", "server/billing_client.py"),
+      ],
+      edges: [
+        fixtureMapEdge(ids, "service", "root", { id: "a", kind: "references", delta_status: "unchanged" }),
+        fixtureMapEdge(ids, "service", "root", { id: "b", kind: "calls", delta_status: "unchanged" }),
+        fixtureMapEdge(ids, "service", "root", { id: "c", kind: "imports", delta_status: "unchanged" }),
+        fixtureMapEdge(ids, "root", "wire", { delta_status: "unchanged" }),
+        fixtureMapEdge(ids, "root", "usage", { delta_status: "unchanged" }),
+        fixtureMapEdge(ids, "root", "remote", { delta_status: "unchanged" }),
+      ],
+    };
+    const xray = buildXRay({ graph, rootId: "root", side: "after" });
+    expect(xray.consumers.map((step) => step.nodeId)).toEqual(["service"]);
+    expect(xray.truncation.consumers).toBe(0);
+    const steps = byNode(xray);
+    expect(steps.get("wire")?.role).toBe("call");
+    expect(steps.get("usage")?.role).toBe("call");
+    expect(steps.get("remote")).toMatchObject({ role: "handoff", roleLabel: "Calls another service" });
   });
 });

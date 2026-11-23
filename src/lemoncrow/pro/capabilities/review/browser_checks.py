@@ -135,7 +135,7 @@ class BrowserPolicy:
     scenarios: tuple[BrowserScenario, ...] = ()
     trusted_origins: tuple[str, ...] = ()
     source: str = ""
-    """Human-readable origin of the policy, e.g. ``base Snapshot .lemoncrow/review.yaml``."""
+    """Human-readable origin of the policy, e.g. ``base revision .lemoncrow/review.yaml``."""
     error: str = ""
     """Visible degradation when the configuration could not be parsed."""
 
@@ -519,7 +519,7 @@ def normalize_browser_run(
     configured = policy.scenario(scenario_id)
     side = _text(body.get("side") or "new", 8)
     if side not in {"new", "old"}:
-        raise ValueError("side must be new (the Snapshot under review) or old (its baseline)")
+        raise ValueError("side must be new (the revision under review) or old (its baseline)")
     route = _normalize_route(str(body.get("route") or (configured.route if configured else "")))
     if configured is not None and _route_identity(route) != _route_identity(configured.route):
         raise ValueError(f"scenario {scenario_id!r} is configured for route {configured.route}, not {route}")
@@ -615,7 +615,7 @@ def normalize_browser_run(
         if artifact is None:
             raise ValueError(f"browser {role} artifact {evidence_id!r} was not uploaded to this Review")
         if artifact.review_id != snapshot.review_id or artifact.revision_id != snapshot.id:
-            raise ValueError(f"browser {role} artifact must be uploaded against the same exact Snapshot")
+            raise ValueError(f"browser {role} artifact must be uploaded against the same exact revision")
         if artifact.kind not in _ARTIFACT_ROLES[role] or not artifact.content_hash:
             raise ValueError(f"browser {role} artifact has kind {artifact.kind!r}")
         artifacts[role] = {
@@ -1043,7 +1043,7 @@ def build_browser_projection(
                 continue
             detail = (
                 f"Configured browser scenario applies ({reason}) but no "
-                f"{f'{vp} ' if vp else ''}result was recorded for this Snapshot."
+                f"{f'{vp} ' if vp else ''}result was recorded for this revision."
                 if state == "applies"
                 else f"Configured browser scenario applicability is unknown: {reason}."
             )
@@ -1099,7 +1099,7 @@ def build_browser_projection(
                     route=exposed_routes[0],
                     detail=(
                         f"This Change exposes Web route(s) {shown}, but no browser regression scenario "
-                        "is configured or reported for this Snapshot. Nothing was verified in a browser."
+                        "is configured or reported for this revision. Nothing was verified in a browser."
                     ),
                     run=None,
                     baseline=None,

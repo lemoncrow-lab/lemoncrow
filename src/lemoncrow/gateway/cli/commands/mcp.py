@@ -280,8 +280,8 @@ def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the LemonCrow MCP server, or inspect MCP diagnostics.
 
-    With no subcommand: runs the stdio MCP server in this process: Runtime Lite
-    locally, or the thin client when Runtime targets a hosted server.
+    With no subcommand: runs the stdio MCP server in this process: Workspaces Lite
+    locally, or the thin client when Workspaces targets a hosted server.
     Use ``lc runtime mcp serve`` to publish the same tools at a public https URL that
     any remote MCP client — ChatGPT, Claude, Cursor, VS Code — can connect to
     (served by ``lemoncrow_client``; this CLI only forwards to it).

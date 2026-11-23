@@ -8,8 +8,10 @@ import "./index.css";
 import { DiscoveredProductCapabilitiesProvider, LOCAL_PRODUCT_CAPABILITIES } from "./lib/RuntimeCapabilities";
 import { TimeRangeProvider } from "./lib/TimeRangeContext";
 import { applyTheme, getInitialTheme } from "./lib/theme";
+import { forgetRetiredReviewFlow } from "./review/retiredFlowSetting";
 
-applyTheme(getInitialTheme());
+applyTheme(getInitialTheme(), false);
+forgetRetiredReviewFlow();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

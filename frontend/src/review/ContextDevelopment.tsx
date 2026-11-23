@@ -5,6 +5,7 @@ import { AgentActionList } from "./AgentActions";
 import { ROLE_LABEL, hostLabel, samePath, shortTime, statusTone } from "./developmentLabels";
 import { fetchReviewDevelopmentEvents } from "./reviewApi";
 import type { DevelopmentContributor, DevelopmentEvent, ReviewDevelopment } from "./types";
+import { revisionName } from "./revisionLabel";
 
 interface ContextDevelopmentProps {
   reviewId: string;
@@ -77,7 +78,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
             This file changed, but no agent recorded an exact edit to it. Treat it as a manual or unexplained change.
           </p>
         ) : (
-          <p className="text-caption leading-relaxed text-muted-foreground">No development activity touched this file in this Snapshot.</p>
+          <p className="text-caption leading-relaxed text-muted-foreground">No development activity touched this file in this revision.</p>
         )}
         {changed && changed.edits > 0 && (
           <p className="mt-1.5 text-caption tabular-nums text-muted-foreground">
@@ -89,7 +90,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
 
       {newer && (
         <p className="border-l border-cyan-800/70 pl-2 text-caption leading-relaxed text-cyan-300/90" role="status">
-          Changed again after this Snapshot by {[...new Set(newer.sessions.map((key) => hostLabel(key.split(":")[0] ?? "")))].join(", ") || "an agent"}
+          Changed again after this revision by {[...new Set(newer.sessions.map((key) => hostLabel(key.split(":")[0] ?? "")))].join(", ") || "an agent"}
           {newer.edits > 0 && ` · ${newer.edits} edit${newer.edits === 1 ? "" : "s"}`}
         </p>
       )}
@@ -102,7 +103,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
               <li key={item.causation_id}>
                 {item.summary || "Review feedback"}
                 <span className="ml-1.5 text-muted-foreground">
-                  {item.included_in_revision !== null ? `addressed in Snapshot ${item.included_in_revision}` : item.edit_count > 0 ? "being addressed" : "no follow-up edits yet"}
+                  {item.included_in_revision !== null ? `addressed in ${revisionName(item.included_in_revision)}` : item.edit_count > 0 ? "being addressed" : "no follow-up edits yet"}
                 </span>
               </li>
             ))}

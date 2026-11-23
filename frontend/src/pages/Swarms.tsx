@@ -2,6 +2,7 @@ import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { Tip } from "../components/ui/tooltip";
+import { EmptyState as UiEmptyState } from "../components/ui/empty-state";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CircleHelp, RefreshCw } from "lucide-react";
 import {
@@ -40,19 +41,34 @@ function planningTone(
   return "neutral";
 }
 
+// What each planning mode means (the coordinator's `_plan_wave_runs`), shown on hover of its chip.
+const PLANNING_HINT: Record<string, string> = {
+  adaptive: "Adaptive: the coordinator decides how many agents to start in each wave.",
+  bounded: "Bounded: a narrow task, so each wave starts only one or two agents.",
+  "open-ended": "Open-ended: a broad task, so each wave starts as many agents as the run allows.",
+};
+
 function artifactSummary(artifacts: SwarmArtifactRef[]): string {
   if (!artifacts.length) return "No exported artifacts";
   return artifacts.map((artifact) => artifact.label).join(", ");
 }
 
 function commitLabel(commit: SwarmAcceptedCommit): string {
-  if (commit.commit_ref) return commit.commit_ref;
+  if (commit.commit_ref) return /^[0-9a-f]{40}$/i.test(commit.commit_ref) ? commit.commit_ref.slice(0, 7) : commit.commit_ref;
   if (commit.patch_path) return commit.patch_path;
   return commit.child_id;
 }
 
-function compactExcerpt(value?: string | null): string {
-  return (value || "").replace(/\s+/g, " ").trim();
+/** A spec title without its Markdown heading marker ("# Cut LCP" → "Cut LCP"). */
+function specTitle(value?: string | null): string {
+  return (value || "").replace(/^\s*#{1,6}\s+/, "");
+}
+
+/** The spec excerpt as one line of prose: no heading markers, and no first line that only repeats the title. */
+function compactExcerpt(value?: string | null, title?: string | null): string {
+  const lines = (value || "").split("\n").map((line) => line.replace(/^\s*#{1,6}\s+/, "").trim()).filter(Boolean);
+  if (title && lines[0] === specTitle(title)) lines.shift();
+  return lines.join(" ").replace(/\s+/g, " ").trim();
 }
 
 const NEW_SPEC_CHOICE = "__new_program_md__";
@@ -860,8 +876,9 @@ export default function Swarms() {
         </Card>
       ) : null}
 
+      {/* The page scrolls the window; the run list is a sticky rail beside the run detail (16px below the shell header). */}
       <div className="flex flex-col gap-4 md:flex-row">
-        <Card className="w-full flex-shrink-0 space-y-3 p-4 md:w-80 lg:w-96">
+        <Card className="w-full flex-shrink-0 space-y-3 p-4 md:sticky md:top-[57px] md:max-h-[calc(100dvh-73px)] md:w-80 md:self-start md:overflow-y-auto lg:w-96">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
@@ -894,21 +911,23 @@ export default function Swarms() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-medium text-foreground">
-                          {run.spec_title || run.run_id}
+                          {specTitle(run.spec_title) || run.run_id}
                         </span>
                         <Chip tone={statusChipTone(run.status)}>{run.status}</Chip>
-                        <Chip tone={planningTone(run.planning_mode)}>
-                          {run.current_wave}/{run.max_runs}
-                        </Chip>
+                        <span title={`Wave ${run.current_wave} of ${run.max_runs}`}>
+                          <Chip tone={planningTone(run.planning_mode)}>
+                            {run.current_wave}/{run.max_runs}
+                          </Chip>
+                        </span>
                       </div>
                       <p className="mt-1 text-body text-muted-foreground">
                         {run.repo_label} · {run.runner_name}
                         {run.runner_model ? ` / ${run.runner_model}` : ""}
                         {run.launch_effort ? ` · ${run.launch_effort}` : ""}
                       </p>
-                      {run.spec_excerpt ? (
+                      {compactExcerpt(run.spec_excerpt, run.spec_title) ? (
                         <p className="mt-2 line-clamp-2 text-heading text-subtle">
-                          {compactExcerpt(run.spec_excerpt)}
+                          {compactExcerpt(run.spec_excerpt, run.spec_title)}
                         </p>
                       ) : null}
                     </div>
@@ -919,8 +938,8 @@ export default function Swarms() {
                         {run.failed_children.length}
                       </div>
                       {run.running_children.length ? (
-                        <div className="mt-1 text-amber-300">
-                          live {run.running_children.length}
+                        <div className="mt-1 text-foreground" title="Agents still working in this run">
+                          {run.running_children.length} running
                         </div>
                       ) : null}
                     </div>
@@ -943,14 +962,16 @@ export default function Swarms() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-lead font-semibold text-foreground">
-                        {detail.spec.title}
+                        {specTitle(detail.spec.title)}
                       </h2>
                       <Chip tone={statusChipTone(detail.run.status)}>
                         {detail.run.status}
                       </Chip>
-                      <Chip tone={planningTone(detail.run.planning_mode)}>
-                        {detail.run.planning_mode || detail.run.mode}
-                      </Chip>
+                      <span title={PLANNING_HINT[detail.run.planning_mode || ""]}>
+                        <Chip tone={planningTone(detail.run.planning_mode)}>
+                          {detail.run.planning_mode || detail.run.mode}
+                        </Chip>
+                      </span>
                     </div>
                     <p className="mt-1 text-heading text-muted-foreground">
                       {selectedRun.repo_label} · {detail.run.run_id} ·{" "}
@@ -1015,30 +1036,14 @@ export default function Swarms() {
                 </div>
               </Card>
 
-              <Card className="space-y-3 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
-                      Frozen spec snapshot
-                    </h3>
-                    <p className="text-heading text-muted-foreground">
-                      Rendered from the copied run snapshot, not the live
-                      mutable file.
-                    </p>
-                  </div>
-                  <div className="text-right text-body text-muted-foreground">
-                    <div>{detail.spec.source_path}</div>
-                    <div>{detail.spec.copied_path}</div>
-                  </div>
-                </div>
-                <MarkdownSourceEditor
-                  label="Frozen spec snapshot"
-                  path={detail.spec.source_path}
-                  content={detail.spec.content}
-                  modeLabel="Copied from the run snapshot, not the live file."
-                  isEditing={false}
-                />
-              </Card>
+              {/* One snapshot block: its label, the spec's path and why it is a copy, said once. */}
+              <MarkdownSourceEditor
+                label="Spec snapshot"
+                path={detail.spec.source_path}
+                content={detail.spec.content}
+                modeLabel="Copied when the run started, so later edits to the file don't change this run."
+                isEditing={false}
+              />
 
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card className="space-y-3 p-4">
@@ -1061,7 +1066,7 @@ export default function Swarms() {
                             <span className="font-medium text-foreground">
                               {commit.child_id}
                             </span>
-                            <span className="text-body text-muted-foreground">
+                            <span className="text-body text-muted-foreground" title={commit.commit_ref || commit.patch_path || undefined}>
                               #{commit.order} · {commitLabel(commit)}
                             </span>
                           </div>
@@ -1083,6 +1088,7 @@ export default function Swarms() {
                       "# No transplant commands yet"
                     }
                     caption="Ready-to-run transplant commands from accepted child commits."
+                    wrap
                   />
                 </Card>
 
@@ -1122,7 +1128,7 @@ export default function Swarms() {
                     </Select>
                   </div>
 
-                  <pre className="max-h-[28rem] overflow-auto rounded-lg border border-border/70 bg-surface-code p-4 text-body leading-6 text-foreground">
+                  <pre className="max-h-[28rem] overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-surface-code p-4 text-body leading-6 text-foreground">
                     {logs || "No logs captured yet for this run."}
                   </pre>
                 </Card>
@@ -1132,10 +1138,19 @@ export default function Swarms() {
             <Card className="p-4 text-heading text-muted-foreground">
               Loading swarm detail…
             </Card>
+          ) : !loadingRuns && runs.length === 0 ? (
+            <UiEmptyState
+              title="No swarm runs yet"
+              description="A swarm gives one spec to several coding agents, in waves, and keeps the changes it accepts. Launch one to start."
+              action={
+                <UiButton type="button" onClick={() => setIsLaunchPanelOpen(true)}>
+                  Launch a swarm
+                </UiButton>
+              }
+            />
           ) : (
             <Card className="p-4 text-heading text-muted-foreground">
-              Select a run to inspect its frozen prompt snapshot, accepted
-              commits, and logs.
+              Select a run to see its spec, accepted commits and logs.
             </Card>
           )}
         </div>
@@ -1151,8 +1166,8 @@ export default function Swarms() {
                 Workflow (advanced)
               </h2>
               <p className="text-heading text-muted-foreground">
-                Workspace-local `workflow` runtime snapshot — pause, stop, and
-                inspect step outputs.
+                The workflow running in this workspace: pause it, stop it, and
+                read each step's output.
               </p>
             </div>
             <Chip tone="neutral">{isWorkflowOpen ? "Hide" : "Show"}</Chip>

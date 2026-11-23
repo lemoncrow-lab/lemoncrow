@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { fmtWhen } from "../../lib/format";
 import { Link } from "react-router-dom";
 import { X } from "lucide-react";
 
@@ -80,8 +81,8 @@ function formatNumber(value: number | null | undefined, digits = 1): string {
 }
 
 function formatWhen(at: string): string {
-  const instant = new Date(at);
-  return Number.isNaN(instant.getTime()) ? "" : instant.toLocaleString();
+  const text = fmtWhen(at);
+  return text === "—" ? "" : text;
 }
 
 function recordLabel(kind: string): string {
@@ -208,10 +209,16 @@ const WAIT_COLUMN = {
 };
 
 function withCostClass(rows: AnalyticsRow[], suffix: (row: AnalyticsRow) => string): AnalyticsRow[] {
-  return rows.map((row) => ({
-    ...row,
-    label: `${COST_CLASS_LABELS[row.cost_class ?? ""] ?? row.cost_class ?? ""} · ${suffix(row)}`,
-  }));
+  return rows.map((row) => {
+    const costClass = COST_CLASS_LABELS[row.cost_class ?? ""] ?? row.cost_class ?? "";
+    const where = suffix(row);
+    return { ...row, label: where ? `${costClass} · ${where}` : costClass };
+  });
+}
+
+/** `review_host` is the process holding the review's snapshot, an internal name: the cost class alone says it. */
+function callLocus(row: AnalyticsRow): string {
+  return row.locus === "review_host" ? "" : row.locus ?? "";
 }
 
 function LaneRows({ lanes, onDrill }: { lanes: Array<[string, EscalationLane]>; onDrill: OpenDrill }) {
@@ -545,7 +552,7 @@ function Report({ report, onDrill }: { report: ReviewAnalyticsReport; onDrill: O
         <Panel title="Cost" basis={cost.basis} sections={["cost", "cache_reuse"]} missing={missing}>
           <FieldLabel>Model calls</FieldLabel>
           <RowsTable
-            rows={withCostClass(cost.model_calls, (row) => row.locus ?? "")}
+            rows={withCostClass(cost.model_calls, callLocus)}
             onDrill={onDrill}
             extra={{ heading: "Calls", cell: (row) => formatNumber(row.value ?? 0, 0) }}
           />

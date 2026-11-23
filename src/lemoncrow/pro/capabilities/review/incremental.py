@@ -48,9 +48,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult
 from lemoncrow.pro.capabilities.review.runtime_validation import RUNTIME_VALIDATION_MEDIA_TYPE
 from lemoncrow.pro.capabilities.review.store import DerivedResult
+from lemoncrow.pro.environment.execution import ExecutionResult
 
 CARRY_KIND: Final[str] = "check_carry"
 _STAMP: Final[str] = "v1"

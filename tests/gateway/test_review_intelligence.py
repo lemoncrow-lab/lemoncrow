@@ -247,7 +247,7 @@ def test_cancelled_and_failed_runs_are_explicit(tmp_path: Path) -> None:
 
 
 def test_cli_review_execution_requires_immutable_snapshot_root() -> None:
-    with pytest.raises(InternalLLMError, match="immutable Review snapshot"):
+    with pytest.raises(InternalLLMError, match="immutable Review revision"):
         execute_structured(
             system="system",
             prompt="prompt",

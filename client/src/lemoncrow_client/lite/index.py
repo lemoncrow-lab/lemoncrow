@@ -25,6 +25,7 @@ import contextlib
 import hashlib
 import os
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
@@ -56,6 +57,8 @@ class LiteIndexUpgradeRequired(RuntimeError):
 _DB_NAME: Final[str] = "runtime-lite-v3.sqlite3"
 _LEGACY_DB_NAME: Final[str] = "runtime-lite.sqlite3"
 _INDEX_DIR: Final[str] = ".lemoncrow/workspace"
+# A Workspaces server keeps each task's index outside the task's files, where its sandbox cannot write it.
+INDEX_ROOT_ENV: Final[str] = "LEMONCROW_LITE_INDEX_ROOT"
 _MAX_INDEX_FILE_BYTES: Final[int] = 4 * 1024 * 1024
 _MAX_QUERY_CACHE: Final[int] = 32
 _REFRESH_INTERVAL_S: Final[float] = 1.0
@@ -370,7 +373,7 @@ def _iter_git_paths(repo_root: Path) -> Iterator[str]:
             stderr=subprocess.PIPE,
         )
     except OSError as exc:
-        raise RuntimeError(f"could not enumerate Runtime Lite worktree: {exc}") from exc
+        raise RuntimeError(f"could not enumerate Workspaces Lite worktree: {exc}") from exc
 
     assert process.stdout is not None
     buffer = b""
@@ -397,7 +400,7 @@ def _iter_git_paths(repo_root: Path) -> Iterator[str]:
     return_code = process.wait()
     if return_code != 0:
         message = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"git ls-files failed for Runtime Lite: {message or return_code}")
+        raise RuntimeError(f"git ls-files failed for Workspaces Lite: {message or return_code}")
 
 
 def _count_git_paths(repo_root: Path) -> int:
@@ -824,7 +827,13 @@ class LiteIndex:
 
     def __init__(self, repo_root: Path, *, stale_while_refresh: bool = False) -> None:
         self.repo_root = repo_root.expanduser().resolve()
-        self.store_dir = self.repo_root / _INDEX_DIR
+        external = os.environ.get(INDEX_ROOT_ENV, "").strip()
+        self._external_store = bool(external)
+        if external:
+            digest = hashlib.sha256(str(self.repo_root).encode("utf-8")).hexdigest()[:24]
+            self.store_dir = Path(external).expanduser().resolve() / digest
+        else:
+            self.store_dir = self.repo_root / _INDEX_DIR
         self.db_path = self.store_dir / _DB_NAME
         # (query, scopes, limit, generation, base generation or -1)
         self._query_cache: OrderedDict[tuple[str, tuple[str, ...], int, int, int], dict[str, Any]] = OrderedDict()
@@ -900,7 +909,17 @@ class LiteIndex:
 
     def _connect(self, *, initialize: bool = False, readonly: bool = False) -> _LiteConnection:
         opened = time.perf_counter()
-        self.store_dir.mkdir(parents=True, exist_ok=True)
+        # One level at a time, never ``parents=True``: a checkout that is gone (a removed task worktree) raises
+        # FileNotFoundError instead of coming back as a directory holding only this index.
+        directory = self.repo_root
+        if self._external_store:
+            if not directory.is_dir():
+                raise FileNotFoundError(str(directory))
+            self.store_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            for part in Path(_INDEX_DIR).parts:
+                directory = directory / part
+                directory.mkdir(exist_ok=True)
         if initialize:
             self._adopt_legacy_database()
         # A URI connection, so ATTACH of an overlay's base can say mode=ro.
@@ -951,7 +970,7 @@ class LiteIndex:
             existing = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if existing is not None and int(existing[0]) > _SCHEMA_VERSION:
                 raise LiteIndexUpgradeRequired(
-                    f"Runtime Lite index schema {existing[0]} is newer than this running tool "
+                    f"Workspaces Lite index schema {existing[0]} is newer than this running tool "
                     f"(schema {_SCHEMA_VERSION}). Update LemonCrow and restart the coding-host "
                     "session to load the new MCP process. Do not delete the index."
                 )
@@ -1054,7 +1073,7 @@ class LiteIndex:
                 connection.commit()
             elif version != _SCHEMA_VERSION:
                 raise RuntimeError(
-                    f"Runtime Lite index schema {schema['value']} is unsupported "
+                    f"Workspaces Lite index schema {schema['value']} is unsupported "
                     f"(expected {_SCHEMA_VERSION}); update LemonCrow and restart the coding host. "
                     "Preserve the index for diagnosis."
                 )
@@ -1080,11 +1099,21 @@ class LiteIndex:
         except (sqlite3.Error, ValueError):
             return -1
 
+    def is_empty(self) -> bool:
+        """No searchable text: never built, or built over nothing."""
+        if not self.db_path.exists():
+            return True
+        try:
+            with contextlib.closing(self._connect(readonly=True)) as connection:
+                return connection.execute("SELECT 1 FROM files WHERE text_indexed=1 LIMIT 1").fetchone() is None
+        except sqlite3.Error:
+            return True
+
     def generation(self) -> int:
         if not self.db_path.exists():
             return 0
         try:
-            with self._connect(readonly=True) as connection:
+            with contextlib.closing(self._connect(readonly=True)) as connection:
                 return self._generation(connection)
         except sqlite3.OperationalError:
             return 0
@@ -1164,7 +1193,7 @@ class LiteIndex:
         if not self.db_path.exists():
             return self.prepare(progress=progress)
         try:
-            with self._connect(readonly=True) as connection:
+            with contextlib.closing(self._connect(readonly=True)) as connection:
                 schema_row = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
                 if schema_row is None or int(schema_row["value"]) != _SCHEMA_VERSION:
                     return self.prepare(progress=progress)
@@ -1342,7 +1371,7 @@ class LiteIndex:
 
     def _prepare_locked(self, *, force: bool, progress: ProgressCallback | None) -> LiteIndexReport:
         if not (self.repo_root / ".git").exists():
-            raise RuntimeError(f"Runtime Lite requires a Git worktree: {self.repo_root}")
+            raise RuntimeError(f"Workspaces Lite requires a Git worktree: {self.repo_root}")
         started = time.monotonic()
         reporter = _ProgressEmitter(progress, started)
         _ensure_workspace_git_excluded(self.repo_root)
@@ -1690,7 +1719,7 @@ class LiteIndex:
             if line > 0 and (path not in lines or channel.startswith("symbol")):
                 lines[path] = line
 
-        with self._connect(readonly=True) as connection:
+        with contextlib.closing(self._connect(readonly=True)) as connection:
             generation = self._generation(connection)
             base_generation = self._base_generation(connection)
             with self._state_lock:
@@ -1894,6 +1923,11 @@ class LiteIndex:
                         add(neighbor_path, neighbor_scores[neighbor_path], "test-import-neighbor")
 
             related_symbols = self._related_symbols_on_connection(connection, query, limit=12)
+            # Workspace search must distinguish an empty index from a normal
+            # no-match without opening a second SQLite connection per member.
+            index_empty = (
+                not scores and connection.execute("SELECT 1 FROM files WHERE text_indexed=1 LIMIT 1").fetchone() is None
+            )
 
         token_count = max(1, len(tokens))
         for path, terms in matched_terms.items():
@@ -1947,6 +1981,7 @@ class LiteIndex:
             "files": files,
             "candidate_files": ordered[limit:],
             "related_symbols": related_symbols,
+            "index_empty": index_empty,
             "lite": True,
         }
         with self._cache_lock:
@@ -2001,7 +2036,7 @@ class LiteIndex:
     def exact_symbols(self, names: str | Sequence[str], *, limit: int = 32) -> list[dict[str, Any]]:
         self.maybe_refresh()
         requested = [names] if isinstance(names, str) else [str(name) for name in names]
-        with self._connect(readonly=True) as connection:
+        with contextlib.closing(self._connect(readonly=True)) as connection:
             return self._exact_symbols_on_connection(connection, requested, limit=limit)
 
     @staticmethod
@@ -2039,7 +2074,7 @@ class LiteIndex:
     def related_symbols(self, query: str, *, limit: int = 12, refresh: bool = True) -> list[dict[str, Any]]:
         if refresh:
             self.maybe_refresh()
-        with self._connect(readonly=True) as connection:
+        with contextlib.closing(self._connect(readonly=True)) as connection:
             return self._related_symbols_on_connection(connection, query, limit=limit)
 
     def relations(self, symbol: str, *, kind: str = "usages", limit: int = 20) -> dict[str, Any]:
@@ -2050,7 +2085,7 @@ class LiteIndex:
 
         if kind == "imports":
             wanted = symbol.lower()
-            with self._connect(readonly=True) as connection:
+            with contextlib.closing(self._connect(readonly=True)) as connection:
                 rows = connection.execute(
                     """
                     SELECT path, module, imported, line FROM imports
@@ -2104,7 +2139,7 @@ class LiteIndex:
         self.maybe_refresh()
         limit = max(1, min(int(limit or 50), 200))
         prefix = path.strip().strip("/")
-        with self._connect(readonly=True) as connection:
+        with contextlib.closing(self._connect(readonly=True)) as connection:
             if kind == "imports":
                 if prefix:
                     rows = connection.execute(
@@ -2166,8 +2201,55 @@ def prepare_lite_workspace(repo_root: Path) -> dict[str, object]:
     return LiteIndex(repo_root).prepare().to_dict()
 
 
+#: What :func:`warm_overlay` raises when the overlay cannot be built, so callers outside Lite need no ``sqlite3``.
+WARM_OVERLAY_ERRORS: Final[tuple[type[Exception], ...]] = (OSError, RuntimeError, ValueError, sqlite3.Error)
+
+
+def warm_overlay(checkout: Path) -> LiteIndexReport | None:
+    """Build a linked worktree's overlay now (``lc task start``), so its first search does not wait for it.
+
+    Only when the main checkout's index can be its base; ``None`` otherwise. Without a base this would be a full
+    standalone build, which the worktree's first search makes anyway and compacts into an overlay once the base
+    exists. The overlay lives in the worktree (``.lemoncrow/workspace``, ignored), so removing the worktree
+    removes it.
+    """
+
+    root = checkout.expanduser().resolve()
+    if not _base_state(_main_checkout_index(root))[1]:
+        return None
+    return LiteIndex(root).prepare()
+
+
+def is_leftover_store(directory: Path) -> bool:
+    """Whether ``directory`` is no checkout and holds nothing but Runtime Lite state (``.lemoncrow/workspace``).
+
+    That is what a writer leaves when it outlived a removed worktree: an index or session state written into it
+    after the checkout itself was gone. Anything else in ``directory`` (``.git`` included) makes this False.
+    """
+
+    state = directory / ".lemoncrow"
+    try:
+        if directory.is_symlink() or not directory.is_dir() or os.listdir(directory) != [".lemoncrow"]:
+            return False
+        if state.is_symlink() or not state.is_dir():
+            return False
+        return os.listdir(state) in ([], ["workspace"]) and not (state / "workspace").is_symlink()
+    except OSError:
+        return False
+
+
+def remove_leftover_store(directory: Path) -> bool:
+    """Remove ``directory`` when :func:`is_leftover_store`; whether it did."""
+
+    if not is_leftover_store(directory):
+        return False
+    shutil.rmtree(directory)
+    return True
+
+
 __all__ = [
     "IMPORT_STATUSES",
+    "WARM_OVERLAY_ERRORS",
     "ImportResolution",
     "ImportResolver",
     "LiteIndex",
@@ -2176,7 +2258,10 @@ __all__ = [
     "ProgressCallback",
     "extract_imports",
     "imported_names",
+    "is_leftover_store",
     "open_index_reader",
     "prepare_lite_workspace",
     "present_index_views",
+    "remove_leftover_store",
+    "warm_overlay",
 ]

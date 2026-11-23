@@ -16,20 +16,27 @@ timezone, a frozen clock, seeded ``Math.random``/``crypto.getRandomValues``,
 animations and transitions off, reduced motion, and masked dynamic regions.
 All outputs are untrusted (the reviewed page produced them) and are bounded
 here; redaction and masking happen before storage (:mod:`render_diff`).
+
+A deployment whose browser runs elsewhere implements :class:`RenderExecutor`:
+it receives the side's source (:class:`RenderSource`) instead of a built site,
+and builds and renders it where its sandbox runs. Captures cross that boundary
+through :func:`capture_to_wire` / :func:`capture_from_wire`.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, Protocol
+from typing import Any, Final, Literal, Protocol, cast
 
 MAX_DOM_LINES: Final[int] = 5000
 MAX_AX_LINES: Final[int] = 5000
@@ -39,6 +46,23 @@ MAX_SCREENSHOT_BYTES: Final[int] = 8 * 1024 * 1024
 _MAX_RESULT_BYTES: Final[int] = 64 * 1024 * 1024
 
 StepKind = Literal["click", "type", "press", "wait", "hover"]
+_STEP_KINDS: Final[frozenset[str]] = frozenset({"click", "type", "press", "wait", "hover"})
+_MAX_WIRE_CELLS: Final[int] = 96
+_MAX_WIRE_TEXT: Final[int] = 2048
+
+
+def _wire_text(raw: Mapping[str, Any], key: str, default: str = "") -> str:
+    value = raw.get(key, default)
+    if not isinstance(value, str) or len(value) > _MAX_WIRE_TEXT:
+        raise ValueError(f"render wire field {key} is invalid")
+    return value
+
+
+def _wire_int(raw: Mapping[str, Any], key: str, low: int, high: int) -> int:
+    value = raw.get(key)
+    if type(value) is not int or not low <= value <= high:
+        raise ValueError(f"render wire field {key} is invalid")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +74,10 @@ class Viewport:
     def to_wire(self) -> dict[str, Any]:
         return {"id": self.id, "width": self.width, "height": self.height}
 
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, Any]) -> Viewport:
+        return cls(_wire_text(raw, "id"), _wire_int(raw, "width", 1, 10_000), _wire_int(raw, "height", 1, 10_000))
+
 
 @dataclass(frozen=True, slots=True)
 class InteractionStep:
@@ -59,6 +87,13 @@ class InteractionStep:
 
     def to_wire(self) -> dict[str, str]:
         return {"kind": self.kind, "selector": self.selector, "value": self.value}
+
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, Any]) -> InteractionStep:
+        kind = _wire_text(raw, "kind")
+        if kind not in _STEP_KINDS:
+            raise ValueError("render wire step kind is invalid")
+        return cls(cast(StepKind, kind), _wire_text(raw, "selector"), _wire_text(raw, "value"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +121,24 @@ class RenderCell:
             "steps": [step.to_wire() for step in self.steps],
         }
 
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, Any]) -> RenderCell:
+        viewport, steps = raw.get("viewport"), raw.get("steps")
+        if not isinstance(viewport, Mapping) or not isinstance(steps, list) or len(steps) > MAX_STEPS:
+            raise ValueError("render wire cell is invalid")
+        if not all(isinstance(step, Mapping) for step in steps):
+            raise ValueError("render wire cell step is invalid")
+        cell = cls(
+            _wire_text(raw, "route"),
+            Viewport.from_wire(viewport),
+            _wire_text(raw, "theme", "light"),
+            _wire_text(raw, "flow"),
+            tuple(InteractionStep.from_wire(step) for step in steps),
+        )
+        if not cell.route.startswith("/") or cell.id != raw.get("id"):
+            raise ValueError("render wire cell identity is invalid")
+        return cell
+
 
 @dataclass(frozen=True, slots=True)
 class DeterminismControls:
@@ -110,6 +163,25 @@ class DeterminismControls:
             "settle_ms": self.settle_ms,
         }
 
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, Any]) -> DeterminismControls:
+        masks = raw.get("mask_selectors")
+        if not isinstance(masks, list) or len(masks) > 64 or not all(isinstance(item, str) for item in masks):
+            raise ValueError("render wire mask selectors are invalid")
+        reduced, animations = raw.get("reduced_motion"), raw.get("disable_animations")
+        if not isinstance(reduced, bool) or not isinstance(animations, bool):
+            raise ValueError("render wire determinism flags are invalid")
+        return cls(
+            locale=_wire_text(raw, "locale"),
+            timezone=_wire_text(raw, "timezone"),
+            clock_ms=_wire_int(raw, "clock_ms", 0, 2**53),
+            seed=_wire_int(raw, "seed", 0, 2**32),
+            reduced_motion=reduced,
+            disable_animations=animations,
+            mask_selectors=tuple(masks),
+            settle_ms=_wire_int(raw, "settle_ms", 0, 60_000),
+        )
+
     @property
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.to_wire(), sort_keys=True).encode()).hexdigest()
@@ -124,6 +196,8 @@ class RenderEnvironment:
     browser: str = ""
     fonts_digest: str = ""
     sandbox: str = "bubblewrap"
+    #: The executor's own image identity when it is not this process's (a remote worker).
+    image_digest: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +230,48 @@ class RenderDriver(Protocol):
         spa_fallback: bool,
         timeout: float,
     ) -> list[PageCapture]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RenderSource:
+    """What a side renders from: a static directory, or an app built where the sandbox runs."""
+
+    root: str
+    spa: bool
+    framework: str = ""  # empty: ``root`` is already a static site
+
+
+@dataclass(frozen=True, slots=True)
+class RenderRequest:
+    """What an off-machine executor needs from the Review to render one entry."""
+
+    source: Callable[[], RenderSource]
+    """What to render; raises ``RenderUnavailable`` when the change has nothing renderable."""
+    materialize: Callable[[str, Path, str], None]
+    """``(side, target, scope)``: write that Snapshot side; raises ``RenderUnavailable``."""
+    hermetic: Callable[[str], tuple[Mapping[str, Any], str]]
+    """``side -> (trusted policy wire, cache namespace)``; raises ``RenderUnavailable``."""
+
+
+class BoundRender(RenderDriver, Protocol):
+    """A :class:`RenderDriver` that also resolves each side's site for ``RenderRunInputs.site``."""
+
+    @property
+    def recipe_stages(self) -> tuple[str, ...]:
+        """Stages the recipe declares, the same on both sides (they enter the fingerprint)."""
+        ...
+
+    def site(self, side: str, work: Path) -> tuple[Path, bool, str]: ...
+
+    def stages(self, side: str) -> tuple[Any, ...]:
+        """Fetch/build stage outcomes the executor reported for *side*."""
+        ...
+
+
+class RenderExecutor(Protocol):
+    """A deployment's off-machine render path (``RunnerRegistry.render_executor``)."""
+
+    def bind(self, request: RenderRequest) -> BoundRender: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -607,7 +723,16 @@ class ChromeCdpDriver:
             "/lib",
             "/lib",
         ]
-        for optional in ("/lib64", "/etc/fonts", "/var/cache/fontconfig", "/etc/hosts", "/etc/nsswitch.conf"):
+        for optional in (
+            "/lib64",
+            "/etc/fonts",
+            "/var/cache/fontconfig",
+            "/etc/hosts",
+            "/etc/nsswitch.conf",
+            # Debian's /usr/bin/chromium is a launcher script that sources these.
+            "/etc/chromium",
+            "/etc/chromium.d",
+        ):
             if Path(optional).exists():
                 args.extend(("--ro-bind", optional, optional))
         mount, _inside = self._chrome_mount()
@@ -632,7 +757,8 @@ class ChromeCdpDriver:
                 "/tmp",
                 "--setenv",
                 "PATH",
-                "/usr/bin:/bin",
+                # /usr is mounted whole; the sandbox's python3 may live in /usr/local/bin (official Python images).
+                "/usr/local/bin:/usr/bin:/bin",
                 "--chdir",
                 "/tmp",
                 "--",
@@ -649,7 +775,7 @@ class ChromeCdpDriver:
         spa_fallback: bool,
         timeout: float,
     ) -> list[PageCapture]:
-        from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, run_limited
+        from lemoncrow.pro.environment.sandbox_limits import SandboxCapacityBusy, run_limited
 
         environment = self.environment()
         if not environment.available:
@@ -711,6 +837,81 @@ def _strings(raw: object, limit: int, width: int = 400) -> tuple[str, ...]:
     return tuple(str(item)[:width] for item in raw[:limit])
 
 
+def _number(value: object) -> float:
+    return float(value) if isinstance(value, (int, float)) and value == value else 0.0
+
+
+def _capture_from_row(cell_id: str, row: Mapping[str, Any], screenshot: bytes) -> PageCapture:
+    """One captured page from an untrusted row: every field typed and bounded here."""
+
+    shot = screenshot if len(screenshot) <= MAX_SCREENSHOT_BYTES and screenshot.startswith(b"\x89PNG") else b""
+    rects: list[tuple[int, int, int, int]] = []
+    raw_rects = row.get("rects")
+    for item in (raw_rects if isinstance(raw_rects, list) else [])[:64]:
+        if isinstance(item, list) and len(item) == 4 and all(type(v) is int and 0 <= v <= 10_000 for v in item):
+            rects.append((item[0], item[1], item[2], item[3]))
+    metrics_raw = row.get("metrics")
+    metrics = (
+        {str(k)[:40]: float(v) for k, v in list(metrics_raw.items())[:16] if isinstance(v, (int, float))}
+        if isinstance(metrics_raw, dict)
+        else {}
+    )
+    return PageCapture(
+        cell_id,
+        "captured",
+        screenshot=shot,
+        mask_regions=tuple(rects),
+        dom_lines=_strings(row.get("dom"), MAX_DOM_LINES),
+        dom_truncated=bool(row.get("dom_truncated")),
+        ax_lines=_strings(row.get("ax"), MAX_AX_LINES),
+        ax_truncated=bool(row.get("ax_truncated")),
+        network=_strings(row.get("network"), MAX_EVENTS),
+        console=_strings(row.get("console"), MAX_EVENTS),
+        cls=_number(row.get("cls")),
+        lcp_ms=_number(row.get("lcp")),
+        metrics=metrics,
+    )
+
+
+def capture_to_wire(capture: PageCapture) -> dict[str, Any]:
+    """One capture for the executor boundary (same row names as the sandbox result)."""
+
+    if capture.status != "captured":
+        return {"cell": capture.cell_id, "status": "failed", "reason": capture.reason[:300]}
+    return {
+        "cell": capture.cell_id,
+        "status": "captured",
+        "screenshot_b64": base64.b64encode(capture.screenshot).decode("ascii"),
+        "rects": [list(rect) for rect in capture.mask_regions],
+        "dom": list(capture.dom_lines),
+        "dom_truncated": capture.dom_truncated,
+        "ax": list(capture.ax_lines),
+        "ax_truncated": capture.ax_truncated,
+        "network": list(capture.network),
+        "console": list(capture.console),
+        "cls": capture.cls,
+        "lcp": capture.lcp_ms,
+        "metrics": dict(capture.metrics),
+    }
+
+
+def capture_from_wire(cell_id: str, row: object) -> PageCapture:
+    """The capture an executor returned for *cell_id*; anything malformed is a failed cell."""
+
+    if not isinstance(row, Mapping) or row.get("cell") != cell_id:
+        return PageCapture(cell_id, "failed", "the executor returned no capture for this cell")
+    if row.get("status") != "captured":
+        return PageCapture(cell_id, "failed", str(row.get("reason") or "not captured")[:300])
+    encoded = row.get("screenshot_b64")
+    if not isinstance(encoded, str) or len(encoded) > (MAX_SCREENSHOT_BYTES * 4) // 3 + 8:
+        return PageCapture(cell_id, "failed", "the executor returned an invalid screenshot")
+    try:
+        screenshot = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return PageCapture(cell_id, "failed", "the executor returned an invalid screenshot")
+    return _capture_from_row(cell_id, row, screenshot)
+
+
 def _read_captures(out: Path, cells: Sequence[RenderCell], log: str) -> list[PageCapture]:
     """Bounded, type-checked captures from the sandbox output (all of it untrusted)."""
 
@@ -733,39 +934,7 @@ def _read_captures(out: Path, cells: Sequence[RenderCell], log: str) -> list[Pag
             continue
         name = str(row.get("screenshot") or "")
         shot = _read_file(out / Path(name).name, MAX_SCREENSHOT_BYTES) if name else b""
-        if len(shot) > MAX_SCREENSHOT_BYTES or not shot.startswith(b"\x89PNG"):
-            shot = b""
-        rects: list[tuple[int, int, int, int]] = []
-        for item in (row.get("rects") or [])[:64]:
-            if isinstance(item, list) and len(item) == 4 and all(isinstance(v, int) and 0 <= v <= 10_000 for v in item):
-                rects.append((item[0], item[1], item[2], item[3]))
-        metrics_raw = row.get("metrics")
-        metrics = (
-            {str(k)[:40]: float(v) for k, v in list(metrics_raw.items())[:16] if isinstance(v, (int, float))}
-            if isinstance(metrics_raw, dict)
-            else {}
-        )
-
-        def number(value: object) -> float:
-            return float(value) if isinstance(value, (int, float)) and value == value else 0.0
-
-        captures.append(
-            PageCapture(
-                cell.id,
-                "captured",
-                screenshot=shot,
-                mask_regions=tuple(rects),
-                dom_lines=_strings(row.get("dom"), MAX_DOM_LINES),
-                dom_truncated=bool(row.get("dom_truncated")),
-                ax_lines=_strings(row.get("ax"), MAX_AX_LINES),
-                ax_truncated=bool(row.get("ax_truncated")),
-                network=_strings(row.get("network"), MAX_EVENTS),
-                console=_strings(row.get("console"), MAX_EVENTS),
-                cls=number(row.get("cls")),
-                lcp_ms=number(row.get("lcp")),
-                metrics=metrics,
-            )
-        )
+        captures.append(_capture_from_row(cell.id, row, shot))
     return captures
 
 
@@ -786,6 +955,7 @@ def screenshot_identity(png: bytes) -> str:
 
 
 __all__ = [
+    "BoundRender",
     "ChromeCdpDriver",
     "DeterminismControls",
     "InteractionStep",
@@ -793,7 +963,12 @@ __all__ = [
     "RenderCell",
     "RenderDriver",
     "RenderEnvironment",
+    "RenderExecutor",
+    "RenderRequest",
+    "RenderSource",
     "Viewport",
+    "capture_from_wire",
+    "capture_to_wire",
     "chrome_executable",
     "fonts_digest",
     "page_scripts",

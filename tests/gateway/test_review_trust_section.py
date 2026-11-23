@@ -75,7 +75,7 @@ _REVIEWED = ReadinessCondition(
     id="latest-snapshot-reviewed",
     label="Latest revision reviewed",
     state="pass",
-    detail="All review areas have current human judgment.",
+    detail="Every part has current human judgment.",
     category="human_review",
     reason="satisfied",
 )

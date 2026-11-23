@@ -1,0 +1,236 @@
+# LemonCrow data path rules: Spring (Java).
+#
+# SPDX-License-Identifier: Apache-2.0
+# Written for LemonCrow (see README.md in this directory). Not copied or adapted from the Semgrep registry, the
+# semgrep-rules repository or opengrep-rules, whose licences do not allow redistribution inside a product.
+#
+# One taint rule per kind of sink (db, http, file, log). The four rules share the same sources, propagators and
+# sanitizers, written out in each rule because Opengrep rejects YAML anchors and unknown top-level keys;
+# tests/gateway/test_review_data_path.py fails when they drift apart. `options.interfile` turns on cross-file
+# taint (`--enable-interfile`, Opengrep v2.0.0 and later).
+rules:
+- id: lemoncrow.data-path.spring.db
+  mode: taint
+  languages:
+  - java
+  severity: INFO
+  message: Request data reaches a database write or query.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: spring
+    sink_kind: db
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $RET $M(..., @$ANN(...) $T $P, ...) { ... }
+      - pattern-inside: $RET $M(..., @$ANN $T $P, ...) { ... }
+    - metavariable-regex:
+        metavariable: $ANN
+        regex: ^(RequestBody|PathVariable|RequestParam|RequestHeader|CookieValue|ModelAttribute|RequestPart)$
+    - pattern: $P
+  - patterns:
+    - pattern-inside: $RET $M(..., MultipartFile $P, ...) { ... }
+    - pattern: $P
+  - patterns:
+    - pattern: $R.$G(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: (?i)^\w*request$
+    - metavariable-regex:
+        metavariable: $G
+        regex: ^(getParameter|getParameterValues|getParameterMap|getHeader|getHeaders|getInputStream|getReader|getCookies|getQueryString)$
+  pattern-propagators:
+  - pattern: $TO = $EM.find($CLASS, $FROM)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $REPO.getReferenceById($FROM)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: $X.isEmpty()
+  - pattern: $X.size()
+  - pattern: Objects.isNull(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?\w*[Rr]epository\.(save\w*|delete\w*|batchDelete\w*|update\w*|insert\w*|remove\w*)))|(?:(?s:(.*\.)?(entityManager|em)\.(persist|merge|remove)))|(?:(?s:(.*\.)?\w*jdbcTemplate\.(update|batchUpdate|execute))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?\w*[Rr]epository\.(save\w*|delete\w*|batchDelete\w*|update\w*|insert\w*|remove\w*)))|(?:(?s:(.*\.)?(entityManager|em)\.(persist|merge|remove)))|(?:(?s:(.*\.)?\w*jdbcTemplate\.(update|batchUpdate|execute))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.spring.http
+  mode: taint
+  languages:
+  - java
+  severity: INFO
+  message: Request data reaches an outgoing HTTP request.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: spring
+    sink_kind: http
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $RET $M(..., @$ANN(...) $T $P, ...) { ... }
+      - pattern-inside: $RET $M(..., @$ANN $T $P, ...) { ... }
+    - metavariable-regex:
+        metavariable: $ANN
+        regex: ^(RequestBody|PathVariable|RequestParam|RequestHeader|CookieValue|ModelAttribute|RequestPart)$
+    - pattern: $P
+  - patterns:
+    - pattern-inside: $RET $M(..., MultipartFile $P, ...) { ... }
+    - pattern: $P
+  - patterns:
+    - pattern: $R.$G(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: (?i)^\w*request$
+    - metavariable-regex:
+        metavariable: $G
+        regex: ^(getParameter|getParameterValues|getParameterMap|getHeader|getHeaders|getInputStream|getReader|getCookies|getQueryString)$
+  pattern-propagators:
+  - pattern: $TO = $EM.find($CLASS, $FROM)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $REPO.getReferenceById($FROM)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: $X.isEmpty()
+  - pattern: $X.size()
+  - pattern: Objects.isNull(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?\w*(restTemplate|RestTemplate|webClient|WebClient|httpClient|HttpClient)\.(exchange|getForObject|getForEntity|postForObject|postForEntity|postForLocation|patchForObject|put|delete|execute|send|sendAsync))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?\w*(restTemplate|RestTemplate|webClient|WebClient|httpClient|HttpClient)\.(exchange|getForObject|getForEntity|postForObject|postForEntity|postForLocation|patchForObject|put|delete|execute|send|sendAsync))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.spring.file
+  mode: taint
+  languages:
+  - java
+  severity: INFO
+  message: Request data reaches a file write.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: spring
+    sink_kind: file
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $RET $M(..., @$ANN(...) $T $P, ...) { ... }
+      - pattern-inside: $RET $M(..., @$ANN $T $P, ...) { ... }
+    - metavariable-regex:
+        metavariable: $ANN
+        regex: ^(RequestBody|PathVariable|RequestParam|RequestHeader|CookieValue|ModelAttribute|RequestPart)$
+    - pattern: $P
+  - patterns:
+    - pattern-inside: $RET $M(..., MultipartFile $P, ...) { ... }
+    - pattern: $P
+  - patterns:
+    - pattern: $R.$G(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: (?i)^\w*request$
+    - metavariable-regex:
+        metavariable: $G
+        regex: ^(getParameter|getParameterValues|getParameterMap|getHeader|getHeaders|getInputStream|getReader|getCookies|getQueryString)$
+  pattern-propagators:
+  - pattern: $TO = $EM.find($CLASS, $FROM)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $REPO.getReferenceById($FROM)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: $X.isEmpty()
+  - pattern: $X.size()
+  - pattern: Objects.isNull(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:Files\.(write|writeString|copy|move|newBufferedWriter|newOutputStream))|(?:(?si:(.*\.)?\w*(zos|zip\w*|out\w*|writer)\.(write|putNextEntry))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:Files\.(write|writeString|copy|move|newBufferedWriter|newOutputStream))|(?:(?si:(.*\.)?\w*(zos|zip\w*|out\w*|writer)\.(write|putNextEntry))))$
+    - focus-metavariable: $F
+  - patterns:
+    - pattern: new $T(...)
+    - metavariable-regex:
+        metavariable: $T
+        regex: ^(?:(?:FileOutputStream|FileWriter|PrintWriter|RandomAccessFile))$
+- id: lemoncrow.data-path.spring.log
+  mode: taint
+  languages:
+  - java
+  severity: INFO
+  message: Request data reaches a log line.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: spring
+    sink_kind: log
+  pattern-sources:
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $RET $M(..., @$ANN(...) $T $P, ...) { ... }
+      - pattern-inside: $RET $M(..., @$ANN $T $P, ...) { ... }
+    - metavariable-regex:
+        metavariable: $ANN
+        regex: ^(RequestBody|PathVariable|RequestParam|RequestHeader|CookieValue|ModelAttribute|RequestPart)$
+    - pattern: $P
+  - patterns:
+    - pattern-inside: $RET $M(..., MultipartFile $P, ...) { ... }
+    - pattern: $P
+  - patterns:
+    - pattern: $R.$G(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: (?i)^\w*request$
+    - metavariable-regex:
+        metavariable: $G
+        regex: ^(getParameter|getParameterValues|getParameterMap|getHeader|getHeaders|getInputStream|getReader|getCookies|getQueryString)$
+  pattern-propagators:
+  - pattern: $TO = $EM.find($CLASS, $FROM)
+    from: $FROM
+    to: $TO
+  - pattern: $TO = $REPO.getReferenceById($FROM)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: $X.isEmpty()
+  - pattern: $X.size()
+  - pattern: Objects.isNull(...)
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(log|LOG|logger|LOGGER|Logger|\w+Log|\w+Logger)\.(trace|debug|info|warn|error)))|(?:Tracer\.(logEvent|logError|logInfo|logDebug|logWarn)))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(log|LOG|logger|LOGGER|Logger|\w+Log|\w+Logger)\.(trace|debug|info|warn|error)))|(?:Tracer\.(logEvent|logError|logInfo|logDebug|logWarn)))$
+    - focus-metavariable: $F

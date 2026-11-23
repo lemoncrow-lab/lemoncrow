@@ -35,7 +35,7 @@ function result(side: "old" | "new", statusCode: number, body: string): ReviewSu
 }
 
 describe("ApiReviewPreview", () => {
-  it("shows before/after behavior as two sides of the exact Snapshot", () => {
+  it("shows before/after behavior as two sides of the exact revision", () => {
     render(
       <ApiReviewPreview
         surface={surface}
@@ -48,8 +48,8 @@ describe("ApiReviewPreview", () => {
 
     expect(screen.getByText("Before")).toBeTruthy();
     expect(screen.getByText("After")).toBeTruthy();
-    expect(screen.getByText("Snapshot rrv-4 · old")).toBeTruthy();
-    expect(screen.getByText("Snapshot rrv-4 · new")).toBeTruthy();
+    expect(screen.getByText("Revision · old")).toBeTruthy();
+    expect(screen.getByText("Revision · new")).toBeTruthy();
     expect(screen.getByText(/"state": "old"/)).toBeTruthy();
     expect(screen.getByText(/"state": "new"/)).toBeTruthy();
   });
@@ -125,13 +125,13 @@ describe("ApiReviewPreview", () => {
       <ApiReviewPreview
         surface={{ ...surface, runtime: "" }}
         mode="compare"
-        run={{ error: "api-runtime is not pinned to Snapshot rrv-4" }}
+        run={{ error: "api-runtime is not pinned to revision rrv-4" }}
         onModeChange={vi.fn()}
         onRun={vi.fn()}
       />,
     );
-    expect(screen.getByText("api-runtime is not pinned to Snapshot rrv-4")).toBeTruthy();
-    expect(screen.getByText(/Response execution needs a Snapshot-pinned runtime/)).toBeTruthy();
+    expect(screen.getByText("api-runtime is not pinned to revision rrv-4")).toBeTruthy();
+    expect(screen.getByText(/Response execution needs a revision-pinned runtime/)).toBeTruthy();
     expect(screen.getAllByText("Not run yet")).toHaveLength(2);
     expect(screen.queryByRole("button")).toBeNull();
 

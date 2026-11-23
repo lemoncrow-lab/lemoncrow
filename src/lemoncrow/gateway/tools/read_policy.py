@@ -14,7 +14,6 @@ from lemoncrow.gateway.tools.semantic_memory import semantic_file_memory
 
 DEFAULT_READ_INLINE_BUDGET_BYTES = 40 * 1024
 DEFAULT_READ_BATCH_BUDGET_BYTES = 24 * 1024
-MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
 SUMMARY_TARGET_CHARS = 4096
 
 ARCHIVE_SUFFIXES = frozenset({".gz", ".bz2", ".xz", ".zst", ".tgz", ".tbz2"})
@@ -50,7 +49,7 @@ def binary_read_message(media_type: str, size_bytes: int, suffix: str = "") -> s
     """Return actionable guidance when read encounters non-text binary content."""
     base = f"Binary file ({media_type}, {size_bytes} bytes) -- not UTF-8 text, not decoded."
     if media_type.startswith("image/"):
-        return base + f" Image too large to inline (> {MAX_INLINE_IMAGE_BYTES} bytes)."
+        return base + " Image could not be read (empty or unreadable)."
     if media_type.startswith("video/"):
         return (
             base + " Video not viewable. Extract a frame -- "
@@ -223,7 +222,6 @@ __all__ = [
     "ARCHIVE_SUFFIXES",
     "DEFAULT_READ_BATCH_BUDGET_BYTES",
     "DEFAULT_READ_INLINE_BUDGET_BYTES",
-    "MAX_INLINE_IMAGE_BYTES",
     "READ_SUGGEST_PRUNE_DIRS",
     "SUMMARY_TARGET_CHARS",
     "apply_batch_read_budget",

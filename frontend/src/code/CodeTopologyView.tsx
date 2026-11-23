@@ -13,11 +13,10 @@ import type { MapEdge, MapNode } from "../map/types";
 import { communityColor, relationColor } from "../lib/graphColors";
 import { moduleOfPath, type LiveMarks, type MapSpec } from "./codeModel";
 
-const CodeGraph2D = lazy(() => import("./CodeGraph2D"));
 const CodeGraph3D = lazy(() => import("./CodeGraph3D"));
 
+/** The 3D topology of the repository's modules, or of one focus. */
 export interface CodeTopologyViewProps {
-  mode: "2d" | "3d";
   cacheKey: string;
   spec: MapSpec;
   overview: CodeModulesOverview | null;
@@ -115,7 +114,6 @@ function toLegacyGraph(nodes: readonly MapNode[], edges: readonly MapEdge[]) {
 }
 
 export default function CodeTopologyView({
-  mode,
   cacheKey,
   spec,
   overview,
@@ -249,12 +247,12 @@ export default function CodeTopologyView({
     onInteract();
     onSpec(null);
   };
-  const scopedKey = `${cacheKey}:legacy-graph:${spec ? `${spec.level}:${spec.id}` : "modules"}:${mode}`;
+  const scopedKey = `${cacheKey}:legacy-graph:${spec ? `${spec.level}:${spec.id}` : "modules"}:3d`;
 
   return (
     <div className="relative flex h-full min-h-[500px] flex-col overflow-hidden">
       <div className="flex min-h-9 shrink-0 items-center gap-2 border-b border-border bg-background/70 px-3 text-caption text-muted-foreground">
-        <span className="font-medium text-foreground">{mode.toUpperCase()} topology</span>
+        <span className="font-medium text-foreground">3D topology</span>
         <span>{current.legacy.nodes.length.toLocaleString()} nodes</span>
         <span>·</span>
         <span>{current.legacy.edges.length.toLocaleString()} relationships</span>
@@ -294,36 +292,19 @@ export default function CodeTopologyView({
           )}
         </div>
       </div>
-      <div className="min-h-0 flex-1">
-        <Suspense fallback={<Status><Loader2 size={14} className="animate-spin" /> Loading {mode.toUpperCase()} renderer…</Status>}>
-          {mode === "2d" ? (
-            <CodeGraph2D
-              key={scopedKey}
-              cacheKey={scopedKey}
-              nodes={current.legacy.nodes}
-              edges={current.legacy.edges}
-              selectedId={selectedId}
-              activityByNode={activityByNode}
-              followNodeId={null}
-              edgeVisibility="all"
-              directedKinds={["calls", "imports", "references"]}
-              presentation="default"
-              onSelect={select}
-              onExpand={expand}
-            />
-          ) : (
-            <CodeGraph3D
-              key={scopedKey}
-              cacheKey={scopedKey}
-              nodes={current.legacy.nodes}
-              edges={current.legacy.edges}
-              selectedId={selectedId}
-              activityByNode={activityByNode}
-              followNodeId={null}
-              onSelect={select}
-              onExpand={expand}
-            />
-          )}
+      <div className="relative min-h-0 flex-1">
+        <Suspense fallback={<Status><Loader2 size={14} className="animate-spin" /> Loading 3D renderer…</Status>}>
+          <CodeGraph3D
+            key={scopedKey}
+            cacheKey={scopedKey}
+            nodes={current.legacy.nodes}
+            edges={current.legacy.edges}
+            selectedId={selectedId}
+            activityByNode={activityByNode}
+            followNodeId={null}
+            onSelect={select}
+            onExpand={expand}
+          />
         </Suspense>
       </div>
     </div>

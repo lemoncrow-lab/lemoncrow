@@ -17,13 +17,21 @@ For frontend work, follow [`frontend/DESIGN_GUIDE.md`](frontend/DESIGN_GUIDE.md)
 
 ## Tests
 
-Verify a change with only the test files it touches (`uv run pytest tests/path/test_file.py -q`, or `-k`). Never run the whole suite or a whole test directory, including `make test`, `make pre-commit` and `make verify`. `tests/conftest.py` refuses any run over 1000 tests. Coding agents must never set `LEMONCROW_FULL_SUITE`; only a person opts in, for one command.
+Verify a change with only the test files it touches (`uv run pytest tests/path/test_file.py -q`, or `-k`). Never run the whole suite or a whole test directory, including `make test`, `make pre-commit`, `make verify-all` and `make verify-full`. `tests/conftest.py` refuses any run over 1000 tests. Coding agents must never set `LEMONCROW_FULL_SUITE`; only a person opts in, for one command.
 
-## Git branches and worktrees — keep them minimal (mandatory)
+## Agent workflow (mandatory)
 
-- **Default to the existing checkout and branch.** Before starting work, inspect `git status --short --branch`, `git worktree list`, and `git branch -vv`. Reuse the current task's branch/worktree, or `main` when the repository's review rules allow it.
-- **Never create a branch or worktree per prompt, subtask, agent, test, or small fix.** Keep related work in one existing branch and finish it end-to-end. Do not create speculative, temporary, or duplicate checkouts just for convenience.
-- Create a **new branch** only for a genuinely independent review/PR/release boundary or necessary isolation. Create an **additional worktree** only for truly concurrent work that cannot safely share a checkout. State the reason and owner in the task tracker; aim for one primary worktree plus at most one additional worktree per independent active workstream, not an ever-growing collection.
-- Before creating a branch/worktree, check whether an existing unmerged branch or worktree already covers that work. Prefer continuing or folding it over starting another parallel line. Do not use separate branches merely to record progress or documentation.
-- **Close the loop:** run the relevant checks, integrate finished work through the project's normal merge/review process, then clean up its no-longer-needed branch/worktree after verifying it is merged, clean, and unused. Record unfinished branches/worktrees and their blockers in one durable task tracker.
-- **Never lose work for cleanup.** Do not force-remove or reset a dirty/active worktree, discard uncommitted or ignored runtime/configuration files, or delete unique unmerged commits. Preserve other agents' changes and follow the repository's explicit approval and backup rules before destructive operations. Do not delete remote branches as an automatic cleanup step.
+- **One task, one worktree.** Start each task with `lc task start <task-id>`. It creates `.worktrees/<task-id>` on branch `agent/<task-id>` from `origin/main`. Work only there: never edit the main checkout, and never share a worktree with another agent. `.githooks/agent-task ARGS` runs the same `lc task ARGS` with this checkout's client; use it when the installed `lc` has no `task` command.
+- **Gate, then land.** Commit, run `make verify`, then `lc task land` inside the worktree. `make verify` runs the checks in `.lemoncrow/environment.toml` that your change touches (`lc verify`). `land` rebases onto `origin/main` and pushes to `main`; `git push` runs the same gate on exactly what lands. If a check fails, fix it and land again.
+- **Never bypass the gate** with `--no-verify`; only a person may. Report a failure you cannot fix.
+- **Clean up.** After landing, run `lc task finish <task-id>` from outside the worktree. It removes the worktree and branch only when every commit is on `origin/main` and no file is modified or untracked; ignored files (dependencies, build output) go with it. `lc task list` shows tasks not yet landed.
+- **Never lose work.** Do not force-remove a worktree, discard uncommitted or untracked files, delete unlanded commits, or delete remote branches. Leave other agents' worktrees alone. If you stop before landing, report the worktree and branch that hold the work.
+- The desktop runner re-checks `main` after each push. `make verify` also runs `git config core.hooksPath .githooks`, which turns the gate on for the clone.
+- `make verify` runs only the test files you changed. Never run `make verify-all` or `make verify-full`: both run the whole suite.
+
+## Testing Policy
+
+- Write only high-value tests that catch meaningful bugs, regressions, or security issues.
+- Prefer real behavior and integration tests over mocked or implementation-detail tests.
+- Avoid trivial, redundant, or coverage-driven tests.
+- Run focused tests during development; preserve existing mandatory CI and release checks.

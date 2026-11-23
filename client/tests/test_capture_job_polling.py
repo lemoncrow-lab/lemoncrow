@@ -67,7 +67,7 @@ def test_fast_local_first_poll_backs_off_without_pounding_long_running_jobs(monk
 
 
 def test_file_progress_is_forwarded_on_each_poll_until_done() -> None:
-    feedback = {"detail": "Building review targets · 12/2249 files"}
+    feedback = {"detail": "Finding changed parts · 12/2249 files"}
     remote = _session(
         [
             _Resp({**RUNNING, "progress": feedback}),

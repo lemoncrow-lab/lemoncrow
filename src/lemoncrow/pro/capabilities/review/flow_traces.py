@@ -129,10 +129,10 @@ def ground_flow(flow: Mapping[str, Any] | None, traces: Mapping[str, Any]) -> di
             [_message(edge) for edge in base_edges if _key(edge) not in head_keys][:MAX_MESSAGES] if comparable else []
         ),
         "note": (
-            "Observed steps cite call traces from the planned runtime-observation runs of this Snapshot; "
+            "Observed steps cite call traces from the planned runtime-observation runs of this revision; "
             "other steps are inferred from the import graph."
             if base_edges or head_edges
-            else "No observed trace for this Snapshot; every step is inferred from the import graph."
+            else "No observed trace for this revision; every step is inferred from the import graph."
         ),
     }
     return out

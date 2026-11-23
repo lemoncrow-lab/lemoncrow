@@ -14,7 +14,7 @@ describe("review draft persistence", () => {
     window.localStorage.clear();
   });
 
-  it("keeps a comment draft scoped to one Review and exact Snapshot", () => {
+  it("keeps a comment draft scoped to one Review and exact revision", () => {
     saveCommentDraft("review-a", "rev-1", {
       path: "src/auth.ts",
       startLine: 10,
@@ -56,7 +56,7 @@ describe("review draft persistence", () => {
     expect(loadCommentDraft("review-a", "rev-1")).toBeNull();
   });
 
-  it("keeps Ask drafts scoped to Review, Snapshot and anchor", () => {
+  it("keeps Ask drafts scoped to Review, revision and anchor", () => {
     const scope = {
       target_unit_key: "unit:auth",
       path: "src/auth.ts",

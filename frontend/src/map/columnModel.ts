@@ -69,6 +69,9 @@ export interface ColumnEdge {
   resting: boolean;
   labelX: number;
   labelY: number;
+  /** The free gap beside the edge's left card: a label kept inside it never covers a card. */
+  labelMin: number;
+  labelMax: number;
 }
 
 export interface ColumnGroup {
@@ -114,10 +117,41 @@ export const COLUMN_LAYOUT = {
   cyclePad: 6,
   maxCardW: 236,
   minCardW: 168,
+  /** Narrowest card and gap, used only when the roomy minimums would make the map wider than its pane. */
+  compactCardW: 132,
+  compactGap: 36,
   restingEdges: 60,
 } as const;
 
+/** Smallest scale the map is drawn at to fit its pane; a map wider than that still scrolls sideways. */
+const MIN_FIT_ZOOM = 0.7;
+
+/** The scale that fits a map `mapWidth` wide into a pane `paneWidth` wide (1 when it fits or the pane is unmeasured). */
+export function fitZoom(mapWidth: number, paneWidth: number): number {
+  if (paneWidth <= 0 || mapWidth <= paneWidth) return 1;
+  return Math.max(MIN_FIT_ZOOM, Math.floor((paneWidth / mapWidth) * 100) / 100);
+}
+
 const FOLD_PREFIX = "fold:";
+
+/** The point at x on a `horizontalPath` curve from (x0, y0) to (x3, y3). */
+function gapLabel(x0: number, y0: number, x3: number, y3: number, x: number): { labelX: number; labelY: number } {
+  const length = x3 - x0;
+  if (length <= 0) return { labelX: (x0 + x3) / 2, labelY: (y0 + y3) / 2 };
+  // horizontalPath's control points: (x0 + dx, y0) and (x3 - dx, y3); x(t) rises monotonically with t.
+  const dx = Math.max(24, length * 0.5);
+  const xAt = (t: number) => x0 + 3 * (1 - t) ** 2 * t * dx + 3 * (1 - t) * t * t * (length - dx) + t ** 3 * length;
+  const target = Math.min(Math.max(x, x0), x3);
+  let lo = 0;
+  let hi = 1;
+  for (let step = 0; step < 24; step += 1) {
+    const t = (lo + hi) / 2;
+    if (xAt(t) < target) lo = t;
+    else hi = t;
+  }
+  const t = (lo + hi) / 2;
+  return { labelX: target, labelY: y0 + (y3 - y0) * (3 * t * t - 2 * t ** 3) };
+}
 
 export function foldId(parent: string): string {
   return FOLD_PREFIX + parent;
@@ -361,8 +395,11 @@ export function buildColumnModel(
 
   // 5. Geometry.
   const width = Math.max(options.width, 360);
-  const gapMin = 52;
-  const cardW = Math.max(L.minCardW, Math.min(L.maxCardW, (width - L.pad * 2 - gapMin * (columnCount - 1)) / Math.max(1, columnCount)));
+  // Cards and gaps tighten before the map outgrows its pane; past the compact minimums ColumnCanvas draws it smaller.
+  const roomy = L.pad * 2 + L.minCardW * columnCount + 52 * Math.max(0, columnCount - 1) <= width;
+  const gapMin = roomy ? 52 : L.compactGap;
+  const minCardW = roomy ? L.minCardW : L.compactCardW;
+  const cardW = Math.max(minCardW, Math.min(L.maxCardW, (width - L.pad * 2 - gapMin * (columnCount - 1)) / Math.max(1, columnCount)));
   const gap = columnCount > 1 ? Math.max(gapMin, (width - L.pad * 2 - cardW * columnCount) / (columnCount - 1)) : 0;
   const totalW = Math.max(width, L.pad * 2 + cardW * columnCount + gap * Math.max(0, columnCount - 1));
   const top = L.header + 10;
@@ -492,6 +529,8 @@ export function buildColumnModel(
         resting,
         labelX: xr + bulge * 0.75,
         labelY: (y1 + y2) / 2,
+        labelMin: xr + 2,
+        labelMax: xr + gap - 2,
       });
       continue;
     }
@@ -512,8 +551,11 @@ export function buildColumnModel(
       arrow: arrowHead(forward ? x2 : x1, forward ? right.y : left.y, forward ? "right" : "left"),
       width: strokeWidth,
       resting,
-      labelX: (x1 + x2) / 2,
-      labelY: (left.y + right.y) / 2,
+      // The label sits in the first gap the edge crosses, on the curve there, so
+      // an edge that spans columns doesn't put its label on a card in between.
+      ...gapLabel(startX, left.y, endX, right.y, x1 + gap / 2),
+      labelMin: x1 + 2,
+      labelMax: x1 + gap - 2,
     });
   }
   edges.sort((a, b) => a.width - b.width);

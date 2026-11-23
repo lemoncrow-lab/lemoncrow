@@ -72,7 +72,7 @@ AttributionRole = Literal["primary", "contributor"]
 ATTRIBUTION_SCOPES: tuple[str, ...] = ("revision", "file")
 ATTRIBUTION_ROLES: tuple[str, ...] = ("primary", "contributor")
 
-MarkState = Literal["unreviewed", "reviewed", "needs_changes", "changed_since_review", "unknown"]
+MarkState = Literal["unreviewed", "reviewed", "needs_changes", "changed_since_review", "unknown", "later"]
 ReviewMarkEventKind = Literal["judgment", "reconciled", "discarded", "migrated"]
 REVIEW_MARK_EVENT_KINDS: tuple[str, ...] = ("judgment", "reconciled", "discarded", "migrated")
 
@@ -137,6 +137,9 @@ ReviewActivityKind = Literal[
     "premerge.intent_record_refused",
     "record.exported",
     "record.not_emitted",
+    "record.retracted",
+    "review.coverage_seen",
+    "review.coverage_skipped",
     "deployment.observed",
     "deployment.summarized",
     "observation.contradicted",
@@ -196,6 +199,11 @@ REVIEW_ACTIVITY_KINDS: tuple[str, ...] = (
     "record.exported",
     # A provider-observed merge emitted no record: nothing may sign it here (P10-SIGN).
     "record.not_emitted",
+    # A person retracted a signed verdict inside the 24-hour window (P6-2).
+    "record.retracted",
+    # D7: reviewer-reported exposure and explicit skipped-coverage disclosure.
+    "review.coverage_seen",
+    "review.coverage_skipped",
     # P15-DEPLOY: a merged change's deployment state moved in one environment, and a
     # deployment's observation window closed (summary kept, raw signal expired).
     "deployment.observed",
@@ -240,7 +248,27 @@ MARK_STATES: tuple[str, ...] = (
     "needs_changes",
     "changed_since_review",
     "unknown",
+    "later",
 )
+"""``later`` is "Decide later": the reviewer saw the part and set it aside.
+
+It is **not a judgment**. It is carried with the same weight as ``unreviewed``
+everywhere a count or a gate asks whether a part has been judged, and it is
+shown as still open. Only the states in :data:`JUDGED_MARK_STATES` attest that
+a human decided something about the content.
+"""
+JUDGED_MARK_STATES: frozenset[str] = frozenset({"reviewed", "needs_changes"})
+"""The marks that record a human decision about the part's content on its fingerprint."""
+
+AnswerCategory = Literal["decision", "quick_check", "accepted_by_rule"]
+ANSWER_CATEGORIES: tuple[str, ...] = ("decision", "quick_check", "accepted_by_rule")
+"""How a part is asked of a person.
+
+``decision``: a person must answer it. ``quick_check``: a person glances and
+confirms. ``accepted_by_rule``: a named rule accepts it, it is listed, and it is
+never recorded as reviewed or quick-checked. Computed by
+:mod:`~lemoncrow.pro.capabilities.review.answer_category` from checked facts only.
+"""
 
 AnnotationKind = Literal["comment", "request_change", "suggestion", "looks_good"]
 ANNOTATION_KINDS: tuple[str, ...] = ("comment", "request_change", "suggestion", "looks_good")
@@ -578,21 +606,21 @@ class ReviewRevision:
     provenance_certainty: ProvenanceCertainty = "none"
     created_at: str = ""
     source_fingerprint: str = ""
-    """Source-generation identity used for change detection and Snapshot history.
+    """Source-generation identity used for change detection and revision history.
 
     Empty on reviews captured before R14. Together with ``tree_fingerprint`` it
     prevents duplicate captures of the same source generation while allowing a
-    rebase/base move to remain visible as a new Snapshot. It never decides human
+    rebase/base move to remain visible as a new revision. It never decides human
     review validity; target reconciliation remains authoritative.
     """
     source_view_id: str = ""
-    """Native View that supplied this Snapshot, when capture came through the server.
+    """Native View that supplied this revision, when capture came through the server.
 
     Used only to bind later ``current_index`` context to the same logical View;
-    it never participates in Snapshot or human-judgment identity.
+    it never participates in revision or human-judgment identity.
     """
     source_view_revision: int = 0
-    """Committed native View revision verified when this Snapshot was captured."""
+    """Committed native View revision verified when this revision was captured."""
     capture_kind: ReviewCaptureKind = "legacy"
     """User-facing classification. Branch Reviews capture ``draft`` and ``commit``
     checkpoints; PR and named-range Reviews capture ``revision``; ``legacy`` is
@@ -604,7 +632,7 @@ class ReviewRevision:
     worktree_key: str = ""
     """Stable local worktree identity for draft provenance; commits may leave it blank."""
     title: str = ""
-    """Human-readable Snapshot headline derived from captured author output."""
+    """Human-readable revision headline derived from captured author output."""
 
 
 @dataclass(frozen=True)
@@ -752,6 +780,13 @@ class ReviewUnit:
     """Why this unit ranked where it did. Every ranked item must carry an
     explanation -- an unexplained score is a number the reader cannot argue
     with, which is the same as a number they cannot trust."""
+    answer_category: AnswerCategory | Literal[""] = ""
+    """The structural category stamped when the revision was captured (path, file kind, special Git
+    change); ``""`` on a unit stored before the stamp existed. The part's final category adds the
+    facts only the queue knows (see ``answer_category.effective_answer``) and can only raise this to
+    ``decision``."""
+    category_rule: str = ""
+    """The rule that accepted this unit (``generated_files`` or ``lockfiles``); ``""`` otherwise."""
 
 
 @dataclass(frozen=True)
@@ -828,6 +863,8 @@ class ReviewAskConversationRecord:
     origin_json: str = "{}"
     created_at: str = ""
     updated_at: str = ""
+    #: Who asked (the acting reviewer). ``""`` for a row from before this was recorded.
+    created_by: str = ""
 
 
 @dataclass(frozen=True)
@@ -851,6 +888,8 @@ class ReviewAskMessage:
     action_json: str = "{}"
     created_at: str = ""
     conversation_id: str = ""
+    #: Who asked, for an answer too (it belongs to the asker's conversation). ``""`` for a row from before this was recorded.
+    created_by: str = ""
 
 
 @dataclass(frozen=True)
@@ -1039,6 +1078,10 @@ class Annotation:
     """The revision this annotation was *created* on."""
     anchor: AnnotationAnchor
     body: str = ""
+    reconsidered_after_structure: bool = False
+    """Human-reported reconsideration, not a claim that relationships are proven."""
+    structure_revision_id: str = ""
+    """Revision on which the reconsideration was recorded; required with the flag."""
     kind: AnnotationKind = "comment"
     state: AnnotationState = "open"
     parent_id: str = ""
@@ -1085,7 +1128,7 @@ class Annotation:
     finding_disposition_reason: FindingDismissalReason = ""
     """Required taxonomy only when the finding is dismissed."""
     finding_disposition_revision_id: str = ""
-    """Snapshot on which the reviewer or revalidation recorded this disposition."""
+    """Revision on which the reviewer or revalidation recorded this disposition."""
     finding_disposition_reviewer_id: str = ""
     """Human principal that recorded the disposition; empty for automatic stale transitions."""
     finding_disposition_evidence: tuple[str, ...] = ()
@@ -1101,6 +1144,16 @@ def validate_annotation_semantics(annotation: Annotation) -> None:
     cannot quietly become a human verdict by choosing the same ``kind``.
     """
 
+    if annotation.reconsidered_after_structure and (
+        annotation.source != "human"
+        or annotation.created_by_actor != "human"
+        or annotation.kind != "request_change"
+        or annotation.parent_id
+        or annotation.structure_revision_id != annotation.revision_id
+    ):
+        raise ValueError("structure reconsideration requires a human root change request on its own revision")
+    if not annotation.reconsidered_after_structure and annotation.structure_revision_id:
+        raise ValueError("ordinary annotation cannot claim a structure revision")
     if annotation.source not in ANNOTATION_SOURCES:
         raise ValueError(f"unknown annotation source {annotation.source!r}")
     if annotation.source == "human" and annotation.created_by_actor != "human":
@@ -1510,6 +1563,7 @@ __all__ = [
     "ANCHOR_SIDES",
     "ANNOTATION_KINDS",
     "ANNOTATION_STATES",
+    "ANSWER_CATEGORIES",
     "EXACT_ANCHOR_METHODS",
     "FEEDBACK_TARGET_TYPES",
     "FINGERPRINT_METHODS",
@@ -1517,6 +1571,7 @@ __all__ = [
     "HOSTED_ACTION_KINDS",
     "HOSTED_ACTION_STATES",
     "HOSTED_ACTION_UNRESOLVED",
+    "JUDGED_MARK_STATES",
     "LOST_ANCHOR_METHODS",
     "MARK_STATES",
     "REVIEW_ASK_HANDOFF_STATES",
@@ -1540,6 +1595,7 @@ __all__ = [
     "AnnotationAnchor",
     "AnnotationKind",
     "AnnotationState",
+    "AnswerCategory",
     "DecisionAction",
     "DecisionDisposition",
     "DeliveryRecord",

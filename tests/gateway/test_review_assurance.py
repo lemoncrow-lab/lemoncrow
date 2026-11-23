@@ -113,7 +113,7 @@ from tests.gateway.test_review_deployments import CONFIGURED, MERGED, OLD_SHA, _
 from tests.gateway.test_review_run_plan_api import _get, _post, _review
 
 ORG = SettingOrigin("organization", "organization policy")
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 AGENT = AgentAuthor("claude", "claude-sonnet-4-5")
 _SCORE_TEXT = ("track record of", "revert rate", "escaped defects", "contradicted claims", "confirmed findings")
 
@@ -326,7 +326,7 @@ def test_assurance_policy_contract() -> None:
     assert (inside.mode, inside.matched_paths, inside.origin_label) == (
         "require",
         ("src/auth/login.py",),
-        "base Snapshot .lemoncrow/review.yaml",
+        "base revision .lemoncrow/review.yaml",
     )
     assert inside.to_wire()["paths"] == ["src/auth/**"]
     assert resolve_independence((), ("a.py",)).to_wire()["origin"]["layer"] == "built_in_default"
@@ -420,9 +420,9 @@ def test_assurance_policy_contract() -> None:
         model_label="gpt-4.1",
         model_data_locus="external",
         available=False,
-        reason="AI review has not settled on this Snapshot yet",
+        reason="AI review has not settled on this revision yet",
     )
-    assert blocked["available"] is False and blocked["reason"] == "AI review has not settled on this Snapshot yet"
+    assert blocked["available"] is False and blocked["reason"] == "AI review has not settled on this revision yet"
     assert STATIC_CATALOG["ai.investigators"].model_calls("thorough") > 0
 
 
@@ -997,7 +997,7 @@ def test_require_stays_unsatisfied_when_any_reviewer_run_on_the_snapshot_shares_
         calls = _enable_openai(monkeypatch, requested=requested, reported=reported)
         ran = _post(review, "ai-review/fresh", {"action_id": f"several-{index}"})
         assert ran.status_code == 200, ran.text
-        assert calls, "each reviewer must actually run on the Snapshot"
+        assert calls, "each reviewer must actually run on the revision"
     ready = [row for row in review.store.list_intelligence_runs(review.review_id) if row.status == "ready"]
     assert {model for row in ready for model in run_identity(row).observed_models} == {same[1], distinct[1]}
     independence = _get(review, "projection").json()["ai_review"]["assurance"]["independence"]

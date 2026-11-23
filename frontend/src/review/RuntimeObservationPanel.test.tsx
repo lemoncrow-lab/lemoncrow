@@ -163,7 +163,7 @@ describe("RuntimeObservationPanel", () => {
     expect(within(screen.getByTestId("observation-entry-visual.matrix")).queryByRole("button")).toBeNull();
   });
 
-  it("is read-only on a historical Snapshot", async () => {
+  it("is read-only on a historical revision", async () => {
     api.fetchRuntimeObservation.mockResolvedValue(projection({ historical: true }));
     render(<RuntimeObservationPanel reviewId="review-1" revisionId="rev-0" />);
     const planned = await screen.findByTestId("observation-entry-side_effects.runtime");

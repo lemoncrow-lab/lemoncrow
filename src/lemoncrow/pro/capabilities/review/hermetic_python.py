@@ -40,7 +40,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Final, Protocol, cast
 from urllib.parse import urljoin, urlsplit
 
-from lemoncrow.pro.capabilities.review.execution import StageOutcome, canonical_digest
 from lemoncrow.pro.capabilities.review.hermetic import (
     _PROBE_RUN,
     _SANDBOX_PATH,
@@ -48,17 +47,17 @@ from lemoncrow.pro.capabilities.review.hermetic import (
     INSTALL_TIMEOUT_SECONDS,
     MAX_TARBALL_BYTES,
     MAX_TOTAL_FETCH_BYTES,
-    DependencyCache,
     HermeticPolicy,
     HermeticRefused,
     HermeticUnavailable,
     RegistryFetcher,
     RegistryRule,
     _stage_ms,
-    _tree_lock,
     offline_bwrap_prefix,
     pypi_normalize,
 )
+from lemoncrow.pro.environment.dependency_cache import DependencyCache, tree_lock
+from lemoncrow.pro.environment.execution import StageOutcome, canonical_digest
 
 PYTHON_ENV_MOUNT: Final[str] = "/lemoncrow-python"
 PYTHON_VENV: Final[str] = f"{PYTHON_ENV_MOUNT}/venv"
@@ -337,7 +336,7 @@ def _project_path(project: Path, rel: str, sandbox_project: str) -> str:
         raise HermeticRefused(f"uv.lock project path {rel!r} leaves the reviewed project")
     host = project / pure
     if not host.is_dir():
-        raise HermeticRefused(f"uv.lock project path {rel!r} is not a directory in the reviewed Snapshot")
+        raise HermeticRefused(f"uv.lock project path {rel!r} is not a directory in the reviewed revision")
     # lc-debt: editable projects are put on sys.path by a .pth (src/ layout heuristic), not by their build backend.
     inner = pure / "src" if (host / "src").is_dir() else pure
     base = sandbox_project.rstrip("/") or "/"
@@ -988,7 +987,7 @@ def provision_python_dependencies(
     if should_cancel is not None and should_cancel():
         raise HermeticUnavailable("dependency build cancelled by revoked authority")
     build_started = time.monotonic()
-    with _tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
+    with tree_lock(f"{cache.root}:{cache.namespace}:{plan.digest}"):
         existing = cache.tree(plan.digest, content="python")
         if existing is not None:
             return ProvisionedPython(existing, plan, (fetch_stage, StageOutcome("build", "passed", cache="hit")))
@@ -1028,7 +1027,7 @@ def _run_offline_python_build(
     *,
     should_cancel: Callable[[], bool] | None = None,
 ) -> Mapping[str, Any]:
-    from lemoncrow.pro.capabilities.review.sandbox_limits import (
+    from lemoncrow.pro.environment.sandbox_limits import (
         SandboxCapacityBusy,
         SandboxExecutionCancelled,
         run_limited,

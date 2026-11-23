@@ -1,6 +1,6 @@
 # Coding-agent integrations
 
-LemonCrow plugs Runtime Lite into the coding agent you already use locally. LemonCrow-owned managed execution belongs to Hosted/Enterprise Runtime.
+LemonCrow plugs Workspaces Lite into the coding agent you already use locally. LemonCrow-owned managed execution belongs to Hosted/Enterprise Workspaces.
 
 These are different integration models and should not be described as one generic server setup.
 
@@ -13,7 +13,6 @@ These are different integration models and should not be described as one generi
 | **OpenCode** | Existing-agent plugin | `lc with opencode` or `lc rt enable opencode` |
 | **Cursor** | Installed IDE + `cursor-agent` integration | Cursor installer; see below |
 | **Pi** | Public LemonCrow-managed coding-agent host | `lc rt host ... --engine pi`; `lc with pi` |
-| **LemonCode** | Public LemonCrow-managed coding-agent host | `lc rt host ... --engine lemoncode` |
 
 Additional integrations exist for Copilot, Hermes Agent, Antigravity, and other integration surfaces. Their capabilities depend on what each host exposes.
 
@@ -78,24 +77,13 @@ See [Cursor integration](cursor-install.md).
 
 ### Pi
 
-Pi is a public coding-agent host. LemonCrow manages its pinned binary with `lc rt host install|status|update|build|remove --engine pi`, and `lc with pi` launches Pi with local Runtime Lite tools for that process. Hosted/Enterprise may also use Pi as an implementation/frontend choice, but that does not make Pi itself private.
+Pi is a public coding-agent host. LemonCrow manages its pinned binary with `lc rt host install|status|update|build|remove --engine pi`, and `lc with pi` launches Pi with local Workspaces Lite tools for that process. Hosted/Enterprise may also use Pi as an implementation/frontend choice, but that does not make Pi itself private.
 
-See [Pi in LemonCrow Runtime](pi-install.md).
-
-### LemonCode
-
-LemonCode is LemonCrow's maintained OpenCode fork and remains available as a public managed host:
-
-```bash
-lc rt host install --engine lemoncode
-lc rt host status --engine lemoncode
-```
-
-See [LemonCode](lemoncode-install.md).
+See [Pi in LemonCrow Workspaces](pi-install.md).
 
 ## Source-checkout install
 
-To verify a source checkout, run `make verify`. Install a host integration directly:
+To verify a source checkout, run `make verify-full`. Install a host integration directly:
 
 ```bash
 bash scripts/install_claude.sh

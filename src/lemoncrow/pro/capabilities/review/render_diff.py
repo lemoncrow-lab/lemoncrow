@@ -21,6 +21,10 @@ comparable* and yields no delta (never a regression). Screenshots are masked,
 and DOM/AX snapshots, URLs and console text are redacted, *before* they are
 stored as raw-retention run artifacts. Differences become ``visual`` behavior
 deltas with the evidence (records, screenshots, snapshots) before judgment.
+
+The driver is local by default; a deployment whose worker image can build and
+render supplies one through ``RunnerRegistry.render_executor``. A side that did
+not render makes the pair not comparable, whatever the reason.
 """
 
 from __future__ import annotations
@@ -52,13 +56,6 @@ from lemoncrow.pro.capabilities.review.behavior import (
     ExecutedScope,
     ExecutorClass,
 )
-from lemoncrow.pro.capabilities.review.execution import (
-    ExecutionRecipe,
-    ExecutionResult,
-    ExecutionSubject,
-    StageOutcome,
-)
-from lemoncrow.pro.capabilities.review.execution import ExecutorClass as RunExecutorClass
 from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result, workspace_digest
 from lemoncrow.pro.capabilities.review.render_driver import (
     MAX_STEPS,
@@ -83,6 +80,13 @@ from lemoncrow.pro.capabilities.review.runtime_observation import read_record
 from lemoncrow.pro.capabilities.review.runtime_validation import execution_verification, snapshot_semantic_identity
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.store import new_evidence_id
+from lemoncrow.pro.environment.execution import (
+    ExecutionRecipe,
+    ExecutionResult,
+    ExecutionSubject,
+    StageOutcome,
+)
+from lemoncrow.pro.environment.execution import ExecutorClass as RunExecutorClass
 
 RENDER_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.lemoncrow.render-diff+json;version=1"
 RENDER_DIFF_PRODUCER_ID: Final[str] = "lemoncrow.render_diff"
@@ -732,9 +736,10 @@ def _execution(
     status: Literal["passed", "failed", "unavailable"],
     detail: str,
     duration_ms: int,
+    prior_stages: tuple[StageOutcome, ...] = (),
 ) -> ExecutionResult:
-    from lemoncrow.pro.capabilities.review.execution import cache_namespace
-    from lemoncrow.pro.capabilities.review.runtimes import revision_snapshot_identity
+    from lemoncrow.pro.capabilities.review.runner_host import revision_snapshot_identity
+    from lemoncrow.pro.environment.execution import cache_namespace
 
     controls = inputs.config.controls
     return build_execution_result(
@@ -757,11 +762,12 @@ def _execution(
                 ("LEMONCROW_RENDER_CONFIG", inputs.config.digest),
                 ("LEMONCROW_RENDER_CONTROLS", controls.digest),
             ),
-            stages=("run",),
+            stages=cast(Any, tuple(getattr(inputs.driver, "recipe_stages", ("run",)))),
             sinks=False,
             policy=inputs.policy.to_wire(),
         ),
         stages=(
+            *prior_stages,
             StageOutcome(
                 "run",
                 status,
@@ -774,6 +780,7 @@ def _execution(
         content_access="ai_denied",
         toolchain=(("browser", environment.browser or "absent"), ("fonts", environment.fonts_digest or "absent")),
         sandbox=environment.sandbox,
+        image_digest=environment.image_digest,
     )
 
 
@@ -816,7 +823,7 @@ class _Run:
             )
         except ValueError as exc:
             inputs.store.discard_artifact(rel)
-            raise RenderRunSuperseded("render Snapshot was superseded before publication") from exc
+            raise RenderRunSuperseded("render revision was superseded before publication") from exc
         except Exception:
             inputs.store.discard_artifact(rel)
             raise
@@ -881,6 +888,8 @@ class _Run:
             detail=detail,
             # Rounded up: a render that happened is a run, however fast (compute skips zero-time stages).
             duration_ms=math.ceil(wall * 1000),
+            # What a remote executor did before rendering (dependency fetch, app build).
+            prior_stages=tuple(getattr(inputs.driver, "stages", lambda _side: ())(side)),
         )
         self.executions += 1
         wire = execution.to_wire()
@@ -1014,8 +1023,11 @@ def run_render_entry(inputs: RenderRunInputs, meter: Meter) -> RenderRunReport:
     environments = {name: _fingerprint(record)[0] for name, (_item, record, _pages) in sides.items()}
     reasons: list[str] = list(inputs.config.errors)
     differences: tuple[str, ...] = ()
-    comparable = bool(sides) and environments.get("base") == environments.get("head") and bool(environments.get("base"))
-    if sides and not comparable:
+    same_environment = environments.get("base") == environments.get("head") and bool(environments.get("base"))
+    # A side that rendered nothing leaves nothing to compare: not run, never "unchanged".
+    not_rendered = [name for name, (_item, record, _pages) in sides.items() if record.get("status") == "NOT_RUN"]
+    comparable = bool(sides) and same_environment and not not_rendered
+    if sides and not same_environment and not not_rendered:
         base_fp, head_fp = _fingerprint(sides["base"][1])[1], _fingerprint(sides["head"][1])[1]
         differences = (
             base_fp.fingerprint.differences(head_fp.fingerprint)
@@ -1025,14 +1037,20 @@ def run_render_entry(inputs: RenderRunInputs, meter: Meter) -> RenderRunReport:
         reasons.append("environment fingerprints differ; rendering is not comparable (never a regression)")
     if not environment.available:
         reasons.append(environment.reason)
+    reasons.extend(f"{name} was not rendered: {sides[name][1].get('reason')}" for name in not_rendered)
     pages: list[dict[str, Any]] = []
     unchanged = 0
+    uncaptured = 0
     if comparable:
         base_pages, head_pages = sides["base"][2], sides["head"][2]
         for before, after in zip(base_pages, head_pages, strict=True):
+            if before.status != "captured" and after.status != "captured":
+                uncaptured += 1
+                continue
             changes = page_changes(before, after)
             if not changes:
-                unchanged += 1
+                # Two failed captures agree on nothing: only a page rendered on both sides is unchanged.
+                unchanged += int(before.status == "captured" and after.status == "captured")
                 continue
             pages.append(
                 {
@@ -1075,6 +1093,7 @@ def run_render_entry(inputs: RenderRunInputs, meter: Meter) -> RenderRunReport:
         },
         "pages": pages,
         "unchanged": unchanged,
+        "not_rendered": uncaptured,
         # Gate H: the surface this diff is a result of (what its determinism is measured as).
         "qualification_subject": _qualification_subject(inputs, environment, sides),
     }
@@ -1088,6 +1107,7 @@ def run_render_entry(inputs: RenderRunInputs, meter: Meter) -> RenderRunReport:
     else:
         summary = (
             f"{len(pages)} page(s) differ, {unchanged} unchanged"
+            + (f", {uncaptured} not rendered" if uncaptured else "")
             if comparable
             else ("not comparable: " + "; ".join(reasons))[:600] if sides else "nothing rendered: " + "; ".join(reasons)
         )

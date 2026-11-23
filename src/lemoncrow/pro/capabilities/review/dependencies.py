@@ -17,7 +17,13 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+from lemoncrow.pro.capabilities.review.answer_category import (
+    DEPENDENCY_DIRECT_ADDED_REASON,
+    DEPENDENCY_INTEGRITY_REASON,
+    DEPENDENCY_RESOLVED_VERSION_REASON,
+)
 from lemoncrow.pro.capabilities.review.contracts import SideEffectFact
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewUnit
 from lemoncrow.pro.capabilities.review.supply_chain import (
@@ -245,6 +251,20 @@ def _toml_package_components(text: str, *, ecosystem: str) -> dict[str, Dependen
     return _toml_coverage(text, ecosystem=ecosystem).components
 
 
+def _npm_source(resolved: str) -> str:
+    """Where an npm package came from: the registry origin for a registry tarball, the whole value otherwise.
+
+    A registry tarball URL carries the version (``.../left-pad/-/left-pad-1.3.0.tgz``), so comparing it whole
+    reports "package source changed" on every version move. A changed registry host is still a changed source;
+    a git or file source keeps its full value, so a moved commit is too.
+    """
+
+    parts = urlsplit(resolved)
+    if parts.scheme in ("http", "https") and parts.path.endswith(".tgz") and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc.lower()}"
+    return resolved
+
+
 def _npm_name(path_key: str, raw: Mapping[str, Any]) -> str:
     explicit = str(raw.get("name") or "").strip()
     if explicit:
@@ -290,7 +310,7 @@ def _npm_legacy_component(identity: str, name: str, value: Mapping[str, Any]) ->
         identity=identity,
         name=name,
         version=str(value.get("version") or "").strip(),
-        source=str(value.get("resolved") or ""),
+        source=_npm_source(str(value.get("resolved") or "")),
         integrity=str(value.get("integrity") or ""),
         dependencies=tuple(sorted(str(key) for key in requires)) if isinstance(requires, Mapping) else (),
         raw=_canonical(value),
@@ -328,7 +348,7 @@ def _npm_coverage(text: str) -> _LockCoverage:
                 identity=identity,
                 name=name,
                 version=version,
-                source=str(value.get("resolved") or ""),
+                source=_npm_source(str(value.get("resolved") or "")),
                 integrity=str(value.get("integrity") or ""),
                 license=str(value.get("license") or ""),
                 dependencies=dep_names,
@@ -900,7 +920,7 @@ def derive_dependency_units(
             )
             reasons: list[str] = []
             if "added" in declared_changes:
-                reasons.append("direct dependency added")
+                reasons.append(DEPENDENCY_DIRECT_ADDED_REASON)
             elif "removed" in declared_changes:
                 reasons.append("direct dependency removed")
             elif declared_changes:
@@ -910,10 +930,10 @@ def derive_dependency_units(
                 if "version" in resolved_changes:
                     before = old_component.version if old_component else "?"
                     after = new_component.version if new_component else "?"
-                    reasons.append(f"resolved version {before} → {after}")
+                    reasons.append(f"{DEPENDENCY_RESOLVED_VERSION_REASON}{before} → {after}")
                 for change, label in (
                     ("source", "package source changed"),
-                    ("integrity", "integrity/checksum changed"),
+                    ("integrity", DEPENDENCY_INTEGRITY_REASON),
                     ("license", "license changed"),
                 ):
                     if change in resolved_changes:

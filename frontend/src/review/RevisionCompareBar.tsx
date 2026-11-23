@@ -1,5 +1,6 @@
 import { Button as UiButton } from "../components/ui/button";
 import { GitCompareArrows, X } from "lucide-react";
+import { revisionName } from "./revisionLabel";
 
 export type ReviewCompareBase = number | "head";
 
@@ -18,8 +19,8 @@ export default function RevisionCompareBar({
   error = "",
   onExit,
 }: RevisionCompareBarProps) {
-  const baseLabel = baseRevision === "head" ? "Source" : `Snapshot ${baseRevision}`;
-  const targetLabel = `Snapshot ${targetRevision}`;
+  const baseLabel = baseRevision === "head" ? "Source" : revisionName(baseRevision);
+  const targetLabel = revisionName(targetRevision);
 
   return (
     <div

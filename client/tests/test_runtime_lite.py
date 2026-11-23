@@ -446,12 +446,18 @@ def test_initialize_answers_before_a_slow_index_build_and_reports_progress(
     assert time.monotonic() - started < 5
     assert entered.wait(30)
 
-    pending = server.call("code_search", {"query": "background_symbol"})
+    pending = server.call("relations", {"symbol": "background_symbol"})
     assert pending["isError"] is True
     text = pending["content"][0]["text"]
     assert text.startswith("[lc:index_building]")
     assert " files (0%)" in text
     assert "retryable=true" in text
+
+    # code_search does not make the agent wait or retry: it answers by grep.
+    grepped = server.call("code_search", {"query": "background_symbol"})
+    assert grepped["isError"] is False
+    assert grepped["content"][0]["text"].startswith("[lc:index_fallback reason=index_building]")
+    assert "app.py" in grepped["content"][1]["text"]
 
     # File tools never wait for the index.
     read = server.call("read", {"files": ["app.py"]})
@@ -504,8 +510,10 @@ def test_background_build_failure_surfaces_on_the_next_index_call(
     server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
 
     failed = server.call("code_search", {"query": "retried_symbol"})
-    assert failed["isError"] is True
-    assert failed["content"][0]["text"] == "[lc:lite_failed] disk vanished"
+    assert failed["isError"] is False
+    assert failed["content"][0]["text"].startswith("[lc:index_fallback reason=index_failed]")
+    assert "disk vanished" in failed["content"][0]["text"]
+    assert "app.py" in failed["content"][1]["text"]
 
     retried = server.call("code_search", {"query": "retried_symbol"})
     assert retried["isError"] is False
@@ -671,6 +679,27 @@ def test_lite_search_uses_bm25_strength_not_only_fts_position(tmp_path: Path) ->
     assert result["files"][0]["score"] - result["files"][1]["score"] > 5.0
 
 
+def test_search_distinguishes_no_match_from_an_empty_index(tmp_path: Path) -> None:
+    root = _git_repo(tmp_path)
+    (root / "present.py").write_text("def present_symbol():\n    return 1\n", encoding="utf-8")
+    index = LiteIndex(root)
+    index.prepare()
+
+    assert index.search("present_symbol")["index_empty"] is False
+    missing = index.search("absent_symbol_772")
+    assert missing["files"] == []
+    assert missing["index_empty"] is False
+    # The cached result must retain the same freshness/emptiness signal.
+    assert index.search("absent_symbol_772")["index_empty"] is False
+
+    empty_parent = tmp_path / "empty"
+    empty_parent.mkdir()
+    empty_root = _git_repo(empty_parent)
+    empty = LiteIndex(empty_root)
+    empty.prepare()
+    assert empty.search("absent_symbol_772")["index_empty"] is True
+
+
 def test_lite_search_does_not_flood_paths_for_short_tokens(tmp_path: Path) -> None:
     root = _git_repo(tmp_path)
     (root / "happy.py").write_text("def unrelated():\n    return True\n", encoding="utf-8")
@@ -808,6 +837,38 @@ def test_hot_index_reads_do_not_repeat_schema_or_wal_initialization(
     assert index.exact_symbols("hot_path_symbol")[0]["path"] == "app.py"
 
 
+def test_hot_index_read_connections_close_without_waiting_for_garbage_collection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _git_repo(tmp_path)
+    (root / "app.py").write_text("def hot_reader_symbol():\n    return 1\n", encoding="utf-8")
+    index = LiteIndex(root)
+    index.prepare()
+
+    # Hold references deliberately: Python's sqlite3 Connection context manager
+    # commits or rolls back but does NOT close the underlying file descriptors.
+    opened: list[sqlite3.Connection] = []
+    connect = index._connect
+
+    def tracked_connect(*, initialize: bool = False, readonly: bool = False) -> sqlite3.Connection:
+        connection = connect(initialize=initialize, readonly=readonly)
+        if readonly:
+            opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(index, "_connect", tracked_connect)
+    for _ in range(10):
+        assert index.search("hot_reader_symbol")["files"]
+        assert index.exact_symbols("hot_reader_symbol")
+        index.related_symbols("hot_reader_symbol")
+        assert not index.is_empty()
+
+    assert len(opened) >= 30
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
+
+
 def test_warm_freshness_check_is_singleflight_across_concurrent_readers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -870,7 +931,8 @@ def test_lite_surface_narrows_full_runtime_only_arguments(tmp_path: Path) -> Non
     server = LiteMcp(environment=_env(root, tmp_path))
     tools = {entry["name"]: entry["inputSchema"] for entry in server.tools}
 
-    assert set(tools["code_search"]["properties"]) == {"query", "paths", "limit"}
+    assert set(tools["code_search"]["properties"]) == {"query", "paths", "limit", "coverage"}
+    assert tools["code_search"]["properties"]["coverage"]["default"] == "complete"
     assert "send" not in tools["bash"]["properties"]["action"]["enum"]
     server.close()
 
@@ -1415,6 +1477,15 @@ def test_lite_and_review_artifact_allowlists_are_physically_separate() -> None:
         if line.strip()
     }
     assert "lite/index.py" in lite
+    assert "lite/workspace_search_plan.py" in lite
+    # The live MCP module imports the planner at module import time; omitting
+    # it from either wheel makes the shipped Runtime CLI unable to start.
+    runtime = {
+        line.strip()
+        for line in (CLIENT_ROOT / "runtime-files.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert "lite/workspace_search_plan.py" in runtime
     assert "worktrees.py" in lite
     assert not any(path.startswith("lite/") for path in review)
     for forbidden in (

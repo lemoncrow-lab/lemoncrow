@@ -17,7 +17,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final, TextIO
 
@@ -141,7 +141,7 @@ def runtime_status(agent: str, *, sink: TextIO, as_json: bool = False) -> int:
                 state = "not enabled"
             else:
                 label = {
-                    "local_lite": "Local Lite",
+                    "local_lite": "Lite",
                     "hosted": "Hosted",
                     "unknown": "Unknown mode",
                 }[mode]
@@ -175,7 +175,7 @@ def unregister_agents(agent: str, *, dry_run: bool, sink: TextIO) -> int:
         argv = _unregistration_command(target, binary)
         if argv is None:
             sink.write(
-                "opencode: native CLI has no MCP remove command; use the full LemonCrow Runtime uninstaller "
+                "opencode: native CLI has no MCP remove command; use the full LemonCrow Workspaces uninstaller "
                 "or remove the lc MCP entry in OpenCode settings\n"
             )
             failed = True
@@ -189,7 +189,7 @@ def unregister_agents(agent: str, *, dry_run: bool, sink: TextIO) -> int:
             sink.write(f"{target}: removal failed: {detail}\n")
             failed = True
             continue
-        sink.write(f"{target}: Runtime disabled\n")
+        sink.write(f"{target}: Workspaces disabled\n")
     return 1 if failed else 0
 
 
@@ -214,47 +214,58 @@ def _status_is_configured(agent: str, completed: subprocess.CompletedProcess[str
     return re.search(r"(?im)(?:^|\s)lc(?:\s|$)", output) is not None
 
 
-def _unregistration_command(agent: str, binary: str) -> tuple[str, ...] | None:
+def _unregistration_command(agent: str, binary: str, *, name: str = "lc") -> tuple[str, ...] | None:
     if agent == "claude":
-        return (binary, "mcp", "remove", "--scope", "user", "lc")
+        return (binary, "mcp", "remove", "--scope", "user", name)
     if agent == "codex":
-        return (binary, "mcp", "remove", "lc")
+        return (binary, "mcp", "remove", name)
     if agent == "opencode":
         return None
     raise ValueError(agent)
 
 
-def _client_mcp_command(host: str, *, hosted: bool = False) -> tuple[str, ...]:
-    action = "mcp" if hosted else "lite-mcp"
-    suffix = ("runtime", action, "--host", host)
+def _client_launcher() -> tuple[str, ...]:
+    """The argv prefix a host runs to start this client (``lc task mcp`` registers through it too)."""
     # Pin the interpreter-owned Runtime first: a Review-owned lc can shadow it
     # on PATH, and sys.argv[0] may be python/-c during Pi extension refresh.
     sibling = Path(sys.executable).parent / "lemoncrow-runtime-client"
     if sibling.is_file():
-        return (str(sibling.absolute()), *suffix)
+        return (str(sibling.absolute()),)
     from .cli import _external_runtime_executable
 
     runtime = _external_runtime_executable()
     if runtime is not None:
-        return (str(runtime.absolute()), *suffix)
+        return (str(runtime.absolute()),)
     current = Path(sys.argv[0]).expanduser()
     if current.name in {CLIENT_NAME, "lemoncrow-runtime-client"} and current.is_file():
-        return (str(current.resolve()), *suffix)
+        return (str(current.resolve()),)
     installed = _which(CLIENT_NAME)
     if installed is not None:
-        return (installed, *suffix)
+        return (installed,)
     # Source-checkout fallback. An installed console script normally wins.
-    return (sys.executable, "-m", "lemoncrow_client", *suffix)
+    return (sys.executable, "-m", "lemoncrow_client")
 
 
-def _registration_command(agent: str, binary: str, command: Sequence[str]) -> tuple[str, ...]:
+def _client_mcp_command(host: str, *, hosted: bool = False) -> tuple[str, ...]:
+    action = "mcp" if hosted else "lite-mcp"
+    return (*_client_launcher(), "runtime", action, "--host", host)
+
+
+def _registration_command(
+    agent: str, binary: str, command: Sequence[str], *, name: str = "lc", env: Mapping[str, str] | None = None
+) -> tuple[str, ...]:
+    """The host CLI's ``mcp add``; ``env`` goes in its environment flags, right before ``--``, which also ends
+    Claude's variadic ``-e``."""
+
+    flag = "-e" if agent == "claude" else "--env"
+    environment = tuple(part for key, value in (env or {}).items() for part in (flag, f"{key}={value}"))
     if agent == "claude":
-        return (binary, "mcp", "add", "--scope", "user", "lc", "--", *command)
+        return (binary, "mcp", "add", "--scope", "user", name, *environment, "--", *command)
     if agent == "codex":
-        return (binary, "mcp", "add", "lc", "--", *command)
+        return (binary, "mcp", "add", name, *environment, "--", *command)
     if agent == "opencode":
         # OpenCode's current CLI updates the named entry in its global config.
-        return (binary, "mcp", "add", "lc", "--global", "--", *command)
+        return (binary, "mcp", "add", name, "--global", *environment, "--", *command)
     raise ValueError(agent)
 
 

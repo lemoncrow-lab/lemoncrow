@@ -11,6 +11,7 @@ vi.mock("./reviewApi", () => api);
 
 import { ReviewHandoffControls } from "./ReviewDestinationPicker";
 import type { FeedbackDeliveryCapability, ReviewDestinationState } from "./types";
+import { fmtWhen } from "../lib/format";
 
 const claude: FeedbackDeliveryCapability = {
   supported: true, host: "claude", session_id: "a1b2c3", target_ref: "claude:a1b2c3", label: "Claude", reason: "",
@@ -27,12 +28,9 @@ function renderControls(overrides: Partial<Parameters<typeof ReviewHandoffContro
   const props = {
     reviewId: "review-1",
     delivery: claude,
-    lastDelivery: null,
     unsent: 2,
-    waiting: false,
     busy: false,
     onSendNow: vi.fn(),
-    onShowHandoff: vi.fn(),
     onDestinationChanged: vi.fn(),
     ...overrides,
   };
@@ -46,36 +44,18 @@ beforeEach(() => {
 });
 
 describe("ReviewHandoffControls", () => {
-  it("opens feedback under one stable label and keeps the destination dropdown", async () => {
+  it("sends the counted comments and keeps the destination dropdown", async () => {
     const props = renderControls();
-    await userEvent.click(screen.getByRole("button", { name: "Send feedback · 2" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send 2 comments" }));
     expect(props.onSendNow).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Change where fixes go" })).toHaveAttribute("title", "Fixes go to: Claude");
   });
 
   it("uses the same label for copying to a person and publishing to a pull request", () => {
     renderControls({ unsent: 1, delivery: { ...claude, kind: "export", label: "author", host: "", session_id: "" } });
-    expect(screen.getByRole("button", { name: "Send feedback · 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send 1 comment" })).toBeTruthy();
     renderControls({ unsent: 3, delivery: { ...claude, kind: "github", label: "PR #12", host: "", session_id: "" } });
-    expect(screen.getByRole("button", { name: "Send feedback · 3" })).toBeTruthy();
-  });
-
-  it("opens feedback even when nothing is unsent", async () => {
-    const props = renderControls({ unsent: 0 });
-    await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
-    expect(props.onSendNow).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Change where fixes go" })).toBeTruthy();
-  });
-
-  it("opens delivery state when feedback is already with the author", async () => {
-    const props = renderControls({
-      unsent: 0, waiting: true,
-      lastDelivery: { state: "queued", target_ref: "claude:a1b2c3", remote_ref: "inbox:1", message: "", annotation_count: 2, operation_id: "fop-1" },
-    });
-    await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
-    expect(props.onShowHandoff).toHaveBeenCalledTimes(1);
-    expect(props.onSendNow).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Change where fixes go" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send 3 comments" })).toBeTruthy();
   });
 
   it("disables the action and dropdown during a mutation", () => {
@@ -86,7 +66,7 @@ describe("ReviewHandoffControls", () => {
 
   it("explains an unreachable destination without changing the feedback label", async () => {
     renderControls({ delivery: { ...claude, supported: false, reason: "direct feedback delivery is not configured for gemini" } });
-    await userEvent.hover(screen.getByRole("button", { name: "Send feedback · 2" }));
+    await userEvent.hover(screen.getByRole("button", { name: "Send 2 comments" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("direct feedback delivery is not configured for gemini");
   });
 
@@ -94,7 +74,7 @@ describe("ReviewHandoffControls", () => {
     api.fetchReviewDestinationOptions.mockResolvedValue({
       ...state("auto"),
       options: [
-        { kind: "auto", label: "Author sessions", detail: "Claude · wrote this Snapshot", available: true, reason: "" },
+        { kind: "auto", label: "Author sessions", detail: "Claude · wrote this revision", available: true, reason: "" },
         { kind: "new_session", host: "codex", label: "New Codex session", detail: "starts in this worktree", available: false, reason: "codex CLI is not installed" },
         { kind: "export", label: "Copy for the author", detail: "Markdown for a human", available: true, reason: "" },
       ],
@@ -116,14 +96,14 @@ describe("ReviewHandoffControls", () => {
       ...state("auto"),
       // The server's order; the picker regroups it.
       options: [
-        { kind: "auto", label: "Author sessions", detail: "Claude · wrote this Snapshot", available: true, reason: "" },
+        { kind: "auto", label: "Author sessions", detail: "Claude · wrote this revision", available: true, reason: "" },
         { kind: "session", host: "claude", session_id: "bbbb2222", label: "Claude bbbb", detail: "running here", available: true, reason: "" },
         { kind: "new_session", host: "claude", label: "New Claude session", detail: "starts in this worktree", available: true, reason: "" },
         { kind: "github_pr", external_ref: "github:acme/widgets#7", label: "PR #7", detail: "acme/widgets", available: true, reason: "" },
         { kind: "export", label: "Copy for the author", detail: "Markdown for a human", available: true, reason: "" },
       ],
     });
-    renderControls({ unsent: 0 });
+    renderControls({ unsent: 1 });
 
     await userEvent.click(screen.getByRole("button", { name: "Change where fixes go" }));
     await screen.findByRole("menuitem", { name: /Copy for the author/ });
@@ -150,7 +130,7 @@ describe("ReviewHandoffControls", () => {
       options: [
         { kind: "session", host: "claude", session_id: "today", label: "Claude today", detail: "running here", available: true, activity_at: today.toISOString() },
         { kind: "session", host: "claude", session_id: "yesterday", label: "Claude yesterday", detail: "last active here", available: true, activity_at: yesterday.toISOString() },
-        { kind: "session", host: "codex", session_id: "older", label: "Codex older", detail: "wrote Snapshot 1", available: true, activity_at: older.toISOString() },
+        { kind: "session", host: "codex", session_id: "older", label: "Codex older", detail: "wrote Revision 2", available: true, activity_at: older.toISOString() },
         { kind: "session", host: "claude", session_id: "unknown", label: "Claude unknown", detail: "running here", available: true },
         { kind: "session", host: "claude", session_id: "invalid", label: "Claude invalid", detail: "running here", available: true, activity_at: "invalid" },
       ],
@@ -160,16 +140,16 @@ describe("ReviewHandoffControls", () => {
       await userEvent.click(screen.getByRole("button", { name: "Change where fixes go" }));
       const todayRow = await screen.findByRole("menuitem", { name: /Claude today/ });
       expect(todayRow.querySelector("time")).toHaveTextContent(
-        `Today · ${today.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`,
+        fmtWhen(today),
       );
       const yesterdayTime = screen.getByRole("menuitem", { name: /Claude yesterday/ }).querySelector("time");
       expect(yesterdayTime).toHaveTextContent(
-        `Yesterday · ${yesterday.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`,
+        fmtWhen(yesterday),
       );
       expect(todayRow.querySelector("time")?.parentElement).toBe(screen.getByText("Claude today").parentElement);
       const olderTime = screen.getByRole("menuitem", { name: /Codex older/ }).querySelector("time");
       expect(olderTime).toHaveTextContent(
-        `${older.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })} · ${older.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`,
+        fmtWhen(older),
       );
       expect(olderTime).toHaveAttribute("datetime", older.toISOString());
       expect(screen.getByRole("menuitem", { name: /Claude unknown/ }).querySelector("time")).toBeNull();

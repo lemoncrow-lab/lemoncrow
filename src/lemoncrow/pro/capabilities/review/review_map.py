@@ -401,7 +401,7 @@ def _current_context(
         "generation_matches_snapshot_head": False,
         "index": {},
         "readiness": {},
-        "note": "Surrounding Code Map context is unavailable; Snapshot-exact changed/impact facts are still shown.",
+        "note": "Surrounding Code Map context is unavailable; Revision-exact changed/impact facts are still shown.",
         "matches": {},
         "neighborhoods": {},
         "file_relationships": {},
@@ -426,7 +426,7 @@ def _current_context(
         if not readiness.available:
             base["note"] = (
                 f"Current code intelligence is unavailable ({readiness.reason or 'no native View'}); "
-                "Snapshot-exact changed/impact facts are still shown."
+                "Revision-exact changed/impact facts are still shown."
             )
             return base
 
@@ -562,7 +562,7 @@ def _current_context(
                 "exact_for_snapshot": False,
                 "note": (
                     "Surrounding calls/references come from the current code-intelligence provider, "
-                    "not the immutable Review Snapshot." + graph_note + relationship_note
+                    "not the immutable Review revision." + graph_note + relationship_note
                 ),
                 "matches": matches,
                 "neighborhoods": neighborhoods,
@@ -573,7 +573,7 @@ def _current_context(
         return base
     except Exception as exc:
         base["note"] = (
-            f"Current code intelligence is unavailable ({type(exc).__name__}); " "Snapshot-exact facts are still shown."
+            f"Current code intelligence is unavailable ({type(exc).__name__}); Revision-exact facts are still shown."
         )
         return base
 
@@ -1262,7 +1262,7 @@ def _file_projection(
             "nodes": [],
             "edges": [],
             "truncated": False,
-            "reason": "The selected map file is not part of this immutable Snapshot.",
+            "reason": "The selected map file is not part of this immutable revision.",
         }
     graph = _FileGraph(review_id=review_id, revision_id=revision_id, packet=packet, targets=targets)
     file_relationships_raw = context.get("file_relationships")
@@ -1368,7 +1368,7 @@ def _symbol_projection(
             "nodes": [],
             "edges": [],
             "truncated": False,
-            "reason": "The selected map symbol is not part of this immutable Snapshot.",
+            "reason": "The selected map symbol is not part of this immutable revision.",
         }
     if selected is None:
         selected = next(iter(snapshot_by_id.values()), None)
@@ -1380,7 +1380,7 @@ def _symbol_projection(
             "nodes": [],
             "edges": [],
             "truncated": False,
-            "reason": "This Snapshot contains no changed symbols to drill into.",
+            "reason": "This revision contains no changed symbols to drill into.",
         }
 
     path = str(selected.get("file_path") or "")
@@ -1728,6 +1728,8 @@ def build_review_map(
             context=context,
         )
 
+    from lemoncrow.pro.capabilities.review.architecture_delta import architecture_delta_available
+
     degraded = sorted(
         set(str(item) for item in (getattr(revision, "degraded", ()) or ()))
         | set(str(item) for item in (packet_data.get("degraded") or ()))
@@ -1737,6 +1739,8 @@ def build_review_map(
         "revision_id": revision_id,
         "revision_number": max(0, int(getattr(revision, "revision_number", 1) or 1) - 1),
         "level": level,
+        # Projections this build can serve, so the Map offers only those.
+        "projections": {"change_map": True, "architecture_delta": architecture_delta_available()},
         "snapshot": {
             "exactness": "snapshot",
             "tree_fingerprint": str(getattr(revision, "tree_fingerprint", "")),

@@ -89,6 +89,17 @@ def push_noise(world: World, value: int = 3) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_a_comment_id_past_32_bits_still_finds_its_thread(world: World) -> None:
+    world.github._ids = 2**31 + 5  # GitHub's review comment ids no longer fit the deprecated `databaseId: Int`
+    auth, _ = reviewed(world)
+    assert auth > 2**31
+    world.github.react(auth, DOWN, "alice")
+    push_noise(world)
+
+    assert by_title(world.review(), AUTH_TITLE).state == "suppressed"
+    assert len(learned(world, auth)) == 1
+
+
 def test_a_thumbs_down_suppresses_the_same_concern_on_the_next_push_and_the_thread_is_told(world: World) -> None:
     auth, token = reviewed(world)
     inline_before, posts = len(world.github.inline()), world.github.review_posts

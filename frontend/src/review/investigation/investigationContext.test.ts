@@ -4,7 +4,7 @@ import { INVESTIGATION_FIXTURES, fixtureItem } from "./fixtures";
 import { investigationContext, sameSnapshot } from "./investigationContext";
 
 describe("investigationContext", () => {
-  it("carries the Snapshot identity, SHAs, sources and checks of the Review subject", () => {
+  it("carries the revision identity, SHAs, sources and checks of the Review subject", () => {
     const fixture = INVESTIGATION_FIXTURES.paymentRetry();
     const context = investigationContext(fixture);
     expect(context).toMatchObject({
@@ -25,7 +25,7 @@ describe("investigationContext", () => {
     expect(investigationContext(fixture)).toEqual(context);
   });
 
-  it("leaves what the inputs do not carry null and names it, ignoring another Snapshot's revision", () => {
+  it("leaves what the inputs do not carry null and names it, ignoring another revision's revision", () => {
     const fixture = INVESTIGATION_FIXTURES.paymentRetry();
     const context = investigationContext({
       projection: fixture.projection,
@@ -37,7 +37,7 @@ describe("investigationContext", () => {
     expect(context.unavailable).toEqual(["base_sha", "head_sha", "snapshot_checks"]);
   });
 
-  it("scopes a target subject to its own sources and linked evidence, never Review-level checks", () => {
+  it("scopes a part subject to its own sources and linked evidence, never Review-level checks", () => {
     const fixture = INVESTIGATION_FIXTURES.authRefresh();
     const context = investigationContext({ ...fixture, subject: { kind: "target", id: "auth-refresh" } });
     expect(context.sources.map((source) => source.target_id)).toEqual(["auth-refresh"]);
@@ -58,7 +58,7 @@ describe("investigationContext", () => {
     expect(inferred.sources[0].proof).toBe("inferred");
   });
 
-  it("is bound to one Snapshot: a newer Snapshot does not reuse it", () => {
+  it("is bound to one revision: a newer revision does not reuse it", () => {
     const before = INVESTIGATION_FIXTURES.billingBefore();
     const after = INVESTIGATION_FIXTURES.billingSuperseded();
     const context = investigationContext(before);
@@ -68,7 +68,7 @@ describe("investigationContext", () => {
     expect(stale).toMatchObject({ key: "pytest tests/billing", current: false, snapshot_number: 0 });
   });
 
-  it("holds a 400+ target Review within its bound", () => {
+  it("holds a 400+ part Review within its bound", () => {
     const context = investigationContext(INVESTIGATION_FIXTURES.largeReview());
     expect(context.sources).toHaveLength(420);
     expect(context.sources_omitted).toBe(0);

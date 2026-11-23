@@ -16,8 +16,16 @@ Frameworks, as detected from the trusted base:
   ``migration.sql``, ordered ``*.sql``): **executed** on SQLite. PostgreSQL
   spellings SQLite cannot parse (``CONCURRENTLY``, ``NOT VALID``, ``ONLY``)
   are normalized for execution; the classification reads the original text.
-* Alembic, Django and Rails: detected, **not_available** (they need their
-  framework runtime and a database driver in the sandbox).
+* Alembic, Django and Rails: a *detected* directory is **not_available**. A
+  directory *configured* under ``analyses.migrations`` with its ``framework``
+  and a ``[toolchain]`` image pinned by digest in the trusted base's
+  ``.lemoncrow/environment.toml`` is **executed for real** in that image, on a
+  SQLite file or on a declared database service, by :data:`FRAMEWORK_DRIVER`.
+  Migrations are reviewed code there, so the driver is sealed (see
+  ``analysis_common.SEAL_PRELUDE``): the schema is read after every process of
+  theirs is gone, and only the host decides what the result means. The result
+  describes the schema the migrations left; a migration can still do anything
+  to its own disposable database.
 
 Lock-heavy rules assume a PostgreSQL-style production engine unless the
 spec says ``dialect: sqlite``.
@@ -32,6 +40,8 @@ from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Any, Final
 
+from lemoncrow_client.environment import Service, Toolchain
+
 from lemoncrow.pro.capabilities.review.analysis_common import (
     MAX_TIMEOUT,
     MIGRATIONS_ENTRY,
@@ -44,16 +54,27 @@ from lemoncrow.pro.capabilities.review.analysis_common import (
     build_driver,
     join_path,
     relative_path,
+    seal_tampered,
+    sealed_problem,
     sha256_hex,
     text_sha16,
+    trusted_environment,
     valid_spec_id,
 )
 from lemoncrow.pro.capabilities.review.contracts import _MIGRATION_PATH, _SQL_FILE_RES
+from lemoncrow.pro.environment.services import ServiceSet
 
 DIALECTS: Final[tuple[str, ...]] = ("postgres", "mysql", "sqlite")
 FRAMEWORKS: Final[tuple[str, ...]] = ("sql", "alembic", "django", "rails")
 _MAX_DISCOVERED: Final[int] = 8
 _MAX_BASE_FILES: Final[int] = 600
+_SETTINGS = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+_FRAMEWORK_SUFFIX: Final[Mapping[str, str]] = {"alembic": ".py", "django": ".py", "rails": ".rb"}
+_FRAMEWORK_NEEDS: Final[Mapping[str, str]] = {
+    "alembic": "python3, alembic, SQLAlchemy and the database driver",
+    "django": "python3, Django, the project's requirements and the database driver",
+    "rails": "python3, Ruby, activerecord and the database adapter gem",
+}
 _FRAMEWORK_HINT: Final[Mapping[str, str]] = {
     "alembic": (
         "Alembic migrations need Python with alembic, SQLAlchemy and a database driver in the sandbox; "
@@ -70,9 +91,42 @@ _FRAMEWORK_HINT: Final[Mapping[str, str]] = {
     ),
 }
 
-#: Driver helpers shared with ``compat_mixed_version`` (load, schema dump, dialect-normalized execute).
-MIGRATION_LIB: Final[str] = r"""
+#: The schema dump and version ordering, the only helpers a framework run needs (its command length is bounded).
+_SCHEMA_LIB: Final[str] = r"""
 import sqlite3
+
+EMULATED = "'lc-emulated-not-null'"
+
+
+def natural(key):
+    return [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in re.split(r"(\d+)", key) if t]
+
+
+def schema(con):
+    out = {}
+    quote = lambda name: '"' + name.replace('"', '""') + '"'
+    rows = con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+    for kind, name, table, sql in rows:
+        if name.startswith("sqlite_"):
+            continue
+        if kind == "table":
+            cols = [
+                {"name": r[1], "type": (r[2] or "").upper(), "notnull": bool(r[3]),
+                 "default": None if r[4] == EMULATED else r[4], "pk": int(r[5])}
+                for r in con.execute("PRAGMA table_xinfo(%s)" % quote(name))
+            ]
+            out["table:" + name] = {"kind": kind, "name": name, "columns": cols}
+        elif kind == "index":
+            cols = [r[2] for r in con.execute("PRAGMA index_info(%s)" % quote(name))]
+            unique = bool(sql and re.search(r"\bUNIQUE\b", sql, re.I))
+            out["index:" + name] = {"kind": kind, "name": name, "table": table, "columns": cols, "unique": unique}
+        else:
+            out[kind + ":" + name] = {"kind": kind, "name": name, "table": table, "sql": " ".join((sql or "").split())}
+    return out
+"""
+
+#: Driver helpers shared with ``compat_mixed_version`` (load, schema dump, dialect-normalized execute).
+MIGRATION_LIB: Final[str] = _SCHEMA_LIB + r"""
 
 MARKS = (
     (r"^\s*--\s*\+goose\s+up\b", r"^\s*--\s*\+goose\s+down\b", "goose"),
@@ -85,10 +139,6 @@ PG = (
     (r"\bNOT\s+VALID\b", ""),
     (r"\bALTER\s+TABLE\s+ONLY\b", "ALTER TABLE"),
 )
-
-
-def natural(key):
-    return [(0, int(t), "") if t.isdigit() else (1, 0, t) for t in re.split(r"(\d+)", key) if t]
 
 
 def split_marked(body):
@@ -137,30 +187,6 @@ def load(root):
     return [rows[key] for key in sorted(rows, key=natural)]
 
 
-def schema(con):
-    out = {}
-    quote = lambda name: '"' + name.replace('"', '""') + '"'
-    rows = con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name").fetchall()
-    for kind, name, table, sql in rows:
-        if name.startswith("sqlite_"):
-            continue
-        if kind == "table":
-            cols = [
-                {"name": r[1], "type": (r[2] or "").upper(), "notnull": bool(r[3]),
-                 "default": None if r[4] == EMULATED else r[4], "pk": int(r[5])}
-                for r in con.execute("PRAGMA table_xinfo(%s)" % quote(name))
-            ]
-            out["table:" + name] = {"kind": kind, "name": name, "columns": cols}
-        elif kind == "index":
-            cols = [r[2] for r in con.execute("PRAGMA index_info(%s)" % quote(name))]
-            unique = bool(sql and re.search(r"\bUNIQUE\b", sql, re.I))
-            out["index:" + name] = {"kind": kind, "name": name, "table": table, "columns": cols, "unique": unique}
-        else:
-            out[kind + ":" + name] = {"kind": kind, "name": name, "table": table, "sql": " ".join((sql or "").split())}
-    return out
-
-
-EMULATED = "'lc-emulated-not-null'"
 ADD_NOT_NULL = re.compile(
     r"\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?[`\"\[]?[A-Za-z_][\w$]*[`\"\]]?\s+[^,;]*?\bNOT\s+NULL\b[^,;]*",
     re.I,
@@ -279,6 +305,320 @@ _MAIN: Final[str] = r"""def main():
 
 DRIVER: Final[str] = build_driver(MIGRATION_LIB + _MAIN)
 
+# Reviewed code (env.py, settings, migrations) runs only in ``sealed_run`` children. What the host trusts is read
+# after each step's processes are gone: by this driver from the SQLite file, or by the framework's own database
+# library started isolated (``-I``, outside the tree) from a server.
+_ALEMBIC_STEP: Final[str] = r"""
+import sys
+from alembic import command
+from alembic.config import Config
+op, ini, url = sys.argv[1:4]
+cfg = Config(ini)
+cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+if op == "up":
+    command.upgrade(cfg, "heads")
+elif op == "down":
+    command.downgrade(cfg, sys.argv[4])
+else:
+    command.upgrade(cfg, sys.argv[4] + ":heads", sql=True)
+"""
+_DJANGO_STEP: Final[str] = r"""
+import os, sys
+import django
+from django.apps import apps
+from django.core.management import call_command
+django.setup()
+op, directory = sys.argv[1:3]
+owner = os.path.realpath(os.path.dirname(directory))
+label = next((c.label for c in apps.get_app_configs() if os.path.realpath(c.path) == owner), None)
+if op == "up":
+    call_command("migrate", interactive=False, verbosity=0)
+elif label is None:
+    sys.exit("no installed Django app owns " + directory)
+elif op == "down":
+    call_command("migrate", label, sys.argv[3], interactive=False, verbosity=0)
+else:
+    call_command("sqlmigrate", label, sys.argv[3])
+"""
+_DJANGO_SETTINGS: Final[str] = r"""
+import json, os
+from importlib import import_module
+_base = import_module(os.environ["LC_BASE_SETTINGS"])
+globals().update({k: getattr(_base, k) for k in dir(_base) if k.isupper()})
+DATABASES = {"default": json.loads(os.environ["LC_DB"])}
+"""
+# lc-debt: Rails runs load the image's activerecord, not the project's Gemfile or app; boot through bundler to widen it.
+_RAILS_STEP: Final[str] = r"""
+require "active_record"
+op, dir, url, target = ARGV
+ActiveRecord::Migration.verbose = false
+ActiveRecord::Base.establish_connection(url)
+context = ActiveRecord::MigrationContext.new(dir)
+op == "up" ? context.migrate : context.migrate(Integer(target))
+"""
+_SQLALCHEMY_READ: Final[str] = r"""
+import json, sys
+import sqlalchemy as sa
+with sa.create_engine(sys.argv[1]).connect() as con:
+    rows = [[[None if v is None else str(v) for v in r] for r in con.execute(sa.text(q))] for q in json.loads(sys.argv[2])]
+print("LCROWS:" + json.dumps(rows).encode().hex())
+"""
+_DJANGO_READ: Final[str] = r"""
+import json, os, sys
+import django
+from django.conf import settings
+settings.configure(DATABASES={"default": json.loads(os.environ["LC_DB"])})
+django.setup()
+from django.db import connection
+out = []
+with connection.cursor() as cur:
+    for q in json.loads(sys.argv[2]):
+        cur.execute(q)
+        out.append([[None if v is None else str(v) for v in r] for r in cur.fetchall()])
+print("LCROWS:" + json.dumps(out).encode().hex())
+"""
+_RAILS_READ: Final[str] = r"""
+require "active_record"
+require "json"
+ActiveRecord::Base.establish_connection(ARGV[0])
+rows = JSON.parse(ARGV[1]).map do |q|
+  ActiveRecord::Base.connection.select_rows(q).map { |r| r.map { |v| v.nil? ? nil : v.to_s } }
+end
+puts "LCROWS:" + JSON.generate(rows).unpack1("H*")
+"""
+_PG_READS: Final[tuple[str, str]] = (
+    "SELECT c.table_name, c.column_name, upper(c.data_type), c.is_nullable, c.column_default, "
+    "coalesce(k.ordinal_position, 0) FROM information_schema.columns c LEFT JOIN "
+    "(SELECT u.table_name, u.column_name, u.ordinal_position FROM information_schema.table_constraints t "
+    "JOIN information_schema.key_column_usage u USING (constraint_name, table_schema, table_name) "
+    "WHERE t.constraint_type = 'PRIMARY KEY' AND t.table_schema = current_schema()) k "
+    "USING (table_name, column_name) WHERE c.table_schema = current_schema() "
+    "ORDER BY c.table_name, c.ordinal_position",
+    "SELECT i.relname, t.relname, CASE WHEN x.indisunique THEN 1 ELSE 0 END, array_to_string(ARRAY(SELECT a.attname "
+    "FROM unnest(x.indkey) WITH ORDINALITY k(n, o) JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.n "
+    "ORDER BY k.o), ',') FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class t ON t.oid = x.indrelid "
+    "JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND NOT x.indisprimary",
+)
+_MYSQL_READS: Final[tuple[str, str]] = (
+    "SELECT table_name, column_name, upper(data_type), is_nullable, column_default, "
+    "IF(column_key = 'PRI', ordinal_position, 0) FROM information_schema.columns "
+    "WHERE table_schema = DATABASE() ORDER BY table_name, ordinal_position",
+    "SELECT index_name, table_name, IF(non_unique = 0, 1, 0), group_concat(column_name ORDER BY seq_in_index) "
+    "FROM information_schema.statistics WHERE table_schema = DATABASE() AND index_name <> 'PRIMARY' "
+    "GROUP BY index_name, table_name, non_unique",
+)
+
+_FRAMEWORK_MAIN: Final[str] = (
+    "STEP = "
+    + repr({"alembic": _ALEMBIC_STEP, "django": _DJANGO_STEP, "rails": _RAILS_STEP})
+    + "\nREAD = "
+    + repr({"alembic": _SQLALCHEMY_READ, "django": _DJANGO_READ, "rails": _RAILS_READ})
+    + "\nDJANGO_SETTINGS = "
+    + repr(_DJANGO_SETTINGS)
+    + "\nPG_READS = "
+    + repr(_PG_READS)
+    + "\nMYSQL_READS = "
+    + repr(_MYSQL_READS)
+    + r"""
+FW = str(P.get("framework") or "")
+SERVICE = str(P.get("service") or "")
+BOOK = {"alembic": ("alembic_version", "version_num"), "django": ("django_migrations", "name"),
+        "rails": ("schema_migrations", "version")}[FW]
+IGNORED = {"alembic_version", "django_migrations", "schema_migrations", "ar_internal_metadata"}
+SQLITE = WORK + "/framework.sqlite3"
+SUFFIX = ".rb" if FW == "rails" else ".py"
+PY = which("python3") or sys.executable
+# Where the image installed its gems: set by the trusted image, dropped by the driver's allowlist.
+GEMS = {k: os.environ[k] for k in ("GEM_HOME", "GEM_PATH") if k in os.environ}
+
+
+def target_url():
+    if not SERVICE:
+        return "sqlite3:" + SQLITE if FW == "rails" else "sqlite:///" + SQLITE
+    host = os.environ.get("LC_SERVICE_%s_HOST" % re.sub(r"[-.]", "_", SERVICE).upper())
+    if not host:
+        finish(2, "the database service %s is not reachable from this run" % SERVICE)
+    return str(P.get("database_url") or "").replace("{host}", host)
+
+
+URL = target_url()
+ENGINE = "sqlite" if not SERVICE else "mysql" if URL.startswith(("mysql", "mariadb", "trilogy")) else "postgresql"
+
+
+def django_database():
+    from urllib.parse import unquote, urlsplit
+    if not SERVICE:
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": SQLITE}
+    u = urlsplit(URL)
+    backend = "mysql" if ENGINE == "mysql" else "postgresql"
+    return {"ENGINE": "django.db.backends." + backend, "NAME": u.path.lstrip("/"), "USER": unquote(u.username or ""),
+            "PASSWORD": unquote(u.password or ""), "HOST": u.hostname or "", "PORT": str(u.port or "")}
+
+
+def step_env(src):
+    return {"PYTHONPATH": src + os.pathsep + WORK + "/lcs", "PYTHONDONTWRITEBYTECODE": "1", "DATABASE_URL": URL,
+            "LC_DB": json.dumps(django_database()), "DJANGO_SETTINGS_MODULE": "lc_review_settings",
+            "LC_BASE_SETTINGS": str(P.get("settings") or ""), "RAILS_ENV": "test", **GEMS}
+
+
+def step(src, migdir, op, arg=""):
+    if FW == "rails":
+        argv = ["ruby", "-e", STEP[FW], op, migdir, URL, arg]
+    elif FW == "alembic":
+        argv = [PY, "-c", STEP[FW], op, str(P.get("config") or "alembic.ini"), URL] + ([arg] if arg else [])
+    else:
+        argv = [PY, "-c", STEP[FW], op, migdir] + ([arg] if arg else [])
+    return sealed_run(argv, src, extra=step_env(src))
+
+
+def read_server(src, queries):
+    # No reviewed code is alive here; isolated, outside the tree, nothing of the project loads.
+    data = json.dumps(queries)
+    if FW == "rails":
+        argv = ["ruby", "-e", READ[FW], URL, data]
+    else:
+        argv = [PY, "-I", "-c", READ[FW], URL, data]
+    code, out = sealed_run(argv, WORK, extra={"LC_DB": json.dumps(django_database()), **GEMS})
+    marked = [line[7:] for line in (out or "").splitlines() if line.startswith("LCROWS:")]
+    if code != 0 or not marked:
+        finish(3, "the schema could not be read back: %s" % (out or "")[-500:])
+    return json.loads(bytes.fromhex(marked[-1]).decode("utf-8"))
+
+
+def dump(src):
+    # (schema, recorded versions, whether the framework's own table is there)
+    if not SERVICE:
+        if not os.path.isfile(SQLITE):
+            return {}, [], False
+        con = sqlite3.connect("file:%s?mode=ro" % SQLITE, uri=True)
+        try:
+            con.execute("PRAGMA trusted_schema=OFF")
+            out = {k: v for k, v in schema(con).items()
+                   if v.get("name") not in IGNORED and v.get("table") not in IGNORED}
+            found = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (BOOK[0],)).fetchone()
+            versions = [str(r[0]) for r in con.execute('SELECT "%s" FROM "%s"' % (BOOK[1], BOOK[0]))] if found else []
+        finally:
+            con.close()
+        return out, versions, bool(found)
+    columns, indexes = read_server(src, list(MYSQL_READS if ENGINE == "mysql" else PG_READS))
+    out, found = {}, False
+    for table, name, kind, nullable, default, pk in columns:
+        if table == BOOK[0]:
+            found = True
+        if table in IGNORED:
+            continue
+        row = out.setdefault("table:" + table, {"kind": "table", "name": table, "columns": []})
+        row["columns"].append({"name": name, "type": kind, "notnull": nullable == "NO", "default": default,
+                               "pk": int(pk or 0)})
+    for name, table, unique, cols in indexes:
+        if table not in IGNORED:
+            out["index:" + name] = {"kind": "index", "name": name, "table": table,
+                                    "columns": (cols or "").split(","), "unique": str(unique) == "1"}
+    versions = []
+    if found:
+        versions = [str(r[0]) for r in read_server(src, ["SELECT %s FROM %s" % (BOOK[1], BOOK[0])])[0]]
+    return out, versions, found
+
+
+def rollback_target(versions, base_names):
+    if FW == "alembic":
+        if len(versions) > 1:
+            return None
+        return versions[0] if versions else "base"
+    if FW == "django":
+        return base_names[-1] if base_names else "zero"
+    return str(max([int(v) for v in versions] or [0]))
+
+
+def main():
+    seal_start()
+    if FW == "rails":
+        probe = ["ruby", "-e", 'require "active_record"']
+    else:
+        probe = [PY, "-I", "-c", "import alembic, sqlalchemy" if FW == "alembic" else "import django"]
+    code, out = sealed_run(probe, WORK, extra=GEMS)
+    if code != 0:
+        finish(2, "the toolchain image cannot run %s: %s" % (FW, (out or "not installed")[-300:]))
+    src = copy_root()
+    migdir = os.path.join(src, str(P.get("dir") or "."))
+    if not os.path.isdir(migdir):
+        finish(2, "the migration directory %s is missing on this side" % P.get("dir"))
+    os.makedirs(WORK + "/lcs", exist_ok=True)
+    with open(WORK + "/lcs/lc_review_settings.py", "w") as handle:
+        handle.write(DJANGO_SETTINGS)
+    base = P.get("base") or {}
+    rows = []
+    for name in sorted(os.listdir(migdir), key=natural):
+        full = os.path.join(migdir, name)
+        if not name.endswith(SUFFIX) or name == "__init__.py" or not os.path.isfile(full):
+            continue
+        path = rel(full, src)
+        state = "added" if path not in base else "edited" if sha(full) != base[path] else "base"
+        rows.append({"id": name[: -len(SUFFIX)], "paths": [path], "layout": FW, "state": state, "full": full,
+                     "up": "", "down": None})
+    added = [r for r in rows if r["state"] == "added"]
+    held = WORK + "/held"
+    os.makedirs(held, exist_ok=True)
+    for row in added:
+        shutil.move(row["full"], os.path.join(held, os.path.basename(row["full"])))
+    code, out = step(src, migdir, "up")
+    if code is None:
+        finish(2, out)
+    if code != 0:
+        finish(2, "the trusted base's %s migrations do not apply here: %s" % (FW, (out or "")[-800:]))
+    before, versions, found = dump(src)
+    if not found:
+        finish(2, "%s ran but left no %s table in the review database: the project does not use the database "
+                  "this analysis gave it, so nothing was verified" % (FW, BOOK[0]))
+    R["heavy"]["schema_before.txt"] = json.dumps(before, indent=1, sort_keys=True)
+    for row in added:
+        shutil.move(os.path.join(held, os.path.basename(row["full"])), row["full"])
+    base_names = [r["id"] for r in rows if r["state"] != "added"]
+    target = rollback_target(versions, base_names)
+    if added and FW == "alembic" and target is not None:
+        code, out = step(src, migdir, "sql", target)
+        if code == 0:
+            added[0]["up"] = (out or "")[:16000]
+    elif FW == "django":
+        for row in added:
+            code, out = step(src, migdir, "sql", row["id"])
+            if code == 0:
+                row["up"] = (out or "")[:16000]
+    failed, applied = None, []
+    code, out = step(src, migdir, "up")
+    if code != 0:
+        failed = {"id": added[0]["id"] if added else str(P.get("dir")), "error": (out or "")[-1000:]}
+    elif added:
+        applied = [r["id"] for r in added]
+    after, _versions, _found = dump(src)
+    R["heavy"]["schema_after.txt"] = json.dumps(after, indent=1, sort_keys=True)
+    rollback = {"status": "skipped"}
+    if failed is None and applied:
+        if target is None:
+            rollback = {"status": "unverifiable", "missing_down": ["several base heads"]}
+        else:
+            code, out = step(src, migdir, "down", target)
+            if code != 0:
+                rollback = {"status": "failed", "id": applied[-1], "error": (out or "")[-1000:]}
+            else:
+                restored, _versions, _found = dump(src)
+                rollback = {"status": "verified"}
+                if restored != before:
+                    rollback = {"status": "mismatch", "restored": restored}
+    R["migrations"] = [{"id": r["id"], "paths": r["paths"], "layout": r["layout"], "state": r["state"],
+                        "has_down": True, "up": r["up"]} for r in rows[:400] if r["state"] != "base"]
+    R["counts"] = {"total": len(rows), "added": len(added),
+                   "edited": sum(1 for r in rows if r["state"] == "edited")}
+    R.update({"framework": FW, "engine": ENGINE, "dialect": str(P.get("dialect") or "postgres"),
+              "schema_before": before, "schema_after": after, "applied": applied, "failed": failed,
+              "rollback": rollback, "statements": []})
+    finish(0)
+"""
+)
+
+#: The framework runs reviewed code: sealed, and only accepted by :func:`inspect_framework_report`.
+FRAMEWORK_DRIVER: Final[str] = build_driver(_FRAMEWORK_MAIN, sealed=True, shared=_SCHEMA_LIB)
+
 
 # --------------------------------------------------------------------------- #
 # trusted-base specs
@@ -344,8 +684,104 @@ def _unavailable(spec_id: str, framework: str, directory: str, *, origin: str, s
         options={"dir": "."},
         executable=False,
         reason=f"{framework.capitalize()} migrations cannot execute in this build's sandbox",
-        setup_hint=_FRAMEWORK_HINT[framework],
+        setup_hint=_setup_hint(framework),
     )
+
+
+def _setup_hint(framework: str) -> str:
+    return (
+        f"{_FRAMEWORK_HINT[framework]} To run them for real, configure analyses.migrations with framework: "
+        f"{framework} and give the trusted base's .lemoncrow/environment.toml a [toolchain] image pinned by digest "
+        f"holding {_FRAMEWORK_NEEDS[framework]}; the executor needs a rootless container engine."
+    )
+
+
+def _framework_spec(
+    spec_id: str, framework: str, directory: str, row: Mapping[str, Any], *, where: str, timeout: int, errors: list[str]
+) -> AnalysisSpec | None:
+    """A configured framework run, not executable until :func:`attach_environment` finds its image."""
+
+    root = relative_path(row.get("root") or ".")
+    service = str(row.get("service") or "")
+    url = str(row.get("database_url") or "")
+    settings = str(row.get("settings") or "")
+    config = relative_path(row.get("config") or "alembic.ini", allow_root=False)
+    dialect = str(row.get("dialect") or ("postgres" if service else "sqlite"))
+    inside = root is not None and (root == "." or directory == root or directory.startswith(root.rstrip("/") + "/"))
+    if root is None or not inside:
+        errors.append(f"{where}.root must be a repository-relative directory holding dir")
+    elif dialect not in DIALECTS or (service and dialect == "sqlite"):
+        errors.append(f"{where}.dialect must name the service's engine")
+    elif bool(service) != bool(url) or (url and ("{host}" not in url or any(c.isspace() for c in url))):
+        errors.append(f"{where}: service and database_url go together, and database_url must contain {{host}}")
+    elif framework == "django" and not _SETTINGS.fullmatch(settings):
+        errors.append(f"{where}.settings must name the project's Django settings module")
+    elif config is None:
+        errors.append(f"{where}.config must be a repository-relative file")
+    else:
+        spec = _unavailable(spec_id, framework, root, origin="configured", source=where)
+        inner = (
+            "." if directory == root else str(PurePosixPath(directory).relative_to(root)) if root != "." else directory
+        )
+        return replace(
+            spec,
+            title=str(row.get("title") or "")[:200] or f"{framework.capitalize()} migrations · {directory}",
+            timeout=timeout,
+            options={
+                "dir": inner,
+                "dialect": dialect,
+                "service": service,
+                "database_url": url,
+                "settings": settings,
+                "config": config,
+            },
+        )
+    return None
+
+
+def attach_environment(spec: AnalysisSpec, read_base: Callable[[str], str | None]) -> AnalysisSpec:
+    """A configured framework spec becomes executable once the trusted base pins what it runs in."""
+
+    if spec.tool == "sql" or spec.origin != "configured":
+        return spec
+    definition, problem = trusted_environment(read_base)
+    toolchain = definition.toolchain if definition is not None else None
+    if toolchain is None or not toolchain.digest:
+        why = problem or "the trusted base's environment.toml has no [toolchain] image pinned by digest"
+        return replace(spec, reason=f"{spec.reason}: {why}")
+    options: dict[str, Any] = {**spec.options, "toolchain": toolchain.image}
+    name = str(spec.options.get("service") or "")
+    if name:
+        service = definition.service(name)
+        if service is None or not service.digest:
+            return replace(spec, reason=f"{spec.reason}: service {name} is not declared with a pinned image")
+        options["service_definition"] = {
+            "image": service.image,
+            "ready": service.ready,
+            "env": [list(item) for item in service.env],
+            "sql": service.sql,
+        }
+    return replace(spec, executable=True, reason="", options=options)
+
+
+def runtime_values(spec: AnalysisSpec) -> dict[str, Any]:
+    """The image and services one framework run needs; the host runtime never stands in for them."""
+
+    values: dict[str, Any] = {"toolchain": Toolchain(str(spec.options["toolchain"])), "require_toolchain": True}
+    definition = spec.options.get("service_definition")
+    if isinstance(definition, Mapping):
+        values["services"] = ServiceSet(
+            (
+                Service(
+                    name=str(spec.options["service"]),
+                    image=str(definition["image"]),
+                    ready=str(definition["ready"]),
+                    env=tuple((str(key), str(value)) for key, value in definition.get("env") or ()),
+                    sql=str(definition.get("sql") or ""),
+                ),
+            )
+        )
+    return values
 
 
 def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
@@ -357,14 +793,30 @@ def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
         if not isinstance(row, Mapping):
             errors.append(f"{where} must be a mapping")
             continue
-        unknown = sorted(set(row) - {"id", "title", "dir", "framework", "dialect", "fixture", "timeout"})
+        unknown = sorted(
+            set(row)
+            - {
+                "id",
+                "title",
+                "dir",
+                "framework",
+                "dialect",
+                "fixture",
+                "timeout",
+                "root",
+                "service",
+                "database_url",
+                "settings",
+                "config",
+            }
+        )
         if unknown:
             errors.append(f"{where} has unknown keys: {', '.join(unknown)}")
             continue
         spec_id = row.get("id")
         directory = relative_path(row.get("dir"), allow_root=False)
         framework = str(row.get("framework") or "sql")
-        dialect = str(row.get("dialect") or "postgres")
+        dialect = str(row.get("dialect") or ("sqlite" if framework != "sql" and not row.get("service") else "postgres"))
         fixture_raw = row.get("fixture")
         fixture = relative_path(fixture_raw, allow_root=False) if fixture_raw else ""
         try:
@@ -383,7 +835,11 @@ def parse_specs(rows: Sequence[Any], errors: list[str]) -> list[AnalysisSpec]:
         elif fixture is None:
             errors.append(f"{where}.fixture must be a repository-relative file")
         elif framework != "sql":
-            specs.append(_unavailable(str(spec_id), framework, directory, origin="configured", source=where))
+            configured = _framework_spec(
+                str(spec_id), framework, directory, row, where=where, timeout=timeout, errors=errors
+            )
+            if configured is not None:
+                specs.append(configured)
         else:
             specs.append(
                 _sql_spec(
@@ -449,11 +905,18 @@ def discover_specs(paths: Sequence[str], read_base: Callable[[str], str | None])
 def attach_base_files(spec: AnalysisSpec, paths: Sequence[str]) -> AnalysisSpec:
     """Record which migration files the trusted base already has (names only; read per run)."""
 
-    if spec.tool != "sql" or not spec.executable:
+    if not spec.executable:
         return spec
+    suffix = ".sql" if spec.tool == "sql" else _FRAMEWORK_SUFFIX[spec.tool]
     directory = join_path(spec.root, str(spec.options.get("dir") or "."))
     prefix = "" if directory in {"", "."} else directory.rstrip("/") + "/"
-    files = sorted(path for path in paths if path.startswith(prefix) and path.lower().endswith(".sql"))
+    files = sorted(
+        path
+        for path in paths
+        if path.startswith(prefix)
+        and path.lower().endswith(suffix)
+        and (spec.tool == "sql" or ("/" not in path[len(prefix) :] and not path.endswith("/__init__.py")))
+    )
     if len(files) > _MAX_BASE_FILES:
         return replace(
             spec,
@@ -472,12 +935,45 @@ def payload(spec: AnalysisSpec, *, read_base: Callable[[str], str | None]) -> tu
         text = read_base(str(path))
         if text is not None:
             base[path if spec.root == "." else str(PurePosixPath(path).relative_to(spec.root))] = text_sha16(text)
+    if spec.tool != "sql":
+        definition = spec.options.get("service_definition")
+        return {
+            "framework": spec.tool,
+            "dir": spec.options.get("dir") or ".",
+            "dialect": spec.options.get("dialect") or "sqlite",
+            "service": spec.options.get("service") or "",
+            "database_url": spec.options.get("database_url") or "",
+            "settings": spec.options.get("settings") or "",
+            "config": spec.options.get("config") or "alembic.ini",
+            # The run's identity: another image or service is another run.
+            "image": spec.options.get("toolchain") or "",
+            "service_image": definition.get("image") if isinstance(definition, Mapping) else "",
+            "base": base,
+        }, ""
     return {
         "dir": spec.options.get("dir") or ".",
         "dialect": spec.options.get("dialect") or "postgres",
         "fixture": spec.options.get("fixture") or "",
         "base": base,
     }, ""
+
+
+def inspect_framework_report(report: Mapping[str, Any], exit_code: int | None) -> tuple[dict[str, Any] | None, str]:
+    """Stage B of a framework run: the report counts only if it is the sealed driver's own."""
+
+    problem = sealed_problem(report, exit_code)
+    if problem:
+        return None, problem
+    out = dict(report)
+    tampered = seal_tampered(report)
+    if tampered:
+        out["tampered"] = tampered
+    if out.get("exit") == 0:
+        rollback = out.get("rollback") if isinstance(out.get("rollback"), Mapping) else {}
+        assert isinstance(rollback, Mapping)
+        if out.get("failed") or rollback.get("status") in {"failed", "mismatch"}:
+            out["exit"] = 1
+    return out, ""
 
 
 # --------------------------------------------------------------------------- #
@@ -1012,10 +1508,20 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
     status = "PASS"
     reasons: list[str] = []
     fixture = str(report.get("fixture") or "")
-    origin = f"schema fixture {fixture}" if fixture else "the trusted base's migrations replayed on SQLite"
+    framework = spec.tool != "sql"
+    engine = str(report.get("engine") or "sqlite")
+    origin = (
+        f"the trusted base's {spec.tool} migrations on {engine}"
+        if framework
+        else f"schema fixture {fixture}" if fixture else "the trusted base's migrations replayed on SQLite"
+    )
     dialect = str(report.get("dialect") or "postgres")
+    tampered = str(report.get("tampered") or "")
+    if tampered:
+        status = "UNKNOWN"
+        reasons.append(f"the migration run interfered with the analysis ({tampered}); its result is not trusted")
     if failed is not None:
-        limited = _engine_limited(failed.get("error"), dialect)
+        limited = not framework and _engine_limited(failed.get("error"), dialect)
         if limited:
             # SQLite cannot express this statement; that says nothing about the production engine.
             status = "UNKNOWN"
@@ -1044,7 +1550,7 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
             )
         )
     state = str(rollback.get("status") or "skipped")
-    if state == "failed" and _engine_limited(rollback.get("error"), dialect):
+    if state == "failed" and not framework and _engine_limited(rollback.get("error"), dialect):
         state = "unverifiable"
         if status == "PASS":
             status = "UNKNOWN"
@@ -1155,7 +1661,14 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
                     *((label, f"+{len(added)} / -{len(removed)}") for label, added, removed in counts),
                     ("Rollback", state),
                     ("Fixture", fixture or "base migrations replayed"),
-                    ("Engine", f"SQLite (rules: {report.get('dialect') or 'postgres'})"),
+                    (
+                        "Engine",
+                        (
+                            f"{engine} (real {spec.tool} run)"
+                            if framework
+                            else f"SQLite (rules: {report.get('dialect') or 'postgres'})"
+                        ),
+                    ),
                 ),
                 base=Observation("base schema", f"{len(_tables(before))} tables", sha256_hex(before)),
                 head=Observation("migrated", f"{len(_tables(after))} tables", sha256_hex(after)),
@@ -1191,6 +1704,7 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
         findings,
         summary={
             "framework": spec.tool,
+            "engine": engine if framework else "sqlite-emulation",
             "dialect": report.get("dialect") or "postgres",
             "fixture": fixture,
             "counts": report.get("counts") or {},
@@ -1206,12 +1720,16 @@ def evaluate(spec: AnalysisSpec, head: SideRun | None, base: SideRun | None) -> 
 
 __all__ = [
     "DRIVER",
+    "FRAMEWORK_DRIVER",
     "attach_base_files",
+    "attach_environment",
     "classify",
     "discover_specs",
     "evaluate",
+    "inspect_framework_report",
     "is_narrowing",
     "parse_specs",
     "payload",
+    "runtime_values",
     "schema_diff",
 ]

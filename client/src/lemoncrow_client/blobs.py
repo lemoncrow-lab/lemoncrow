@@ -22,8 +22,10 @@ required capability rather than an optional one.
 
 Everything is bounded: a batch respects the server's declared
 ``max_blobs_per_request``, ``max_blob_bytes`` and ``max_request_bytes``, and a
-file over ``content_size_cap`` is manifested but never uploaded -- the server
-will not list it as missing and will never demand it, so trying would loop.
+file over ``content_size_cap`` is manifested but never uploaded for indexing --
+the server will not list it as missing and will never demand it, so trying would
+loop. A Review needs those bytes for its source tree and fetches them separately
+through :meth:`BlobService.upload_large_source`.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from __future__ import annotations
 import base64
 import gzip
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -209,6 +211,82 @@ class BlobService:
         if batch:
             stored += self._flush(batch, timeout_s=timeout_s, completion_check=completion_check)
         return stored, plaintext
+
+    def upload_large_source(
+        self,
+        read: Callable[[str, str, int], tuple[bytes, str] | None],
+        *,
+        timeout_s: float | None = None,
+    ) -> tuple[int, int]:
+        """Send the files above the index cap that this View's Review still lacks.
+
+        The server lists them; ``read(path, digest, size)`` returns ``(bytes,
+        parser profile)`` or ``None`` when this client cannot supply that exact
+        content. A server without the listing answers nothing, and nothing moves.
+        Each digest is tried once, so an unreadable file cannot loop. Returns
+        ``(blobs stored, bytes of plaintext sent)``.
+        """
+
+        tried: set[str] = set()
+        stored = 0
+        plaintext = 0
+
+        def send(batch: dict[str, tuple[bytes, str]]) -> None:
+            nonlocal stored, plaintext
+            count, size = self.upload_payloads(tuple(batch), batch, timeout_s=timeout_s, completion_check=False)
+            stored += count
+            plaintext += size
+
+        while True:
+            answer = self._transport.post(
+                f"/v1/views/{self._state.view_id}/missing",
+                body={"digests": [], "include_large_source": True},
+                headers=self._auth(with_revision=False),
+                timeout_s=timeout_s,
+            ).require()
+            raw = answer.get("large_source")
+            rows = [row for row in raw if isinstance(row, Mapping)] if isinstance(raw, list) else []
+            fresh = [row for row in rows if str(row.get("content_digest") or "") not in tried]
+            if not fresh:
+                return stored, plaintext
+            batch: dict[str, tuple[bytes, str]] = {}
+            batch_bytes = 0
+            for row in fresh:
+                digest = str(row.get("content_digest") or "")
+                tried.add(digest)
+                size = row.get("size")
+                if not digest or not isinstance(size, int) or not 0 <= size <= self._state.max_blob_bytes:
+                    continue
+                item = read(str(row.get("path") or ""), digest, size)
+                if item is None:
+                    continue
+                batch[digest] = item
+                batch_bytes += len(item[0])
+                # Holds at most one request of file bytes in memory at a time.
+                if batch_bytes >= self._state.max_request_bytes:
+                    send(batch)
+                    batch, batch_bytes = {}, 0
+            if batch:
+                send(batch)
+
+    def large_source_from(self, root: Path, *, timeout_s: float | None = None) -> tuple[int, int]:
+        """:meth:`upload_large_source` from a directory holding the View's files."""
+
+        base = root.resolve()
+
+        def read(path: str, digest: str, size: int) -> tuple[bytes, str] | None:
+            target = base / path
+            try:
+                if not target.resolve().is_relative_to(base) or target.is_symlink():
+                    return None
+                if not target.is_file() or target.stat().st_size != size:
+                    return None
+            except (OSError, ValueError):
+                return None
+            data = self._read_verified(target, digest)
+            return None if data is None else (data, profile_for_path(path))
+
+        return self.upload_large_source(read, timeout_s=timeout_s)
 
     def _flush(
         self,

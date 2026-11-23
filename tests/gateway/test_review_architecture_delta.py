@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from lemoncrow.pro.capabilities.review import architecture_delta
 from lemoncrow.pro.capabilities.review.architecture_delta import (
     architecture_explain_context,
     build_architecture_delta,
@@ -260,7 +264,7 @@ def test_missing_or_stale_graph_state_degrades_visibly() -> None:
         revision_id="revision-1",
         context_graph={"nodes": [], "edges": []},
         context={"source": "unavailable"},
-        reason="Snapshot comparison missing",
+        reason="Revision comparison missing",
     )
     assert unavailable["status"] == "unavailable"
     assert unavailable["summary"]["exactness"] == "unknown"
@@ -328,6 +332,69 @@ def test_reference_architecture_ties_files_by_what_they_export_not_by_shared_nam
         edges[("src/token.test.ts", "src/token.ts")]["weight"]
         == edges[("src/token.test.ts", "src/token.ts")]["symbols"][0]["count"]
     )
+
+
+def test_reference_architecture_follows_imports_not_bare_names_in_python(tmp_path: Path) -> None:
+    # 2026-11-19 on this repository: a module's locals `root` and `entry` tied it to every file with a field of that name.
+    from lemoncrow.pro.capabilities.review.architecture_delta import _reference_architecture
+
+    files = {
+        "pkg/__init__.py": "from .budget import Budget\n",
+        "pkg/budget.py": "class Budget:\n    root = 1\n    def spend(self): ...\n",
+        "pkg/manifest.py": "class Manifest:\n    root = 2\n    entry = 3\ndef entry_for(): ...\n",
+        "pkg/helpers.py": "def shared(): ...\ndef other(): ...\n",
+        "pkg/worker.py": (
+            "from . import helpers\n"
+            "from pkg import Budget\n"
+            "from pkg.helpers import other as renamed\n"
+            "def run(root, entry):\n"
+            "    Budget().spend()\n"
+            "    helpers.shared()\n"
+            "    renamed()\n"
+            "    return root, entry, entry_for\n"
+        ),
+        "other/pkg/helpers.py": "def shared(): ...\n",
+    }
+    for path, text in files.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    edges = {(edge["source"], edge["target"]): edge for edge in _reference_architecture(tmp_path)["edges"]}
+
+    assert ("pkg/worker.py", "pkg/manifest.py") not in edges
+    assert ("pkg/worker.py", "other/pkg/helpers.py") not in edges
+    assert ("pkg/worker.py", "pkg/budget.py") in edges, "a name re-exported by the package reaches its definition"
+    assert {row["name"] for row in edges[("pkg/worker.py", "pkg/helpers.py")]["symbols"]} == {"helpers", "renamed"}
+
+
+def test_reference_architecture_needs_an_import_in_typescript_and_follows_barrels(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.architecture_delta import _reference_architecture
+
+    files = {
+        "src/api/client.ts": "export function request() {}\nexport function retry() {}\n",
+        "src/api/index.ts": "export { request } from './client';\nexport * from './client';\n",
+        "src/elsewhere.ts": "export function request() {}\nexport default function main() {}\n",
+        "src/a.ts": (
+            "import main from './elsewhere';\n"
+            "import { request as send } from './api';\n"
+            "import * as api from './api/client';\n"
+            "export const x = [main(), send(), api.retry()];\n"
+        ),
+        "src/b.ts": "export function local() { return request(); }\n",
+    }
+    for path, text in files.items():
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    edges = set()
+    for edge in _reference_architecture(tmp_path)["edges"]:
+        edges.add((edge["source"], edge["target"]))
+
+    assert ("src/a.ts", "src/elsewhere.ts") in edges
+    assert ("src/a.ts", "src/api/client.ts") in edges
+    assert not any(source == "src/b.ts" for source, _ in edges), "an unimported name reaches no file"
 
 
 def _store(tmp_path: Path) -> tuple[ReviewStore, ReviewSession, ReviewRevision]:
@@ -477,3 +544,99 @@ def test_architecture_explain_budget_exhaustion_and_provider_failure_do_not_prom
         for edge in delta["graph"]["edges"]
         if edge["delta_status"] in {"added", "removed", "changed"}
     )
+
+
+def _comparison_packet() -> dict[str, Any]:
+    return {"files": [{"path": "src/a.py", "status": "modified"}]}
+
+
+def _two_sides(monkeypatch: Any, *, delay: float = 0.0) -> list[str]:
+    """Stand-ins for materializing and parsing the two sides; the returned list counts the parses."""
+
+    parsed: list[str] = []
+
+    def materialize(_root: Path, _repo: Path, _revision: Any, *, side: str, target: Path, store: Any) -> str:
+        target.mkdir(parents=True)
+        (target / "side").write_text(side)
+        return f"identity-{side}"
+
+    def parse(root: Path) -> dict[str, Any]:
+        side = (root / "side").read_text()
+        parsed.append(side)
+        time.sleep(delay)
+        changed = [_edge("src/a.py", "src/b.py")] if side == "new" else []
+        return {
+            "nodes": ["src/a.py", "src/b.py", "src/c.py", "src/d.py"],
+            "edges": [_edge("src/c.py", "src/d.py"), *changed],
+        }
+
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.snapshot.materialize_review_side", materialize)
+    monkeypatch.setattr(architecture_delta, "_reference_architecture", parse)
+    return parsed
+
+
+def _from_revision(store: ReviewStore, revision: ReviewRevision, repo: Path) -> dict[str, Any]:
+    return architecture_delta.build_architecture_delta_from_revision(
+        store=store, repo_root=repo, revision=revision, packet=_comparison_packet(), context_graph={}, context={}
+    )
+
+
+def test_a_revision_parses_its_two_sides_once_and_the_stored_answer_is_identical(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    store, _session, revision = _store(tmp_path)
+    parsed = _two_sides(monkeypatch)
+    first = _from_revision(store, revision, tmp_path)
+    second = _from_revision(store, revision, tmp_path)
+    assert parsed == ["old", "new"]
+    assert first["status"] != "unavailable" and first["summary"]["added_edges"] == 1
+    assert second == first
+    assert second["base_identity"] == "identity-old"
+    # Only what the delta reads is kept: the unchanged edge between unchanged files is not stored.
+    row = store.derived_results(architecture_delta.ARCHITECTURE_COMPARISON_KIND, [revision.id])[(revision.id, "")]
+    assert [edge["key"][:2] for edge in row[1]["comparison"]["edges"]] == [["src/a.py", "src/b.py"]]
+
+
+def test_the_stored_comparison_matches_a_direct_build_after_json() -> None:
+    packet = {"files": [{"path": "src/new.py", "old_path": "src/old.py", "status": "renamed"}]}
+    base = {"nodes": ["src/old.py", "src/b.py"], "edges": [_edge("src/old.py", "src/b.py", weight=2)]}
+    snapshot = {"nodes": ["src/new.py", "src/b.py"], "edges": [_edge("src/new.py", "src/b.py", weight=3)]}
+    kwargs: dict[str, Any] = {"review_id": "r", "revision_id": "s", "packet": packet}
+    direct = build_architecture_delta(**kwargs, base_architecture=base, snapshot_architecture=snapshot)
+    comparison = json.loads(json.dumps(architecture_delta.architecture_comparison(packet, base, snapshot)))
+    assert build_architecture_delta(**kwargs, comparison=comparison) == direct
+
+
+def test_requests_that_arrive_together_share_one_parse(tmp_path: Path, monkeypatch: Any) -> None:
+    store, _session, revision = _store(tmp_path)
+    parsed = _two_sides(monkeypatch, delay=0.05)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        answers = list(pool.map(lambda _: _from_revision(store, revision, tmp_path), range(4)))
+    assert parsed == ["old", "new"]
+    assert all(answer == answers[0] for answer in answers)
+    assert architecture_delta._comparison_flights == {}
+
+
+def test_a_failed_comparison_is_not_stored_and_is_tried_again(tmp_path: Path, monkeypatch: Any) -> None:
+    store, _session, revision = _store(tmp_path)
+    parsed = _two_sides(monkeypatch)
+    working = architecture_delta._reference_architecture
+
+    def broken(_root: Path) -> dict[str, Any]:
+        raise OSError("disk")
+
+    monkeypatch.setattr(architecture_delta, "_reference_architecture", broken)
+    assert _from_revision(store, revision, tmp_path)["status"] == "unavailable"
+    monkeypatch.setattr(architecture_delta, "_reference_architecture", working)
+    assert _from_revision(store, revision, tmp_path)["status"] != "unavailable"
+    assert parsed == ["old", "new"]
+
+
+def test_a_comparison_past_the_size_bound_is_recomputed_with_the_same_answer(tmp_path: Path, monkeypatch: Any) -> None:
+    store, _session, revision = _store(tmp_path)
+    parsed = _two_sides(monkeypatch)
+    monkeypatch.setattr(architecture_delta, "_MAX_STORED_COMPARISON_BYTES", 10)
+    first = _from_revision(store, revision, tmp_path)
+    assert _from_revision(store, revision, tmp_path) == first
+    assert parsed == ["old", "new", "old", "new"]
+    assert store.derived_results(architecture_delta.ARCHITECTURE_COMPARISON_KIND, [revision.id]) == {}

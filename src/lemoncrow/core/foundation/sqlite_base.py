@@ -83,15 +83,36 @@ class _IdleConnections:
             item.close()
 
 
-# ~3 file descriptors each; a local server with dozens of Review stores stays
-# far below the default 1024 soft limit.
-_IDLE_CONNECTIONS = _IdleConnections(max_idle=64)
+def _idle_connection_budget() -> int:
+    """Idle connections the process's open-file limit affords: a sixteenth of it, from 64 up to 512.
+
+    ~3 file descriptors each. Home reads every repository's Review store in turn, so a bound below the number
+    of stores evicts each connection before its store comes round again and every read reconnects all of them
+    (measured: 94 stores, 480 ms a read at 64, 90 ms with all kept). The local server is launched with a high
+    limit (scripts/local_server.sh asks for 1048576); a default 1024 keeps the old 64.
+    """
+
+    try:
+        import resource
+
+        soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    except (ImportError, OSError, ValueError):
+        return 64
+    if soft == resource.RLIM_INFINITY:
+        return 512
+    # lc-debt: a scan over more stores than this bound still misses on every store; upgrade path: Home reads a
+    # stored per-Review inbox row instead of opening each store (see local_inbox._page).
+    return max(64, min(512, soft // 16))
+
+
+_IDLE_CONNECTIONS = _IdleConnections(max_idle=_idle_connection_budget())
 
 
 class SqliteTableStore:
     """Base class: one store = one SQLite file = one set of tables."""
 
     SCHEMA: str = ""
+    _write_epoch: int = 0
     MIGRATIONS: ClassVar[tuple[str, ...]] = ()
     REQUIRED_TABLES: ClassVar[tuple[str, ...]] = ()
 
@@ -166,8 +187,14 @@ class SqliteTableStore:
     def init(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         with self._transaction() as conn:
-            conn.executescript(self.SCHEMA)
-            self._apply_migrations(conn)
+            # A new database gets its whole schema and every migration in one write
+            # transaction. In autocommit each statement is its own commit, an fsync
+            # each: ~230 for the Review store, over a second on a busy disk, paid by
+            # the first capture of every repository. An existing database keeps the
+            # autocommit path, so opening one never takes the write lock.
+            bootstrap = bool(self._missing_tables(conn))
+            conn.executescript(("BEGIN IMMEDIATE;\n" if bootstrap else "") + self.SCHEMA)
+            self._apply_migrations(conn, commit_each=not bootstrap)
             self._verify_schema(conn)
 
     def _connect(self) -> sqlite3.Connection:
@@ -223,6 +250,45 @@ class SqliteTableStore:
         boundary for the whole batch.
         """
         conn = self._connect()
+        changes = conn.total_changes
+        with self._counting_writes(conn, changes):
+            yield from self._transaction_on(conn)
+
+    @contextlib.contextmanager
+    def _counting_writes(self, conn: sqlite3.Connection, changes: int) -> Iterator[None]:
+        """Move ``write_epoch`` when the block changed a row (a cache write, see :meth:`cache_write`, does not)."""
+
+        try:
+            yield
+        finally:
+            self._note_changes(conn, changes)
+
+    def _note_changes(self, conn: sqlite3.Connection, changes: int) -> None:
+        try:
+            changed = conn.total_changes != changes
+        except sqlite3.ProgrammingError:
+            changed = True  # a failed call closed its connection: assume it wrote
+        if changed and getattr(self._scope, "cache_depth", 0) == 0:
+            self._write_epoch += 1
+
+    @property
+    def write_epoch(self) -> int:
+        """Rises on every committed or attempted row change except cache writes; unchanged means no fact moved."""
+
+        return self._write_epoch
+
+    @contextlib.contextmanager
+    def cache_write(self) -> Iterator[None]:
+        """Writes inside are recomputable cache rows: they do not move :attr:`write_epoch`."""
+
+        depth = getattr(self._scope, "cache_depth", 0)
+        self._scope.cache_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._scope.cache_depth = depth
+
+    def _transaction_on(self, conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
         if conn is self._connection:
             # No explicit BEGIN here. isolation_level="IMMEDIATE" (set in
             # batch_mode) makes sqlite3 open the transaction implicitly, and
@@ -395,14 +461,13 @@ class SqliteTableStore:
         escaped = query.strip().replace('"', '""')
         return f'"{escaped}"'
 
-    def _apply_migrations(self, conn: sqlite3.Connection) -> None:
+    def _apply_migrations(self, conn: sqlite3.Connection, *, commit_each: bool = True) -> None:
         if not self.MIGRATIONS:
             return
         from lemoncrow.infra.storage.migrations import read_migration
 
-        conn.executescript(
-            "CREATE TABLE IF NOT EXISTS _schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL);"
-        )
+        # execute, not executescript: executescript commits an open transaction first.
+        conn.execute("CREATE TABLE IF NOT EXISTS _schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
         applied = {row[0] for row in conn.execute("SELECT name FROM _schema_migrations").fetchall()}
         for name in self.MIGRATIONS:
             if name in applied:
@@ -420,20 +485,24 @@ class SqliteTableStore:
                 "INSERT OR IGNORE INTO _schema_migrations (name, applied_at) VALUES (?, datetime('now'))",
                 (name,),
             )
-            conn.commit()
+            if commit_each:
+                conn.commit()
 
-    def _verify_schema(self, conn: sqlite3.Connection) -> bool:
-        """Return True when every table this store owns exists."""
+    def _missing_tables(self, conn: sqlite3.Connection) -> set[str]:
+        """The tables this store owns that do not exist yet."""
         if not self.REQUIRED_TABLES:
-            return True
+            return set()
         rows = conn.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table') AND name IN ({})".format(
                 ",".join("?" for _ in self.REQUIRED_TABLES)
             ),
             self.REQUIRED_TABLES,
         ).fetchall()
-        found = {row["name"] for row in rows}
-        missing = set(self.REQUIRED_TABLES) - found
+        return set(self.REQUIRED_TABLES) - {row[0] for row in rows}
+
+    def _verify_schema(self, conn: sqlite3.Connection) -> bool:
+        """Return True when every table this store owns exists."""
+        missing = self._missing_tables(conn)
         if missing:
             raise RuntimeError(f"missing tables in {self.db_path.name}: {', '.join(sorted(missing))}")
         return True

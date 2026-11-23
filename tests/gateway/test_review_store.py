@@ -127,7 +127,7 @@ def test_init_creates_the_file_and_every_required_table(tmp_path: Path) -> None:
     with sqlite3.connect(store.db_path) as conn:
         names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert set(ReviewStore.REQUIRED_TABLES) <= names
-    assert len(ReviewStore.REQUIRED_TABLES) == 44
+    assert len(ReviewStore.REQUIRED_TABLES) == 47
     assert "review_destinations" in names
     assert {
         "review_bindings",
@@ -600,12 +600,19 @@ def test_additive_review_migrations_are_registered_without_bumping_schema_versio
         "v3_038_review_ask_conversations.sql",
         "v3_039_review_hosted_attachment.sql",
         "v3_040_project_knowledge.sql",
+        "v3_041_review_answer_category.sql",
+        "v3_042_review_structure_reconsideration.sql",
+        "v3_043_review_flow_send.sql",
+        "v3_044_review_viewer_state.sql",
+        "v3_045_review_user_settings.sql",
+        "v3_046_review_ask_author.sql",
     )
     assert SESSION_SCHEMA_VERSION == 1
 
     store = _store(tmp_path)
     with sqlite3.connect(store.db_path) as conn:
         annotation_columns = {row[1] for row in conn.execute("PRAGMA table_info(annotations)")}
+        assert {"reconsidered_after_structure", "structure_revision_id"}.issubset(annotation_columns)
         revision_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_revisions)")}
         evidence_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_evidence)")}
         delivery_columns = {row[1] for row in conn.execute("PRAGMA table_info(deliveries)")}
@@ -759,6 +766,132 @@ def test_v3_021_migrates_legacy_identity_without_losing_review_rows(tmp_path: Pa
     assert "ux_review_sessions_subject" not in indexes
     assert "idx_review_sessions_legacy_subject" in indexes
     assert marker is not None
+
+
+def test_v3_041_adds_the_answer_category_columns_without_touching_existing_units(tmp_path: Path) -> None:
+    """Forward-safe: a store from before the stamp keeps every unit, reads it unstamped, and re-migrates cleanly."""
+    root = tmp_path / "store"
+    store = _store(root)
+    session = store.create_session(_session())
+    stamped = _unit("file:gen.go", path="gen.go", answer_category="accepted_by_rule", category_rule="generated_files")
+    revision = store.add_revision(_revision(session.id), [_unit(), stamped])
+    by_key = {unit.unit_key: unit for unit in store.list_units(revision.id)}
+    assert (by_key[stamped.unit_key].answer_category, by_key[stamped.unit_key].category_rule) == (
+        "accepted_by_rule",
+        "generated_files",
+    )
+    assert (by_key["file:src/app.py"].answer_category, by_key["file:src/app.py"].category_rule) == ("", "")
+
+    # Rewind to the previous build's schema: no stamp columns, migration unrecorded.
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("ALTER TABLE review_units DROP COLUMN answer_category")
+        conn.execute("ALTER TABLE review_units DROP COLUMN category_rule")
+        conn.execute("DELETE FROM _schema_migrations WHERE name = 'v3_041_review_answer_category.sql'")
+        conn.commit()
+        before = conn.execute("SELECT unit_key, content_fingerprint FROM review_units ORDER BY unit_key").fetchall()
+    assert len(before) == 2
+
+    migrated = ReviewStore(root)
+    migrated.init()
+    migrated.init()  # idempotent
+    with sqlite3.connect(migrated.db_path) as conn:
+        columns = {row[1]: row for row in conn.execute("PRAGMA table_info(review_units)")}
+        after = conn.execute("SELECT unit_key, content_fingerprint FROM review_units ORDER BY unit_key").fetchall()
+        recorded = conn.execute(
+            "SELECT 1 FROM _schema_migrations WHERE name = 'v3_041_review_answer_category.sql'"
+        ).fetchone()
+    assert {"answer_category", "category_rule"} <= set(columns)
+    assert columns["answer_category"][4] == "''" and columns["answer_category"][3] == 1  # default '' and NOT NULL
+    assert after == before
+    assert recorded is not None
+    # Existing units read as unstamped, never as a guessed category.
+    assert {(u.answer_category, u.category_rule) for u in migrated.list_units(revision.id)} == {("", "")}
+
+
+def test_enriching_a_revision_never_erases_a_stamp_it_was_not_given(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session = store.create_session(_session())
+    stamped = _unit(answer_category="accepted_by_rule", category_rule="lockfiles")
+    revision = store.add_revision(_revision(session.id), [stamped])
+    common = {
+        "packet_payload": b"{}",
+        "packet_schema_version": 1,
+        "degraded": (),
+        "provenance_host": "",
+        "provenance_model": "",
+        "provenance_session_id": "",
+        "provenance_certainty": "none",
+    }
+    store.update_revision_projection(
+        revision.id,
+        units=[replace(stamped, answer_category="", category_rule="")],
+        **{**common, "packet_payload": b"1"},
+    )
+    (unit,) = store.list_units(revision.id)
+    assert (unit.answer_category, unit.category_rule) == ("accepted_by_rule", "lockfiles")
+    store.update_revision_projection(
+        revision.id,
+        units=[replace(stamped, answer_category="decision", category_rule="")],
+        **{**common, "packet_payload": b"2"},
+    )
+    (unit,) = store.list_units(revision.id)
+    assert (unit.answer_category, unit.category_rule) == ("decision", "")
+
+
+def test_enrichment_may_add_symbols_and_declarations_but_no_other_part(tmp_path: Path) -> None:
+    # 2026-11-19 on real commits: a large capture has no symbols yet, and the impact pass was refused
+    # outright for finding module declarations, so the Review never got its callers.
+    store = _store(tmp_path)
+    session = store.create_session(_session())
+    hunk = _unit()
+    revision = store.add_revision(_revision(session.id), [hunk])
+    common = {
+        "packet_payload": b"1",
+        "packet_schema_version": 1,
+        "degraded": (),
+        "provenance_host": "",
+        "provenance_model": "",
+        "provenance_session_id": "",
+        "provenance_certainty": "none",
+    }
+    symbol = replace(hunk, unit_key="added-symbol", kind="symbol", symbol="run")
+    declaration = replace(hunk, unit_key="added-section", kind="document_section", symbol="Module declarations · A")
+    store.update_revision_projection(revision.id, units=[hunk, symbol, declaration], **common)
+    assert {unit.unit_key for unit in store.list_units(revision.id)} == {
+        hunk.unit_key,
+        "added-symbol",
+        "added-section",
+    }
+
+    kept = store.list_units(revision.id)
+    other = replace(hunk, unit_key="added-file", kind="file")
+    with pytest.raises(ValueError, match="changed target identity"):
+        store.update_revision_projection(revision.id, units=[*kept, other], **common)
+    with pytest.raises(ValueError, match="changed target identity"):
+        store.update_revision_projection(revision.id, units=[symbol, declaration], **common)
+
+
+def test_a_later_mark_round_trips_with_its_transition_and_is_not_a_judgment(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    unit = store.list_units(revision.id)[0]
+    mark = ReviewMark(
+        review_id=session.id,
+        unit_key=unit.unit_key,
+        state="later",
+        reviewed_revision_id=revision.id,
+        content_fingerprint=unit.content_fingerprint,
+    )
+    store.set_mark(mark, event_revision_id=revision.id)
+    (stored,) = store.list_marks(session.id)
+    assert stored.state == "later"
+    (event,) = store.list_mark_events(session.id)
+    assert (event.from_state, event.to_state) == ("", "later")
+    # Setting it aside is not a judgment: no behavior judgment and no mark query for judged states counts it.
+    assert store.human_behavior_judgments(session.id) == ()
+    store.set_mark(replace(mark, state="reviewed"), event_revision_id=revision.id)
+    events = store.list_mark_events(session.id)
+    assert [(e.from_state, e.to_state) for e in events] == [("", "later"), ("later", "reviewed")]
 
 
 def test_v3_009_migrates_an_existing_deliveries_table_before_building_operation_indexes(tmp_path: Path) -> None:
@@ -1162,6 +1295,9 @@ def test_add_revision_round_trips_every_field(tmp_path: Path) -> None:
     assert revision.head_sha == ""
     assert revision.source_fingerprint == "watch-abc"
     assert revision.title == "Validate price changes"
+    # Activity names the agent by its host; the session id stays the actor id only.
+    recorded = [item for item in store.list_activity_events(session.id) if item.kind == "revision.recorded"]
+    assert [(item.actor_type, json.loads(item.detail_json)["host"]) for item in recorded] == [("agent", "claude")]
 
 
 def test_revision_numbers_are_dense_and_assigned_by_the_store(tmp_path: Path) -> None:
@@ -1832,7 +1968,7 @@ def test_mark_events_and_activity_are_append_only_while_live_mark_is_latest(tmp_
         "mark.judgment",
     ]
     # The first capture is "Snapshot 0" everywhere the reviewer reads it.
-    assert activity[1].summary == f"Snapshot {revision.revision_number - 1} recorded"
+    assert activity[1].summary == f"Revision {revision.revision_number} recorded"
 
 
 def test_annotation_versions_track_thread_turn_ownership(tmp_path: Path) -> None:

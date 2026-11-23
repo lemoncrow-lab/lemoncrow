@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 import re
-import shutil  # noqa: F401 -- compatibility seam used by unchanged Ask driver tests/callers
+import shutil
 import subprocess
 import sys  # noqa: F401 -- compatibility seam used by unchanged Ask driver tests/callers
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from lemoncrow.infra.internal_llm import InternalLLMError, chat_stream
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.intelligence_drivers import ExecutionOrigin
 from lemoncrow.pro.capabilities.review.intelligence_runtime import StructuredExecution
 from lemoncrow.pro.capabilities.review.session_models import ReviewAskMessage, ReviewRevision
@@ -129,7 +130,7 @@ def exact_revision_sources(
     if not requested:
         return {}
 
-    tree = store.read_source_tree_artifact(revision.review_id, revision.id, side=side)
+    tree = request_reads.source_tree_once(store, revision.review_id, revision.id, side)
     if tree is not None:
         out: dict[str, str] = {}
         for path in requested:
@@ -741,21 +742,11 @@ class _SnapshotDeltaSanitizer:
 
 
 def discover_opencode_models() -> list[str]:
-    """Return the model catalog exposed by the installed OpenCode/LemonCode host."""
-    from lemoncrow.core.foundation.managed_host import resolve_managed_host_binary
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    executable = resolve_managed_host_binary(default_store_root())
+    """Return the model catalog exposed by the installed OpenCode host."""
+    executable = shutil.which("opencode")
     if not executable:
         return []
     env = dict(os.environ)
-    env.update(
-        {
-            "LEMONCODE_CLI_NAME": "opencode",
-            "LEMONCODE_PRODUCT_NAME": "OpenCode",
-            "LEMONCODE_STORAGE_NAME": "opencode",
-        }
-    )
     try:
         completed = subprocess.run(
             [executable, "models"],
@@ -820,6 +811,10 @@ _PROJECT_KNOWLEDGE_ASK_INSTRUCTIONS = """- context_classes names four kinds of c
 """
 
 
+_UNAVAILABLE_FILES_ASK_INSTRUCTION = """- source_files_unavailable lists Snapshot files whose bytes were not stored, so they are absent from the project directory. Their absence says nothing about the Change: never say such a file was deleted or empty, and say it could not be read when the answer depends on it.
+"""
+
+
 def answer_ask_execution(
     context: Mapping[str, Any],
     *,
@@ -869,6 +864,8 @@ Important distinctions:
     if context.get("project_knowledge"):
         # PK2: only present when bounded, access-filtered history was retrieved.
         system += _PROJECT_KNOWLEDGE_ASK_INSTRUCTIONS
+    if context.get("source_files_unavailable"):
+        system += _UNAVAILABLE_FILES_ASK_INSTRUCTION
     prompt = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     sanitizer = _SnapshotDeltaSanitizer(project_root, on_text_delta) if on_text_delta is not None else None
     extractor = _BodyDeltaExtractor(sanitizer.feed) if sanitizer is not None else None

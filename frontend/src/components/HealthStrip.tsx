@@ -46,7 +46,7 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
           }`}
         />
         <span className="text-body font-mono text-subtle">
-          Daemon {health?.status ?? (healthErr ? "unreachable" : "…")}
+          Local server {health?.status ?? (healthErr ? "unreachable" : "…")}
         </span>
         {health?.timestamp && (
           <span

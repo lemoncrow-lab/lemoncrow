@@ -262,37 +262,13 @@ def _cache_read_price(model: str | None, occupancy: int = 0) -> float:
 
 
 def _context_occupancy(transcript_path: str) -> tuple[int, str | None]:
-    """Return ``(live_window_tokens, model)`` from the transcript's usage data.
-
-    Reads the last real assistant ``usage`` block (input + cache_read +
-    cache_creation = current prompt size = live window occupancy). Mirrors
-    Claude Code's own status-line gauge; never uses transcript file size, which
-    is cumulative. Fail-open: returns ``(0, None)`` on any error.
-    """
+    """Bounded, compaction-aware live-window probe shared with MCP accounting."""
     try:
-        occupancy = 0
-        model: str | None = None
-        with open(transcript_path, encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    entry = json.loads(line)
-                except (ValueError, TypeError):
-                    continue
-                message = entry.get("message") or {}
-                usage = message.get("usage") or {}
-                turn = sum(
-                    int(usage.get(key, 0) or 0)
-                    for key in (
-                        "input_tokens",
-                        "cache_read_input_tokens",
-                        "cache_creation_input_tokens",
-                    )
-                )
-                if turn > 0:
-                    occupancy = turn  # last non-zero turn = current occupancy
-                    model = message.get("model") or model
-        return occupancy, model
-    except OSError:
+        from lemoncrow.core.capabilities.savings_summary import transcript_context_from_path
+
+        occupancy, model = transcript_context_from_path(transcript_path)
+        return occupancy, model or None
+    except (ImportError, OSError, TypeError, ValueError):
         return 0, None
 
 
@@ -505,105 +481,79 @@ def _credit_pending_compaction(state: dict[str, Any], occupancy: int, model: str
             _clear_precompact(state)  # post-compact size never resolved; stop trying
 
 
-def _check_noop_cap(prompt: str) -> bool:
-    """Return True when the harness no-op retry loop should be broken.
-
-    Tracks consecutive occurrences of the harness-injected continuation prompt
-    in session state under ``noop_continue_count``.  Returns True (caller
-    should block + exit 2) once ``_NOOP_CAP`` consecutive occurrences have
-    been seen.  Always resets the counter for any other prompt so a real user
-    turn restarts the count.  Fail-open: returns False on any state error so
-    the session is never incorrectly terminated.
-    """
+def _check_noop_cap(prompt: str, session_id: str = "") -> bool:
+    """Bound harness no-op retries per Claude window, never per workspace."""
     try:
-        state = _read_session_state()
-        if _NOOP_PROMPT in prompt:
-            count = int(state.get("noop_continue_count", 0) or 0) + 1
-            state["noop_continue_count"] = count
-            _write_session_state(state)
-            return count >= _NOOP_CAP
-        else:
-            if state.get("noop_continue_count"):
-                state["noop_continue_count"] = 0
-                _write_session_state(state)
-        return False
+        from lemoncrow.core.foundation.claude_window_state import mutate_claude_window_state
+
+        workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+
+        def _update(state: dict[str, Any]) -> bool:
+            if _NOOP_PROMPT in prompt:
+                count = int(state.get("noop_continue_count", 0) or 0) + 1
+                state["noop_continue_count"] = count
+                return count >= _NOOP_CAP
+            state.pop("noop_continue_count", None)
+            return False
+
+        return mutate_claude_window_state(workspace, session_id, _update)
     except Exception:
-        return False
+        return False  # Fail-open
 
 
 def _maybe_emit_compaction_advice(
     prompt: str, transcript_path: str, last_user_prompt: str, session_id: str
 ) -> str | None:
-    """Decide whether to nudge for compaction. Fail-open.
+    """Compaction notice with isolated, locked window state.
 
-    Fires on absolute occupancy (>=100k tokens) so it works the same at 200k or
-    1M windows, earlier (>=25k) only after the topic has drifted across several
-    consecutive prompts, and re-nudges more often as occupancy grows. Cooldown +
-    rolling topic history live in session
-    state. Returns the nudge text when one should be shown, else None.
-
-    The ``last_user_prompt`` persist is folded into this function's single
-    read-modify-write of session state: keeping it as a separate RMW widened the
-    window for a concurrent workspace-touching hook to drop either update.
+    A concurrent sibling Claude window cannot alter this window's topic
+    history, occupancy, cooldown, pending compaction, or retry counters.
     """
     try:
-        occupancy, model = _context_occupancy(transcript_path) if transcript_path else (0, None)
-        state = _read_session_state()
-        _credit_pending_compaction(state, occupancy, model, session_id)
-        # Reset drift baseline when compact just ran or occupancy dropped sharply
-        # (/clear).  Without this the first new prompt after compaction is always
-        # flagged as unrelated to the now-gone conversation and the warning fires
-        # uselessly.
-        last_occupancy = int(state.get("last_occupancy", 0) or 0)
-        sharp_drop = last_occupancy > 0 and occupancy > 0 and occupancy < last_occupancy * 0.5
-        if state.get("precompact_pending") or sharp_drop:
-            state["prompt_topic_history"] = []
-            state.pop("last_compact_notice_count", None)
-            state.pop("drift_streak", None)
-        history_raw = [h for h in state.get("prompt_topic_history", []) if isinstance(h, str)]
-        history_tok = [_topic_tokens(h) for h in history_raw]
-        sim = _cosine_drift(_topic_tokens(prompt), history_tok)
-        # Sustained-drift gate: track consecutive divergent prompts. A single
-        # low-similarity prompt mid-task is almost always a continuation that
-        # reuses few earlier terms, so one divergent turn must NOT fire the
-        # "unrelated" nudge. Any in-context prompt (short, high-overlap, or too
-        # little history to judge) breaks the streak and resets it to zero.
-        diverges = sim is not None and sim < _DRIFT_SIM_THRESHOLD
-        # Working-set veto: a divergent-looking prompt that still names files,
-        # dirs, or symbols under active edit is in-context, not a topic switch.
-        # Word-overlap cosine misses this because coding turns reuse little
-        # prose; the files being edited are the real topic signal.
-        if diverges and _prompt_in_working_set(prompt, _recent_working_set(session_id)):
-            diverges = False
-        streak = (int(state.get("drift_streak", 0) or 0) + 1) if diverges else 0
-        state["drift_streak"] = streak
-        drifted = streak >= _DRIFT_CONSECUTIVE_REQUIRED
-        count = int(state.get("prompt_count", 0) or 0)
-        # Persist rolling history + counter regardless of whether we nudge.
-        history_raw.append(prompt[:500])
-        state["prompt_topic_history"] = history_raw[-_DRIFT_HISTORY_CAP:]
-        state["prompt_count"] = count + 1
+        from lemoncrow.core.foundation.claude_window_state import mutate_claude_window_state
 
-        msg: str | None = None
-        if occupancy > 0:
-            floor = _DRIFT_MIN_TOKENS if drifted else _COMPACT_MIN_TOKENS
-            # Suppress the notification on the turn(s) immediately after /compact
-            # while precompact_pending is True.  The credit attempt above may not
-            # yet have observed the post-compact occupancy drop; firing again
-            # immediately is confusing even when the compact summary is large.
-            # Once precompact_pending clears (delta visible or gave up after 3
-            # attempts), normal cooldown logic applies.
-            if occupancy >= floor and not state.get("precompact_pending"):
-                last_raw = state.get("last_compact_notice_count")
-                last = last_raw if isinstance(last_raw, int) else -(10**9)
-                if count - last >= _compact_cooldown(occupancy):
-                    state["last_compact_notice_count"] = count
-                    msg = _compaction_advice_msg(occupancy, _context_window_tokens(model), model, drifted)
-        if occupancy > 0:
-            state["last_occupancy"] = occupancy
-        state["last_user_prompt"] = last_user_prompt
-        _write_session_state(state)
-        return msg
+        occupancy, model = _context_occupancy(transcript_path) if transcript_path else (0, None)
+        workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+
+        def _update(state: dict[str, Any]) -> str | None:
+            _credit_pending_compaction(state, occupancy, model, session_id)
+            last_occupancy = int(state.get("last_occupancy", 0) or 0)
+            sharp_drop = last_occupancy > 0 and occupancy > 0 and occupancy < last_occupancy * 0.5
+            if state.get("precompact_pending") or sharp_drop:
+                state["prompt_topic_history"] = []
+                state.pop("last_compact_notice_count", None)
+                state.pop("drift_streak", None)
+
+            history_raw = [h for h in state.get("prompt_topic_history", []) if isinstance(h, str)]
+            sim = _cosine_drift(_topic_tokens(prompt), [_topic_tokens(h) for h in history_raw])
+            diverges = sim is not None and sim < _DRIFT_SIM_THRESHOLD
+            if diverges and _prompt_in_working_set(prompt, _recent_working_set(session_id)):
+                diverges = False
+            streak = int(state.get("drift_streak", 0) or 0) + 1 if diverges else 0
+            state["drift_streak"] = streak
+            drifted = streak >= _DRIFT_CONSECUTIVE_REQUIRED
+            count = int(state.get("prompt_count", 0) or 0)
+            history_raw.append(prompt[:500])
+            state["prompt_topic_history"] = history_raw[-_DRIFT_HISTORY_CAP:]
+            state["prompt_count"] = count + 1
+
+            msg: str | None = None
+            if occupancy > 0:
+                floor = _DRIFT_MIN_TOKENS if drifted else _COMPACT_MIN_TOKENS
+                if occupancy >= floor and not state.get("precompact_pending"):
+                    previous = state.get("last_compact_notice_count")
+                    last = previous if isinstance(previous, int) else -(10**9)
+                    if count - last >= _compact_cooldown(occupancy):
+                        state["last_compact_notice_count"] = count
+                        msg = _compaction_advice_msg(occupancy, _context_window_tokens(model), model, drifted)
+                state["last_occupancy"] = occupancy
+            return msg
+
+        result = mutate_claude_window_state(workspace, session_id, _update)
+        # This field is a workspace discovery convenience, not session-scoped
+        # warning state, so preserve the legacy bridge for consumers.
+        _persist_last_user_prompt(last_user_prompt)
+        return result
     except Exception:
         _persist_last_user_prompt(last_user_prompt)
         return None
@@ -739,12 +689,9 @@ def main() -> int:
         return 0
     stored_prompt = prompt[:_MAX_PROMPT_BYTES]
 
-    # Infinite no-op retry guard: the Claude Code harness re-injects the
-    # continuation prompt when the model emits "No response requested." without
-    # appending the response to history, so the same 35-message context is
-    # retried forever.  Block after _NOOP_CAP consecutive occurrences so the
-    # session exits cleanly instead of looping until wall-clock timeout.
-    if _check_noop_cap(prompt):
+    # Scope the harness retry guard to the live Claude window (not the repo).
+    session_id = str(payload.get("session_id") or "").strip()
+    if _check_noop_cap(prompt, session_id):
         sys.stdout.write(
             json.dumps(
                 {

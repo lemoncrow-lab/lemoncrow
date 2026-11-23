@@ -7,7 +7,7 @@ import Assumptions from "./Assumptions";
 import { brokenPaymentRetry, orderSnapshots } from "./fixtures";
 
 describe("Assumptions", () => {
-  it("opens the exact changed target and the consumer site from a row", async () => {
+  it("opens the exact part and the consumer site from a row", async () => {
     const fixture = brokenPaymentRetry();
     const onOpenTarget = vi.fn();
     const onOpenCodeLocation = vi.fn();
@@ -38,7 +38,7 @@ describe("Assumptions", () => {
     // AI rows say what they are; no Challenge control renders without a Challenge flow.
     const ai = within(group).getAllByTestId("assumption-row").find((row) => row.dataset.origin === "model_suggested")!;
     expect(within(ai).getByText("AI suggestion")).toBeInTheDocument();
-    expect(within(ai).getByText("Unverified")).toBeInTheDocument();
+    expect(within(ai).getByText("Not verified")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Challenge" })).toBeNull();
     await userEvent.click(within(ai).getByRole("button", { name: "Ask" }));
     expect(onAsk).toHaveBeenCalledWith("pay-retry");
@@ -48,11 +48,16 @@ describe("Assumptions", () => {
     const fixture = INVESTIGATION_FIXTURES.cleanNoGraph();
     render(<Assumptions projection={fixture.projection} targets={fixture.targets} checks={fixture.checks} onOpenTarget={() => undefined} />);
     expect(screen.queryAllByTestId("assumption-row")).toEqual([]);
-    expect(screen.getByTestId("assumptions-empty")).toHaveTextContent("1 claim, 0 declared assumptions");
-    expect(screen.getByTestId("assumptions-empty")).toHaveTextContent("not the same as safe");
+    // The empty state is one short line; what was looked at is listed once, in the measurement details.
+    expect(screen.getByTestId("assumptions-measurement")).toHaveTextContent("1 claim, 0 declared assumptions");
+    expect(screen.getByTestId("assumptions-empty")).toHaveTextContent("No assumptions found in what was looked at.");
+    expect(screen.getByTestId("assumptions-empty")).not.toHaveTextContent("safe");
+    // The fixture has no consumer inventory, so the count is stated as unknown rather than 0.
+    expect(screen.getByTestId("assumptions-measurement")).toHaveTextContent("consumer sites not measured");
+    expect(screen.getByTestId("assumptions-measurement")).not.toHaveTextContent("0 consumer sites");
   });
 
-  it("drops a checked state when a new Snapshot changes the source", () => {
+  it("drops a checked state when a new revision changes the source", () => {
     const { before, after } = orderSnapshots();
     const props = { onOpenTarget: () => undefined };
     const { rerender } = render(<Assumptions projection={before.projection} targets={before.targets} checks={before.checks} {...props} />);
@@ -60,8 +65,8 @@ describe("Assumptions", () => {
     rerender(<Assumptions projection={after.projection} targets={after.targets} checks={after.checks} {...props} />);
     expect(screen.getByTestId("assumptions")).toHaveAttribute("data-snapshot", "review-orders@rev-order-2");
     expect(screen.queryByText(/^Checked by/)).toBeNull();
-    expect(screen.getByText("Unverified")).toBeInTheDocument();
-    expect(screen.getByText(/from Snapshot 0, not re-run on this one/)).toBeInTheDocument();
+    expect(screen.getByText("Not verified")).toBeInTheDocument();
+    expect(screen.getByText(/from Revision 1, not re-run on this one/)).toBeInTheDocument();
     expect(screen.getByText(/changed since review/)).toBeInTheDocument();
   });
 });

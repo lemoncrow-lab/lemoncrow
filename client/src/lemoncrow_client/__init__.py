@@ -1,8 +1,9 @@
 """The public LemonCrow thin client.
 
 One short-lived MCP stdio process. No daemon, no listening port, no unit, no
-self-update, no downloaded binary, no product telemetry, and no egress other
-than the configured LemonCrow endpoint.
+self-update and no downloaded binary. Egress is the configured LemonCrow
+endpoint and, unless turned off, one daily post of anonymous feature counts
+(:mod:`lemoncrow_client.usage`).
 
 Python standard library only -- ``pyproject.toml`` declares no dependencies and
 ``tests/test_packaging_audit.py`` asserts it, along with every other claim in
@@ -16,4 +17,4 @@ from typing import Final
 __all__ = ["CLIENT_NAME", "CLIENT_VERSION"]
 
 CLIENT_NAME: Final[str] = "lemoncrow-client"
-CLIENT_VERSION: Final[str] = "0.8.2"
+CLIENT_VERSION: Final[str] = "0.8.3"

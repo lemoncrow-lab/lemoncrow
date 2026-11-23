@@ -27,7 +27,7 @@ function stateClass(state: ReviewEvidenceFactState): string {
 
 export default function ReviewEvidenceFacts({
   facts,
-  emptyText = "No named verification evidence is attached to this Snapshot.",
+  emptyText = "No check results are attached to this revision.",
 }: {
   facts: readonly ReviewEvidenceFact[];
   emptyText?: string;

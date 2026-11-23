@@ -6,12 +6,11 @@ This page explains the technical differences between LemonCrow's coding-agent in
 
 | Host | User-facing model | Temporary launch | Persistent integration | Lifecycle/evidence | Owned-loop frontend |
 | --- | --- | --- | --- | --- | --- |
-| **Claude Code** | LemonCrow plugin inside existing Claude Code | `lc with claude` | `lc rt enable claude` | Rich plugin hooks + importable session artifacts | Local Runtime Lite frontend |
-| **Codex** | LemonCrow plugin inside existing Codex | `lc with codex` | `lc rt enable codex` | Native lifecycle hooks + session imports | Local Runtime Lite frontend |
-| **OpenCode** | LemonCrow plugin inside existing OpenCode | `lc with opencode` | `lc rt enable opencode` | Local plugin events + session DB import | No dedicated owned-loop engine; LemonCode covers the managed fork path |
+| **Claude Code** | LemonCrow plugin inside existing Claude Code | `lc with claude` | `lc rt enable claude` | Rich plugin hooks + importable session artifacts | Local Workspaces Lite frontend |
+| **Codex** | LemonCrow plugin inside existing Codex | `lc with codex` | `lc rt enable codex` | Native lifecycle hooks + session imports | Local Workspaces Lite frontend |
+| **OpenCode** | LemonCrow plugin inside existing OpenCode | `lc with opencode` | `lc rt enable opencode` | Local plugin events + session DB import | No dedicated owned-loop engine |
 | **Cursor** | Installed IDE + `cursor-agent` integration | — | Cursor installer | `sessionStart` + `stop` hooks; Cursor IDE/CLI share config | No |
-| **Pi** | Public managed coding-agent host | managed binary | `lc rt host ... --engine pi`; `lc with pi` | Runtime Lite tools are added locally for the Pi process | May also be used by Hosted/Enterprise |
-| **LemonCode** | LemonCrow-maintained OpenCode fork | managed binary | `lc rt host ... --engine lemoncode` | Public managed host/integration | May also be used by Hosted/Enterprise |
+| **Pi** | Public managed coding-agent host | managed binary | `lc rt host ... --engine pi`; `lc with pi` | Workspaces Lite tools are added locally for the Pi process | May also be used by Hosted/Enterprise |
 
 ## Additional integrations
 
@@ -56,10 +55,6 @@ Cursor's IDE and `cursor-agent` CLI share the same integration files. Cursor ret
 ### Pi
 
 Pi itself is public. `lc rt host` manages the reviewed/pinned binary. When LemonCrow uses Pi inside the private Hosted owned loop, a separate managed mode can disable Pi features that would create a second competing tool/model loop; that private use does not change Pi host ownership.
-
-### LemonCode
-
-LemonCode and Pi are both public managed hosts. Hosted/Enterprise may choose either as an implementation/frontend detail; Pro is a commercial Hosted plan, not a host or local engine mode.
 
 ## Protocol details
 

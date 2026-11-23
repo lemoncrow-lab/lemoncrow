@@ -1,4 +1,4 @@
-"""The Change Story for GitHub: the Review's step-by-step walk over a change, as a numbered list in the summary.
+"""The Walkthrough for GitHub (formerly the Change Story): the Review's step-by-step walk over a change, as a numbered list in the summary.
 
 This is a port of the *ordering* of the Reader's Change Story (``frontend/src/review/changeStory/changeStoryModel.ts``):
 the changed entry point first, then the changed files it reaches through recorded relationships (dependents before what
@@ -512,7 +512,7 @@ def build_change_story(
             if observed_steps
             else "This is not a runtime order."
         )
-        note = f"Ordered by the changed-relationship flow between the base and this Snapshot. {tail}"
+        note = f"Ordered by the changed-relationship flow between the base and this revision. {tail}"
     else:
         note = "Ordered by recorded dependencies between changed files, dependents first. This is not a runtime order."
     return ChangeStory(
@@ -664,7 +664,7 @@ def links_from_env(environ: Mapping[str, str], *, head_sha: str, base_sha: str =
 # the summary's walkthrough
 # --------------------------------------------------------------------------- #
 
-HEADING: Final[str] = "**Change Story**"
+HEADING: Final[str] = "**Walkthrough**"
 
 
 def _shared_names(steps: Sequence[StoryStep]) -> set[str]:

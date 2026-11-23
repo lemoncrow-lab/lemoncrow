@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Code2, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Code2, Map as MapIcon, Sparkles } from "lucide-react";
 
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
+import { isDialogOpen } from "../components/ui/dialog";
 import type { ReviewSynthesisStatus, ReviewTarget, ReviewTourProjection } from "./types";
 
 interface ReviewTourProps {
@@ -13,12 +14,16 @@ interface ReviewTourProps {
   /** Stable cohort identity carried in the URL for reload/back-forward resume. */
   activeCohortId?: string;
   onCohortChange?: (cohortId: string) => void;
-  onExit: () => void;
-  onBackToBrief: () => void;
+  /** Esc and the empty state: back to the Overview. */
+  onBack: () => void;
+  /** Opens a part in the flow's Focus screen. */
   onOpenTarget: (targetId: string) => void;
-  onInspectEvidence: (targetId: string | null) => void;
+  /** Opens the flow Map on the Dependencies lens, where the step's parts sit. */
+  onShowOnMap: () => void;
   onAsk?: (targetId: string | null) => void;
   onSynthesize?: () => Promise<void>;
+  /** The Steps / On the map switch; absent where the map cannot be offered. */
+  viewSwitch?: ReactNode;
 }
 
 function positionKey(reviewId: string, revisionId: string): string {
@@ -38,8 +43,20 @@ function readPosition(reviewId: string, revisionId: string, tour: ReviewTourProj
   }
 }
 
+/** A file's several hunks read as the same row without their lines. */
+function tourPartName(target: ReviewTarget): string {
+  if (target.symbol) return target.path + " · " + target.symbol;
+  if (target.kind === "hunk" && target.start_line > 0) {
+    const lines = target.end_line > target.start_line ? `lines ${target.start_line}–${target.end_line}` : `line ${target.start_line}`;
+    // The part before a file's first function reads as the top of the file, as All files names it.
+    return `${target.path} · ${target.start_line <= 1 ? `top of file, ${lines}` : lines}`;
+  }
+  return target.path;
+}
+
+/** Plain words for where a step's text came from: the code alone, or AI wording over it. */
 function statusText(status: ReviewSynthesisStatus | undefined): string {
-  if (!status) return "Deterministic guidance";
+  if (!status) return "Built from the code only";
   switch (status.mode) {
     case "cached_synthesis":
     case "synthesized":
@@ -48,9 +65,9 @@ function statusText(status: ReviewSynthesisStatus | undefined): string {
       return "Guidance limited by budget";
     case "unavailable":
     case "error":
-      return "AI guidance unavailable";
+      return "Built from the code only · no AI wording";
     default:
-      return "Deterministic guidance";
+      return "Built from the code only";
   }
 }
 
@@ -68,12 +85,12 @@ function ReviewTourForSnapshot({
   targets,
   activeCohortId,
   onCohortChange,
-  onExit,
-  onBackToBrief,
+  onBack,
   onOpenTarget,
-  onInspectEvidence,
+  onShowOnMap,
   onAsk,
   onSynthesize,
+  viewSwitch,
 }: ReviewTourProps) {
   const byId = useMemo(() => new Map(targets.map((target) => [target.target_id, target])), [targets]);
   const initialByUrl = activeCohortId ? tour.steps.findIndex((step) => step.semantic_key === activeCohortId) : -1;
@@ -112,8 +129,11 @@ function ReviewTourForSnapshot({
   useEffect(() => {
     if (!step) return;
     const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (event.defaultPrevented || isDialogOpen()) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      // Keys pressed inside the Ask rail belong to Ask: Escape there must not also leave the walkthrough.
+      if (target?.closest("[data-review-rail]")) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "j" || event.key === "ArrowDown" || event.key === "]") {
         moveTo(boundedIndex + 1);
@@ -122,32 +142,39 @@ function ReviewTourForSnapshot({
         moveTo(boundedIndex - 1);
         event.preventDefault();
       } else if (event.key === "Enter" && step.implementation?.target_id) {
+        // Enter on a focused button or link belongs to the control (SPEC 3.5).
+        if (target?.closest("button, a, [role='button'], [role='link']")) return;
         onOpenTarget(step.implementation.target_id);
         event.preventDefault();
       } else if (event.key === "Escape") {
-        onBackToBrief();
+        onBack();
         event.preventDefault();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, boundedIndex, tour.steps.length, onOpenTarget, onBackToBrief]);
+  }, [step, boundedIndex, tour.steps.length, onOpenTarget, onBack]);
 
   if (!step) {
     return (
       <div className="mx-auto flex w-full max-w-3xl flex-1 items-center justify-center p-6 text-label text-muted-foreground">
         <div className="flex flex-col items-center gap-2">
-          <span>No consequential guided-review steps for this Snapshot.</span>
-          <UiButton variant="outline" size="compact" type="button" onClick={onExit}>Open code</UiButton>
+          <span>This revision has no steps worth walking through.</span>
+          <span className="flex gap-2">
+            <UiButton variant="outline" size="compact" type="button" onClick={onBack}>Back to the Overview</UiButton>
+            {viewSwitch}
+          </span>
         </div>
       </div>
     );
   }
 
   const currentTargets = step.target_ids.map((id) => byId.get(id)).filter((value): value is ReviewTarget => Boolean(value));
+  // No model is set up ("disabled"): a request could only answer the same, so nothing is offered.
   const canSynthesize = Boolean(onSynthesize)
     && (tour.synthesis?.candidates ?? 0) > 0
     && tour.synthesis?.status !== "pending"
+    && tour.synthesis?.status !== "disabled"
     && tour.synthesis?.mode !== "skipped_by_budget";
 
   const synthesize = async () => {
@@ -168,28 +195,23 @@ function ReviewTourForSnapshot({
       <header className="mb-4 flex flex-wrap items-center gap-2 border-b border-border/70 pb-3">
         <div className="min-w-0 flex-1">
           <div className="text-ui font-semibold text-foreground">
-            {"Guided review · step " + (boundedIndex + 1) + "/" + tour.steps.length}
+            {"Walkthrough · step " + (boundedIndex + 1) + " of " + tour.steps.length}
           </div>
           <div className="text-meta text-muted-foreground">{statusText(tour.synthesis)}</div>
         </div>
-        <UiButton variant="ghost" size="compact" type="button" onClick={onBackToBrief}>
-          <ArrowLeft className="size-3.5" aria-hidden="true" />
-          Back to Brief
-        </UiButton>
-        <UiButton variant="ghost" size="icon" type="button" aria-label="Exit guided review" tooltip="Exit guided review" onClick={onExit}>
-          <X className="size-4" />
-        </UiButton>
+        {viewSwitch}
       </header>
 
       <article className="flex flex-col gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-title font-semibold text-foreground">{step.title}</h2>
+            {/* A step grouped by folder is titled with the folder; say what it is rather than show a bare path. */}
+            <h2 className="text-title font-semibold text-foreground">{step.title.endsWith("/") ? `Changes in ${step.title}` : step.title}</h2>
             {step.change_type !== "current" && <Badge>{step.change_type}</Badge>}
             {step.stale && <Badge tone="p1">stale reference</Badge>}
           </div>
           <p className="mt-1 max-w-prose text-body leading-relaxed text-foreground">{step.why}</p>
-          {step.why_origin === "inferred" && <p className="mt-1 text-caption text-muted-foreground">AI wording · exact targets retained</p>}
+          {step.why_origin === "inferred" && <p className="mt-1 text-caption text-muted-foreground">AI wording · exact parts retained</p>}
         </div>
 
         {step.decision_refs.length > 0 && (
@@ -202,16 +224,16 @@ function ReviewTourForSnapshot({
               <div key={evidence.claim_id + ":" + evidence.key + ":" + evidence.state} className="flex flex-wrap gap-x-2 text-caption">
                 <span className="font-mono text-subtle">{evidence.title || evidence.key}</span>
                 <span className={evidence.status === "FAIL" ? "text-p0" : "text-muted-foreground"}>{evidence.status}</span>
-                {evidence.state === "stale" && <span className="text-p1">earlier Snapshot</span>}
+                {evidence.state === "stale" && <span className="text-p1">earlier revision</span>}
               </div>
             ))}
           </div>
         )}
 
         {(currentTargets.length > 0 || step.stale_target_ids.length > 0) && (
-          <div className="hunk">
-            <div className="hunk-head">
-              <span className="hunk-label">Targets · {currentTargets.length + step.stale_target_ids.length}</span>
+          <div className="rounded-md border border-border">
+            <div className="border-b border-border px-3 py-1.5 text-meta font-medium text-muted-foreground">
+              {currentTargets.length + step.stale_target_ids.length === 1 ? "1 part" : `${currentTargets.length + step.stale_target_ids.length} parts`} in this step
             </div>
             <div className="max-h-[min(50vh,28rem)] overflow-y-auto">
               {currentTargets.map((target) => (
@@ -222,12 +244,12 @@ function ReviewTourForSnapshot({
                   className="flex min-h-8 w-full items-center gap-2 border-b border-border px-3 text-left font-mono text-label text-foreground transition-colors duration-fast last:border-b-0 hover:bg-accent/40"
                   onClick={() => onOpenTarget(target.target_id)}
                 >
-                  <span className="min-w-0 flex-1 truncate">{target.symbol ? target.path + " · " + target.symbol : target.path}</span>
+                  <span className="min-w-0 flex-1 truncate">{tourPartName(target)}</span>
                   <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </UiButton>
               ))}
               {step.stale_target_ids.map((targetId) => (
-                <div key={targetId} className="min-h-8 border-b border-border px-3 py-1.5 font-mono text-label text-p1 last:border-b-0">{targetId + " · no longer maps to a current target"}</div>
+                <div key={targetId} className="min-h-8 border-b border-border px-3 py-1.5 font-mono text-label text-p1 last:border-b-0">{targetId + " · no longer maps to a current part"}</div>
               ))}
             </div>
           </div>
@@ -246,13 +268,14 @@ function ReviewTourForSnapshot({
           {step.implementation?.target_id && (
             <UiButton variant="outline" size="compact" type="button" onClick={() => onOpenTarget(step.implementation!.target_id)}>
               <Code2 className="size-3.5" aria-hidden="true" />
-              Open code
+              Open this part
             </UiButton>
           )}
-          {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(step.implementation?.target_id ?? step.target_ids[0] ?? null)}>Ask</UiButton>}
-          {step.evidence_refs.length > 0 && (
-            <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(step.implementation?.target_id ?? step.target_ids[0] ?? null)}>Inspect evidence</UiButton>
-          )}
+          <UiButton variant="ghost" size="compact" type="button" onClick={onShowOnMap}>
+            <MapIcon className="size-3.5" aria-hidden="true" />
+            Show on the Map
+          </UiButton>
+          {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(step.implementation?.target_id ?? step.target_ids[0] ?? null)}>Ask about this part</UiButton>}
           {canSynthesize && step.synthesis_needed && (
             <UiButton variant="ghost" size="compact" type="button" disabled={busy} onClick={() => void synthesize()}>
               <Sparkles className="mr-1 size-3.5" />{busy ? "Refining…" : "Refine explanation"}
@@ -263,7 +286,7 @@ function ReviewTourForSnapshot({
       </article>
 
       <footer className="mt-6 border-t border-border/70 pt-3 text-caption text-muted-foreground">
-        Guided Review is navigation only. Visiting a step never changes your durable Reviewed state.
+        The walkthrough only moves you between parts. Visiting a step never changes what you have reviewed.
       </footer>
     </div>
   );

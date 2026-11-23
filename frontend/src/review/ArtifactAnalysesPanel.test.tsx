@@ -184,7 +184,7 @@ describe("ArtifactAnalysesPanel", () => {
     expect(api.postArtifactAnalysisRun).toHaveBeenLastCalledWith("review-1", "revision-2", "infra.render", true);
   });
 
-  it("shows mixed-version pairings as behavior targets with the deploy order they ask for (item 41)", async () => {
+  it("shows mixed-version pairings as behavior parts with the deploy order they ask for (item 41)", async () => {
     const pairing = (id: string, label: string, direction: "forward" | "reverse", state: string, reason: string, order?: string) => ({
       pairing: id,
       label,
@@ -261,7 +261,7 @@ describe("ArtifactAnalysesPanel", () => {
     expect(within(card).queryByTestId("analysis-pairing")).not.toBeInTheDocument();
   });
 
-  it("is read-only on a historical Snapshot", async () => {
+  it("is read-only on a historical revision", async () => {
     api.fetchArtifactAnalyses.mockResolvedValue(projection({ historical: true }));
     render(<ArtifactAnalysesPanel reviewId="review-1" revisionId="revision-1" />);
     await screen.findByTestId("artifact-analyses-panel");

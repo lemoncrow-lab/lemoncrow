@@ -1418,12 +1418,40 @@ class CoreServerRoutes:
                 await self._prewarm_search(principal, view_id)
             else:
                 self._schedule_search_refresh(principal, view_id)
-        return json_response(
-            {
-                "missing_digests": answer + undeclared,
-                "outstanding_digests": sorted(outstanding),
-            }
-        )
+        payload: dict[str, Any] = {
+            "missing_digests": answer + undeclared,
+            "outstanding_digests": sorted(outstanding),
+        }
+        if body.get("include_large_source") is True:
+            payload["large_source"] = await self._in_worker(self._large_source_outstanding, principal, view_id)
+        return json_response(payload)
+
+    def _large_source_outstanding(self, principal: Principal, view_id: str) -> list[dict[str, Any]]:
+        """Files above the index cap whose bytes a Review of this View still lacks.
+
+        The index never asks for them, but a Review's source tree names every file
+        of the View and Ask rebuilds that tree. Only sizes the blob transport can
+        carry are listed. Possession is judged as for any other digest, so a file
+        this repository already sent is not sent again by each capture.
+        """
+        org_id = principal.org_id
+        limits = self.config.limits
+        rows: dict[str, tuple[str, int]] = {}
+        membership = self.backend.views.membership(org_id, view_id)
+        for path in sorted(membership):
+            entry = membership[path]
+            if limits.max_indexed_content_bytes < entry.size <= limits.max_blob_bytes:
+                rows.setdefault(entry.content_digest, (path, entry.size))
+        if not rows:
+            return []
+        digests = tuple(rows)
+        held = addressable(self.backend.views, self.backend.provenance, org_id, view_id, digests)
+        absent = set(self.backend.for_view(org_id, view_id).content.missing(org_id, digests))
+        return [
+            {"content_digest": digest, "path": path, "size": size}
+            for digest, (path, size) in rows.items()
+            if digest not in held or digest in absent
+        ][: limits.max_manifest_entries_per_chunk]
 
     async def view_overlay(self, request: web.Request) -> web.StreamResponse:
         principal = self._principal(request)
@@ -1603,13 +1631,9 @@ class CoreServerRoutes:
                 for digest, raw, profile in prepared:
                     data = _decode_blob(raw, limit=self.config.limits.max_blob_bytes)
                     ref = backend.content.put(org_id, digest, data)
-                    backend.analysis.ensure(
-                        org_id,
-                        digest,
-                        profile,
-                        data,
-                        artifact=artifacts[(digest, profile)],
-                    )
+                    artifact = artifacts.get((digest, profile))
+                    if artifact is not None:
+                        backend.analysis.ensure(org_id, digest, profile, data, artifact=artifact)
                     stored.append(ref.digest)
         return stored
 
@@ -1676,6 +1700,10 @@ class CoreServerRoutes:
             # blobs. Decode each again at commit, one blob at a time.
             prepared.append((digest, raw, profile))
             contents[digest] = backend.content.storage_size(principal.org_id, data)
+            if len(data) > self.config.limits.max_indexed_content_bytes:
+                # Stored for a Review's source tree; the index never reads a file
+                # this large, so parsing it would only delay the capture.
+                continue
             key = (digest, profile)
             if key in artifacts or key in pending_keys:
                 continue

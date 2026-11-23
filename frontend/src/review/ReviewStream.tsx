@@ -52,7 +52,8 @@ import {
   fetchSurfaceImpactWithRetry,
   type SurfaceImpactScore,
 } from "./reviewApi";
-import ReviewTargetHeader, { ReviewLockReason } from "./ReviewTargetHeader";
+import ReviewTargetHeader, { PartMarkButtons, ReviewLockReason } from "./ReviewTargetHeader";
+import { partHeaderLocation, partIsTall, revealExpansions, signatureReveals, type PatchHunk } from "./partAnchor";
 import type { Draft, MarkerDisplayLine } from "./annotationModel";
 import {
   commentsAt,
@@ -64,7 +65,7 @@ import {
   markerSignature,
   partition,
 } from "./annotationModel";
-import { groupReaderFiles, orderedPaths, targetScrollLocation } from "./readerModel";
+import { groupReaderFiles, orderedPaths, targetDisplayLabel, targetScrollLocation } from "./readerModel";
 import { decorateReviewScopeBoxes, decorateReviewTargetFolds, isFoldHiddenRow, renderedDiffLine, targetHasContinuousScope } from "./reviewScopeOverlay";
 import { decorateCssColorSwatches } from "./cssColorSwatches";
 import { decorateDiffAccessibility } from "./reviewDiffA11y";
@@ -531,15 +532,8 @@ function targetAtLine(
   return containing[0] ?? active ?? null;
 }
 
-function targetHeaderLocation(target: ReviewTarget): {
-  side: "additions" | "deletions";
-  lineNumber: number;
-} {
-  const location = targetScrollLocation(target) ?? { side: "additions" as const, lineNumber: 0 };
-  return {
-    side: location.side,
-    lineNumber: location.lineNumber > 1 ? location.lineNumber - 1 : 0,
-  };
+function hunkRanges(fileDiff: ParsedFileDiff | null | undefined): PatchHunk[] | undefined {
+  return fileDiff?.hunks?.map((hunk) => ({ additionStart: hunk.additionStart, additionCount: hunk.additionCount }));
 }
 
 // Where the change under a target's header ends, most specific first. A symbol
@@ -698,6 +692,9 @@ function StickyTargetHeaders({
           <div key={track.targetId} className="absolute inset-x-0 z-10" style={{ top: track.top, height: track.height }}>
             <div
               data-review-sticky-copy=""
+              // A pointer-only copy: the inline header it mirrors is the one
+              // assistive tech and the tab order reach.
+              aria-hidden="true"
               data-stuck={isStuck ? "true" : "false"}
               data-testid={`review-sticky-target:${track.targetId}`}
               className={`sticky top-0 flex flex-col border-b border-border bg-background ${isStuck ? "pointer-events-auto" : "invisible"}`}
@@ -711,6 +708,12 @@ function StickyTargetHeaders({
   );
 }
 
+/**
+ * A tall part's end-of-part shortcut, so judging it does not mean scrolling
+ * back up. It repeats the header's actions for the pointer only: its buttons
+ * leave the tab order and the row is hidden from assistive tech, which reach
+ * the header's set (and the keyboard shortcuts) once per part.
+ */
 function ReviewTargetEndActions({
   target,
   busy,
@@ -727,43 +730,20 @@ function ReviewTargetEndActions({
   onContext(): void;
 }) {
   const lock = useContext(ReviewLockReason);
-  const label = target.symbol || target.label || target.unit_key;
+  const label = targetDisplayLabel(target);
   return (
-    <div className="review-target-end-actions" role="group" aria-label={"End actions for " + label}>
-      <span className="review-target-end-label">End</span>
+    <div className="review-target-end-actions" aria-hidden="true" data-review-target-end={target.target_id}>
+      <span className="review-target-end-name">{label}</span>
+      <PartMarkButtons target={target} label={label} busy={busy} tabIndex={-1} onMark={onMark} />
       <UiButton
         variant="ghost"
         size="icon"
         type="button"
-        aria-label={"Mark " + label + " reviewed from end"}
-        tooltip={lock || "Mark reviewed"}
-        disabled={busy || target.state === "reviewed"}
-        onClick={() => onMark("reviewed", true)}
-        className="h-6 w-6 hover:text-emerald-300"
-      >
-        <CheckCircle2 size={14} aria-hidden="true" />
-      </UiButton>
-      <UiButton
-        variant="ghost"
-        size="icon"
-        type="button"
-        aria-label={"Mark " + label + " needs changes from end"}
-        tooltip={lock || "Needs changes"}
-        disabled={busy}
-        onClick={() => onMark("needs_changes")}
-        className="h-6 w-6 hover:text-red-300"
-      >
-        <X size={14} aria-hidden="true" />
-      </UiButton>
-      <UiButton
-        variant="ghost"
-        size="icon"
-        type="button"
-        aria-label={"Comment on " + label + " from end"}
+        tabIndex={-1}
         tooltip={lock || "Add comment"}
         disabled={busy}
         onClick={onComment}
-        className="h-6 w-6 hover:text-cyan-300"
+        className="h-6 w-6 hover:text-foreground"
       >
         <MessageSquareText size={14} aria-hidden="true" />
       </UiButton>
@@ -772,7 +752,7 @@ function ReviewTargetEndActions({
           variant="ghost"
           size="icon"
           type="button"
-          aria-label={"Ask about " + label + " from end"}
+          tabIndex={-1}
           tooltip={lock || "Ask about this code"}
           disabled={busy}
           onClick={onAsk}
@@ -785,7 +765,7 @@ function ReviewTargetEndActions({
         variant="ghost"
         size="icon"
         type="button"
-        aria-label={"Open context for " + label + " from end"}
+        tabIndex={-1}
         tooltip="Open context"
         onClick={onContext}
         className="h-6 w-6"
@@ -857,6 +837,40 @@ function codeTextPoint(eventPath: readonly EventTarget[], allowAnnotation: boole
 
 type ContextLoadState = "loading" | "error";
 
+/** The parts of Pierre's diff renderer (passed to `onPostRender`) the stream drives. */
+type PierreDiffInstance = {
+  expandHunk?: (hunkIndex: number, direction: "up" | "down" | "both", lineCount?: number) => void;
+  fileDiff?: { isPartial?: boolean };
+} | null;
+
+/** Hidden lines behind a gap row, or null when Pierre does not know (a patch-only trailing gap). */
+function hiddenContextLines(label: HTMLElement): number | null {
+  const text = label.textContent?.trim() ?? "";
+  // Our own wording from an earlier pass: keep the count it was built from.
+  if (label.dataset.lcGapText === text) {
+    const stored = label.dataset.lcHiddenLines ?? "";
+    return stored ? Number.parseInt(stored, 10) : null;
+  }
+  const match = text.match(/([0-9][0-9,]*)/);
+  const count = match ? Number.parseInt(match[1].replaceAll(",", ""), 10) : null;
+  label.dataset.lcHiddenLines = count == null ? "" : String(count);
+  return count;
+}
+
+/**
+ * A gap row's visible text and its spoken description. An expandable gap
+ * names the action ("Show 3 more lines"); one that cannot expand says what
+ * it hides.
+ */
+function contextGapLabel(count: number | null, expandable: boolean, step: number): { text: string; description: string } {
+  const lines = (n: number) => `${n} line${n === 1 ? "" : "s"}`;
+  const description = count == null ? "more unchanged context" : `${lines(count)} unchanged`;
+  if (!expandable) return { text: count == null ? "Unchanged lines not shown" : `${lines(count)} unchanged`, description };
+  if (count == null) return { text: "Show more context", description };
+  if (count <= step) return { text: `Show ${count} more ${count === 1 ? "line" : "lines"}`, description };
+  return { text: `Show ${step} more lines · ${count} hidden`, description };
+}
+
 /**
  * The first expand of a file's unchanged context fetches the whole file, which
  * can take seconds on a busy server, and Pierre only logs a failure. Say both
@@ -916,6 +930,8 @@ function buildMarkers(
   annotations: Annotation[],
   draft: Draft | null,
   displayLine?: MarkerDisplayLine,
+  hunks?: readonly PatchHunk[],
+  contextShown = false,
 ): { side: "additions" | "deletions"; lineNumber: number; metadata: StreamMarkerMeta }[] {
   const markers = new Map<string, { side: "additions" | "deletions"; lineNumber: number; metadata: StreamMarkerMeta }>();
 
@@ -930,9 +946,10 @@ function buildMarkers(
   };
 
   for (const target of targets) {
-    const location = targetHeaderLocation(target);
+    const location = partHeaderLocation(target, hunks, contextShown);
     ensure(location.side, location.lineNumber).metadata.targetIds.push(target.target_id);
-    if (target.start_line > 0 && target.end_line > target.start_line) {
+    // Only a part taller than about a screen gets judgment buttons at its end too.
+    if (target.start_line > 0 && target.end_line > target.start_line && partIsTall(target)) {
       ensure(location.side, target.end_line).metadata.targetEndIds.push(target.target_id);
     }
   }
@@ -953,7 +970,7 @@ function refusalText(detail: FileDetail | undefined, error: string | undefined, 
   if (error) return `Could not load this file.\n\n${error}\n\nOther files in the review remain available.`;
   if (!detail) return `LemonCrow has not loaded ${path} yet.`;
   const title = detail.refusal ? detail.refusal.replaceAll("_", " ") : "diff unavailable";
-  return `Diff unavailable: ${title}\n\n${detail.detail || "This recorded Snapshot does not contain enough text to render a reliable diff."}`;
+  return `Diff unavailable: ${title}\n\n${detail.detail || "This recorded revision does not contain enough text to render a reliable diff."}`;
 }
 
 function targetScopeSignature(targets: readonly ReviewTarget[]): string {
@@ -1028,6 +1045,8 @@ function itemFor(
   markdownMode: MarkdownRenderMode | "source",
   diffCache: Map<string, ParsedDiffCacheEntry>,
   revisionCache: Map<string, ItemRevisionEntry>,
+  /** The file's full contents have loaded, so the part signatures `signatureReveals` asked for are on screen. */
+  contextShown = false,
 ): StreamItem | null {
   if (!detail && !error) return null;
   if (detail?.special_change && !comparisonMode) {
@@ -1099,8 +1118,10 @@ function itemFor(
   if (detail?.renderable && detail.patch) {
     const fileDiff = parsedFileDiff(diffCache, path, detail.patch);
     if (fileDiff) {
-      const markers = comparisonMode ? [] : buildMarkers(path, targets, annotations, draft, renderedHunkLine(fileDiff));
-      const signature = `${markerSignature(annotations, path, draft)}#${targetScopeSignature(targets)}`;
+      const markers = comparisonMode
+        ? []
+        : buildMarkers(path, targets, annotations, draft, renderedHunkLine(fileDiff), hunkRanges(fileDiff), contextShown);
+      const signature = `${markerSignature(annotations, path, draft)}#${targetScopeSignature(targets)}#context-${contextShown ? 1 : 0}`;
       const item: DiffStreamItem = {
         id: path,
         type: "diff",
@@ -1279,6 +1300,14 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
   // Cleared on success and whenever the file's renderer remounts.
   const contextLoadRef = useRef(new Map<string, ContextLoadState>());
   const expandedSourceRef = useRef(new Map<string, { revisionId: string; text: string }>());
+  // Paths whose rendered diff holds its full contents, so the signature lines
+  // revealed at mount are on screen. A remount starts partial again, so its
+  // mount drops the path until its own load lands.
+  const [contextShownPaths, setContextShownPaths] = useState<ReadonlySet<string>>(() => new Set());
+  const contextShownRef = useRef(contextShownPaths);
+  contextShownRef.current = contextShownPaths;
+  // The diff host each path's signature reveal was last requested for.
+  const signatureRevealRef = useRef(new WeakMap<HTMLElement, string>());
   const itemElementsRef = useRef(new Map<string, HTMLElement>());
   const diffOptionsCacheRef = useRef(new Map<string, { diffStyle: DiffStyle; diffOverflow: DiffOverflow; codeTheme: ReviewCodeTheme; chromeTheme: Theme; revisionKey: string; options: any }>());
   const parsedDiffCacheRef = useRef(new Map<string, ParsedDiffCacheEntry>());
@@ -2307,6 +2336,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         mode,
         parsedDiffCacheRef.current,
         itemRevisionCacheRef.current,
+        contextShownPaths.has(path),
       );
       return item ? [item] : [];
     }
@@ -2373,6 +2403,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         mode,
         parsedDiffCacheRef.current,
         itemRevisionCacheRef.current,
+        contextShownPaths.has(path),
       );
       if (item) rows.push(item);
     }
@@ -2390,6 +2421,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     targetsByPath,
     inlineAnnotations,
     draft,
+    contextShownPaths,
     isPathCollapsed,
     fileSurfaceModes,
     linkedPreviewSurfacesByPath,
@@ -2997,11 +3029,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   disabled={busy || hiddenUnreviewed > 0}
                   onSelect={() => onBulkReview(path)}
                   aria-label={hiddenUnreviewed > 0
-                    ? `Mark safe items reviewed unavailable in ${path} while review areas are hidden`
+                    ? `Mark safe items reviewed unavailable in ${path} while parts are hidden`
                     : `Mark safe items reviewed in ${path}`}
                   title={hiddenUnreviewed > 0
-                    ? "Some review areas are hidden. Show the whole file before bulk-marking."
-                    : "Marks eligible remaining review areas as reviewed. Anything needing individual attention is skipped."}
+                    ? "Some parts are hidden. Show the whole file before bulk-marking."
+                    : "Marks eligible remaining parts as reviewed. Anything needing individual attention is skipped."}
                 >
                   <CheckCircle2 size={14} className="shrink-0 text-emerald-500/80" />
                   <span>Mark safe items reviewed</span>
@@ -3046,6 +3078,23 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     targetsByPath,
     toggleCollapsed,
   ]);
+  const sourceLinesRef = useRef(new Map<string, { text: string; lines: string[] }>());
+  /** A signature too far above its change to reveal, read from the loaded file for the part header. */
+  const pinnedSignature = useCallback((target: ReviewTarget): { line: number; text: string } | null => {
+    if (comparisonMode || !contextShownPaths.has(target.path)) return null;
+    const reveal = signatureReveals([target], hunkRanges(parsedDiffCacheRef.current.get(target.path)?.fileDiff))
+      .find((item) => item.mode === "pin");
+    const text = expandedSourceRef.current.get(target.path)?.text;
+    if (!reveal || !text) return null;
+    let cached = sourceLinesRef.current.get(target.path);
+    if (cached?.text !== text) {
+      cached = { text, lines: text.split("\n") };
+      sourceLinesRef.current.set(target.path, cached);
+    }
+    const line = cached.lines[reveal.line - 1];
+    return line?.trim() ? { line: reveal.line, text: line } : null;
+  }, [comparisonMode, contextShownPaths]);
+
   const renderInlineAnnotation = useCallback((path: string, annotation: StreamMarkers[number]) => {
     const metadata = annotation.metadata;
     if (!metadata) return null;
@@ -3160,6 +3209,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             busy={busy}
             scopeTop={targetHasContinuousScope(target, targetsRef.current)}
             comparisonMode={comparisonMode}
+            signature={pinnedSignature(target)}
             folded={foldedTargetIds.has(target.target_id)}
             onToggleFold={() => setTargetFolded(target.target_id, !foldedTargetIds.has(target.target_id))}
             onFocus={() => onActiveTarget(target.target_id)}
@@ -3192,6 +3242,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     onMark,
     onSetAnnotationState,
     onSuggestEdit,
+    pinnedSignature,
     proposalBusy,
     proposalSelection,
     activeProposal,
@@ -3218,21 +3269,27 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
 
   const decorateExpandableDiffGaps = useCallback((
     node: HTMLElement,
-    instance: { expandHunk?: (hunkIndex: number, direction: "up" | "down" | "both", lineCount?: number) => void } | null,
+    instance: PierreDiffInstance,
     phase: "mount" | "update" | "unmount",
   ) => {
     if (phase === "unmount") return;
     const root: ParentNode = node.shadowRoot ?? node;
+    // Every gap reads as what it is (or what clicking it does), never Pierre's
+    // "More unchanged context may be available".
+    for (const label of root.querySelectorAll<HTMLElement>("[data-separator] [data-unmodified-lines]")) {
+      const expandable = Boolean(label.closest("[data-separator][data-expand-index]"));
+      const gap = contextGapLabel(hiddenContextLines(label), expandable, DIFF_CONTEXT_EXPANSION_LINES);
+      if (label.textContent !== gap.text) label.textContent = gap.text;
+      label.dataset.lcGapText = gap.text;
+      label.dataset.lcHiddenDescription = gap.description;
+    }
     for (const separator of root.querySelectorAll<HTMLElement>("[data-separator][data-expand-index]")) {
       const label = separator.querySelector<HTMLElement>("[data-unmodified-lines]");
       if (!label) continue;
       const expandIndex = Number.parseInt(separator.dataset.expandIndex ?? "", 10);
       if (!Number.isFinite(expandIndex)) continue;
-      const context = label.textContent?.trim() || "unchanged context";
-      const hiddenLineMatch = context.match(/([0-9][0-9,]*)/);
-      const hiddenLineCount = hiddenLineMatch
-        ? Number.parseInt(hiddenLineMatch[1].replaceAll(",", ""), 10)
-        : DIFF_CONTEXT_EXPANSION_LINES;
+      const knownCount = hiddenContextLines(label);
+      const hiddenLineCount = knownCount ?? DIFF_CONTEXT_EXPANSION_LINES;
       const direction = separator.hasAttribute("data-separator-first")
         ? "down"
         : separator.hasAttribute("data-separator-last")
@@ -3241,7 +3298,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
 
       // Pierre's built-in hit target is intentionally small. In a review UI the
       // entire collapsed-context row should behave like the affordance users see
-      // in GitHub/Gerrit: click anywhere on "N unmodified lines" to reveal
+      // in GitHub/Gerrit: click anywhere on the hidden-lines row to reveal
       // context. Call the renderer directly instead of synthesizing a click so
       // this also works through Pierre's shadow DOM/event delegation.
       separator.style.cursor = "pointer";
@@ -3260,10 +3317,57 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             : DIFF_CONTEXT_EXPANSION_LINES;
         instance.expandHunk(expandIndex, direction, lineCount);
       };
-      separator.title = hiddenLineCount <= DIFF_CONTEXT_EXPANSION_LINES
-        ? `Show all ${context}`
-        : `Expand ${context} by ${DIFF_CONTEXT_EXPANSION_LINES} lines. Shift-click to expand all.`;
+      separator.title = knownCount == null
+        ? `Shows ${DIFF_CONTEXT_EXPANSION_LINES} more lines at a time`
+        : hiddenLineCount <= DIFF_CONTEXT_EXPANSION_LINES
+          ? `Show all ${hiddenLineCount} unchanged line${hiddenLineCount === 1 ? "" : "s"}`
+          : `Shows ${DIFF_CONTEXT_EXPANSION_LINES} of ${hiddenLineCount} unchanged lines. Shift-click to show all.`;
     }
+  }, []);
+
+  /**
+   * Signatures the patch leaves folded are revealed as soon as a diff mounts,
+   * so every part reads from its `def`/`class` line (see partAnchor). Each
+   * render also records whether the renderer holds the file's full contents,
+   * which is when those revealed rows exist for the header to sit on.
+   */
+  const syncSignatureReveal = useCallback((path: string, node: HTMLElement, instance: PierreDiffInstance) => {
+    const loaded = instance?.fileDiff?.isPartial === false;
+    if (loaded !== contextShownRef.current.has(path)) setContextShownPaths((current) => {
+      if (loaded === current.has(path)) return current;
+      const next = new Set(current);
+      if (loaded) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+    const expandHunk = instance?.expandHunk;
+    if (!expandHunk) return;
+    const reveals = signatureReveals(
+      targetsRef.current.filter((target) => target.path === path),
+      hunkRanges(parsedDiffCacheRef.current.get(path)?.fileDiff),
+    );
+    if (reveals.length === 0) return;
+    // Pierre's expansions accumulate, so each host asks for each hunk once,
+    // and again only for more lines than it already asked for.
+    const asked = new Map((signatureRevealRef.current.get(node) ?? "").split(",").filter(Boolean).map((entry) => {
+      const [hunk, lines] = entry.split(":").map(Number);
+      return [hunk, lines] as const;
+    }));
+    const pending: Array<[number, number]> = [];
+    for (const [hunkIndex, lines] of revealExpansions(reveals)) {
+      const before = asked.get(hunkIndex);
+      if (before !== undefined && before >= lines) continue;
+      pending.push([hunkIndex, lines - (before ?? 0)]);
+      asked.set(hunkIndex, lines);
+    }
+    if (pending.length === 0) return;
+    signatureRevealRef.current.set(node, [...asked].map(([hunk, lines]) => `${hunk}:${lines}`).join(","));
+    // Outside Pierre's own render pass: expanding re-renders (and, for a
+    // patch-only diff, loads the file's contents first).
+    window.requestAnimationFrame(() => {
+      if (!node.isConnected) return;
+      for (const [hunkIndex, lines] of pending) expandHunk(hunkIndex, "down", lines);
+    });
   }, []);
 
   const diffOptionsFor = useCallback((path: string) => {
@@ -3418,7 +3522,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
               fromRevisionId !== snapshotComparison.fromRevisionId
               || toRevisionId !== snapshotComparison.toRevisionId
             ) {
-              throw new Error("Snapshot comparison context changed while loading");
+              throw new Error("Revision comparison context changed while loading");
             }
           }
           if (contents.new_content == null) {
@@ -3455,7 +3559,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       lineHoverHighlight: "both" as const,
       onPostRender: (
         node: HTMLElement,
-        instance: { expandHunk?: (hunkIndex: number, direction: "up" | "down" | "both", lineCount?: number) => void } | null,
+        instance: PierreDiffInstance,
         phase: "mount" | "update" | "unmount",
       ) => {
         registerDiffNode(path, node, phase);
@@ -3468,6 +3572,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         decorateCssColorSwatches(node, path, phase);
         decorateDiffAccessibility(node, path, phase);
         if (comparisonMode) return;
+        if (phase !== "unmount") syncSignatureReveal(path, node, instance);
         const pendingScopeFrame = scopeFrameByPathRef.current.get(path);
         if (pendingScopeFrame !== undefined) {
           window.cancelAnimationFrame(pendingScopeFrame);
@@ -3572,7 +3677,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       options,
     });
     return options;
-  }, [cancelPendingSingleLineAction, chromeTheme, codeTheme, comparisonMode, decorateDedicatedHeader, decorateExpandableDiffGaps, details, diffOverflow, openDraftPreservingViewport, registerDiffNode, resolvedDiffStyle, revisionId, setLineSelection, snapshotComparison, themeDefinition]);
+  }, [cancelPendingSingleLineAction, chromeTheme, codeTheme, comparisonMode, decorateDedicatedHeader, decorateExpandableDiffGaps, details, diffOverflow, openDraftPreservingViewport, registerDiffNode, resolvedDiffStyle, revisionId, setLineSelection, snapshotComparison, syncSignatureReveal, themeDefinition]);
   useLayoutEffect(() => {
     if (comparisonMode) return;
     const currentPath = targetsById.get(activeTargetId)?.path ?? "";
@@ -4235,7 +4340,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     const title = surface.title || surface.locator || surface.id;
     const unavailableRunner = isUnavailableRunnerError(run?.error);
     const statusLabel = descriptor
-      ? (descriptor.status === "unavailable" ? "Unavailable" : "Snapshot-pinned")
+      ? (descriptor.status === "unavailable" ? "Unavailable" : "Pinned to this revision")
       : running
         ? "Running…"
         : unavailableRunner
@@ -4631,6 +4736,8 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         scopeTop={targetHasContinuousScope(target, targets)}
         comparisonMode={comparisonMode}
         stickyPath={target.path}
+        visualCopy
+        signature={pinnedSignature(target)}
         folded={foldedTargetIds.has(target.target_id)}
         onToggleFold={() => setTargetFolded(target.target_id, !foldedTargetIds.has(target.target_id))}
         onFocus={() => onActiveTarget(target.target_id)}
@@ -4724,7 +4831,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       <div className="flex min-h-0 flex-1 flex-col">
         {previewShortcut}
         <div className="flex flex-1 items-center justify-center text-label text-muted-foreground" role="status">
-          {targets.length === 0 ? "No matching targets on this page." : "Preparing review content…"}
+          {targets.length === 0 ? "No matching parts on this page." : "Preparing review content…"}
         </div>
         {pageNavigation}
       </div>
@@ -4934,7 +5041,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   role="menuitem"
                   aria-keyshortcuts="r"
                   aria-label={`Mark ${selectedTarget.symbol || selectedTarget.label} reviewed`}
-                  tooltip="Mark review area reviewed · R"
+                  tooltip="Mark part reviewed · R"
                   disabled={busy || selectedTarget.state === "reviewed"}
                   onClick={() => finishTargetAction("reviewed")}
                   className="h-6 w-6 text-emerald-300 hover:bg-emerald-950/45 disabled:opacity-40"
@@ -4948,7 +5055,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   role="menuitem"
                   aria-keyshortcuts="x"
                   aria-label={`Mark ${selectedTarget.symbol || selectedTarget.label} needs changes`}
-                  tooltip="Mark review area needs changes · X"
+                  tooltip="Mark part needs changes · X"
                   disabled={busy}
                   onClick={() => finishTargetAction("needs_changes")}
                   className="h-6 w-6 text-red-300 hover:bg-red-950/45 disabled:opacity-40"

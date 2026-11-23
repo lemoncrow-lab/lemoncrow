@@ -48,11 +48,23 @@ def _backend() -> str:
 
 
 def _require_intelligence_enabled() -> None:
-    """The BI0 kill switch: every facade model call refuses under a disabled or invalid policy."""
+    """The policy half of the gate: a disabled or invalid policy refuses. It never reads the AI budget.
+
+    Used where no call may be made (a cache hit sends nothing). Every call that sends something to a model enters
+    ``ai_budget.model_call`` instead, which adds the personal AI budget (P8-4).
+    """
 
     from lemoncrow.pro.capabilities.review.intelligence_runtime import require_intelligence_enabled
 
     require_intelligence_enabled()
+
+
+def _model_call() -> Any:
+    """The gate and meter of one call that sends something to a model: refuses before anything is sent."""
+
+    from lemoncrow.pro.capabilities.review.ai_budget import model_call
+
+    return model_call()
 
 
 def configured_model() -> tuple[str, str] | None:
@@ -87,35 +99,36 @@ def chat(
     backend: str | None = None,
 ) -> str | dict[str, Any]:
     """Call the configured or explicitly selected internal LLM chat endpoint."""
-    _require_intelligence_enabled()
-    backend = (backend or _backend()).lower().strip()
-    if backend == "openai_compatible":
-        backend = "openai"
-    if backend not in {"none", "ollama", "openai", "litellm"}:
-        raise InternalLLMError(f"Unsupported internal LLM backend: {backend}")
-    if backend == "none":
-        raise InternalLLMError(
-            "Internal LLM disabled; set LEMONCROW_LLM_BACKEND=ollama or LEMONCROW_LLM_BACKEND=openai to enable"
-        )
+    with _model_call() as meter:
+        backend = (backend or _backend()).lower().strip()
+        if backend == "openai_compatible":
+            backend = "openai"
+        if backend not in {"none", "ollama", "openai", "litellm"}:
+            raise InternalLLMError(f"Unsupported internal LLM backend: {backend}")
+        if backend == "none":
+            raise InternalLLMError(
+                "Internal LLM disabled; set LEMONCROW_LLM_BACKEND=ollama or LEMONCROW_LLM_BACKEND=openai to enable"
+            )
+        meter.route(backend, model or "")
 
-    try:
-        if backend in ("openai", "openai_compatible"):
-            from lemoncrow.infra.internal_llm.openai_client import chat as _chat
+        try:
+            if backend in ("openai", "openai_compatible"):
+                from lemoncrow.infra.internal_llm.openai_client import chat as _chat
 
-            return _chat(messages, model=model, json_schema=json_schema)
+                result = _chat(messages, model=model, json_schema=json_schema)
+            elif backend == "litellm":
+                from lemoncrow.infra.internal_llm.litellm_client import chat as _chat
 
-        if backend == "litellm":
-            from lemoncrow.infra.internal_llm.litellm_client import chat as _chat
+                result = _chat(messages, model=model, json_schema=json_schema)
+            else:
+                from lemoncrow.infra.internal_llm.ollama_client import chat as _chat
 
-            return _chat(messages, model=model, json_schema=json_schema)
-
-        from lemoncrow.infra.internal_llm.ollama_client import chat as _chat
-
-        return _chat(messages, model=model, json_schema=json_schema)
-    except Exception as exc:
-        if isinstance(exc, InternalLLMError):
-            raise
-        raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+                result = _chat(messages, model=model, json_schema=json_schema)
+        except Exception as exc:
+            if isinstance(exc, InternalLLMError):
+                raise
+            raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+        return result
 
 
 def chat_stream(
@@ -127,28 +140,30 @@ def chat_stream(
     backend: str | None = None,
 ) -> str | dict[str, Any]:
     """Stream raw assistant text while preserving the normal chat return contract."""
-    _require_intelligence_enabled()
-    backend = (backend or _backend()).lower().strip()
-    if backend == "openai_compatible":
-        backend = "openai"
-    if backend not in {"none", "ollama", "openai", "litellm"}:
-        raise InternalLLMError(f"Unsupported internal LLM backend: {backend}")
-    if backend == "none":
-        raise InternalLLMError(
-            "Internal LLM disabled; set LEMONCROW_LLM_BACKEND=ollama or LEMONCROW_LLM_BACKEND=openai to enable"
-        )
-    try:
-        if backend == "openai":
-            from lemoncrow.infra.internal_llm.openai_client import chat_stream as _chat_stream
-        elif backend == "litellm":
-            from lemoncrow.infra.internal_llm.litellm_client import chat_stream as _chat_stream
-        else:
-            from lemoncrow.infra.internal_llm.ollama_client import chat_stream as _chat_stream
-        return _chat_stream(messages, on_delta=on_delta, model=model, json_schema=json_schema)
-    except Exception as exc:
-        if isinstance(exc, InternalLLMError):
-            raise
-        raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+    with _model_call() as meter:
+        backend = (backend or _backend()).lower().strip()
+        if backend == "openai_compatible":
+            backend = "openai"
+        if backend not in {"none", "ollama", "openai", "litellm"}:
+            raise InternalLLMError(f"Unsupported internal LLM backend: {backend}")
+        if backend == "none":
+            raise InternalLLMError(
+                "Internal LLM disabled; set LEMONCROW_LLM_BACKEND=ollama or LEMONCROW_LLM_BACKEND=openai to enable"
+            )
+        meter.route(backend, model or "")
+        try:
+            if backend == "openai":
+                from lemoncrow.infra.internal_llm.openai_client import chat_stream as _chat_stream
+            elif backend == "litellm":
+                from lemoncrow.infra.internal_llm.litellm_client import chat_stream as _chat_stream
+            else:
+                from lemoncrow.infra.internal_llm.ollama_client import chat_stream as _chat_stream
+            result = _chat_stream(messages, on_delta=on_delta, model=model, json_schema=json_schema)
+        except Exception as exc:
+            if isinstance(exc, InternalLLMError):
+                raise
+            raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+        return result
 
 
 def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) -> str:
@@ -157,7 +172,8 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
     Identical ``(text, model, max_tokens, backend)`` inputs are memoized in a
     persistent on-disk cache (shared across processes and sessions) so repeated
     background summaries don't re-pay provider tokens; disable with
-    ``LEMONCROW_INTERNAL_LLM_CACHE=0``.
+    ``LEMONCROW_INTERNAL_LLM_CACHE=0``. A cache hit sends nothing, so only a
+    computed summary is gated by the AI budget and metered.
     """
     _require_intelligence_enabled()
     backend = _backend()
@@ -167,24 +183,21 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
         )
 
     def _compute() -> str:
-        try:
-            if backend in ("openai", "openai_compatible"):
-                from lemoncrow.infra.internal_llm.openai_client import summarize as _summarize
-
-                return _summarize(text, model=model, max_tokens=max_tokens)
-
-            if backend == "litellm":
-                from lemoncrow.infra.internal_llm.litellm_client import summarize as _summarize
-
-                return _summarize(text, model=model, max_tokens=max_tokens)
-
-            from lemoncrow.infra.internal_llm.ollama_client import summarize as _summarize
-
-            return _summarize(text, model=model, max_tokens=max_tokens)
-        except Exception as exc:
-            if isinstance(exc, InternalLLMError):
-                raise
-            raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+        with _model_call() as meter:
+            meter.route(backend, model or "")
+            try:
+                if backend in ("openai", "openai_compatible"):
+                    from lemoncrow.infra.internal_llm.openai_client import summarize as _summarize
+                elif backend == "litellm":
+                    from lemoncrow.infra.internal_llm.litellm_client import summarize as _summarize
+                else:
+                    from lemoncrow.infra.internal_llm.ollama_client import summarize as _summarize
+                summary = _summarize(text, model=model, max_tokens=max_tokens)
+            except Exception as exc:
+                if isinstance(exc, InternalLLMError):
+                    raise
+                raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
+            return summary
 
     from lemoncrow.infra.internal_llm.cache import cached_summarize
 

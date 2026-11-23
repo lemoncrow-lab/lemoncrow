@@ -80,7 +80,7 @@ from lemoncrow.pro.capabilities.review.store import ReviewStore, new_revision_id
 
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 RULE = "rule:repository:no-raw-sql@sha256:" + "a" * 64
-REPO = SettingOrigin("trusted_base_repository", "base Snapshot .lemoncrow/review.yaml")
+REPO = SettingOrigin("trusted_base_repository", "base revision .lemoncrow/review.yaml")
 
 
 def _at(days: float = 0.0, *, base: datetime = NOW) -> str:
@@ -597,7 +597,6 @@ def test_escape_matching_reads_a_bounded_ledger_window_and_says_only_when_it_ove
     monkeypatch.setattr(observation_outcomes, "SCAN_BATCH", 3)
 
     class _Ledger:
-
         def __init__(self, rows: int) -> None:
             self.rows, self.limits = (rows, [])
 
@@ -830,6 +829,116 @@ def test_time_to_first_review_counts_only_human_judgment(tmp_path: Path) -> None
     _assert_provenance(report)
 
 
+def test_a_part_left_for_later_is_not_a_judgment_in_the_report(tmp_path: Path) -> None:
+    """P0-4: a `later` mark event is kind "judgment" but is not one: it is not a first review or a re-review."""
+    from lemoncrow.pro.capabilities.review.review_actions import (
+        PROMPT_FALLBACK,
+        ActionEvent,
+        ActionSubject,
+        ReviewAction,
+        ReviewActionLedger,
+    )
+
+    store = ReviewStore(tmp_path / "store")
+    now = _real_now()
+    aside, [revision] = _change(store, title="aside", created=_at(2, base=now))
+    store.set_mark(
+        ReviewMark(
+            review_id=aside.id,
+            unit_key="fil:a",
+            state="later",
+            reviewed_revision_id=revision.id,
+            content_fingerprint="fp",
+            reviewer_id="alice",
+        )
+    )
+    report = analyze([_source(store)], scope=_scope(now=now), now=now)
+    timing = report.wire["time_to_first_review"]
+    assert timing["measured"]["count"] == 0 and timing["awaiting"]["count"] == 1
+    # Judging the part is a judgment, and only then is the review measured.
+    store.set_mark(
+        ReviewMark(
+            review_id=aside.id,
+            unit_key="fil:a",
+            state="reviewed",
+            reviewed_revision_id=revision.id,
+            content_fingerprint="fp",
+            reviewer_id="alice",
+        )
+    )
+    timing = analyze([_source(store)], scope=_scope(now=now), now=now).wire["time_to_first_review"]
+    assert timing["measured"]["count"] == 1 and timing["awaiting"]["count"] == 0
+
+    # A correction loop is re-reviewed only by a judgment on the fixed Snapshot, never by setting a part aside.
+    session, [source, fixed] = _change(store, title="loop", created=_at(1, base=now), revisions=2)
+    target = _finding(store, session, source)
+    ReviewActionLedger(store).create(
+        ReviewAction(
+            id="act-1",
+            review_id=session.id,
+            kind="fix",
+            source_revision_id=source.id,
+            route=PROMPT_FALLBACK,
+            status="awaiting_snapshot",
+            created_by="reviewer",
+            created_at=_at(0.5, base=now),
+            updated_at=_at(0.5, base=now),
+            subjects=(ActionSubject(kind="ai_finding", id=target.id, title="t"),),
+        )
+    )
+    ReviewActionLedger(store).transition(
+        source.id,
+        "act-1",
+        status="snapshot_recorded",
+        allowed_from=frozenset({"awaiting_snapshot"}),
+        event=ActionEvent("snapshot_recorded", _at(0.4, base=now), "system"),
+        resulting_revision_id=fixed.id,
+    )
+    store.set_mark(
+        ReviewMark(
+            review_id=session.id,
+            unit_key="fil:b",
+            state="later",
+            reviewed_revision_id=fixed.id,
+            content_fingerprint="fp",
+            reviewer_id="alice",
+        )
+    )
+    loops = analyze([_source(store)], scope=_scope(now=now), now=now).wire["correction_loops"]
+    assert loops["re_reviewed"]["count"] == 0
+    store.set_mark(
+        ReviewMark(
+            review_id=session.id,
+            unit_key="fil:b",
+            state="reviewed",
+            reviewed_revision_id=fixed.id,
+            content_fingerprint="fp",
+            reviewer_id="alice",
+        )
+    )
+    loops = analyze([_source(store)], scope=_scope(now=now), now=now).wire["correction_loops"]
+    assert loops["re_reviewed"]["count"] == 1
+
+
+def test_a_reviewer_clearing_a_part_still_counts_as_review_activity_in_the_report(tmp_path: Path) -> None:
+    """Only a later mark is left out: Classic's existing reading of every other human mark event is unchanged."""
+    store = ReviewStore(tmp_path / "store")
+    now = _real_now()
+    cleared, [revision] = _change(store, title="cleared", created=_at(2, base=now))
+    store.set_mark(
+        ReviewMark(
+            review_id=cleared.id,
+            unit_key="fil:a",
+            state="unreviewed",
+            reviewed_revision_id=revision.id,
+            content_fingerprint="fp",
+            reviewer_id="alice",
+        )
+    )
+    timing = analyze([_source(store)], scope=_scope(now=now), now=now).wire["time_to_first_review"]
+    assert timing["measured"]["count"] == 1
+
+
 def test_local_and_managed_execution_split_by_plan_executor_and_review_host(tmp_path: Path) -> None:
     store = ReviewStore(tmp_path / "store")
     now = _real_now()
@@ -934,6 +1043,12 @@ def test_side_effect_drift_links_each_change_to_its_review_and_human_judgment(tm
     assert judged["Outbound host added: api.example.com"]["event_id"]
     assert judged["Table removed: charges"]["state"] == "not_judged"
     assert all(item["review_path"] == f"/r/{session.id}" for item in drift["items"])
+    # Each period row carries a name for people, not its drill key ("drift.period.2026-11-16").
+    assert drift["series"]
+    for row in drift["series"]:
+        start = datetime.strptime(row["key"], "%Y-%m-%d")
+        expected = f"{start:%B %Y}" if drift["granularity"] == "month" else f"Week of {start.day} {start:%b %Y}"
+        assert row["label"] == expected
     narrowed = analyze([_source(store)], scope=_scope(now=now, path="db"), now=now)
     assert narrowed.wire["drift"]["changes"]["count"] == 0
     _assert_provenance(report)

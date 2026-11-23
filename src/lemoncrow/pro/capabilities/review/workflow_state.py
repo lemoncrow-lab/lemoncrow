@@ -253,7 +253,7 @@ class ReadinessFact:
     """What the Inbox may say about readiness; only ``ready`` can make a Review ready to merge."""
 
     state: ReadinessState = "unknown"
-    reason: str = "Readiness was not evaluated for this Snapshot"
+    reason: str = "Readiness was not evaluated for this revision"
     evaluated_at: str = ""
     valid_until: str = ""
     blocker_count: int = 0
@@ -316,7 +316,7 @@ def readiness_fact(
     if payload is None or not revision_id:
         return ReadinessFact()
     if str(payload.get("revision_id") or "") != revision_id:
-        return ReadinessFact(reason="Readiness was evaluated on an earlier Snapshot")
+        return ReadinessFact(reason="Readiness was evaluated on an earlier revision")
     evaluated_at = str(payload.get("evaluated_at") or "")
     valid_until = str(payload.get("valid_until") or "")
     base = ReadinessFact(
@@ -344,7 +344,7 @@ def readiness_fact(
         return replace(
             base,
             state="ready",
-            reason="All readiness conditions hold for the current Snapshot",
+            reason="All readiness conditions hold for the current revision",
             reviewed=payload.get("reviewed") is True,
         )
     blocking, reason = _blocking_reason(payload, base.blocker_count)
@@ -440,7 +440,7 @@ def derive_workflow_state(facts: WorkflowFacts) -> WorkflowDecision:
         return WorkflowDecision(
             "needs_review",
             "not_reviewed",
-            "Review is not complete on the current Snapshot (missing evidence is not evidence of safety)",
+            "Review is not complete on the current revision (missing evidence is not evidence of safety)",
         )
     readiness = facts.readiness
     if readiness.fresh and readiness.pending_checks > 0:
@@ -465,20 +465,23 @@ def scm_axis(
     ``ready`` needs positive evidence: a fresh readiness record that evaluated
     check/SCM conditions and found none blocking, with the provider in sync. A
     failure from either source is ``not_ready``. Without a fresh record the
-    Inbox does not know which checks are required, so it says ``unknown`` --
-    never ``ready`` and never ``not_connected``. A fresh record with no check
-    or SCM condition and no linked provider is ``not_connected``.
+    Inbox does not know which checks are required, so it says ``unknown``.
+    A Review with no linked provider is ``not_connected`` whatever its local
+    checks say: nothing here can merge it, so the axis claims nothing about
+    merging (the failed/pending counts stay on the wire).
     """
 
     fresh = readiness.fresh
     failed = failed_check_reasons + (readiness.failed_checks if fresh else 0)
     pending = readiness.pending_checks if fresh else 0
-    if failed or (fresh and (readiness.scm_blockers or pending)):
+    if not connected:
+        state = "not_connected"
+    elif failed or (fresh and (readiness.scm_blockers or pending)):
         state = "not_ready"
     elif not fresh:
         state = "unknown"
     elif readiness.scm_conditions == 0:
-        state = "unknown" if connected else "not_connected"
+        state = "unknown"
     elif sync_state not in {"", "synced"}:
         state = "unknown"
     else:

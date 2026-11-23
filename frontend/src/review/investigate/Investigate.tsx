@@ -30,6 +30,33 @@ import {
 } from "./investigateModel";
 import "./investigate.css";
 
+/**
+ * The step strip: one row of underline tabs in the steps' fixed order. It scrolls sideways in a narrow drawer
+ * instead of wrapping, so no step is left alone on a second line. Each tab jumps to its section.
+ */
+export function InvestigateTabs({ onGo }: { onGo(step: InvestigateStep): void }) {
+  const [current, setCurrent] = useState<InvestigateStep>(INVESTIGATE_STEPS[0].key);
+  return (
+    <nav className="iv-nav" aria-label="Investigation steps">
+      <ul className="iv-tabs">
+        {INVESTIGATE_STEPS.map((step) => (
+          <li key={step.key}>
+            <Button
+              unstyled
+              type="button"
+              className="iv-tab"
+              aria-current={current === step.key ? "step" : undefined}
+              onClick={() => { setCurrent(step.key); onGo(step.key); }}
+            >
+              {step.label}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 /** What the Reader already holds for the Snapshot shown now; the tab adds no fetch and no authority of its own. */
 export interface InvestigateHost {
   projection: ReviewProjection | null;
@@ -74,7 +101,7 @@ function Facts({ model, onOpenSource }: { model: InvestigateModel; onOpenSource:
         {model.facts.map((fact) => (
           <div key={fact.label} className="iv-fact">
             <dt>{fact.label}</dt>
-            <dd>{fact.value}</dd>
+            <dd data-code={fact.code ? "true" : undefined}>{fact.value}</dd>
           </div>
         ))}
       </dl>
@@ -88,7 +115,7 @@ function Walk({ model, props }: { model: InvestigateModel; props: InvestigatePro
   const shown = state.path === model.target.path ? state : { path: "", busy: false, note: "" };
   const load = props.loadMapGraph;
   if (!model.walk.available || !load) {
-    return <p className="iv-note" data-testid="investigate-no-walk">{model.walk.reason || "This Snapshot has no Map graph to walk, so there is no X-Ray from here."}</p>;
+    return <p className="iv-note" data-testid="investigate-no-walk">{model.walk.reason || "This revision has no Map graph to walk, so there is no X-Ray from here."}</p>;
   }
   const path = model.target.path;
   const walk = async () => {
@@ -99,7 +126,7 @@ function Walk({ model, props }: { model: InvestigateModel; props: InvestigatePro
         setState({ path, busy: false, note: "" });
         props.onWalk(location);
       } else {
-        setState({ path, busy: false, note: `No node on this Snapshot's Map is ${path}, so there is no X-Ray rooted here.` });
+        setState({ path, busy: false, note: `No node on this revision's Map is ${path}, so there is no X-Ray rooted here.` });
       }
     } catch (reason) {
       setState({ path, busy: false, note: `The Map could not be loaded: ${reason instanceof Error ? reason.message : String(reason)}` });
@@ -109,7 +136,7 @@ function Walk({ model, props }: { model: InvestigateModel; props: InvestigatePro
     <>
       <p className="iv-note">What this file reaches before and after the change, walked on the Map from its node. Possible paths, not an execution order, unless a recorded run traced them.</p>
       <Button variant="outline" size="compact" type="button" className="self-start" disabled={shown.busy} onClick={() => void walk()}>
-        {shown.busy ? "Opening the Map…" : "Walk from here"}
+        {shown.busy ? "Opening the X-Ray…" : "Walk from here"}
       </Button>
       {shown.note && <p className="iv-note" role="status" data-testid="investigate-walk-note">{shown.note}</p>}
     </>
@@ -189,7 +216,7 @@ export default function Investigate(props: InvestigateProps) {
     return (
       <div className="iv-root" data-testid="investigate" data-analysed="false">
         <p className="iv-note" data-testid="investigate-unanalysed">
-          The Review&apos;s analysis of this Snapshot is not loaded, so only the source and its recorded facts are shown. Nothing here is a finding.
+          The Review&apos;s analysis of this revision is not loaded, so only the source and its recorded facts are shown. Nothing here is a finding.
         </p>
         <Facts model={model} onOpenSource={openSource} />
       </div>
@@ -203,15 +230,7 @@ export default function Investigate(props: InvestigateProps) {
 
   return (
     <div ref={rootRef} className="iv-root" data-testid="investigate" data-analysed="true" data-snapshot={snapshot} data-target={target.target_id}>
-      <nav className="iv-nav" aria-label="Investigation steps">
-        <ol>
-          {INVESTIGATE_STEPS.map((step, index) => (
-            <li key={step.key}>
-              <Button variant="ghost" size="compact" type="button" onClick={() => goTo(step.key)}>{`${index + 1} ${step.label}`}</Button>
-            </li>
-          ))}
-        </ol>
-      </nav>
+      <InvestigateTabs onGo={goTo} />
       <Facts model={model} onOpenSource={openSource} />
 
       <Step step="xray" index={1} title="X-Ray before and after">
@@ -272,7 +291,7 @@ export default function Investigate(props: InvestigateProps) {
             <Button variant="ghost" size="compact" type="button" onClick={() => setHeld(null)}>Dismiss</Button>
           </div>
         ) : (
-          <p className="iv-note">Challenge an assumption, a What-if row or a blind spot above to see what supports it and what would run. The Brief holds the same claim.</p>
+          <p className="iv-note">Challenge an assumption, a What-if row or a blind spot above to see what supports it and what would run.</p>
         )}
       </Step>
 

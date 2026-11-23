@@ -45,7 +45,7 @@ describe("Home usage availability", () => {
   it("shows spend when savings evidence is missing, and explains the savings that are not there yet", async () => {
     show(true, 2);
     const summary = screen.getByRole("region", { name: "Savings summary" });
-    expect(await within(summary).findByText("$2.000")).toBeInTheDocument();
+    expect(await within(summary).findByText("$2.00")).toBeInTheDocument();
     expect(within(summary).getByText("No savings measured yet")).toBeInTheDocument();
     expect(within(summary).getByText(/Saved, reduction and tokens saved appear once a task runs with/)).toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: "How savings are measured" })).toHaveAttribute("href", "/usage?inspect=savings");
@@ -65,11 +65,28 @@ describe("Home usage availability", () => {
     expect(within(summary).queryByText("No data")).not.toBeInTheDocument();
   });
 
+  it("labels the reduction as cost reduction, saved ÷ (cost + saved), the same figure Usage shows", async () => {
+    vi.spyOn(api, "insightsWindow").mockResolvedValue({ session_count: 16 } as never);
+    vi.spyOn(api, "traces").mockResolvedValue({ items: [] } as never);
+    vi.spyOn(api, "savingsSummary").mockResolvedValue({
+      window_days: 7, total_naive_tokens: 1000, total_actual_tokens: 812,
+      reduction_pct: 18.8, per_lever: {}, by_day: [], cost_basis: "context_budget",
+      spend_available: true, savings_available: true,
+      actually_cost_usd: 75, total_saved_usd: 25, saved_usd: 2,
+    });
+    render(<MemoryRouter><Home /></MemoryRouter>);
+    const summary = screen.getByRole("region", { name: "Savings summary" });
+    expect(await within(summary).findByText("Cost reduction")).toBeInTheDocument();
+    expect(within(summary).getByText("25.0%")).toBeInTheDocument();
+    expect(within(summary).getByText("$25.00")).toBeInTheDocument();
+    expect(within(summary).queryByText("18.8%")).not.toBeInTheDocument();
+  });
+
   it("keeps measured zero distinct from missing data", async () => {
     show(true, 0, true);
     const summary = screen.getByRole("region", { name: "Savings summary" });
     expect(await within(summary).findByText("16 sessions")).toBeInTheDocument();
     expect(within(summary).queryByText("No data")).not.toBeInTheDocument();
-    expect(within(summary).getAllByText("$0.000").length).toBeGreaterThan(0);
+    expect(within(summary).getAllByText("$0.00").length).toBeGreaterThan(0);
   });
 });

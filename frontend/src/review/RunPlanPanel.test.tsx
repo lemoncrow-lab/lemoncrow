@@ -107,7 +107,10 @@ describe("RunPlanPanel", () => {
     expect(api.fetchRunPlan).toHaveBeenCalledWith("review-1", "revision-1");
     expect(panel).toHaveTextContent("Auto");
     expect(panel).toHaveTextContent("depth from repository config");
-    expect(panel).toHaveTextContent("est. 1.5 min · 5 model calls");
+    expect(panel).toHaveTextContent("budget up to 1.5 min · 5 model calls");
+    // Cost-class budgets read as ceilings, never as an estimate of how long a run takes.
+    expect(screen.getByTestId("run-plan-entry-ai.investigators")).toHaveTextContent("up to 1.5 min · 4 model calls");
+    expect(panel).not.toHaveTextContent("est.");
     expect(screen.getByText("Limited by budget", { selector: "h3 ~ span" })).toBeInTheDocument();
 
     const tests = screen.getByTestId("run-plan-entry-checks.test");
@@ -231,10 +234,10 @@ describe("RunPlanPanel", () => {
     expect(screen.getByTestId("run-plan-entry-ai.hypotheses")).toHaveTextContent("added for this Review");
   });
 
-  it("offers no Run specific on a read-only or historical Snapshot", async () => {
+  it("offers no Run specific on a read-only or historical revision", async () => {
     api.fetchRunPlan.mockResolvedValue(projection(plan(ENTRIES), { historical: true }));
     const { unmount } = render(<RunPlanPanel reviewId="review-1" />);
-    expect(await screen.findByText("Plan for an earlier Snapshot.")).toBeInTheDocument();
+    expect(await screen.findByText("Plan for an earlier revision.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run specific…" })).not.toBeInTheDocument();
     unmount();
 
@@ -583,7 +586,7 @@ describe("RunPlanPanel", () => {
             base: "quick",
             path_default: "quick",
             path_default_paths: "docs/**",
-            path_default_origin: "base Snapshot .lemoncrow/review.yaml",
+            path_default_origin: "base revision .lemoncrow/review.yaml",
           },
         }),
         { ai_availability: { available: false, reason: "no AI provider is configured: no API key", executor: "local" } },
@@ -595,7 +598,7 @@ describe("RunPlanPanel", () => {
       "2 rule questions · ceiling 2 (organization policy) · 1 limited by budget",
     );
     expect(screen.getByTestId("run-plan-path-default")).toHaveTextContent(
-      "Starting depth: Quick for docs/** (path default from base Snapshot .lemoncrow/review.yaml)",
+      "Starting depth: Quick for docs/** (path default from base revision .lemoncrow/review.yaml)",
     );
     expect(screen.getByTestId("run-plan-ai-unavailable")).toHaveTextContent(
       "AI review unavailable: no AI provider is configured: no API key. Deterministic checks still run.",

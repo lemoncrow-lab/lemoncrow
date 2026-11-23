@@ -34,10 +34,14 @@ localtools/vcs.py
 localtools/web.py
 webtransport.py
 lite/__init__.py
+lite/bash_search_upgrade.py
 lite/imports.py
 lite/index.py
 lite/mcp.py
+lite/savings.py
+lite/workspace_search_plan.py
 lite/policy.py
+lite/savings.py
 lite/semantic.py
 workspace_members.py
 workspace_graph.py

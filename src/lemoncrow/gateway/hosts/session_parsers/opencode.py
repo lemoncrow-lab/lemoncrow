@@ -286,13 +286,7 @@ def serialize_opencode_session(session_id: str, db_path: Path, *, source: str = 
 
 
 class OpenCodeImporter:
-    """OpenCode session importer.
-
-    ``source`` and ``_default_db_path`` are the only host-specific parts:
-    LemonCode forks OpenCode without changing the on-disk shapes, so
-    :class:`~lemoncrow.gateway.hosts.session_parsers.lemoncode.LemonCodeImporter`
-    subclasses this and overrides just those two.
-    """
+    """OpenCode session importer."""
 
     source = "opencode"
 

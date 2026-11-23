@@ -7,7 +7,8 @@
  * job). A correction becomes a new repository document, handed back as a patch
  * to land through a reviewed Change; nothing here writes to the repository.
  */
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { MoreHorizontal } from "lucide-react";
 
 import {
   Alert,
@@ -22,6 +23,13 @@ import {
   SnippetCard,
   Textarea,
 } from "../components/WorkbenchUI";
+import { Button as UiButton } from "../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import {
   fetchKnowledgeListing,
   fetchKnowledgeOverview,
@@ -30,10 +38,13 @@ import {
   regenerateNarrative,
   type CorrectionProposal,
   type KnowledgeEntry,
+  type KnowledgeEvent,
   type KnowledgeListing,
   type KnowledgeOverview,
   type KnowledgeRepositoryRow,
 } from "./projectKnowledgeApi";
+import { ServerUnreachable, describeError, isUnreachable } from "../components/ServerUnreachable";
+import { api, type CodeMapProject } from "../api";
 
 const VOCABULARY: { term: string; meaning: string }[] = [
   { term: "Project Knowledge", meaning: "what the repository's committed history says: advisory context for Brief, Ask and AI Review" },
@@ -43,7 +54,7 @@ const VOCABULARY: { term: string; meaning: string }[] = [
 ];
 
 function message(reason: unknown, fallback: string): string {
-  return reason instanceof Error && reason.message ? reason.message : fallback;
+  return reason instanceof Error && reason.message ? describeError(reason) : fallback;
 }
 
 function short(id: string): string {
@@ -59,13 +70,67 @@ function when(value: string): string {
   return value ? value.slice(0, 10) : "";
 }
 
+// What each history event means, in words (the server's labels name the pipeline step).
+const EVENT_TEXT: Record<string, { title: string; detail: (branch: string) => string }> = {
+  baseline: { title: "First sync", detail: (branch) => `LemonCrow read ${branch} as it stood.` },
+  merged_change: { title: "Change landed", detail: (branch) => `A change merged into ${branch}.` },
+  source_advance: { title: "Branch moved", detail: (branch) => `New commits reached ${branch}.` },
+};
+
+function eventTitle(event: KnowledgeEvent): string {
+  return EVENT_TEXT[event.kind]?.title ?? event.label;
+}
+
+function shellWord(value: string): string {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * The server's sync command with this checkout's values in place of `<checkout>`, `<key>` and `<branch>`:
+ * the active indexed project (else the first), its main checkout, and the branch that checkout is on.
+ * A value the projects cannot give keeps its placeholder.
+ */
+export function filledSyncCommand(template: string, projects: readonly CodeMapProject[]): string {
+  const project = projects.find((row) => row.active) ?? projects[0];
+  if (!project) return template;
+  const repo = project.project_root || project.root;
+  const mainCheckout = projects.find((row) => row.root === repo);
+  const branch = [mainCheckout, project].find((row) => row?.branch && !row.detached)?.branch;
+  const key = project.project || project.label || repo.split("/").filter(Boolean).pop();
+  const values: Record<string, string | undefined> = { "<checkout>": repo, "<key>": key, "<branch>": branch };
+  return template.replace(/<(?:checkout|key|branch)>/g, (token) => (values[token] ? shellWord(values[token]!) : token));
+}
+
+function branchName(ref: string | undefined): string {
+  return ref ? ref.replace(/^refs\/heads\//, "") : "the canonical branch";
+}
+
+/**
+ * A repository document's Markdown as readable text. The server stores bodies with whitespace
+ * collapsed, so a heading marker is the only section break left: it becomes a line break.
+ */
+export function documentText(body: string): string {
+  return body
+    .replace(/```[\w-]*/g, "")
+    .replace(/!\[([^\]]*)\]\([^)\s]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)\s]*\)/g, "$1")
+    .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(^|\s)#{1,6}\s+/g, (_match, _lead: string, offset: number) => (offset === 0 ? "" : "\n"))
+    .trim();
+}
+
 export default function ProjectKnowledge() {
   const [listing, setListing] = useState<KnowledgeListing | null>(null);
   const [error, setError] = useState("");
+  const [unreachable, setUnreachable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState("");
 
   useEffect(() => {
     let active = true;
+    setError("");
+    setUnreachable(false);
     fetchKnowledgeListing()
       .then((result) => {
         if (!active) return;
@@ -73,20 +138,39 @@ export default function ProjectKnowledge() {
         setSelected((current) => current || result.repositories[0]?.repository_id || "");
       })
       .catch((reason: unknown) => {
-        if (active) setError(message(reason, "Could not read Project Knowledge."));
+        if (!active) return;
+        setUnreachable(isUnreachable(reason));
+        setError(message(reason, "Could not read Project Knowledge."));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   const repositories = listing?.repositories ?? [];
+  const nothingSynced = Boolean(listing) && repositories.length === 0;
+  const [projects, setProjects] = useState<CodeMapProject[]>([]);
+  useEffect(() => {
+    if (!nothingSynced) return;
+    let active = true;
+    // Fill the sync command from the indexed checkout; without one it keeps its placeholders.
+    api
+      .codeMapProjects()
+      .then((result) => {
+        if (active) setProjects(result.projects ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [nothingSynced]);
+
   return (
     <div className="space-y-4" data-testid="project-knowledge">
       <SectionHeader
         eyebrow="Project Knowledge"
         title="What your repositories' history says"
-        description="Derived from committed source and landed Changes. AI narratives cite the sources they were shown. Advisory context, never Review policy."
+        description="Read from committed code and landed changes. Each AI narrative lists the sources it was shown. Brief, Ask and AI Review use it as background; it never changes what Review enforces."
       />
       <Card className="p-3">
         <dl className="grid gap-2 text-caption sm:grid-cols-2" aria-label="What each kind of knowledge is">
@@ -98,21 +182,20 @@ export default function ProjectKnowledge() {
           ))}
         </dl>
       </Card>
-      {error && (
+      {error && unreachable && <ServerUnreachable onRetry={() => setAttempt((n) => n + 1)} />}
+      {error && !unreachable && (
         <div role="alert">
           <Alert tone="destructive" description={error} />
         </div>
       )}
-      {listing && repositories.length === 0 && (
-        <EmptyState
-          title="Nothing synced yet"
-          description={
-            <>
-              Run <code className="break-all">{listing.sync_command}</code> in a checkout. Sync reads committed
-              Git objects only and makes no model call.
-            </>
-          }
-        />
+      {listing && nothingSynced && (
+        <>
+          <EmptyState
+            title="Nothing synced yet"
+            description="Run this to sync this repository: its checkout, its name and the branch to follow. Sync reads committed Git objects only and makes no model call."
+          />
+          <SnippetCard title="Sync a checkout" body={filledSyncCommand(listing.sync_command, projects)} wrap />
+        </>
       )}
       {repositories.length > 1 && (
         <div className="max-w-sm">
@@ -129,7 +212,7 @@ export default function ProjectKnowledge() {
         <p className="text-caption text-muted-foreground">Showing the 50 most recently updated repositories only.</p>
       )}
       {selected && <RepositoryKnowledge key={selected} repositoryId={selected} />}
-      {listing && <Alert title="Legacy review overlay" description={listing.legacy_overlay_note} />}
+      {/* The legacy review overlay note is no longer shown: it described an internal store, not this page. */}
     </div>
   );
 }
@@ -256,19 +339,20 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
           </p>
         ) : (
           overview.narratives.map((entry) => (
-            <EntryCard key={entry.entry_id} repositoryId={repositoryId} entry={entry}>
-              <Button size="xs" disabled={Boolean(busy)} onClick={() => hide(entry)}>
-                Hide
-              </Button>
-              <Button
-                size="xs"
-                disabled={Boolean(busy) || !overview.regenerate.available}
-                tooltip={overview.regenerate.available ? "Queue a fresh narrative" : overview.regenerate.reason}
-                onClick={() => regenerate(entry)}
-              >
-                Regenerate
-              </Button>
-            </EntryCard>
+            <EntryCard
+              key={entry.entry_id}
+              repositoryId={repositoryId}
+              entry={entry}
+              actions={[
+                { label: "Hide", disabled: Boolean(busy), onSelect: () => void hide(entry) },
+                {
+                  label: "Regenerate",
+                  disabled: Boolean(busy) || !overview.regenerate.available,
+                  hint: overview.regenerate.available ? "" : overview.regenerate.reason,
+                  onSelect: () => void regenerate(entry),
+                },
+              ]}
+            />
           ))
         )}
         {overview.narratives_truncated && (
@@ -319,10 +403,18 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
         <h3 className="text-heading font-semibold text-foreground">Recent evolution</h3>
         <ol className="space-y-1 text-caption">
           {overview.evolution.map((event) => (
-            <li key={`${event.generation_id}-${event.observed_at}`} className="flex flex-wrap gap-2">
-              <Chip>{event.label}</Chip>
+            <li
+              key={`${event.generation_id}-${event.observed_at}`}
+              className="flex flex-wrap items-baseline gap-x-2"
+              title={`Generation ${short(event.generation_id)}`}
+            >
+              <span className="font-medium text-foreground">{eventTitle(event)}</span>
+              {EVENT_TEXT[event.kind] && (
+                <span className="text-muted-foreground">
+                  {EVENT_TEXT[event.kind].detail(branchName(source?.canonical_ref))}
+                </span>
+              )}
               <span className="text-muted-foreground">{when(event.observed_at)}</span>
-              <code className="text-muted-foreground">{short(event.generation_id)}</code>
             </li>
           ))}
         </ol>
@@ -331,26 +423,63 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
   );
 }
 
+interface EntryAction {
+  label: string;
+  disabled?: boolean;
+  /** Why the action is unavailable, shown under it in the menu. */
+  hint?: string;
+  onSelect: () => void;
+}
+
 function EntryCard({
   repositoryId,
   entry,
-  children,
+  actions = [],
 }: {
   repositoryId: string;
   entry: KnowledgeEntry;
-  children?: ReactNode;
+  actions?: EntryAction[];
 }) {
   const [correcting, setCorrecting] = useState(false);
+  const menu: EntryAction[] = [
+    ...actions,
+    { label: correcting ? "Close correction" : "Propose correction", onSelect: () => setCorrecting((value) => !value) },
+  ];
+  const body = entry.support === "source_document" ? documentText(entry.body) : entry.body;
   return (
     <Card className="space-y-2 p-3" data-testid="project-knowledge-entry">
-      <div className="flex flex-wrap items-center gap-2 text-caption">
-        <Chip tone={entry.support === "ai_narrated" ? "info" : "neutral"}>{entry.support_label}</Chip>
-        {entry.event && <Chip>{entry.event.label}</Chip>}
-        <span className="min-w-0 break-all font-medium text-foreground">{entry.subject.key}</span>
-        <span className="text-muted-foreground">{entry.knowledge_kind}</span>
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-caption">
+          <Chip tone={entry.support === "ai_narrated" ? "info" : "neutral"}>{entry.support_label}</Chip>
+          <span className="min-w-0 break-all font-medium text-foreground">{entry.subject.key}</span>
+          {entry.event && (
+            <span className="text-muted-foreground">
+              {eventTitle(entry.event)} · {when(entry.event.observed_at)}
+            </span>
+          )}
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <UiButton type="button" size="icon" variant="ghost" aria-label="Actions" className="h-7 w-7 shrink-0">
+              <MoreHorizontal size={16} />
+            </UiButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            {menu.map((action) => (
+              <DropdownMenuItem key={action.label} disabled={action.disabled} onSelect={action.onSelect}>
+                <span className="flex min-w-0 flex-col">
+                  <span>{action.label}</span>
+                  {action.disabled && action.hint && (
+                    <span className="text-caption text-muted-foreground">{action.hint}</span>
+                  )}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <p className="whitespace-pre-wrap break-words text-body text-foreground">
-        {entry.body}
+        {body}
         {entry.body_truncated && <span className="text-muted-foreground"> …</span>}
       </p>
       <details className="text-meta">
@@ -365,17 +494,11 @@ function EntryCard({
             <li className="text-muted-foreground">and {entry.source_refs_omitted} more</li>
           )}
           <li className="text-muted-foreground">
-            {entry.event ? `${entry.event.label} ${when(entry.event.observed_at)}` : "Generation"} ·{" "}
+            {entry.event ? `${eventTitle(entry.event)} ${when(entry.event.observed_at)}` : "Generation"} ·{" "}
             <code>{short(entry.generation)}</code>
           </li>
         </ul>
       </details>
-      <div className="flex flex-wrap gap-2">
-        {children}
-        <Button size="xs" onClick={() => setCorrecting((value) => !value)} aria-expanded={correcting}>
-          Propose correction
-        </Button>
-      </div>
       {correcting && <CorrectionForm repositoryId={repositoryId} entry={entry} />}
     </Card>
   );

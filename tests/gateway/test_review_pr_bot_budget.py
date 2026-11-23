@@ -49,6 +49,24 @@ def summary(world: World) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# a cap that stops only the calls that review no code
+# --------------------------------------------------------------------------- #
+
+
+def test_a_cap_that_only_refused_the_overview_is_a_complete_review(world: World) -> None:
+    """Every file was reached, so nothing is "partially reviewed" and no banner lists "Not reviewed: none"."""
+
+    world.origin.push({"src/plain.py": "VALUE = 2  # BUG: wrong value\n"})
+    report = world.review(max_usd_per_pr=0.16)  # room for the one $0.15 review call, not for the overview after it
+
+    assert len(world.model.calls) == 1 and not world.model.overviews
+    assert report.state is not None and report.state.complete is True
+    assert report.verdict is not None and report.verdict.state != "partial"
+    assert "cost cap" not in report.verdict.headline
+    assert "Stopped at the cost cap" not in summary(world)
+
+
+# --------------------------------------------------------------------------- #
 # the cap on the number of reviews
 # --------------------------------------------------------------------------- #
 
@@ -348,7 +366,7 @@ def test_the_cli_takes_both_limits_and_rejects_nonsense(world: World, monkeypatc
     assert invoke("--max-runs-per-pr", "0").exit_code != 0
     assert invoke("--max-usd-per-pr", "0").exit_code != 0
     assert invoke("--max-usd-per-pr", "lots").exit_code != 0
-    help_text = CliRunner().invoke(cli, ["review", "--help"]).output
+    help_text = CliRunner().invoke(cli, ["review", "--help-all"]).output
     assert "--max-usd-per-pr" in help_text and "--max-runs-per-pr" in help_text
 
 
@@ -366,5 +384,5 @@ def test_max_usd_per_pr_none_lifts_the_cap_and_the_help_names_the_default(monkey
     assert spend.resolve_max_usd(None, os.environ) is None, "the review reads no cap, not the $3.00 default"
     with pytest.raises(click.BadParameter):
         MaxUsd().convert("0", None, None)
-    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help-all"]).output.split())
     assert "`none` for no cap" in text and "Default: $3.00 per pull request" in text

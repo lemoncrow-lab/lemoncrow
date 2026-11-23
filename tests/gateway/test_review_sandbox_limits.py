@@ -13,8 +13,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lemoncrow.pro.capabilities.review import sandbox_limits, web_preview
-from lemoncrow.pro.capabilities.review.sandbox_limits import (
+from lemoncrow.pro.capabilities.review import web_preview
+from lemoncrow.pro.environment import sandbox_limits
+from lemoncrow.pro.environment.sandbox_limits import (
     MEMORY_ENV,
     SandboxCapacityBusy,
     SandboxExecutionCancelled,
@@ -114,6 +115,40 @@ def test_cgroup_scope_caps_the_whole_tree_and_the_fallback_caps_each_process(
     fallback = limit_prefix()
     assert fallback[:4] == [sys.executable, "-I", "-S", "-c"]
     assert "RLIMIT_DATA" in fallback[4] and fallback[5] == str(1024 * 1024 * 1024)
+
+
+def test_the_scope_runner_keeps_the_command_exact_or_is_not_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    """systemd 254+ expands ``${...}`` in a scope's argv unless told not to; older systemd lacks the option."""
+
+    monkeypatch.setattr(sandbox_limits.shutil, "which", lambda name: f"/usr/bin/{name}")
+    for accepts_option, expands, expected_tail in (
+        (True, True, "--expand-environment=no"),  # systemd 254+
+        (False, False, "/usr/bin/systemd-run"),  # older: no option, no expansion
+        (False, True, None),  # rewrites the command and cannot be told not to: not used
+    ):
+
+        def call(
+            argv: list[str], *, accepts_option: bool = accepts_option, expands: bool = expands, **_: object
+        ) -> int:
+            if "--expand-environment=no" in argv:
+                return 0 if accepts_option and "${LC_SCOPE_PROBE}" in argv else 1
+            return 1 if expands else 0
+
+        monkeypatch.setattr(sandbox_limits.subprocess, "call", call)
+        sandbox_limits._cgroup_scope_runner.cache_clear()
+        runner = sandbox_limits._cgroup_scope_runner()
+        assert (runner[-1] if runner else None) == expected_tail
+    sandbox_limits._cgroup_scope_runner.cache_clear()
+
+
+def test_a_shell_script_reaches_the_sandbox_unexpanded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real processes, whichever limiter this host uses: the shell, not the limiter, expands its parameters."""
+
+    monkeypatch.setenv(MEMORY_ENV, "256")
+    sandbox_limits._cgroup_scope_runner.cache_clear()
+    script = 'x=ab; printf "%s|%s" "${x#?}" "${LC_NOT_SET-unset}"'
+    done = run_limited(["sh", "-c", script], timeout=60, capture_output=True, text=True)
+    assert (done.returncode, done.stdout) == (0, "b|unset"), done.stderr
 
 
 def test_the_memory_ceiling_is_enforced_on_this_host(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -334,7 +369,8 @@ def test_bounded_review_capture_reaps_descendants_holding_pipes_after_parent_exi
     started = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
         run_limited_bounded([sys.executable, "-c", program], timeout=0.3, max_output_bytes=32)
-    assert time.monotonic() - started < 3
+    # macOS gives the memory shim three more seconds before the deadline (run_limited_bounded).
+    assert time.monotonic() - started < (6 if sys.platform == "darwin" else 3)
     with sandbox_slot(0.1):
         pass
 

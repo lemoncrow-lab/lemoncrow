@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import CodeMap from "./CodeMap";
@@ -271,6 +271,41 @@ describe("CodeMap", () => {
     await waitFor(() => expect(screen.getByTestId("highlighted-source").dataset.changed).toContain("[[2,3]]"));
   });
 
+  it("shows one empty state with the restart command when the code index does not answer", async () => {
+    mockApi({ "/v1/code-map/projects": () => new Response("down", { status: 503 }) });
+    renderAt("/code");
+
+    expect(await screen.findByText("Code index unavailable")).toBeInTheDocument();
+    // The command is code, not prose with literal backticks.
+    const command = screen.getByText("bash ~/.lemoncrow/install/scripts/local_server.sh restart");
+    expect(command.tagName).toBe("CODE");
+    expect(screen.queryByText(/`/)).not.toBeInTheDocument();
+    // No empty explorer, inspector or live chip beside it.
+    expect(screen.queryByRole("complementary", { name: "Explorer" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No matching files")).not.toBeInTheDocument();
+    expect(screen.queryByText("Open a file or symbol")).not.toBeInTheDocument();
+    // No project, so no Changes menu that would read "Reading the worktree…" forever.
+    expect(screen.queryByRole("button", { name: /Changes/ })).not.toBeInTheDocument();
+  });
+
+  it("labels the live-session count and, without a live workspace, points Sessions to Activity", async () => {
+    mockApi();
+    render(
+      <MemoryRouter initialEntries={["/code"]}>
+        <ProductCapabilitiesProvider value={{
+          ...LOCAL_DASHBOARD_PRODUCT_CAPABILITIES,
+          features: { ...LOCAL_DASHBOARD_PRODUCT_CAPABILITIES.features, "runtime.live_workspace": false },
+        }}>
+          <CodeMap />
+        </ProductCapabilitiesProvider>
+      </MemoryRouter>,
+    );
+    const sessions = await screen.findByRole("region", { name: "Sessions" });
+    expect(within(sessions).getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/activity");
+    expect(sessions).not.toHaveTextContent("not available here");
+    expect(screen.getByRole("button", { name: /^Live activity:/ })).toHaveTextContent(/^\d+ live$/);
+  });
+
   it("reads a Review-linked workspace absent from the indexed project picker", async () => {
     const root = "/tmp/lemoncrow-review-demo";
     const recorded = mockApi({
@@ -325,6 +360,10 @@ describe("CodeMap", () => {
 
     await user.click(screen.getByRole("button", { name: /Changes/ }));
     const menu = screen.getByRole("dialog", { name: "Uncommitted changes" });
+    // Sessions read by title and host name, never the raw session id.
+    expect(within(menu).getByRole("button", { name: "Tighten retries" })).toHaveAttribute("title", "Tighten retries");
+    expect(within(menu).getByText("Claude Code")).toBeInTheDocument();
+    expect(within(menu).queryByText(/author only/)).not.toBeInTheDocument();
     await user.click(within(menu).getAllByRole("button", { name: "Review" })[0]);
     await waitFor(() => expect(screen.getByTestId("location-path")).toHaveTextContent("/r/abc"));
     // The Review's Back returns to this exact Code location.
@@ -355,6 +394,19 @@ describe("CodeMap", () => {
     const location = screen.getByRole("navigation", { name: "Map location" });
     await user.click(within(location).getByRole("button", { name: "repo" }));
     await screen.findByRole("group", { name: "Module map" });
+  });
+
+  it("offers Source, Map and 3D, and sends an old 2D link to the Map", async () => {
+    mockApi();
+    renderAt("/code?view=2d");
+
+    await screen.findByRole("group", { name: "Module map" });
+    await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("view=map"));
+    expect(screen.getByTestId("location-search")).not.toHaveTextContent("view=2d");
+    expect(screen.getByRole("button", { name: "Map" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Source" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "3D" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "2D" })).not.toBeInTheDocument();
   });
 
   it("describes a module on request with the configured model and says so", async () => {
@@ -513,8 +565,10 @@ describe("CodeMap", () => {
     const explorer = await screen.findByRole("complementary", { name: "Explorer" });
     expect(await within(explorer).findByRole("img", { name: "Agent edit now" })).toBeInTheDocument();
 
+    // Ask lives once, in the toolbar; the inspector has no second Ask button.
     const inspector = screen.getByRole("complementary", { name: "Inspector" });
-    await user.click(within(inspector).getByRole("button", { name: "Ask about payment.ts" }));
+    expect(within(inspector).queryByRole("button", { name: /^Ask about/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ask AI about code" }));
     const chat = await screen.findByRole("region", { name: "Code chat" });
     expect(within(chat).getByLabelText("Code Ask focus")).toHaveTextContent("Focused file");
     expect(within(chat).getByLabelText("Code Ask focus")).toHaveTextContent("src/payment.ts");
@@ -532,7 +586,7 @@ describe("CodeMap", () => {
     expect(recorded.posts.some((post) => post.url.includes("agent-handoff"))).toBe(false);
 
     await user.click(within(chat).getByRole("button", { name: "Close Ask" }));
-    await user.click(screen.getByRole("button", { name: "Ask about payment.ts" }));
+    await user.click(screen.getByRole("button", { name: "Ask AI about code" }));
     const reopened = await screen.findByRole("region", { name: "Code chat" });
     expect(await within(reopened).findByText("The retry is bounded by the current code.")).toBeInTheDocument();
     await user.type(within(reopened).getByRole("textbox", { name: "Ask Code" }), "And the next attempt?");
@@ -571,7 +625,7 @@ describe("CodeMap", () => {
     await waitFor(() => expect(screen.getByTestId("location-path")).toHaveTextContent("/r/abc"));
   });
 
-  it("ignores a Back target that would leave the app", async () => {
+  it("ignores a Back part that would leave the app", async () => {
     mockApi();
     renderAt("/code?repo=proj_repo&file=src/payment.ts&view=source&from=%2F%2Fevil.example%2Fr%2Fabc");
     await screen.findByRole("complementary", { name: "Explorer" });
@@ -611,7 +665,7 @@ describe("CodeMap", () => {
       editor: "cursor",
     });
 
-    await user.click(within(inspector).getByRole("button", { name: "Ask about chargeCard" }));
+    await user.click(screen.getByRole("button", { name: "Ask AI about code" }));
     const chat = await screen.findByRole("region", { name: "Code chat" });
     expect(within(chat).getByText(/src\/payment.ts · PaymentGateway.chargeCard · line 2/)).toBeInTheDocument();
     await user.type(within(chat).getByRole("textbox", { name: "Ask Code" }), "Check the retry here.");
@@ -622,7 +676,7 @@ describe("CodeMap", () => {
     });
     await user.keyboard("{Escape}");
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Ask about chargeCard" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask AI about code" })).toHaveFocus());
 
     const explorer = screen.getByRole("complementary", { name: "Explorer" });
     await user.click(within(explorer).getByRole("button", { name: /checkout\.ts/ }));
@@ -747,6 +801,128 @@ describe("CodeMap", () => {
   });
 });
 
+// Below Tailwind's xl (1280px) the explorer is the toolbar's Files sheet, not a pane in its own scroll box above the editor.
+describe("CodeMap below the xl width", () => {
+  /** A window `wide` or not; the returned function resizes it and tells the page. */
+  function windowWidth(wide: boolean): (next: boolean) => void {
+    const listeners = new Set<() => void>();
+    const state = { wide };
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        get matches() {
+          return state.wide && query === "(min-width: 1280px)";
+        },
+        media: query,
+        addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+        removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+      }),
+    });
+    return (next) => {
+      state.wide = next;
+      act(() => listeners.forEach((listener) => listener()));
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  it("folds the explorer into a Files sheet; choosing a file closes the sheet and opens the file", async () => {
+    windowWidth(false);
+    mockApi();
+    const user = userEvent.setup();
+    renderAt("/code");
+
+    const files = await screen.findByRole("button", { name: "Files" });
+    expect(files).toHaveAttribute("aria-haspopup", "dialog");
+    expect(files).toHaveAttribute("aria-expanded", "false");
+    // No tree on the page: the open view and the inspector are the only panes under the toolbar.
+    expect(screen.queryByRole("complementary", { name: "Explorer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeInTheDocument();
+
+    await user.click(files);
+    const sheet = await screen.findByRole("dialog", { name: "Files" });
+    expect(files).toHaveAttribute("aria-expanded", "true");
+    expect(sheet.contains(document.activeElement)).toBe(true);
+    const explorer = within(sheet).getByRole("complementary", { name: "Explorer" });
+    expect(within(explorer).queryByLabelText("Resize code explorer")).not.toBeInTheDocument();
+
+    await user.click(within(explorer).getByRole("button", { name: /payment\.ts/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Files" })).not.toBeInTheDocument());
+    expect(screen.getByTestId("location-search")).toHaveTextContent("file=src%2Fpayment.ts");
+    expect(await screen.findByTestId("highlighted-source")).toHaveTextContent("chargeCard");
+    expect(files).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps focus inside the Files sheet and closes it on Esc, back on the Files button", async () => {
+    windowWidth(false);
+    mockApi();
+    const user = userEvent.setup();
+    renderAt("/code");
+
+    const files = await screen.findByRole("button", { name: "Files" });
+    await user.click(files);
+    const sheet = await screen.findByRole("dialog", { name: "Files" });
+    for (let step = 0; step < 15; step += 1) {
+      await user.tab();
+      expect(sheet.contains(document.activeElement)).toBe(true);
+    }
+    for (let step = 0; step < 3; step += 1) {
+      await user.tab({ shift: true });
+      expect(sheet.contains(document.activeElement)).toBe(true);
+    }
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Files" })).not.toBeInTheDocument());
+    expect(files).toHaveFocus();
+    expect(screen.getByTestId("location-search")).toHaveTextContent("");
+  });
+
+  it("keeps the explorer's filter when the Files sheet closes and opens again", async () => {
+    windowWidth(false);
+    mockApi();
+    const user = userEvent.setup();
+    renderAt("/code");
+
+    const files = await screen.findByRole("button", { name: "Files" });
+    await user.click(files);
+    let sheet = await screen.findByRole("dialog", { name: "Files" });
+    await user.type(within(sheet).getByPlaceholderText("Filter paths…"), "pay");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Files" })).not.toBeInTheDocument());
+
+    await user.click(files);
+    sheet = await screen.findByRole("dialog", { name: "Files" });
+    expect(within(sheet).getByPlaceholderText("Filter paths…")).toHaveValue("pay");
+    expect(within(sheet).getByRole("button", { name: /payment\.ts/ })).toBeInTheDocument();
+  });
+
+  it("keeps the explorer as a resizable pane with no Files button from xl, and swaps on resize", async () => {
+    const resize = windowWidth(true);
+    mockApi();
+    const user = userEvent.setup();
+    renderAt("/code");
+
+    const explorer = await screen.findByRole("complementary", { name: "Explorer" });
+    expect(within(explorer).getByLabelText("Resize code explorer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Files" })).not.toBeInTheDocument();
+
+    resize(false);
+    expect(screen.queryByRole("complementary", { name: "Explorer" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(await screen.findByRole("dialog", { name: "Files" })).toBeInTheDocument();
+
+    // Widening the window with the sheet open puts the pane back and drops the sheet.
+    resize(true);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Files" })).not.toBeInTheDocument());
+    expect(screen.getByRole("complementary", { name: "Explorer" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Files" })).not.toBeInTheDocument();
+  });
+});
+
 // A local Dashboard serves the deterministic Runtime Lite map plus actions that
 // are genuinely local-machine capabilities: editor handoff, Code Ask and Review
 // capture. Precise references and generated module purpose still need full Code.
@@ -800,7 +976,7 @@ describe("CodeMap on a local Dashboard", () => {
     await within(inspector).findByText("checkout.ts", { exact: false });
     expect(await screen.findByTestId("highlighted-source")).toHaveTextContent("chargeCard");
 
-    expect(within(inspector).getByRole("button", { name: /^Ask about/ })).toBeInTheDocument();
+    expect(within(inspector).queryByRole("button", { name: /^Ask about/ })).not.toBeInTheDocument();
     expect(within(inspector).queryByText(/^References/)).not.toBeInTheDocument();
     expect(within(inspector).getAllByRole("button", { name: /^Review/ }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Ask AI about code" })).toBeInTheDocument();

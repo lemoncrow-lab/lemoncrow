@@ -33,7 +33,7 @@ describe("ScreenshotEvidenceCompare", () => {
     render(<ScreenshotEvidenceCompare before={evidence("ev-before")} after={evidence("ev-after", "Checkout")} />);
 
     expect(await screen.findByText("Screenshot comparison unavailable: baseline screenshot was not preserved")).toBeTruthy();
-    expect(screen.queryByText("Loading exact Snapshot screenshots…")).toBeNull();
+    expect(screen.queryByText("Loading exact revision screenshots…")).toBeNull();
     expect(screen.queryByTestId("image-overlay-compare")).toBeNull();
     expect(screen.getByRole("region", { name: "Screenshot diff Checkout" })).toBeTruthy();
   });

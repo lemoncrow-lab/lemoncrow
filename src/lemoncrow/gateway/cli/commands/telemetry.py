@@ -225,4 +225,15 @@ def telemetry_lexical_status() -> None:
     click.echo(f"lexical frustration detection: {'on' if cfg.lexical_frustration_enabled else 'off'}")
 
 
+def _register_push() -> None:
+    # The hosted client is an optional part of an install; without it the rest of this group still works.
+    try:
+        from lemoncrow.gateway.cli.commands.hosted_telemetry import telemetry_push
+    except ImportError:
+        return
+    telemetry_group.add_command(telemetry_push)
+
+
+_register_push()
+
 __all__ = ["telemetry_destination", "telemetry_group", "telemetry_lexical_group", "telemetry_remote_group"]

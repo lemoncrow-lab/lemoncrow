@@ -18,9 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult
 from lemoncrow.pro.capabilities.review.hermetic import (
-    DependencyCache,
     HermeticPolicy,
     HermeticRefused,
     RegistryFetcher,
@@ -36,9 +34,11 @@ from lemoncrow.pro.capabilities.review.hermetic_python import (
     probe_sandbox_python,
     provision_python_dependencies,
 )
-from lemoncrow.pro.capabilities.review.runtimes import CommandRunner, RunnerRegistry
 from lemoncrow.pro.capabilities.review.surface_providers import ServiceSurfaceProvider
 from lemoncrow.pro.capabilities.review.surfaces import SurfaceContext, load_review_surface_config
+from lemoncrow.pro.environment.dependency_cache import DependencyCache
+from lemoncrow.pro.environment.execution import ExecutionResult
+from lemoncrow.pro.environment.runners import CommandRunner, RunnerRegistry
 from tests.gateway.test_review_hermetic import _Server, needs_bwrap
 
 
@@ -398,7 +398,7 @@ def test_command_runner_runs_against_a_hermetic_uv_lock_environment(
         (target / "check.py").write_text(_CHECK, encoding="utf-8")
         return side
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     store = tmp_path / "store"
 
     def run() -> Any:
@@ -460,7 +460,7 @@ def test_command_runner_refuses_an_unsupported_lockfile_as_not_run(
         (target / "Cargo.lock").write_text("version = 3\n", encoding="utf-8")
         return side
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
+    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runner_host.materialize_review_side", materialize)
     context = SurfaceContext(
         trusted,
         tmp_path / "store",

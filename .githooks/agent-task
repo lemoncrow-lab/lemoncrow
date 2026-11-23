@@ -1,0 +1,10 @@
+#!/bin/sh
+# Retired: `lc task` replaces this script (M3 in docs/planning/2026-11-08-workspaces-and-review-plan.md).
+# Kept so existing habits work: it runs `lc task` from this checkout's client.
+#
+#   .githooks/agent-task start <id>    = lc task start <id>
+#   .githooks/agent-task land          = lc task land   (inside the task worktree)
+#   .githooks/agent-task finish <id>   = lc task finish <id>
+#   .githooks/agent-task list          = lc task list
+cd "$(git rev-parse --show-toplevel)" || exit 2
+PYTHONPATH=client/src exec uv run --quiet python -m lemoncrow_client task "$@"

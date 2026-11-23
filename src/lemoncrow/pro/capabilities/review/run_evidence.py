@@ -13,7 +13,7 @@ Three guarantees for everything an execution produces:
 3. **Tiered retention.** Raw heavy bytes (video/trace/log/payload) expire after
    a configurable window unless pinned by a judgment, finding or required
    check, or reported referenced by the caller's resolver. Summaries (the
-   :class:`~lemoncrow.pro.capabilities.review.execution.ExecutionResult`
+   :class:`~lemoncrow.pro.environment.execution.ExecutionResult`
    record) live in the ordinary Review evidence store and persist.
 
 The store's writer (:meth:`RunArtifactStore.put`) runs its closer
@@ -46,7 +46,7 @@ from typing import Any, Final, NewType
 
 from lemoncrow_client.kit.redaction import redact as _builtin_redact
 
-from lemoncrow.pro.capabilities.review.execution import ArtifactRef, ExecutionResult, RetentionClass
+from lemoncrow.pro.environment.execution import ArtifactRef, ExecutionResult, RetentionClass
 
 DEFAULT_RAW_RETENTION_SECONDS: Final[int] = 14 * 24 * 3600
 MIN_RAW_RETENTION_SECONDS: Final[int] = 3600

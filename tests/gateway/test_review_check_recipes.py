@@ -27,7 +27,6 @@ from lemoncrow.pro.capabilities.review.differential import (
     reconcile_claims,
     resolve_test_file,
 )
-from lemoncrow.pro.capabilities.review.execution import REPORT_DIR, REPORT_ENV
 from lemoncrow.pro.capabilities.review.recipes import (
     REPORT_PATH,
     CheckPolicy,
@@ -44,6 +43,7 @@ from lemoncrow.pro.capabilities.review.recipes import (
     recipe_digest,
     with_inputs,
 )
+from lemoncrow.pro.environment.execution import REPORT_DIR, REPORT_ENV
 
 _PYPROJECT = "[project]\nname = 'x'\n\n[tool.pytest.ini_options]\n\n[tool.ruff]\n\n[tool.ruff.format]\n\n[tool.mypy]\n"
 _PACKAGE = json.dumps(
@@ -62,6 +62,53 @@ _PACKAGE = json.dumps(
 
 def _reader(files: Mapping[str, str]) -> Any:
     return lambda path: files.get(path)
+
+
+def test_trusted_part_test_mappings_are_explicit_and_never_name_guesses() -> None:
+    from lemoncrow.pro.capabilities.review.part_checks import one_part_mapping, part_test_mappings
+    from lemoncrow.pro.capabilities.review.recipes import RecipeCatalog
+
+    text = """check_recipes:
+  - id: exact-guard
+    kind: test
+    command: [python3, -m, pytest, tests/test_guard.py]
+    part_targets:
+      - {path: src/auth.py, symbol: can_view_order}
+"""
+    recipes, errors = parse_config_recipes(text)
+    assert not errors
+    recipe = recipes[0]
+    assert recipe.part_targets == (("src/auth.py", "can_view_order"),)
+    assert recipe.to_wire()["part_targets"] == [{"path": "src/auth.py", "symbol": "can_view_order"}]
+    assert recipe.digest != replace(recipe, part_targets=()).digest
+    catalog = RecipeCatalog(recipes=recipes, base_state="present")
+    matching = SimpleNamespace(
+        kind="symbol",
+        path="src/auth.py",
+        symbol="can_view_order",
+        unit_key="sym:key",
+        content_fingerprint="sha256:code",
+    )
+    unrelated = SimpleNamespace(
+        kind="symbol", path="src/auth.py", symbol="other", unit_key="sym:other", content_fingerprint="sha256:other"
+    )
+    mapped = part_test_mappings(catalog, [matching, unrelated])
+    assert len(mapped) == 1
+    assert mapped[0]["unit_key"] == "sym:key" and mapped[0]["coverage"] == "not_assessed"
+    assert one_part_mapping(catalog, [matching], unit_key="sym:other", entry_id=recipe.entry_id) is None
+    assert not part_test_mappings(catalog, [matching, SimpleNamespace(**{**vars(matching), "unit_key": "ambiguous"})])
+    assert not part_test_mappings(catalog, [SimpleNamespace(**{**vars(matching), "content_fingerprint": ""})])
+    assert not part_test_mappings(replace(catalog, base_state="provisional"), [matching])
+    assert not part_test_mappings(replace(catalog, recipes=(replace(recipe, origin="discovered"),)), [matching])
+    for bad in (
+        "part_targets: [{path: ../outside.py, symbol: can_view_order}]",
+        "part_targets: [{path: src/auth.py, symbol: 'can_*'}]",
+        "part_targets: [{path: src/auth.py}]",
+        "part_targets: true",
+    ):
+        altered = text.split("    part_targets:")[0] + "    " + bad + "\n"
+        parsed, problems = parse_config_recipes(altered)
+        assert not parsed and problems
 
 
 def test_check_recipe_discovery_contract() -> None:
@@ -573,7 +620,7 @@ def test_claim_status_round_trip(status: str) -> None:
 def test_a_runner_report_is_read_bounded_and_never_through_a_planted_link(tmp_path: Any) -> None:
     import os
 
-    from lemoncrow.pro.capabilities.review.runtimes import read_report
+    from lemoncrow.pro.environment.runners import read_report
 
     secret = tmp_path / "host"
     secret.mkdir()

@@ -122,6 +122,7 @@ def effective_policy_layers(effective: Any) -> tuple[list[RunSettingsLayer], dic
             "allowed_run_on": run_plan.get("allowed_run_on"),
             "allowed_run_on_by_class": run_plan.get("allowed_run_on_by_class"),
             "unavailable_run_on_by_class": run_plan.get("unavailable_run_on_by_class"),
+            "executor_loci": run_plan.get("executor_loci"),
         }
     blocked = organization_block(effective)
     if blocked:
@@ -310,6 +311,25 @@ def unavailable_loci(raw: Any) -> dict[str, dict[ExecutorLocus, str]]:
     return out
 
 
+#: Executors whose catalog locus a deployment may extend, and only onto these loci.
+_EXTENSIBLE_EXECUTORS: Final[frozenset[str]] = frozenset({"render_diff"})
+
+
+def executor_loci(raw: Any) -> dict[str, tuple[ExecutorLocus, ...]]:
+    """Deployment-stated extra loci per executor; anything else in the document is ignored."""
+
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, tuple[ExecutorLocus, ...]] = {}
+    for name, loci in raw.items():
+        if name not in _EXTENSIBLE_EXECUTORS or not isinstance(loci, (list, tuple)):
+            continue
+        parsed = tuple(sorted({cast(ExecutorLocus, locus) for locus in loci if locus in {"worker", "managed"}}))
+        if parsed:
+            out[str(name)] = parsed
+    return out
+
+
 def _config_targets(content: str) -> tuple[tuple[DynamicTarget, ...], tuple[DynamicTarget, ...]]:
     """Trusted-base ``check_recipes`` and configured ``surfaces`` as catalog targets.
 
@@ -356,6 +376,60 @@ def _config_targets(content: str) -> tuple[tuple[DynamicTarget, ...], tuple[Dyna
     return recipes, surfaces
 
 
+#: The catalog target of a trusted-base environment.toml that is invalid: shown, never run.
+_INVALID_ENVIRONMENT_TARGET: Final[str] = "environment.toml"
+
+
+def _environment_targets(
+    text: str,
+    changed: Sequence[str],
+    attributes: Callable[[], Mapping[str, str] | None] = lambda: None,
+) -> tuple[tuple[DynamicTarget, ...] | None, tuple[tuple[str, str], ...]]:
+    """Trusted-base ``environment.toml`` checks as catalog targets (``None`` when it defines none),
+    and ``(id, why)`` for each check the change does not touch.
+
+    A check applies only when the change touches its ``paths``. An invalid file is one
+    target that never runs, so ``check_recipes`` never stands in for it; its reason is
+    the parse error. *attributes* gives the trusted base's ``.gitattributes`` files, read
+    only when a check selects by ``attr:``.
+    """
+
+    from lemoncrow.pro.capabilities.review.recipes import (
+        ENVIRONMENT_FILE,
+        environment_recipes,
+        touched_checks,
+        uses_attributes,
+    )
+
+    recipes, errors = environment_recipes(text)
+    if errors:
+        invalid = DynamicTarget(
+            id=_INVALID_ENVIRONMENT_TARGET,
+            title=ENVIRONMENT_FILE,
+            executable=False,
+            reason=f"invalid in the trusted base: {errors[0]}"[:500],
+        )
+        return (invalid,), ()
+    if not recipes:
+        return None, ()
+    touched, problem = touched_checks(
+        recipes, changed, attributes() if any(uses_attributes(recipe) for recipe in recipes) else None
+    )
+    targets: list[DynamicTarget] = []
+    untouched: list[tuple[str, str]] = []
+    for recipe in recipes:
+        if recipe.id not in touched and recipe.paths:
+            # Unknown applies: a check whose paths cannot be matched runs rather than being skipped.
+            targets.append(DynamicTarget(id=recipe.id, title=recipe.title, applicability="unknown", reason=problem))
+        elif touched.get(recipe.id):
+            targets.append(DynamicTarget(id=recipe.id, title=recipe.title))
+        else:
+            why = f"the change touches none of its paths ({', '.join(recipe.paths)})"[:500]
+            targets.append(DynamicTarget(id=recipe.id, title=recipe.title, applicability="not_applicable", reason=why))
+            untouched.append((recipe.id, why))
+    return tuple(targets), tuple(untouched)
+
+
 class RunPlanService:
     """Effective run plans for one Review store."""
 
@@ -377,6 +451,7 @@ class RunPlanService:
         premerge_checks: Callable[[Any, Any], int] | None = None,
         changed_files: Callable[[Any], Sequence[tuple[str, str, str]]] | None = None,
         review_rules: Callable[[Any, Any], Sequence[Any]] | None = None,
+        environment_config: Callable[[Any], Any] | None = None,
     ) -> None:
         """``changed_paths`` scopes optional path-scoped work; ``required_paths``
         (default: the same) scopes policy floors and required browser scenarios,
@@ -396,6 +471,11 @@ class RunPlanService:
         governance (trusted base and operator policy, never head-side policy);
         each authoritative rule applying to a changed path is one
         ``ai.rule_checks`` question (P11-ESC item 5).
+
+        ``environment_config`` returns the Snapshot's trusted-base
+        ``.lemoncrow/environment.toml`` document, read like ``review_config``
+        (never head bytes). Its checks, when it defines any, replace
+        ``check_recipes``; without it the recipes come from ``review.yaml``.
         """
         self._store = store
         self._policy = policy
@@ -409,6 +489,7 @@ class RunPlanService:
         self._usage = usage
         self._premerge_checks = premerge_checks
         self._review_rules = review_rules
+        self._environment_config = environment_config
         self._default_run_on = default_run_on
         self._allowed_run_on = tuple(allowed_run_on) or ("local",)
         self._detected: dict[str, DetectedCapabilities] = {}
@@ -485,6 +566,16 @@ class RunPlanService:
         required = tuple(self._required_paths(revision))
         return changed, (None if set(required) == set(changed) else required)
 
+    def environment_text(self, revision: Any) -> str | None:
+        """The trusted base's environment.toml text; ``None`` when absent or not known (review.yaml applies)."""
+
+        if self._environment_config is None:
+            return None
+        document = self._environment_config(revision)
+        if str(getattr(document, "state", "")) != "present":
+            return None
+        return str(getattr(document, "content", "") or "") or None
+
     def detected(self, revision: Any) -> DetectedCapabilities:
         with self._lock:
             cached = self._detected.get(revision.id)
@@ -518,6 +609,20 @@ class RunPlanService:
         # One bounded listing feeds detection and recipe discovery (detection
         # reports truncation past its own cap).
         paths = list(islice(raw_paths, _MAX_DETECTED_PATHS + 1)) if raw_paths is not None else None
+        environment = self.environment_text(revision)
+        untouched: tuple[tuple[str, str], ...] = ()
+        if environment is not None:
+            from lemoncrow.pro.capabilities.review.recipes import attribute_files
+
+            def attributes() -> Mapping[str, str] | None:
+                # A truncated listing may miss a .gitattributes file: unknown, never a guess.
+                if paths is None or len(paths) > _MAX_DETECTED_PATHS:
+                    return None
+                return attribute_files(paths, lambda path: self._read_base(revision, path))
+
+            defined, untouched = _environment_targets(environment, changed, attributes)
+            if defined is not None:
+                recipes = defined
         detected = detect_capabilities(
             paths,
             lambda path: self._read_base(revision, path),
@@ -533,13 +638,19 @@ class RunPlanService:
             paths,
             lambda path: self._read_base(revision, path),
             base_state=cast(Any, detected.base_state),
+            environment=environment,
         )
+        if untouched:
+            catalog = replace(catalog, untouched=untouched)
         # A trusted-base recipe makes its check kind applicable even where file
-        # names alone did not (a configured recipe, a Makefile target).
+        # names alone did not (a configured recipe, a Makefile target). An
+        # environment.toml check the change does not touch does not.
         extra = {
             KIND_FACT[recipe.kind]: f"check recipe {recipe.id} ({recipe.source or recipe.origin})"
             for recipe in reversed(catalog.recipes)
-            if recipe.kind in KIND_FACT and KIND_FACT[recipe.kind] not in detected.facts
+            if recipe.kind in KIND_FACT
+            and KIND_FACT[recipe.kind] not in detected.facts
+            and not catalog.skipped(recipe.id)
         }
         if extra:
             detected = replace(
@@ -722,7 +833,7 @@ class RunPlanService:
     def head_recipe_catalog(self, revision: Any) -> Any:
         """Recipes as the head would define them: proposed future policy only, never executed."""
 
-        from lemoncrow.pro.capabilities.review.recipes import build_recipe_catalog
+        from lemoncrow.pro.capabilities.review.recipes import ENVIRONMENT_FILE, build_recipe_catalog
 
         config = self._review_config(revision)
         head_config = self._read_head(revision, str(getattr(config, "path", "") or ".lemoncrow/review.yaml"))
@@ -736,9 +847,14 @@ class RunPlanService:
         if raw is None:
             return base
         names = set(islice(raw, _MAX_DETECTED_PATHS + 1))
-        names |= {path for path in changed if self._read_head(revision, path) is not None}
-        names -= {path for path in changed if self._read_head(revision, path) is None}
-        return build_recipe_catalog(head_config or "", sorted(names), read_head)
+        # One head read per changed file: on a 10,000-file change each read is a store round trip.
+        present = {path for path in changed if self._read_head(revision, path) is not None}
+        names |= present
+        names -= changed - present
+        environment = self.environment_text(revision)
+        if self._environment_config is not None and ENVIRONMENT_FILE in changed:
+            environment = self._read_head(revision, ENVIRONMENT_FILE) or None
+        return build_recipe_catalog(head_config or "", sorted(names), read_head, environment=environment)
 
     def _trigger(self, revision: Any) -> str:
         revisions = tuple(self._store.list_revisions(revision.review_id))
@@ -799,7 +915,7 @@ class RunPlanService:
                 FloorRule(
                     "capability",
                     f"browser:{target.id}",
-                    SettingOrigin("trusted_base_repository", str(config.source or "base Snapshot")),
+                    SettingOrigin("trusted_base_repository", str(config.source or "base revision")),
                 )
                 for target in detected.browser_scenarios
                 if target.required and target.applicability != "not_applicable"
@@ -830,6 +946,7 @@ class RunPlanService:
             allowed_run_on_by_class=by_class,
             measured_minutes=self._measured(revision),
             unavailable_run_on_by_class=self._unavailable(execution.get("unavailable_run_on_by_class")),
+            executor_loci=executor_loci(execution.get("executor_loci")),
             impact=self.impact(revision),
             rule_questions=questions,
         )
@@ -877,7 +994,7 @@ class RunPlanService:
 
         base_sha = str(getattr(revision, "base_sha", "") or "")
         if not base_sha:
-            return None, "the Snapshot has no base commit"
+            return None, "the revision has no base commit"
         with self._lock:
             cached = self._impact_maps.get(base_sha)
         if cached is not None:
@@ -947,6 +1064,13 @@ class RunPlanService:
             while len(self._impact) > _CACHE_LIMIT:
                 self._impact.pop(next(iter(self._impact)))
         return out
+
+    def reach_inputs(self, revision: Any) -> tuple[Any, str, list[Any], bool]:
+        """``(impact map | None, why none, head changes, list complete)`` for per-file test reach."""
+
+        impact_map, unavailable = self._impact_map(revision)
+        changes, complete = self._head_changes(revision)
+        return impact_map, unavailable, changes, complete
 
     def _measured(self, revision: Any) -> dict[str, float]:
         """Average in-process compute per run of static entries on this Review's earlier Snapshots."""
@@ -1137,6 +1261,7 @@ __all__ = [
     "RunPlanService",
     "created_since",
     "effective_policy_layers",
+    "executor_loci",
     "git_tree_paths",
     "policy_invalid_reason",
     "required_check_floors",

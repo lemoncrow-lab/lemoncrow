@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 from collections.abc import Callable, Iterator, Sequence
@@ -58,7 +59,24 @@ _SCHEMA: dict[str, Any] = {
 
 def _shell_sandbox_works() -> bool:
     if sys.platform == "darwin":
-        return shutil.which("sandbox-exec") is not None
+        if shutil.which("sandbox-exec") is None:
+            return False
+        # The tests run python3 through the tool's own sandbox: a host whose python3 that sandbox cannot reach
+        # (not a Homebrew keg the profile grants) cannot run them.
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw).resolve()
+            try:
+                proc = subprocess.run(
+                    tool_server._confined_shell(root, "python3 -c pass"),
+                    cwd=root,
+                    capture_output=True,
+                    timeout=20,
+                    check=False,
+                    env={},
+                )
+            except (OSError, subprocess.TimeoutExpired, ValueError):
+                return False
+        return proc.returncode == 0
     binary = shutil.which("bwrap")
     if not binary:
         return False
@@ -160,9 +178,16 @@ for name, address in (("loopback", ("127.0.0.1", {listener.port})), ("internet",
         out[name] = "connected"
     except OSError as exc:
         out[name] = type(exc).__name__
+def readable(path):
+    try:
+        os.listdir(path) if os.path.isdir(path) else open(path, "rb").close()
+        return True
+    except OSError:
+        return False
 out["home"] = os.path.exists({str(Path.home())!r})
 out["ssh"] = os.path.exists({str(Path.home() / ".ssh")!r})
 out["secret_file"] = os.path.exists({str(secret_file)!r})
+out["readable"] = [readable(p) for p in ({str(Path.home())!r}, {str(Path.home() / ".ssh")!r}, {str(secret_file)!r})]
 out["env"] = sorted(k for k in os.environ if "SECRET" in k or "TOKEN" in k or k.startswith("AWS"))
 out["cwd"] = os.getcwd()
 open("written.txt", "w").write("scratch")
@@ -182,7 +207,9 @@ print(json.dumps(out))
     assert out["copy"] == "print('execution copy')\n"
     assert (review_profile / "written.txt").read_text(encoding="utf-8") == "scratch"
     # Confidentiality and egress.
-    assert out["home"] is False and out["ssh"] is False and out["secret_file"] is False
+    assert out["readable"] == [False, False, False]
+    if sys.platform != "darwin":  # bwrap hides the host tree; Seatbelt keeps stat() open (file-read-metadata)
+        assert out["home"] is False and out["ssh"] is False and out["secret_file"] is False
     assert out["env"] == []
     assert out["loopback"] != "connected" and out["internet"] != "connected"
     assert listener.accepted == 0
@@ -209,9 +236,9 @@ def test_review_bash_cannot_read_a_personal_signing_key(review_profile: Path, tm
 def test_review_bash_refuses_to_run_without_a_sandbox(
     review_profile: Path, monkeypatch: pytest.MonkeyPatch, platform: str
 ) -> None:
-    from lemoncrow.pro.capabilities.review import macos_sandbox
+    from lemoncrow.pro.environment import macos_sandbox
 
-    monkeypatch.setattr(hermetic.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(hermetic.shutil, "which", lambda _name, **_kwargs: None)
     monkeypatch.setattr(macos_sandbox, "host_executable", lambda _name: None)
     monkeypatch.setattr(sys, "platform", platform)
     ran: list[list[str]] = []
@@ -244,7 +271,7 @@ def test_review_bash_hands_its_sandbox_an_empty_environment_on_every_path(
     launcher stopped scrubbing.
     """
 
-    from lemoncrow.pro.capabilities.review import macos_sandbox
+    from lemoncrow.pro.environment import macos_sandbox
 
     skip_to_shell = 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"'
     monkeypatch.setattr(hermetic, "offline_bwrap_prefix", lambda: ["/bin/sh", "-c", skip_to_shell, "stub-bwrap"])

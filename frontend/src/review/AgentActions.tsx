@@ -8,6 +8,7 @@ import {
   type AgentApproval,
 } from "./agentApprovalsApi";
 import { hostLabel, shortTime } from "./developmentLabels";
+import { usePrincipalLabel } from "./plainWords";
 
 /**
  * Consequential actions an authoring agent took outside the repository
@@ -29,12 +30,13 @@ export interface AgentActionRow {
 }
 
 function ApprovalBadge({ approval }: { approval: AgentActionApproval | undefined }) {
+  const principalName = usePrincipalLabel();
   if (!approval) return null;
   if (approval.status === "pre_approved") {
     const scope = approval.scope === "pattern" ? ` · pattern ${approval.pattern}` : "";
     return (
-      <span className="shrink-0 text-emerald-300" title={`Approved by ${approval.decided_by}${scope}`}>
-        {`Pre-approved by ${approval.decided_by || "a reviewer"}`}
+      <span className="shrink-0 text-emerald-300" title={`Approved by ${principalName(approval.decided_by)}${scope}`}>
+        {`Pre-approved by ${principalName(approval.decided_by)}`}
       </span>
     );
   }

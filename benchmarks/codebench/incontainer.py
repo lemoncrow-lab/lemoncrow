@@ -93,19 +93,6 @@ CURSOR_DENY_WEB_HOST = REPO_ROOT / "benchmarks" / "codebench" / "fixtures" / "cu
 # live on *.cursor.sh / *.cursor.com, which the hermetic guard would else block.
 CURSOR_EGRESS_ALLOW = "cursor.sh,cursor.com,anthropic.com,amazonaws.com"
 
-# --- lemoncode driver ---------------------------------------------------------
-# Stock OpenCode (baseline) vs the LemonCode fork driven by LemonCrow. Both arms
-# talk to the same model over OpenCode Zen's free tier, so the only variable is
-# what LemonCrow does to the request. The fork binary is the one built on the
-# host (`lc code host build`), bind-mounted rather than downloaded so the arm
-# under test is exactly the local build.
-LEMONCODE_HOST_BINARY = Path.home() / ".lemoncrow" / "bin" / "lemoncode-host"
-# Zen inference + its public model catalogue; the hermetic guard blocks the rest.
-LEMONCODE_EGRESS_ALLOW = "opencode.ai,models.dev"
-# Zero-cost Zen model both arms run (see docs/openai-gateway.md).
-LEMONCODE_DEFAULT_MODEL = "big-pickle"
-
-
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
 _BASELINE_INSTALL = f"""
 set -e
@@ -116,21 +103,6 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y --no-install-recommends nodejs
 npm install -g @anthropic-ai/claude-code@{CLAUDE_CODE_VERSION}
 claude --version
-npm cache clean --force
-rm -rf /var/lib/apt/lists/*
-"""
-
-# LemonCode driver baseline overlay: install stock OpenCode. The baseline arm is
-# unmodified upstream OpenCode -- the whole point of the comparison -- so it comes
-# from npm, not from the fork.
-_OPENCODE_INSTALL = r"""
-set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y --no-install-recommends curl ca-certificates gnupg git
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y --no-install-recommends nodejs
-npm install -g opencode-ai
 npm cache clean --force
 rm -rf /var/lib/apt/lists/*
 """
@@ -157,9 +129,7 @@ rm -rf /var/lib/apt/lists/*
 _LEMONCROW_INSTALL = r"""
 set -e
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-# litellm is required whenever LemonCrow itself drives the model turn (the
-# lemoncode driver's gateway); the claude/cursor drivers call the provider from
-# their own CLI and never load it.
+# Install the same optional model dependencies as the benchmark runtime.
 LEMONCROW_ENABLE_MYPYC=0 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force \
   --with "/opt/lemoncrow/server" \
   --with-executables-from lemoncrow-server \
@@ -363,7 +333,6 @@ def ensure_overlay(base_image: str, *, lc: bool, driver: str = "claude", build_t
         parent = base_image
         install = {
             "cursor": _CURSOR_INSTALL,
-            "lemoncode": _OPENCODE_INSTALL,
         }.get(driver, _BASELINE_INSTALL)
         mounts = []
     builder = f"overlay_build_{_safe(base_image)}_{driver}_{'lemoncrow' if lc else 'baseline'}"
@@ -504,12 +473,8 @@ def _docker_run_cmd(
             # Both arms: block WebSearch/WebFetch gold-PR fetches (claude uses
             # --disallowedTools; cursor-agent has no equivalent flag).
             cmd += ["-v", f"{CURSOR_DENY_WEB_HOST}:/mnt/cursor-deny-web.py:ro"]
-    if driver == "lemoncode" and arm == "lemoncrow":
-        # `lc code --engine lemoncode` resolves the managed host from
-        # <store_root>/bin/lemoncode-host; HOME is /root inside these images.
-        cmd += ["-v", f"{LEMONCODE_HOST_BINARY}:/root/.lemoncrow/bin/lemoncode-host:ro"]
     if arm == "lemoncrow":
-        if driver in ("cursor", "lemoncode"):
+        if driver in ("cursor",):
             # cursor drives the lc MCP server via .cursor/mcp.json + a persona rule
             # + hard-enforce hooks (all written by the entry script).
             if CURSOR_RULE_HOST.is_file():
@@ -573,11 +538,6 @@ def _docker_run_cmd(
     if _use_proxy:
         env["HTTPS_PROXY"] = f"http://host.docker.internal:{proxy_port}"
         env["HTTP_PROXY"] = f"http://host.docker.internal:{proxy_port}"
-    if driver == "lemoncode":
-        env["CODEBENCH_HOST"] = "opencode"
-        env["CODEBENCH_LEMONCODE_MODEL"] = (
-            os.environ.get("CODEBENCH_LEMONCODE_MODEL", "").strip() or LEMONCODE_DEFAULT_MODEL
-        )
     if driver == "cursor":
         env["CODEBENCH_HOST"] = "cursor"
         # cursor-agent only accepts its own model ids (composer-*, gpt-*, specific
@@ -738,7 +698,9 @@ def run_in_container(
             headroom_stats_path = out_dir / f"{stem}.headroom.jsonl"
             headroom_stats_path.touch(exist_ok=True)
 
-    egress_allow = {"cursor": CURSOR_EGRESS_ALLOW, "lemoncode": LEMONCODE_EGRESS_ALLOW}.get(driver)
+    egress_allow = {
+        "cursor": CURSOR_EGRESS_ALLOW,
+    }.get(driver)
     # jobs>1: _free_port() has a bind-then-close TOCTOU race; retry a few ports.
     proxy = None
     port = 0

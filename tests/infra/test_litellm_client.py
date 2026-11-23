@@ -56,6 +56,19 @@ class _FakeLiteLLM:
         return _Response(self._content, usage=self._usage, response_cost=self._response_cost)
 
 
+def test_a_zero_cost_on_a_call_that_used_tokens_is_no_price(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LiteLLM answers 0.0 for a model missing from its table; read as a price it holds every cost cap open."""
+
+    used = {"prompt_tokens": 1000, "completion_tokens": 200}
+    unknown = _FakeLiteLLM('{"ok": true}', usage=used, response_cost=0.0)
+    monkeypatch.setattr(litellm_client, "_litellm_module", lambda: unknown)
+    assert litellm_client.chat_with_result([{"role": "user", "content": "x"}]).provider_cost is None
+
+    nothing_used = _FakeLiteLLM('{"ok": true}', usage={}, response_cost=0.0)
+    monkeypatch.setattr(litellm_client, "_litellm_module", lambda: nothing_used)
+    assert litellm_client.chat_with_result([{"role": "user", "content": "x"}]).provider_cost == 0.0
+
+
 def test_chat_json_schema_requests_json_object(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakeLiteLLM('{"ok": true}')
     monkeypatch.setattr(litellm_client, "_litellm_module", lambda: fake)

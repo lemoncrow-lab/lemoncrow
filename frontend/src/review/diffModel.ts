@@ -5,6 +5,19 @@ export type DiffStylePreference = "auto" | DiffStyle;
 export const REVIEW_DIFF_STYLE_KEY = "lemoncrow.review.diffStyle";
 export const AUTO_SPLIT_MIN_WIDTH = 1000;
 
+/** Below this width long code lines soft-wrap by default instead of running off a phone screen. */
+export const WRAP_DEFAULT_MAX_WIDTH = 640;
+
+/**
+ * The reader's starting overflow: the reviewer's saved choice, else wrap on a
+ * narrow screen (Pierre wraps within each row, so line numbers and syntax
+ * highlighting stay aligned) and one line per row elsewhere.
+ */
+export function initialDiffOverflow(stored: string | null, viewportWidth: number): DiffOverflow {
+  if (stored === "wrap" || stored === "scroll") return stored;
+  return viewportWidth > 0 && viewportWidth < WRAP_DEFAULT_MAX_WIDTH ? "wrap" : "scroll";
+}
+
 export function getInitialDiffStylePreference(): DiffStylePreference {
   if (typeof window === "undefined") return "auto";
   const stored = window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY);

@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { configureHostedReview } from "./hostedOrigin";
 import {
   __setBootstrapForTest,
   adoptBootstrapFragment,
@@ -56,6 +57,7 @@ import {
   streamReviewAsk,
   uploadReviewEvidence,
 } from "./reviewApi";
+import { askNotSetUp, askSetupHelp } from "./reviewAskErrors";
 
 function navigateTo(url: string) {
   window.history.replaceState(null, "", url);
@@ -218,6 +220,29 @@ describe("requests", () => {
     expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe("browser-capability");
   });
 
+  it("never claims a local capability from the hosted bundle, even on loopback (hosted-15.1)", async () => {
+    configureHostedReview();
+    try {
+      navigateTo("/reviews");
+      const spy = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "expired" } }), { status: 401 }))
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ session: { id: "rev-1" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      vi.stubGlobal("fetch", spy);
+
+      await fetchOverview("rev-1");
+
+      expect(spy.mock.calls.map(([url]) => url)).toEqual(["/api/reviews/rev-1", "/v1/auth/browser/refresh", "/api/reviews/rev-1"]);
+      expect(new Headers(spy.mock.calls[2]?.[1]?.headers).get("X-LemonCrow-Browser-Session")).toBeNull();
+    } finally {
+      configureHostedReview(false);
+    }
+  });
+
   it("shares one local capability claim across concurrent startup requests", async () => {
     navigateTo("/r/12345678");
     let claimCount = 0;
@@ -250,6 +275,277 @@ describe("requests", () => {
       new Headers(init?.headers).get("X-LemonCrow-Browser-Session") === "shared-browser-capability",
     );
     expect(retried).toHaveLength(2);
+  });
+
+  /**
+   * A local server whose one-time pairing is spent by the first claim. A request is answered only for
+   * the capability that claim issued; the answer to any other can be held back to land after the claim.
+   */
+  function pairedServer(options: {
+    hold?: (capability: string, url: string) => Promise<void> | undefined;
+    /** The server stops accepting the capability it issued (revoked, or a restart with a new key). */
+    refuseIssued?: () => boolean;
+  } = {}) {
+    const claims: { presented: string; status: number }[] = [];
+    let pairingArmed = true;
+    const issued = "issued-capability";
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const capability = new Headers(init?.headers).get("X-LemonCrow-Browser-Session") ?? "";
+      if (url === "/v1/auth/local-browser/claim") {
+        await Promise.resolve();
+        const ok = capability ? capability === issued : pairingArmed;
+        if (!capability) pairingArmed = false;
+        claims.push({ presented: capability, status: ok ? 200 : 401 });
+        return ok
+          ? new Response(JSON.stringify({ token: issued }), { status: 200, headers: { "Content-Type": "application/json" } })
+          : new Response(JSON.stringify({ detail: "not paired" }), { status: 401 });
+      }
+      await options.hold?.(capability, url);
+      return capability === issued && !options.refuseIssued?.()
+        ? new Response(JSON.stringify(url.includes("/targets") ? { targets: [] } : { session: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        : new Response(JSON.stringify({ detail: "missing browser capability" }), { status: 401 });
+    });
+    vi.stubGlobal("fetch", spy);
+    return { spy, claims, issued };
+  }
+
+  it("keeps a fresh capability when a stale request's 401 lands after the claim finished", async () => {
+    // Home fires several loaders at once with the old capability; the server refuses all of them.
+    navigateTo("/reviews");
+    localStorage.setItem("lemoncrow.review.browserSession", "expired-capability");
+    __setBootstrapForTest({ token: "", reviewId: "" });
+    let releaseSlow: () => void = () => undefined;
+    const slowStarted = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    let slowGate: () => void = () => undefined;
+    const server = pairedServer({
+      hold: (capability, url) => {
+        if (capability !== "expired-capability" || !url.includes("/targets")) return undefined;
+        releaseSlow();
+        return new Promise<void>((resolve) => { slowGate = resolve; });
+      },
+    });
+
+    const fast = fetchOverview("rev-1");
+    const slow = fetchTargets("rev-1");
+    await slowStarted;
+    await fast; // its 401 -> claim -> retry has finished: the pairing is spent and the fresh capability stored
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe(server.issued);
+    slowGate(); // only now does the slow request's 401 arrive
+
+    await expect(slow).resolves.toBeDefined();
+    expect(server.claims.filter((claim) => !claim.presented)).toHaveLength(1);
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe(server.issued);
+  });
+
+  it("claims once for Home's concurrent first loaders instead of answering each 401 with its own claim", async () => {
+    navigateTo("/reviews");
+    const server = pairedServer();
+
+    await Promise.all([fetchOverview("rev-1"), fetchTargets("rev-1"), fetchOverview("rev-2")]);
+
+    expect(server.claims).toEqual([{ presented: "", status: 200 }]);
+    // Claimed before the first request: nothing is sent only to be refused.
+    expect(server.spy.mock.calls[0]?.[0]).toBe("/v1/auth/local-browser/claim");
+    expect(server.spy.mock.calls.filter(([url]) => url !== "/v1/auth/local-browser/claim")).toHaveLength(3);
+  });
+
+  it("claims again, with no capability, when the capability an up-front claim just won is refused", async () => {
+    navigateTo("/reviews");
+    const server = pairedServer({ refuseIssued: () => true });
+
+    await expect(fetchOverview("rev-1")).rejects.toThrow(LOCAL_BROWSER_RECONNECT_MESSAGE);
+
+    // The first claim won the pairing; the refusal of what it issued claims once more, and that one is unpaired.
+    expect(server.claims).toEqual([{ presented: "", status: 200 }, { presented: "", status: 401 }]);
+    const requests = server.spy.mock.calls.filter(([url]) => url !== "/v1/auth/local-browser/claim");
+    expect(requests).toHaveLength(1);
+    // Nothing went out without a capability, and the refused one was not sent again.
+    for (const [, init] of requests) expect(new Headers(init?.headers).get("X-LemonCrow-Browser-Session")).toBe(server.issued);
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBeNull();
+  });
+
+  it("gives the reconnect message when the newer capability a request retries with is refused too", async () => {
+    navigateTo("/reviews");
+    localStorage.setItem("lemoncrow.review.browserSession", "old-capability");
+    __setBootstrapForTest({ token: "", reviewId: "" });
+    let revoked = false;
+    let releaseSlow: () => void = () => undefined;
+    const slowStarted = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    let slowGate: () => void = () => undefined;
+    const server = pairedServer({
+      refuseIssued: () => revoked,
+      hold: (capability, url) => {
+        if (capability !== "old-capability" || !url.includes("/targets")) return undefined;
+        releaseSlow();
+        return new Promise<void>((resolve) => { slowGate = resolve; });
+      },
+    });
+
+    const fast = fetchOverview("rev-1");
+    const slow = fetchTargets("rev-1");
+    await slowStarted;
+    await fast;
+    revoked = true;
+    slowGate();
+
+    await expect(slow).rejects.toThrow(LOCAL_BROWSER_RECONNECT_MESSAGE);
+    const slowSends = server.spy.mock.calls
+      .filter(([url]) => String(url).includes("/targets"))
+      .map(([, init]) => new Headers(init?.headers).get("X-LemonCrow-Browser-Session"));
+    expect(slowSends).toEqual(["old-capability", server.issued]);
+    // One claim won the pairing; the refused newer capability then claims once more, unpaired.
+    expect(server.claims).toEqual([{ presented: "", status: 200 }, { presented: "", status: 401 }]);
+  });
+
+  it("sends every request whose newer capability was refused to the reconnect message, not only the first", async () => {
+    navigateTo("/reviews");
+    localStorage.setItem("lemoncrow.review.browserSession", "old-capability");
+    __setBootstrapForTest({ token: "", reviewId: "" });
+    let revoked = false;
+    const oldHeld: (() => void)[] = [];
+    let bothHeld: () => void = () => undefined;
+    const bothOldStarted = new Promise<void>((resolve) => { bothHeld = resolve; });
+    let releaseSecondRetry: () => void = () => undefined;
+    pairedServer({
+      refuseIssued: () => revoked,
+      hold: (capability, url) => {
+        if (capability === "old-capability" && (url.endsWith("rev-A") || url.endsWith("rev-B"))) {
+          return new Promise<void>((resolve) => {
+            oldHeld.push(resolve);
+            if (oldHeld.length === 2) bothHeld();
+          });
+        }
+        // B's refusal of the newer capability lands only after A has erased it.
+        if (capability === "issued-capability" && url.endsWith("rev-B") && revoked) {
+          return new Promise<void>((resolve) => { releaseSecondRetry = resolve; });
+        }
+        return undefined;
+      },
+    });
+
+    const fast = fetchOverview("rev-F");
+    const first = fetchOverview("rev-A");
+    const second = fetchOverview("rev-B");
+    await bothOldStarted;
+    await fast;
+    revoked = true;
+    for (const release of oldHeld) release();
+
+    await expect(first).rejects.toThrow(LOCAL_BROWSER_RECONNECT_MESSAGE);
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBeNull();
+    releaseSecondRetry();
+    await expect(second).rejects.toThrow(LOCAL_BROWSER_RECONNECT_MESSAGE);
+  });
+
+  it("does not erase an even newer capability when the retry with the newer one is refused", async () => {
+    navigateTo("/reviews");
+    localStorage.setItem("lemoncrow.review.browserSession", "old-capability");
+    __setBootstrapForTest({ token: "", reviewId: "" });
+    const tokens = ["newer-capability", "newest-capability"];
+    const claims: string[] = [];
+    let releaseOld: () => void = () => undefined;
+    let oldHeld: () => void = () => undefined;
+    const oldStarted = new Promise<void>((resolve) => { oldHeld = resolve; });
+    let releaseNewer: () => void = () => undefined;
+    let newerHeld: () => void = () => undefined;
+    const newerStarted = new Promise<void>((resolve) => { newerHeld = resolve; });
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const capability = new Headers(init?.headers).get("X-LemonCrow-Browser-Session") ?? "";
+      if (url === "/v1/auth/local-browser/claim") {
+        await Promise.resolve();
+        claims.push(capability);
+        const token = tokens[claims.length - 1];
+        return token
+          ? new Response(JSON.stringify({ token }), { status: 200, headers: { "Content-Type": "application/json" } })
+          : new Response(JSON.stringify({ detail: "not paired" }), { status: 401 });
+      }
+      if (capability === "old-capability" && url.endsWith("rev-S")) {
+        oldHeld();
+        await new Promise<void>((resolve) => { releaseOld = resolve; });
+      }
+      if (capability === "newer-capability" && url.endsWith("rev-S")) {
+        newerHeld();
+        await new Promise<void>((resolve) => { releaseNewer = resolve; });
+      }
+      // S and G are refused the newer capability; the newest is accepted everywhere.
+      const accepted = capability === "newest-capability"
+        || (capability === "newer-capability" && !url.endsWith("rev-S") && !url.endsWith("rev-G"));
+      return accepted
+        ? new Response(JSON.stringify({ session: {} }), { status: 200, headers: { "Content-Type": "application/json" } })
+        : new Response(JSON.stringify({ detail: "missing browser capability" }), { status: 401 });
+    });
+    vi.stubGlobal("fetch", spy);
+
+    const fast = fetchOverview("rev-F");
+    const slow = fetchOverview("rev-S");
+    await oldStarted;
+    await fast; // claims the newer capability
+    releaseOld(); // S is refused with the old one and retries with the newer one, which is held
+    await newerStarted;
+    await fetchOverview("rev-G"); // the newer one is refused here: a claim installs the newest
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe("newest-capability");
+    releaseNewer();
+
+    await expect(slow).rejects.toMatchObject({ status: 401 });
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe("newest-capability");
+    expect(claims).toEqual(["", ""]);
+  });
+
+  it("still claims on a refusal after the claim endpoint answered 404 once", async () => {
+    navigateTo("/reviews");
+    const claims: number[] = [];
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = { status: 200, headers: { "Content-Type": "application/json" } };
+      if (url === "/v1/auth/local-browser/claim") {
+        if (claims.length === 0) {
+          claims.push(404);
+          return new Response(JSON.stringify({ detail: "not found" }), { status: 404 });
+        }
+        claims.push(200);
+        return new Response(JSON.stringify({ token: "late-capability" }), json);
+      }
+      // The first read needs no capability; later ones do.
+      return url.endsWith("rev-0") || new Headers(init?.headers).get("X-LemonCrow-Browser-Session") === "late-capability"
+        ? new Response(JSON.stringify({ session: {} }), json)
+        : new Response(JSON.stringify({ detail: "missing browser capability" }), { status: 401 });
+    });
+    vi.stubGlobal("fetch", spy);
+
+    await fetchOverview("rev-0"); // the up-front claim answers 404: the flag is set
+    await expect(fetchOverview("rev-1")).resolves.toBeDefined(); // no up-front claim; its 401 claims, and this time the endpoint answers
+
+    expect(claims).toEqual([404, 200]);
+    const requests = spy.mock.calls.filter(([url]) => url !== "/v1/auth/local-browser/claim");
+    expect(requests.map(([url, init]) => [String(url), new Headers(init?.headers).get("X-LemonCrow-Browser-Session")])).toEqual([
+      ["/api/reviews/rev-0", null],
+      ["/api/reviews/rev-1", null],
+      ["/api/reviews/rev-1", "late-capability"],
+    ]);
+    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe("late-capability");
+  });
+
+  it("stops claiming up front once the claim endpoint has answered 404", async () => {
+    navigateTo("/reviews");
+    const spy = vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/v1/auth/local-browser/claim"
+        ? new Response(JSON.stringify({ detail: "not found" }), { status: 404 })
+        : new Response(JSON.stringify({ session: {} }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", spy);
+
+    await fetchOverview("rev-1");
+    await fetchOverview("rev-2");
+    await fetchTargets("rev-1");
+
+    const claims = spy.mock.calls.filter(([url]) => url === "/v1/auth/local-browser/claim");
+    expect(claims).toHaveLength(1);
+    expect(spy.mock.calls.filter(([url]) => url !== "/v1/auth/local-browser/claim")).toHaveLength(3);
   });
 
   it("reuses the origin-scoped Review capability in a fresh module state", async () => {
@@ -382,6 +678,80 @@ describe("requests", () => {
     await fetchFile("rev-1", "src/a b/c#d.py");
     const [url] = spy.mock.calls[0] as unknown as [string];
     expect(url).toBe("/api/reviews/rev-1/files/src/a%20b/c%23d.py/patch?include_web_preview=false");
+  });
+
+  describe("one frozen-code read per file at a time", () => {
+    const detail = (path: string) => ({ path, revision_id: "rrv-1", renderable: true, patch: "@@" });
+    function heldFetch() {
+      const waiting: Array<{ path: string; answer: (status: number) => void }> = [];
+      const spy = vi.fn((url: string) =>
+        new Promise<Response>((resolve) => {
+          const path = decodeURIComponent(/\/files\/(.+)\/patch/.exec(url)?.[1] ?? "");
+          waiting.push({ path, answer: (status) => resolve(new Response(JSON.stringify(status === 200 ? detail(path) : { detail: "no" }), { status, headers: { "Content-Type": "application/json" } })) });
+        }),
+      );
+      vi.stubGlobal("fetch", spy);
+      return { spy, waiting };
+    }
+
+    it("shares one request between callers asking for the same file in the same instant", async () => {
+      __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
+      const { spy, waiting } = heldFetch();
+      const first = fetchFile("rev-1", "src/a.py");
+      const second = fetchFile("rev-1", "src/a.py");
+      expect(spy).toHaveBeenCalledTimes(1);
+      waiting[0]!.answer(200);
+      const [one, two] = await Promise.all([first, second]);
+      expect(one).toBe(two);
+      expect(one.path).toBe("src/a.py");
+    });
+
+    it("keeps different files and different reviews apart", async () => {
+      __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
+      const { spy, waiting } = heldFetch();
+      const reads = [fetchFile("rev-1", "src/a.py"), fetchFile("rev-1", "src/b.py"), fetchFile("rev-2", "src/a.py")];
+      expect(spy).toHaveBeenCalledTimes(3);
+      for (const wait of waiting) wait.answer(200);
+      await Promise.all(reads);
+    });
+
+    it("never hands a caller waiting for a newer Snapshot the read started for an older one", async () => {
+      __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
+      const { spy, waiting } = heldFetch();
+      const older = fetchFile("rev-1", "src/a.py", "rrv-1");
+      const newer = fetchFile("rev-1", "src/a.py", "rrv-2");
+      const sameAsNewer = fetchFile("rev-1", "src/a.py", "rrv-2");
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(sameAsNewer).toBe(newer);
+      for (const wait of waiting) wait.answer(200);
+      await Promise.all([older, newer]);
+    });
+
+    it("asks again once the read has settled, so a refetch never sees an old answer", async () => {
+      __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
+      const { spy, waiting } = heldFetch();
+      const first = fetchFile("rev-1", "src/a.py");
+      waiting[0]!.answer(200);
+      await first;
+      const again = fetchFile("rev-1", "src/a.py");
+      expect(spy).toHaveBeenCalledTimes(2);
+      waiting[1]!.answer(200);
+      expect(await again).not.toBe(await first);
+    });
+
+    it("hands every sharer the failure, then retries instead of remembering it", async () => {
+      __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
+      const { spy, waiting } = heldFetch();
+      const first = fetchFile("rev-1", "src/a.py");
+      const second = fetchFile("rev-1", "src/a.py");
+      waiting[0]!.answer(404);
+      await expect(first).rejects.toThrow();
+      await expect(second).rejects.toThrow();
+      const retry = fetchFile("rev-1", "src/a.py");
+      expect(spy).toHaveBeenCalledTimes(2);
+      waiting[1]!.answer(200);
+      expect((await retry).path).toBe("src/a.py");
+    });
   });
 
   it("pins rich preview requests to the file projection's exact revision", async () => {
@@ -537,6 +907,24 @@ describe("requests", () => {
     expect(init.signal).toBe(controller.signal);
   });
 
+  it("keeps the not-set-up code and setup help on a failed Ask stream", async () => {
+    const help = { headline: "No AI model is set up.", steps: [], docs_url: "https://docs.example/ai" };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      `${JSON.stringify({ type: "accepted", driver: "configured", model: "" })}\n${JSON.stringify({
+        type: "error", status: 503, detail: "No AI model is set up.", code: "ai_not_set_up", setup_help: help,
+      })}\n`,
+      { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+    )));
+
+    const failure = await streamReviewAsk("rev-1", { revision_number: 5, body: "Why?" }, () => {}).catch((reason) => reason);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toBe("No AI model is set up.");
+    expect(askNotSetUp(failure)).toBe(true);
+    expect(askSetupHelp(failure)).toEqual(help);
+    expect(askNotSetUp(new Error("Review Ask is unavailable: boom"))).toBe(false);
+  });
+
   it("renders the feedback bundle through the same route the CLI uses", async () => {
     __setBootstrapForTest({ token: "secret-token", reviewId: "rev-1" });
     const spy = stubFetch(200, { markdown: "## Review feedback", open: 1, orphaned: 0, resolved: 0 });
@@ -579,7 +967,7 @@ describe("requests", () => {
     expect(result.annotation_count).toBe(2);
   });
 
-  it("fetches a protected execution artifact by Review, Snapshot and evidence without a machine token", async () => {
+  it("fetches a protected execution artifact by Review, revision and evidence without a machine token", async () => {
     const spy = stubFetch(200, { role: "log", expired: false, text: "redacted", truncated: false, bytes: 8 });
     const output = await fetchReviewExecutionArtifact("r/review 1", "rev 2", "evidence/3", "log");
     expect(output.text).toBe("redacted");
@@ -620,7 +1008,7 @@ describe("requests", () => {
     expect(JSON.parse(String(cancelInit.body))).toEqual({ expected_revision_id: "rrv-9" });
   });
 
-  it("binds verification and dependency projections to an explicit Snapshot", async () => {
+  it("binds verification and dependency projections to an explicit revision", async () => {
     const spy = stubFetch(200, { snapshot_id: "rrv-9", checks: [], changes: [] });
     await fetchReviewVerification("rev-1", "rrv-9");
     await fetchReviewDependencies("rev-1", "rrv-9");
@@ -632,7 +1020,7 @@ describe("requests", () => {
     );
   });
 
-  it("binds surface discovery and execution to an explicit Snapshot", async () => {
+  it("binds surface discovery and execution to an explicit revision", async () => {
     const spy = stubFetch(200, { revision_id: "rrv-4", surfaces: [], result: { revision_id: "rrv-4" } });
     await fetchReviewSurfaces("rev-1", "rrv-4");
     await runReviewSurface("rev-1", "bruno", "api/get", "old", "rrv-4");
@@ -643,7 +1031,7 @@ describe("requests", () => {
     expect(runInit.method).toBe("POST");
   });
 
-  it("binds runtime validation run, status, and cancellation to the exact Snapshot and scenario", async () => {
+  it("binds runtime validation run, status, and cancellation to the exact revision and scenario", async () => {
     const spy = stubFetch(200, {
       request: { revision_id: "rrv-4" },
       runtime_validation: { status: "NOT_RUN" },
@@ -679,7 +1067,7 @@ describe("requests", () => {
       side: "new",
     });
   });
-  it("fetches plugin preview artifacts pinned to one Snapshot side and surfaces plugin reasons", async () => {
+  it("fetches plugin preview artifacts pinned to one revision side and surfaces plugin reasons", async () => {
     const spy = vi.fn(async () =>
       new Response("<p>new</p>", {
         status: 200,
@@ -721,7 +1109,7 @@ describe("requests", () => {
     expect(new Headers(init.headers).get("Content-Type")).toBe("application/zip");
   });
 
-  it("fetches reader targets with an explicit order", async () => {
+  it("fetches reader parts with an explicit order", async () => {
     __setBootstrapForTest({ token: "t", reviewId: "rev-1" });
     const spy = stubFetch(200, { revision_id: "rrv-1", order: "file", targets: [], progress: {}, outline: [] });
     await fetchTargets("rev-1", "file");

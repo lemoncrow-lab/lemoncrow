@@ -12,6 +12,7 @@ import { cx } from "../../components/WorkbenchUI";
 import { useRuntimeCapabilities } from "../../lib/RuntimeCapabilities";
 import {
   fmtUsd,
+  fmtUsdRate,
   fmtTok,
   fmtDate,
   fmtDuration,
@@ -354,8 +355,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
       api.ledger(sessionId).catch(() => null),
       api.outcomesForSession(sessionId).catch(() => []),
     ])
-      .then(([rep, tr, led, outcomeEntries]) => {
+      .then(([rep, tr, ledgerResponse, outcomeEntries]) => {
         if (cancelled) return;
+        // The ledger route answers an unknown id with 200 {status: "not_found"}, not a 404.
+        const led = ledgerResponse && ledgerResponse.status !== "not_found" ? ledgerResponse : null;
         if (!rep && !tr && !led) {
           setErr("This run is not available.");
           setLoading(false);
@@ -534,13 +537,13 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     );
 
   return (
-    <div className="flex flex-col h-full bg-surface relative animate-in fade-in duration-500">
-      {/* Header */}
-      <header className="sticky top-0 z-20 flex-shrink-0 border-b border-border/80 bg-background/95 px-4 py-2.5 backdrop-blur-md">
+    <div className="flex flex-col bg-surface relative animate-in fade-in duration-500">
+      {/* Header: scrolls with the page; the shell header above stays pinned. */}
+      <header className="flex-shrink-0 border-b border-border/80 bg-background/95 px-4 py-2.5 backdrop-blur-md">
         <div className="space-y-2">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 flex-1 space-y-1.5">
-              <h1 className="text-heading font-semibold tracking-wide text-foreground truncate uppercase">
+              <h1 className="line-clamp-2 break-words text-heading font-semibold text-foreground" title={trace?.task || undefined}>
                 {trace && (
                   <span
                     className="inline-flex items-center px-1"
@@ -579,10 +582,11 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     href={apiUrl(`/raw-artifacts/${report.raw_artifact_ids[0]}/content`)}
                     target="_blank"
                     rel="noreferrer"
+                    title="Open the log file LemonCrow imported this session from, as the coding agent wrote it"
                     className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/80 bg-muted/55 px-2.5 text-meta font-medium text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
                   >
                     <ExternalLink size={14} />
-                    Raw Link
+                    Session log
                   </a>
                 )}
               <UiButton
@@ -622,7 +626,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
             />
             <HeaderStat
               label="Est. Saved"
-              value={report ? fmtUsd(report.total_lemoncrow_savings_usd) : "—"}
+              value={report && report.savings_status !== "unavailable" ? fmtUsd(report.total_lemoncrow_savings_usd) : "—"}
               tone="success"
             />
             <HeaderStat
@@ -690,10 +694,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
       </header>
 
       {/* Timeline + right panel */}
-      <div className="flex-1 overflow-hidden">
-        <div className="flex h-full">
-          {/* Scrollable timeline */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-surface">
+      <div className="flex-1">
+        <div className="flex">
+          {/* Timeline: scrolls with the page */}
+          <div className="min-w-0 flex-1 bg-surface">
             <div className="space-y-4 p-4 pb-16">
               <section className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -707,6 +711,9 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   {enrichedConversations.length > 0 ? (
                     (() => {
                       const seen = new Map<string, number>();
+                      // Model and source log show once, then only when they change.
+                      let previousModel: string | undefined = startedModel || undefined;
+                      let previousSource: string | undefined;
                       return groupTurns(enrichedConversations).map((turn) => {
                         // Stable per-turn key so React preserves each
                         // ConversationTurn's expand state when the list is
@@ -719,11 +726,17 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                         const n = seen.get(base) ?? 0;
                         seen.set(base, n + 1);
                         const key = n === 0 ? base : `${base}#${n}`;
+                        const hideModel = Boolean(turn.model) && turn.model === previousModel;
+                        const hideSource = Boolean(turn.artifact_label) && turn.artifact_label === previousSource;
+                        if (turn.model) previousModel = turn.model;
+                        if (turn.artifact_label) previousSource = turn.artifact_label;
                         return (
                           <ConversationTurn
                             key={key}
                             turn={turn}
                             forceExpand={allExpanded}
+                            hideModel={hideModel}
+                            hideSource={hideSource}
                           />
                         );
                       });
@@ -800,7 +813,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
           {/* Right rail — detailed metrics */}
           {rightPanelOpen && (
-            <aside className="w-96 flex-shrink-0 space-y-4 overflow-y-auto border-l border-border/70 bg-background/70 p-4 custom-scrollbar animate-in slide-in-from-right duration-300">
+            <aside className="sticky top-[41px] max-h-[calc(100dvh-41px)] w-96 flex-shrink-0 self-start space-y-4 overflow-y-auto border-l border-border/70 bg-background/70 p-4 custom-scrollbar animate-in slide-in-from-right duration-300">
               <section className="space-y-4">
                 <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                   Session Blueprint
@@ -917,7 +930,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                             {t.tool} ({t.calls})
                           </span>
                           <span className="text-muted-foreground">
-                            {fmtUsd(t.cost_usd)}
+                            {fmtUsdRate(t.cost_usd)}
                           </span>
                         </div>
                       ))}

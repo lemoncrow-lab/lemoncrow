@@ -57,6 +57,10 @@ USER_KEY_SETTING: Final[str] = "review.record_signing_key"
 USER_KEY_INIT_COMMAND: Final[str] = "lc review record-key init"
 SIGNATURE_ALGORITHMS: Final[tuple[str, ...]] = ("Ed25519", "ES256")
 _RECORD_ID_PREFIX: Final[str] = "rec_"
+#: The statement facts a record list row shows (display only; verification is a separate verdict).
+_LIST_SUMMARY_KEYS: Final[frozenset[str]] = frozenset(
+    {"decision", "decided_by", "decided_at", "snapshot_number", "head_sha", "parts_reviewed_one_by_one"}
+)
 
 
 class RecordSigningUnavailable(Exception):
@@ -221,7 +225,7 @@ class SignedReviewRecord:
             "decision_kind": self.decision_kind,
             # Display label only; verification is always a separate verdict.
             "label": signing_label(self.signing_state, self.signing_mode, self.key_id),
-            **{key: value for key, value in summarize(self.statement).items() if key in {"decision", "decided_by"}},
+            **{key: value for key, value in summarize(self.statement).items() if key in _LIST_SUMMARY_KEYS},
         }
 
 

@@ -31,7 +31,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from lemoncrow_client.review_words import degraded_sentence, revision_name
+
 from lemoncrow.pro.capabilities.review.session_models import ANCHOR_METHOD_LABELS, anchor_symbol_claim
+
+# The capture's range in the words a reader uses; the identifier stays in --json.
+RANGE_WORDS: dict[str, str] = {
+    "working_tree": "working tree",
+    "staged": "staged changes",
+    "commit_range": "commits",
+}
 
 # How many out-of-patch call sites a bundle names before it stops. A recipient
 # who is handed forty is handed none.
@@ -107,6 +116,19 @@ class FeedbackItem:
 
 
 @dataclass(frozen=True)
+class FeedbackPresentation:
+    """Human-chosen Wrap up text, included in the immutable delivery hash.
+
+    Legacy callers omit this and keep the original feedback format byte-for-byte.
+    """
+
+    verdict: str
+    importance: tuple[tuple[str, str], ...] = ()
+    test_with_fix: bool = False
+    summary: str = ""
+
+
+@dataclass(frozen=True)
 class FeedbackBundle:
     """Everything one review has to say, ready to hand to something else."""
 
@@ -125,7 +147,9 @@ class FeedbackBundle:
     degraded: tuple[str, ...] = ()
     """Every reason this revision knows less than a perfect one would."""
     request_summary: str = ""
-    """The reviewer's own "what still needs to change" for this Snapshot, verbatim."""
+    """The reviewer's own "what still needs to change" for this revision, verbatim."""
+    presentation: FeedbackPresentation | None = None
+    """Optional reviewer-selected Wrap text; old exports are unchanged."""
 
 
 def packet_context(packet: Mapping[str, object] | None) -> tuple[str, ...]:
@@ -311,6 +335,55 @@ def _section(item: FeedbackItem) -> list[str]:
     return lines
 
 
+def _flow_markdown(bundle: FeedbackBundle, chosen: FeedbackPresentation) -> str:
+    """The exact human-selected message; no AI-created verdict or hidden weight."""
+    verdicts = {
+        "lgtm": "Approve",
+        "changes_requested": "Request changes",
+        "comment": "Comment only",
+        "lgtm_with_suggestions": "Approve with suggestions",
+    }
+    weights = {"must_fix": "MUST FIX", "suggestion": "SUGGESTION", "question": "QUESTION"}
+    selected = dict(chosen.importance)
+    lines = [f"## Review of {revision_name(bundle.revision_number)} — {verdicts[chosen.verdict]}", ""]
+    if chosen.summary.strip():
+        lines.extend(["### Your summary", "", chosen.summary.strip(), ""])
+    if not bundle.items and not bundle.orphaned:
+        lines.extend(["No open notes on this revision.", ""])
+    for item in bundle.items:
+        weight = weights.get(selected.get(item.annotation_id, ""), "NOTE — IMPORTANCE NOT SET")
+        where = f" · {item.symbol}" if item.symbol else ""
+        lines.extend([f"### {weight} · {item.location}{where}", "", item.body.strip(), ""])
+        if chosen.test_with_fix and selected.get(item.annotation_id) != "question":
+            lines.extend(["Add a test that proves this.", ""])
+        for reply in item.replies:
+            lines.extend([f"> {reply.strip()}", ""])
+    if bundle.orphaned:
+        lines.extend(
+            [
+                "### Notes whose anchor is no longer verified",
+                "",
+                "These notes have not been relocated to a new line.",
+                "",
+            ]
+        )
+        for item in bundle.orphaned:
+            weight = weights.get(selected.get(item.annotation_id, ""), "NOTE — IMPORTANCE NOT SET")
+            lines.extend([f"#### {weight} · {item.path} (anchor not verified)", "", item.body.strip(), ""])
+            if chosen.test_with_fix and selected.get(item.annotation_id) != "question":
+                lines.extend(["Add a test that proves this.", ""])
+    if bundle.context:
+        lines.extend(["### Review context", ""])
+        lines.extend(f"- {entry}" for entry in bundle.context)
+        lines.append("")
+    if bundle.degraded:
+        lines.extend(["### What is not known", ""])
+        lines.extend(f"- {degraded_sentence(name)}" for name in bundle.degraded)
+        lines.append("")
+    lines.append("Human review. Nothing here was decided by an AI.")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def render_markdown(bundle: FeedbackBundle) -> str:
     """Render the bundle exactly as plan SS10.1 shows it, plus what it omits.
 
@@ -324,8 +397,12 @@ def render_markdown(bundle: FeedbackBundle) -> str:
     sort order.
     """
 
+    if bundle.presentation is not None:
+        return _flow_markdown(bundle, bundle.presentation)
+
     lines: list[str] = ["## Review feedback", ""]
-    header = f"Snapshot {bundle.revision_number} · {bundle.range_mode}"
+    words = RANGE_WORDS.get(bundle.range_mode, bundle.range_mode.replace("_", " "))
+    header = f"{revision_name(bundle.revision_number)} · {words}"
     if bundle.title:
         header = f"{bundle.title} — {header}"
     lines.append(header)
@@ -338,7 +415,7 @@ def render_markdown(bundle: FeedbackBundle) -> str:
         lines.append("")
 
     if not bundle.items and not bundle.orphaned:
-        lines.append("No open comments on this Snapshot.")
+        lines.append("No open comments on this revision.")
         lines.append("")
     for item in bundle.items:
         lines.extend(_section(item))
@@ -365,7 +442,7 @@ def render_markdown(bundle: FeedbackBundle) -> str:
         lines.append("### What is not known")
         lines.append("")
         for name in bundle.degraded:
-            lines.append(f"- {name}")
+            lines.append(f"- {degraded_sentence(name)}")
         lines.append("")
 
     lines.append("Human review REQUIRED. Nothing here is a verdict.")
@@ -376,6 +453,7 @@ __all__ = [
     "KIND_LABELS",
     "FeedbackBundle",
     "FeedbackItem",
+    "FeedbackPresentation",
     "build_bundle",
     "packet_context",
     "render_markdown",

@@ -12,9 +12,10 @@ import {
   type TelemetrySummary,
 } from "../lib/insightsApi";
 import { Chip, MetricCard, cx } from "../components/WorkbenchUI";
-import { useTimeRange } from "../lib/TimeRangeContext";
+import { TIME_RANGE_OPTIONS, useTimeRange, type TimeRangeValue } from "../lib/TimeRangeContext";
 import { setVisibleInterval } from "../lib/visibleInterval";
 import TelemetryDestinationPanel from "./TelemetryDestination";
+import { eventLabel, shortSessionId } from "./telemetryLabels";
 
 const RECENT_EVENT_LIMIT = 20;
 const TIMELINE_LIMIT = 5000;
@@ -216,6 +217,29 @@ function formatAxisTick(ts: number, rangeSeconds: number): string {
   return DAY_FORMAT.format(date);
 }
 
+/**
+ * Where the time axis gets a label (epoch seconds). A range over two days labels local midnights,
+ * every day or every few days, so no date is skipped; six equal steps of a week are 28 hours
+ * apart, which jumped a day.
+ */
+export function axisTicks(rangeStart: number, rangeEnd: number, ticks = 6): number[] {
+  const rangeSeconds = Math.max(1, rangeEnd - rangeStart);
+  if (rangeSeconds <= 172800) {
+    return Array.from({ length: ticks + 1 }, (_, index) => rangeStart + (index / ticks) * rangeSeconds);
+  }
+  const days = rangeSeconds / 86400;
+  const step = Math.max(1, Math.ceil(days / 8));
+  const day = new Date(rangeStart * 1000);
+  day.setHours(0, 0, 0, 0);
+  if (day.getTime() / 1000 < rangeStart) day.setDate(day.getDate() + 1);
+  const out: number[] = [];
+  // Bounded: at most days/step + 1 (about nine) labels.
+  while (day.getTime() / 1000 <= rangeEnd) {
+    out.push(day.getTime() / 1000);
+    day.setDate(day.getDate() + step);
+  }
+  return out;
+}
 // Event ids only grow, so any newly stored event in the feed raises the max id.
 function telemetryFeedKey(events: TelemetryEvent[]): string {
   let maxId = 0;
@@ -278,7 +302,7 @@ function TimelineChart({
     Math.max(1, eventTypes.length) * laneHeight;
   const chartWidth = TIMELINE_WIDTH - TIMELINE_PAD_LEFT - TIMELINE_PAD_RIGHT;
   const rangeSeconds = Math.max(1, rangeEnd - rangeStart);
-  const ticks = 6;
+  const tickTimes = axisTicks(rangeStart, rangeEnd);
 
   const xFor = (ts: number) =>
     TIMELINE_PAD_LEFT +
@@ -337,10 +361,8 @@ function TimelineChart({
           );
         })}
 
-        {Array.from({ length: ticks + 1 }, (_, index) => {
-          const ratio = index / ticks;
-          const x = TIMELINE_PAD_LEFT + ratio * chartWidth;
-          const tickTs = rangeStart + ratio * rangeSeconds;
+        {tickTimes.map((tickTs, index) => {
+          const x = xFor(tickTs);
           return (
             <g key={index}>
               <line
@@ -419,8 +441,8 @@ function EventRow({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Circle size={14} fill={color} stroke="none" className="mt-0.5" />
-            <span className="font-mono text-body uppercase tracking-widest text-foreground">
-              {item.event}
+            <span className="text-body font-medium text-foreground" title={item.event}>
+              {eventLabel(item.event)}
             </span>
             {commandName && <Chip tone="warning">{commandName}</Chip>}
             {hostName && <Chip tone="info">{hostName}</Chip>}
@@ -429,7 +451,7 @@ function EventRow({
           <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-muted-foreground">
             <span>{formatTimestamp(item.ts, rangeSeconds ?? undefined)}</span>
             <span>{formatRelative(item.ts)}</span>
-            {item.session_id && <span>session {item.session_id}</span>}
+            {item.session_id && <span title={item.session_id}>session {shortSessionId(item.session_id)}</span>}
           </div>
         </div>
         <span className="pt-0.5 text-caption font-mono uppercase tracking-tag text-muted-foreground">
@@ -467,7 +489,7 @@ function toOperationPoint(
       ts: event.ts,
       lane: `cmd:${props.command_name}`,
       color: "#f59e0b",
-      tooltip: `${event.event} · ${props.command_name} · ${formatTimestamp(event.ts, rangeSeconds)}`,
+      tooltip: `${eventLabel(event.event)} · ${props.command_name} · ${formatTimestamp(event.ts, rangeSeconds)}`,
     };
   }
   if (typeof props.tool_name === "string") {
@@ -476,7 +498,7 @@ function toOperationPoint(
       ts: event.ts,
       lane: `tool:${props.tool_name}`,
       color: "#10b981",
-      tooltip: `${event.event} · ${props.tool_name} · ${formatTimestamp(event.ts, rangeSeconds)}`,
+      tooltip: `${eventLabel(event.event)} · ${props.tool_name} · ${formatTimestamp(event.ts, rangeSeconds)}`,
     };
   }
   if (typeof props.endpoint === "string") {
@@ -485,7 +507,7 @@ function toOperationPoint(
       ts: event.ts,
       lane: `api:${props.endpoint}`,
       color: "#60a5fa",
-      tooltip: `${event.event} · ${props.endpoint} · ${formatTimestamp(event.ts, rangeSeconds)}`,
+      tooltip: `${eventLabel(event.event)} · ${props.endpoint} · ${formatTimestamp(event.ts, rangeSeconds)}`,
     };
   }
   return null;
@@ -496,7 +518,7 @@ export default function Telemetry() {
   const [summary, setSummary] = useState<TelemetrySummary | null>(null);
   const [schema, setSchema] = useState<TelemetrySchema | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { seconds: windowSeconds, range } = useTimeRange();
+  const { seconds: windowSeconds, range, setRange } = useTimeRange();
   const [hostFilter, setHostFilter] = useState("all");
   const [eventFilter, setEventFilter] = useState("all");
   const [knownHosts, setKnownHosts] = useState<string[]>([]);
@@ -600,9 +622,9 @@ export default function Telemetry() {
       sortedTimelineEvents.map((item) => ({
         id: `event-${item.id}`,
         ts: item.ts,
-        lane: item.event,
+        lane: eventLabel(item.event),
         color: timelinePalette[item.event] ?? EVENT_COLORS[0],
-        tooltip: `${item.event} · ${formatTimestamp(item.ts, rangeSeconds)}`,
+        tooltip: `${eventLabel(item.event)} · ${formatTimestamp(item.ts, rangeSeconds)}`,
       })),
     [rangeSeconds, sortedTimelineEvents, timelinePalette]
   );
@@ -623,7 +645,7 @@ export default function Telemetry() {
   const eventBreakdown = useMemo(() => {
     if (!summary) return [];
     return Object.entries(summary.event_counts)
-      .map(([name, count]) => ({ name, count }))
+      .map(([name, count]) => ({ name: eventLabel(name), count }))
       .sort(
         (left, right) =>
           right.count - left.count || left.name.localeCompare(right.name)
@@ -661,7 +683,7 @@ export default function Telemetry() {
     `Range: ${formatTimestamp(rangeStart, rangeSeconds)} to ${formatTimestamp(rangeEnd, rangeSeconds)}.`,
     Object.entries(timelinePalette).length > 0
       ? `Colors: ${Object.entries(timelinePalette)
-          .map(([name, color]) => `${name} ${color}`)
+          .map(([name, color]) => `${eventLabel(name)} ${color}`)
           .join(" · ")}`
       : "",
   ]
@@ -687,6 +709,18 @@ export default function Telemetry() {
         hint={liveHint}
         action={
           <div className="flex flex-wrap items-end gap-3">
+            {/* This page's own window (there is no global one in the top bar). */}
+            <FilterSelect
+              label="Window"
+              value={range}
+              onChange={(value) => setRange(value as TimeRangeValue)}
+            >
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </FilterSelect>
             <FilterSelect
               label="Host"
               value={hostFilter}
@@ -709,7 +743,7 @@ export default function Telemetry() {
                 .sort((left, right) => left.localeCompare(right))
                 .map((eventName) => (
                   <SelectItem key={eventName} value={eventName}>
-                    {eventName}
+                    {eventLabel(eventName)}
                   </SelectItem>
                 ))}
             </FilterSelect>
@@ -832,7 +866,12 @@ export default function Telemetry() {
         title="Privacy Audit"
         hint="Allowlisted telemetry properties and example payloads for each event type."
       >
-        <div className="overflow-auto">
+        {/* Folded by default: the exact recorded names and payloads are for whoever wants to check them (runtime-23.2). */}
+        <details>
+        <summary className="cursor-pointer text-body text-muted-foreground">
+          Show what each event type may record ({fmt.format(Object.keys(schema.events).length)} types)
+        </summary>
+        <div className="mt-3 overflow-auto">
           <table className="min-w-full border-collapse text-left text-heading">
             <thead>
               <tr className="border-b border-border text-body uppercase tracking-widest text-muted-foreground">
@@ -847,8 +886,9 @@ export default function Telemetry() {
                   key={eventName}
                   className="border-b border-border align-top"
                 >
-                  <td className="py-3 pr-4 font-mono text-cyan-300">
-                    {eventName}
+                  <td className="py-3 pr-4">
+                    <span className="block text-foreground">{eventLabel(eventName)}</span>
+                    <code className="text-body text-muted-foreground">{eventName}</code>
                   </td>
                   <td className="py-3 pr-4 text-subtle">
                     {spec.props.join(", ")}
@@ -867,6 +907,7 @@ export default function Telemetry() {
             </tbody>
           </table>
         </div>
+        </details>
       </Section>
     </div>
   );

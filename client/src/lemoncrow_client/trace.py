@@ -43,6 +43,7 @@ __all__ = [
     "current_trace_id",
     "new_trace_id",
     "sanitize_arguments",
+    "summarize_code_search",
     "trace_scope",
 ]
 
@@ -163,6 +164,71 @@ def _env_int(env: Mapping[str, str], name: str, default: int, low: int, high: in
         with contextlib.suppress(ValueError):
             return max(low, min(high, int(raw)))
     return default
+
+
+def summarize_code_search(traces_dir: Path, *, days: int = 14) -> dict[str, Any]:
+    """Count direct indexed searches, fallbacks and Bash search adoption from Lite traces.
+
+    Bash counts are tool-call counts, not individual grep invocations in a
+    compound command. The metrics are numeric, so redacted traces work too.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+    indexed = 0
+    errors = 0
+    bash_calls = 0
+    bash_rg_grep = 0
+    bash_auto_upgraded = 0
+    bash_source_search_redirected = 0
+    reasons: dict[str, int] = {}
+    for day in sorted(traces_dir.glob("????-??-??")):
+        if day.name < cutoff:
+            continue
+        for path in day.glob("client-*.jsonl"):
+            with contextlib.suppress(OSError), path.open(encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if '"tool":"code_search"' not in line and '"tool":"bash"' not in line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                        tool, execution = record["tool"], record["execution"]
+                        site = execution["site"]
+                        metrics = execution.get("metrics") or {}
+                        reason, is_error = record["outcome"].get("degraded_reason"), record["outcome"].get("is_error")
+                    except (ValueError, KeyError, TypeError, AttributeError):
+                        continue
+                    if site != "lite":
+                        continue
+                    if tool == "bash":
+                        bash_calls += 1
+                        if isinstance(metrics, Mapping):
+                            upgraded = metrics.get("bash_to_code_search") == 1
+                            redirected = metrics.get("bash_source_search_redirect") == 1
+                            bash_auto_upgraded += int(upgraded)
+                            bash_source_search_redirected += int(redirected)
+                            bash_rg_grep += int(metrics.get("bash_rg_grep") == 1 or upgraded or redirected)
+                        continue
+                    if tool != "code_search":
+                        continue
+                    if reason:
+                        reasons[str(reason)] = reasons.get(str(reason), 0) + 1
+                    elif is_error:
+                        errors += 1
+                    else:
+                        indexed += 1
+    fallback = sum(reasons.values())
+    return {
+        "days": days,
+        "total": indexed + fallback + errors,
+        "indexed": indexed,
+        "grep_fallback": fallback,
+        "grep_fallback_reasons": dict(sorted(reasons.items(), key=lambda item: (-item[1], item[0]))),
+        "errors": errors,
+        "bash_calls": bash_calls,
+        "bash_rg_grep": bash_rg_grep,
+        "bash_auto_upgraded": bash_auto_upgraded,
+        "bash_source_search_redirected": bash_source_search_redirected,
+        "bash_rg_grep_preserved": max(0, bash_rg_grep - bash_auto_upgraded - bash_source_search_redirected),
+    }
 
 
 class ClientTraceWriter:

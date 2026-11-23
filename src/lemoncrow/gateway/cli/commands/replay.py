@@ -152,9 +152,7 @@ def replay_cmd(
     click.echo(f"HTML replay: {html_out}  ({len(replays)} session(s), {total} tool calls collapsed).")
 
     if not no_open:
-        import webbrowser
+        from lemoncrow_client.browser import launch_browser_url
 
-        try:
-            webbrowser.open(html_out.resolve().as_uri())
-        except Exception:
+        if not launch_browser_url(html_out.resolve().as_uri()):
             click.echo("(could not open a browser automatically; open the file above manually.)")

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import tempfile
+import threading
 from collections import Counter, defaultdict
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -23,6 +26,8 @@ from lemoncrow.core.foundation.optional_modules import module_absent
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
     from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+logger = logging.getLogger(__name__)
 
 ARCHITECTURE_DELTA_VERSION = 1
 ARCHITECTURE_GROUPING_VERSION = 1
@@ -37,6 +42,15 @@ _MAX_FLOW_STEPS = 8
 #: The file-reference graph both sides are built with: the repository map's, which the
 #: Review-only engine does not ship. Without it the comparison reports itself unavailable.
 REFERENCE_GRAPH = "lemoncrow.pro.capabilities.repo_map.graph"
+
+#: ``review_derived`` kind of a revision's stored two-side comparison. Both sides of a revision are immutable, and
+#: parsing them takes minutes on a large repository, so one Snapshot pays for it once.
+ARCHITECTURE_COMPARISON_KIND = "architecture_comparison"
+_ARCHITECTURE_COMPARISON_VERSION = 2
+#: Least-recently-written comparisons kept per store, on top of the deletion that follows the revision.
+_MAX_STORED_COMPARISONS = 64
+#: A comparison larger than this is recomputed rather than stored; the answer is the same, only slower.
+_MAX_STORED_COMPARISON_BYTES = 16 * 1024 * 1024
 
 ARCHITECTURE_EXPLAIN_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -104,15 +118,18 @@ def _reference_architecture(root: Path) -> dict[str, Any]:
     """Build one deterministic file-reference architecture from an immutable tree.
 
     The repository map links a file to every file that defines a name it uses, by the bare name. The Review claims these
-    relationships as the Snapshot's own, so five uses are not taken as one: a name the file defines itself (its own
+    relationships as the Snapshot's own, so these uses are not taken as one: a name the file defines itself (its own
     helper, a local), a name only an import brings in (the import uses someone else's definition), a name that is only
-    a local or a member of the other file, a name a JavaScript or TypeScript module declares without exporting it, and
-    a name defined in another language. On a 2026-11-01 pull request those tied 220 unchanged files to a new test file
-    through ``actual``, ``body``, ``json``, ``afterEach`` and ``calls``.
+    a local or a member of the other file, a name a JavaScript or TypeScript module declares without exporting it, a
+    name defined in another language, and, in Python and JavaScript/TypeScript, a name this file's imports do not bring
+    from that file. On a 2026-11-01 pull request bare names tied 220 unchanged files to a new test file through
+    ``actual``, ``body``, ``json``, ``afterEach`` and ``calls``; on 2026-11-19 they tied one Python module to 298 files
+    through locals such as ``root``, ``entry`` and ``run``, and the X-Ray showed those as what it calls.
     """
 
     from lemoncrow.infra.tree_sitter.tags import detect_language
     from lemoncrow.pro.capabilities.repo_map.graph import build_reference_graph
+    from lemoncrow.pro.capabilities.review.architecture_imports import ImportResolver
     from lemoncrow.pro.capabilities.review.impact import _is_definition_tag
 
     graph, tags_by_file = build_reference_graph(root)
@@ -134,6 +151,7 @@ def _reference_architecture(root: Path) -> dict[str, Any]:
                     continue
             definitions[tag.name].add(path)
 
+    resolver = ImportResolver(root, tags_by_file, definitions)
     edge_symbols: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
     edge_evidence: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for source in sorted(tags_by_file):
@@ -141,7 +159,8 @@ def _reference_architecture(root: Path) -> dict[str, Any]:
         for tag in tags_by_file[source]:
             if tag.kind != "reference" or tag.name in mine:
                 continue
-            for target in sorted(definitions.get(tag.name, ())):
+            imported = resolver.targets(source, tag.name)
+            for target in sorted(definitions.get(tag.name, ()) if imported is None else imported):
                 if target == source or family[target] != family[source]:
                     continue
                 key = (source, target)
@@ -540,51 +559,88 @@ def _flow_projection(changed_edges: Sequence[Mapping[str, Any]]) -> dict[str, An
     }
 
 
+def architecture_comparison(
+    packet: Mapping[str, Any],
+    base_architecture: Mapping[str, Any],
+    snapshot_architecture: Mapping[str, Any],
+) -> dict[str, Any]:
+    """All that the delta reads of two whole-repository graphs, as plain JSON.
+
+    The node sets, and only the edges that changed or touch a changed file: an unchanged edge between unchanged files
+    never reaches the delta, and on a large repository those are nearly all of them.
+    """
+
+    base = _normalize_reference_graph(base_architecture, _rename_map(packet))
+    snapshot = _normalize_reference_graph(snapshot_architecture, {})
+    changed_paths = set(_packet_rows(packet))
+    base_edges = _edge_map(base)
+    snapshot_edges = _edge_map(snapshot)
+    edges: list[dict[str, Any]] = []
+    for key in sorted(set(base_edges) | set(snapshot_edges)):
+        source, target, _kind = key
+        before = base_edges.get(key)
+        after = snapshot_edges.get(key)
+        base_weight = int(before.get("weight") or 0) if before else 0
+        snapshot_weight = int(after.get("weight") or 0) if after else 0
+        if (
+            _delta_edge_status(base_weight, snapshot_weight) == "unchanged"
+            and source not in changed_paths
+            and target not in changed_paths
+        ):
+            continue
+        edges.append({"key": list(key), "before": before, "after": after})
+    return {
+        "base_nodes": sorted(str(path) for path in list(base.get("nodes") or [])),
+        "snapshot_nodes": sorted(str(path) for path in list(snapshot.get("nodes") or [])),
+        "raw_base_nodes": sorted(str(path) for path in list(base_architecture.get("nodes") or [])),
+        "raw_snapshot_nodes": sorted(str(path) for path in list(snapshot_architecture.get("nodes") or [])),
+        "edges": edges,
+    }
+
+
 def build_architecture_delta(
     *,
     review_id: str,
     revision_id: str,
     packet: Mapping[str, Any],
-    base_architecture: Mapping[str, Any],
-    snapshot_architecture: Mapping[str, Any],
+    base_architecture: Mapping[str, Any] | None = None,
+    snapshot_architecture: Mapping[str, Any] | None = None,
     context_graph: Mapping[str, Any] | None = None,
     context: Mapping[str, Any] | None = None,
     base_identity: str = "",
     snapshot_identity: str = "",
+    comparison: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compare immutable architectures and append clearly-labelled live context."""
+    """Compare immutable architectures and append clearly-labelled live context.
+
+    *comparison* is :func:`architecture_comparison` of the two graphs, when the caller already holds it.
+    """
 
     context_graph = context_graph or {}
     context = context or {}
-    renames = _rename_map(packet)
-    base = _normalize_reference_graph(base_architecture, renames)
-    snapshot = _normalize_reference_graph(snapshot_architecture, {})
-    base_nodes = {str(path) for path in list(base.get("nodes") or [])}
-    snapshot_nodes = {str(path) for path in list(snapshot.get("nodes") or [])}
-    raw_base_nodes = {str(path) for path in list(base_architecture.get("nodes") or [])}
-    raw_snapshot_nodes = {str(path) for path in list(snapshot_architecture.get("nodes") or [])}
+    if comparison is None:
+        comparison = architecture_comparison(packet, base_architecture or {}, snapshot_architecture or {})
+    base_nodes = {str(path) for path in comparison["base_nodes"]}
+    snapshot_nodes = {str(path) for path in comparison["snapshot_nodes"]}
+    raw_base_nodes = {str(path) for path in comparison["raw_base_nodes"]}
+    raw_snapshot_nodes = {str(path) for path in comparison["raw_snapshot_nodes"]}
     packet_rows = _packet_rows(packet)
 
     changed_paths = set(packet_rows)
-    base_edges = _edge_map(base)
-    snapshot_edges = _edge_map(snapshot)
-    edge_keys = sorted(set(base_edges) | set(snapshot_edges))
 
     exact_edges: list[dict[str, Any]] = []
-    for key in edge_keys:
-        source, target, kind = key
-        before = base_edges.get(key)
-        after = snapshot_edges.get(key)
+    for row in comparison["edges"]:
+        source, target, kind = (str(part) for part in row["key"])
+        before = row["before"]
+        after = row["after"]
         base_weight = int(before.get("weight") or 0) if before else 0
         snapshot_weight = int(after.get("weight") or 0) if after else 0
         delta_status = _delta_edge_status(base_weight, snapshot_weight)
-        if delta_status == "unchanged" and source not in changed_paths and target not in changed_paths:
-            continue
         provenance = _architecture_provenance(
             "snapshot_comparison",
             "snapshot",
             comparison="base_vs_snapshot",
-            note="Derived by comparing immutable base and reviewed Snapshot source graphs.",
+            note="Derived by comparing immutable base and reviewed revision source graphs.",
         )
         evidence_source = after or before or {}
         evidence_rows = [dict(item) for item in _mapping_rows(evidence_source.get("evidence"))[:_MAX_EDGE_EVIDENCE]]
@@ -701,7 +757,7 @@ def build_architecture_delta(
                 "snapshot_fact",
                 "snapshot",
                 comparison="none",
-                note="Snapshot-exact relationship fact; base-vs-Snapshot relationship change is not established.",
+                note="Revision-exact relationship fact; base-vs-revision relationship change is not established.",
             )
             delta_status = "unknown"
             exactness = "snapshot"
@@ -785,7 +841,7 @@ def build_architecture_delta(
                 "snapshot_comparison",
                 "snapshot",
                 comparison="base_vs_snapshot",
-                note="Node presence is compared between immutable base and reviewed Snapshot source graphs.",
+                note="Node presence is compared between immutable base and reviewed revision source graphs.",
             )
         elif snapshot_fact:
             delta_status = "unknown"
@@ -794,7 +850,7 @@ def build_architecture_delta(
                 "snapshot_fact",
                 "snapshot",
                 comparison="none",
-                note="Snapshot-exact context is known, but architectural node change was not established by the comparison graph.",
+                note="Revision-exact context is known, but architectural node change was not established by the comparison graph.",
             )
         else:
             delta_status = "context_only"
@@ -803,7 +859,7 @@ def build_architecture_delta(
                 "current_index",
                 "current_index",
                 comparison="none",
-                note="Current-index node is surrounding context only and is not a Snapshot delta fact.",
+                note="Current-index node is surrounding context only and is not a revision delta fact.",
             )
         if delta_status == "added":
             status = "new"
@@ -906,11 +962,11 @@ def build_architecture_delta(
     )
     concerns.extend(f"{boundary.title()} boundary touched" for boundary in touched_boundaries)
     if any(edge["delta_status"] == "removed" for edge in changed_relationships):
-        concerns.append("Snapshot-exact relationships were removed")
+        concerns.append("Revision-exact relationships were removed")
     if any(edge["delta_status"] == "added" for edge in changed_relationships):
-        concerns.append("Snapshot-exact relationships were added")
+        concerns.append("Revision-exact relationships were added")
     if renamed_nodes:
-        concerns.append("Files moved across the base-to-Snapshot architecture")
+        concerns.append("Files moved across the base-to-revision architecture")
 
     exact_document = {
         "version": ARCHITECTURE_DELTA_VERSION,
@@ -974,7 +1030,7 @@ def build_architecture_delta(
         "version": ARCHITECTURE_DELTA_VERSION,
         "digest": delta_digest,
         "status": summary["status"],
-        "reason": "" if material else "No material base-to-Snapshot architecture relationship change was detected.",
+        "reason": "" if material else "No material base-to-revision architecture relationship change was detected.",
         "base_identity": base_identity,
         "snapshot_identity": snapshot_identity,
         "grouping": {
@@ -993,7 +1049,7 @@ def build_architecture_delta(
             "truncated": len(exact_edges) > len(selected_exact_edges),
             "omitted_node_count": max(0, len(changed_paths) - len(selected_paths)),
             "stats": graph_stats,
-            "reason": "" if nodes else "No architecture facts are available for this Snapshot.",
+            "reason": "" if nodes else "No architecture facts are available for this revision.",
         },
     }
 
@@ -1017,7 +1073,7 @@ def unavailable_architecture_delta(
                 "snapshot_fact",
                 "snapshot",
                 comparison="none",
-                note="Snapshot fact is exact, but base-vs-Snapshot architecture comparison is unavailable.",
+                note="Revision fact is exact, but base-vs-revision architecture comparison is unavailable.",
             )
         elif exactness == "current_index":
             provenance = _architecture_provenance(
@@ -1065,9 +1121,9 @@ def unavailable_architecture_delta(
             exactness if exactness in {"snapshot", "current_index"} else "unknown",
             comparison="none",
             note=(
-                "Relationship fact is available, but no base-vs-Snapshot comparison supports a delta claim."
+                "Relationship fact is available, but no base-vs-revision comparison supports a delta claim."
                 if exactness == "snapshot"
-                else "Relationship is current-index context only; no Snapshot delta claim is made."
+                else "Relationship is current-index context only; no revision delta claim is made."
             ),
         )
         row["delta_status"] = delta_status
@@ -1135,6 +1191,17 @@ def unavailable_architecture_delta(
     }
 
 
+def architecture_delta_available() -> bool:
+    """Whether this build carries the repository map the exact comparison reads."""
+
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(REFERENCE_GRAPH) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def build_architecture_delta_from_revision(
     *,
     store: ReviewStore,
@@ -1148,61 +1215,144 @@ def build_architecture_delta_from_revision(
 
     from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable, materialize_review_side
 
-    cache_root = store.root / "cache"
-    cache_root.mkdir(parents=True, exist_ok=True)
-    try:
-        with tempfile.TemporaryDirectory(prefix="lc-architecture-delta-", dir=cache_root) as raw:
-            root = Path(raw)
-            old_root = root / "old"
-            new_root = root / "new"
-            base_identity = materialize_review_side(
-                store.root,
-                repo_root,
-                revision,
-                side="old",
-                target=old_root,
-                store=store,
-            )
-            snapshot_identity = materialize_review_side(
-                store.root,
-                repo_root,
-                revision,
-                side="new",
-                target=new_root,
-                store=store,
-            )
-            base = _reference_architecture(old_root)
-            snapshot = _reference_architecture(new_root)
-    except (OSError, RuntimeError, ValueError, ReviewSnapshotUnavailable) as exc:
-        return unavailable_architecture_delta(
-            review_id=revision.review_id,
-            revision_id=revision.id,
-            context_graph=context_graph,
-            context=context,
-            reason=f"Snapshot architecture comparison is unavailable ({type(exc).__name__}).",
-        )
-    except ModuleNotFoundError as exc:
-        if not module_absent(exc, REFERENCE_GRAPH):
-            raise
-        return unavailable_architecture_delta(
-            review_id=revision.review_id,
-            revision_id=revision.id,
-            context_graph=context_graph,
-            context=context,
-            reason="Snapshot architecture comparison needs the repository map, which this build does not include.",
-        )
+    stamp = _comparison_stamp(packet)
+    stored = _stored_comparison(store, revision.id, stamp)
+    if stored is None:
+        # Opening the Map and listing its tab ask at once; they share one parse of the two sides.
+        with _comparison_flight(revision.id):
+            stored = _stored_comparison(store, revision.id, stamp)
+            if stored is None:
+                cache_root = store.root / "cache"
+                cache_root.mkdir(parents=True, exist_ok=True)
+                try:
+                    with tempfile.TemporaryDirectory(prefix="lc-architecture-delta-", dir=cache_root) as raw:
+                        root = Path(raw)
+                        old_root = root / "old"
+                        new_root = root / "new"
+                        base_identity = materialize_review_side(
+                            store.root,
+                            repo_root,
+                            revision,
+                            side="old",
+                            target=old_root,
+                            store=store,
+                        )
+                        snapshot_identity = materialize_review_side(
+                            store.root,
+                            repo_root,
+                            revision,
+                            side="new",
+                            target=new_root,
+                            store=store,
+                        )
+                        base = _reference_architecture(old_root)
+                        snapshot = _reference_architecture(new_root)
+                except (OSError, RuntimeError, ValueError, ReviewSnapshotUnavailable) as exc:
+                    return unavailable_architecture_delta(
+                        review_id=revision.review_id,
+                        revision_id=revision.id,
+                        context_graph=context_graph,
+                        context=context,
+                        reason=f"Revision architecture comparison is unavailable ({type(exc).__name__}).",
+                    )
+                except ModuleNotFoundError as exc:
+                    if not module_absent(exc, REFERENCE_GRAPH):
+                        raise
+                    return unavailable_architecture_delta(
+                        review_id=revision.review_id,
+                        revision_id=revision.id,
+                        context_graph=context_graph,
+                        context=context,
+                        reason="Revision architecture comparison needs the repository map, which this build does not include.",
+                    )
+                stored = {
+                    "base_identity": base_identity,
+                    "snapshot_identity": snapshot_identity,
+                    "comparison": architecture_comparison(packet, base, snapshot),
+                }
+                _store_comparison(store, revision, stamp, stored)
 
     return build_architecture_delta(
         review_id=revision.review_id,
         revision_id=revision.id,
         packet=packet,
-        base_architecture=base,
-        snapshot_architecture=snapshot,
         context_graph=context_graph,
         context=context,
-        base_identity=base_identity,
-        snapshot_identity=snapshot_identity,
+        base_identity=str(stored["base_identity"]),
+        snapshot_identity=str(stored["snapshot_identity"]),
+        comparison=stored["comparison"],
     )
+
+
+_comparison_flights: dict[str, tuple[threading.Lock, int]] = {}
+_comparison_flights_guard = threading.Lock()
+
+
+@contextmanager
+def _comparison_flight(revision_id: str) -> Iterator[None]:
+    """One comparison of a revision at a time in this process; the entry goes with its last user."""
+
+    with _comparison_flights_guard:
+        lock, users = _comparison_flights.get(revision_id, (threading.Lock(), 0))
+        _comparison_flights[revision_id] = (lock, users + 1)
+    try:
+        with lock:
+            yield
+    finally:
+        with _comparison_flights_guard:
+            users = _comparison_flights[revision_id][1] - 1
+            if users:
+                _comparison_flights[revision_id] = (lock, users)
+            else:
+                del _comparison_flights[revision_id]
+
+
+def _comparison_stamp(packet: Mapping[str, Any]) -> str:
+    """The inputs a stored comparison depends on besides the revision's own immutable sides."""
+
+    return _stable_id(
+        "architecture-comparison",
+        str(_ARCHITECTURE_COMPARISON_VERSION),
+        json.dumps(sorted(_packet_rows(packet)), separators=(",", ":")),
+        json.dumps(sorted(_rename_map(packet).items()), separators=(",", ":")),
+    )
+
+
+def _stored_comparison(store: ReviewStore, revision_id: str, stamp: str) -> dict[str, Any] | None:
+    # The stored row only saves time, so a store that cannot answer means computing it again.
+    try:
+        row = store.derived_results(ARCHITECTURE_COMPARISON_KIND, [revision_id]).get((revision_id, ""))
+    except Exception:
+        logger.warning("could not read the stored architecture comparison", exc_info=True)
+        return None
+    if row is None or row[0] != stamp or not isinstance(row[1].get("comparison"), dict):
+        return None
+    return row[1]
+
+
+def _store_comparison(store: ReviewStore, revision: ReviewRevision, stamp: str, payload: Mapping[str, Any]) -> None:
+    from lemoncrow.pro.capabilities.review.store import DerivedResult
+
+    try:
+        size = len(json.dumps(payload, separators=(",", ":")))
+        if size > _MAX_STORED_COMPARISON_BYTES:
+            logger.info("architecture comparison of %d bytes is not stored", size)
+            return
+        store.put_derived_results(
+            [
+                DerivedResult(
+                    review_id=revision.review_id,
+                    revision_id=revision.id,
+                    kind=ARCHITECTURE_COMPARISON_KIND,
+                    scope_key="",
+                    stamp=stamp,
+                    payload=payload,
+                )
+            ]
+        )
+        store.evict_derived_results(ARCHITECTURE_COMPARISON_KIND, keep=_MAX_STORED_COMPARISONS)
+    except Exception:
+        logger.warning("could not store the architecture comparison", exc_info=True)
 
 
 def architecture_explain_context(
@@ -1395,8 +1545,8 @@ def run_architecture_explanation(
     )
 
     system = """You explain a LemonCrow Architecture Delta. The graph facts are already computed deterministically.
-Do not add, remove, or promote graph nodes or relationships. Only relationships in changed_edges are Snapshot-exact delta evidence.
-Current-index relationships are intentionally excluded from changed_edges and can never be described as introduced, removed, or changed by this Snapshot.
+Do not add, remove, or promote graph nodes or relationships. Only relationships in changed_edges are revision-exact delta evidence.
+Current-index relationships are intentionally excluded from changed_edges and can never be described as introduced, removed, or changed by this revision.
 You may explain why exact relationship changes matter and, when the supplied flow says it is applicable, narrate a likely flow through those exact relationships.
 For generic reference edges, use cautious dependency language; do not assert runtime execution order unless the supplied relationship kind establishes it.
 Every flow statement must cite one supplied edge_id. State limitations when the evidence does not establish an execution path."""

@@ -41,6 +41,7 @@ export interface CheckRecipe {
   /** `recipe:sha256:…`: command + trusted-base config inputs (documented in recipes.py). */
   digest: string;
   fix_digest: string;
+  part_targets?: { path: string; symbol: string }[];
 }
 
 export interface CheckUnit {
@@ -234,15 +235,30 @@ export interface FindingRegressionCitation {
   limitation: string;
 }
 
+/** An exact human-configured mapping, not an execution trace or demonstrated test coverage. */
+export interface PartCheckMapping {
+  unit_key: string;
+  path: string;
+  symbol: string;
+  fingerprint: string;
+  entry_id: string;
+  recipe_id: string;
+  recipe_digest: string;
+  title: string;
+  mapping_kind: "explicit_trusted_base";
+  coverage: "not_assessed";
+}
+
 export interface CheckRecipesProjection {
   revision_id: string;
   historical: boolean;
   run_plan_digest: string;
+  part_checks?: PartCheckMapping[];
   recommended_checks?: { schema_version: number; previous_revision_id?: string; recommendations: CheckRecommendation[]; omitted: number; policy: string };
   observed_regressions?: { schema_version: number; rows: ObservedTestRegression[]; omitted: number };
   finding_regression_citations?: { schema_version: number; rows: FindingRegressionCitation[]; omitted: number };
   recipes: CheckRecipe[];
-  policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean };
+  policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean; part_proof: boolean };
   errors: string[];
   base_state: "present" | "absent" | "provisional";
   entries: CheckEntryRow[];
@@ -270,6 +286,8 @@ export interface CheckRunResponse {
   notes: string[];
   executor_class: string;
   run_on: string;
+  /** P11-1: this run's outcomes were written to the Snapshot's part-proof record (the one every screen reads). */
+  part_proof?: { recorded: boolean; parts: number } | null;
 }
 
 export type CheckRequestBody =
@@ -285,11 +303,11 @@ export function fetchCheckRecipes(reviewId: string, revisionId = ""): Promise<Ch
   return requestBrowserJson<CheckRecipesProjection>(`${base(reviewId)}${query}`);
 }
 
-/** Execute one planned check entry on one exact Snapshot; `pick` adds it to the plan first. */
-export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false, reverifyFromRevisionId = ""): Promise<CheckRunResponse> {
+/** Execute one planned check entry on one exact Snapshot; `pick` adds it to the plan first; `fresh` reuses nothing (no replay, carry, shared base or CI). */
+export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false, reverifyFromRevisionId = "", partUnitKey = "", fresh = false): Promise<CheckRunResponse> {
   return requestBrowserJson<CheckRunResponse>(`${base(reviewId)}/run`, {
     method: "POST",
-    body: JSON.stringify({ revision_id: revisionId, entry, pick, ...(reverifyFromRevisionId ? { reverify_from_revision_id: reverifyFromRevisionId } : {}) }),
+    body: JSON.stringify({ revision_id: revisionId, entry, pick, ...(reverifyFromRevisionId ? { reverify_from_revision_id: reverifyFromRevisionId } : {}), ...(partUnitKey ? { part_unit_key: partUnitKey } : {}), ...(fresh ? { fresh: true } : {}) }),
   });
 }
 

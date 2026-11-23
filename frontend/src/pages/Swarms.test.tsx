@@ -120,8 +120,9 @@ function installSwarmFetchMock(launchBodies: unknown[]) {
               primary_winner_child_id: null,
               failed_children: [],
               running_children: [],
-              spec_title: "Prompt title",
-              spec_excerpt: "Captured prompt line 1",
+              // An older server sent the spec's Markdown heading as the title.
+              spec_title: "# Prompt title",
+              spec_excerpt: "# Prompt title\n\nCaptured prompt line 1",
               spec_resolution: "default",
               used_program_md: true,
               created_at: "2026-01-01T00:00:00Z",
@@ -410,9 +411,13 @@ describe("Swarms page", () => {
     expect(
       screen.getByRole("heading", { name: /launch swarms/i })
     ).toBeInTheDocument();
+    // Titles and excerpts read without the Markdown "# ", and the excerpt doesn't repeat the title.
+    expect(screen.getAllByText("Prompt title").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/# Prompt title/)).not.toBeInTheDocument();
+    expect(screen.getByText("Captured prompt line 1")).toBeInTheDocument();
   });
 
-  it("folds the Workflow runtime snapshot into a collapsed section", async () => {
+  it("folds the Workflow runtime revision into a collapsed section", async () => {
     installSwarmFetchMock([]);
     vi.spyOn(globalThis, "fetch").mockImplementation(
       (input: RequestInfo | URL) => {
@@ -490,7 +495,7 @@ describe("Swarms page", () => {
                 snapshot_kind: "workspace-current",
                 live_control: false,
                 summary:
-                  "Workflow state is a workspace-local persisted snapshot.",
+                  "Workflow state is a workspace-local persisted revision.",
               },
             })
           );
@@ -504,6 +509,12 @@ describe("Swarms page", () => {
         <Swarms />
       </MemoryRouter>
     );
+
+    // With no runs the page explains swarms and offers one launch button, not "Select a run".
+    expect(await screen.findByText("No swarm runs yet")).toBeInTheDocument();
+    expect(screen.queryByText(/Select a run/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch a swarm" })).toBeInTheDocument();
+    expect(screen.queryByText(/`workflow`/)).not.toBeInTheDocument();
 
     expect(screen.getByText("Workflow (advanced)")).toBeInTheDocument();
     expect(

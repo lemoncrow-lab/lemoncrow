@@ -1,27 +1,21 @@
 import { Button as UiButton } from "../components/ui/button";
-import { useEffect, useState } from "react";
-import { agentColors } from "../lib/agentColors";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, Navigate, useParams } from "react-router-dom";
 import {
   Archive,
   ArrowLeft,
-  Bot,
   Brain,
   Circle,
   Check,
-  CheckCircle,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Command,
   HardDrive,
-  Heart,
-  Microscope,
   Minus,
   Plus,
   Search,
   Terminal,
-  Wrench,
 } from "lucide-react";
 import {
   api,
@@ -40,22 +34,33 @@ import {
   FieldLabel,
   MetricCard,
   PageFrame,
+  PageHeader,
 } from "../components/WorkbenchUI";
 import { fmtDate } from "../lib/format";
 import Telemetry from "./Telemetry";
-import Watchdogs from "./Watchdogs";
 import ProjectionInspector from "./ProjectionInspector";
+
+const INLINE_LINK =
+  "text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground";
+
+function IntegrationsLink({ children = "Integrations" }: { children?: ReactNode }) {
+  return (
+    <Link className={INLINE_LINK} to="/settings/integrations">
+      {children}
+    </Link>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Hosts section
 // ---------------------------------------------------------------------------
 
-function HostIcon({ id }: { id: string }) {
+function HostIcon({ id, label }: { id: string; label: string }) {
   const SRC_MAP: Record<string, string> = {
-    lemoncode: "/logos/hosts/lemoncode.svg",
     claude: "/logos/hosts/claude.svg",
     codex: "/logos/hosts/codex.svg",
-    opencode: "/logos/hosts/opencode.svg",
+    // The square app icon: opencode.svg is the wide wordmark, illegible at this size.
+    opencode: "/logos/hosts/opencode.png",
     copilot: "/logos/hosts/copilot.svg",
     antigravity: "/logos/hosts/antigravity.png",
     cursor: "/logos/hosts/cursor.svg",
@@ -63,7 +68,6 @@ function HostIcon({ id }: { id: string }) {
   };
 
   const ALT_MAP: Record<string, string> = {
-    lemoncode: "LemonCode",
     claude: "Anthropic Claude",
     codex: "OpenAI Codex",
     opencode: "OpenCode",
@@ -76,8 +80,11 @@ function HostIcon({ id }: { id: string }) {
   const src = SRC_MAP[id];
   if (!src) {
     return (
-      <span className="inline-flex h-7 w-7 items-center justify-center border border-border bg-muted text-caption font-semibold text-subtle">
-        ◌
+      <span
+        aria-hidden="true"
+        className="inline-flex h-7 w-7 items-center justify-center border border-border bg-muted text-caption font-semibold text-subtle"
+      >
+        {label.charAt(0).toUpperCase()}
       </span>
     );
   }
@@ -94,34 +101,36 @@ function HostIcon({ id }: { id: string }) {
   );
 }
 
-const HOST_DESC: Record<string, string> = {
-  lemoncode:
-    "LemonCrow's own opencode fork — the host we control end to end, so runtime optimizations land here first.",
-  claude: "Generated AGENTS surface, MCP wrapper, and Claude plugin hooks.",
-  codex:
-    "Codex MCP registration with generated instructions and shared telemetry.",
-  opencode:
-    "OpenCode MCP config with imported session support and local agents.",
-  copilot:
-    "VS Code / Copilot MCP config with custom instructions and shared telemetry.",
-  antigravity:
-    "Antigravity MCP config plus generated AGENTS guidance and agy companion flow.",
-  cursor: "Cursor MCP config with project rules and MCP-first guidance.",
-  hermes: "Global-only Hermes MCP registration through ~/.hermes/config.yaml.",
-};
+// `/hosts` reports "active" once LemonCrow has recorded a session from that host. That is not whether the
+// tool is installed or configured (Integrations shows that), so the label says what it counts.
+function hostSessionLabel(status: string): string {
+  return status === "active" ? "Sessions received" : "No sessions yet";
+}
+
+function HostSessionChip({ status }: { status: string }) {
+  return (
+    <Chip
+      tone={status === "active" ? "success" : "neutral"}
+      className="normal-case tracking-normal"
+    >
+      {hostSessionLabel(status)}
+    </Chip>
+  );
+}
 
 const HOST_SCOPE_BADGES: Record<string, string> = {
-  hermes: "GLOBAL ONLY",
+  hermes: "Global only",
 };
 
+// Same order as the Integrations page.
 const HOST_ORDER = [
-  "lemoncode",
   "claude",
   "codex",
   "opencode",
+  "pi",
   "copilot",
-  "antigravity",
   "cursor",
+  "antigravity",
   "hermes",
 ] as const;
 
@@ -153,19 +162,22 @@ export function HostsSection() {
   });
 
   return (
-    <section className="space-y-3">
-      <h2 className="font-mono text-tag uppercase text-muted-foreground">
-        Hosts
-      </h2>
-      <p className="text-body text-muted-foreground">
-        LemonCrow can configure these host surfaces. Detected hosts are shown
-        first, but unsupported gaps are still visible so you can wire them up
-        directly.
-      </p>
+    <section className="space-y-4">
+      <PageHeader
+        eyebrow="Settings"
+        title="Hosts"
+        description={
+          <>
+            The coding tools LemonCrow works with, and what it adds to each.
+            Tools that have sent LemonCrow sessions are listed first. To connect
+            a tool, use <IntegrationsLink />.
+          </>
+        }
+      />
       {orderedHosts.length === 0 ? (
         <EmptyState
           title="No supported hosts found"
-          description="Host configs are loaded from LemonCrow's integration catalog."
+          description="LemonCrow couldn't load its list of coding tools."
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -173,27 +185,25 @@ export function HostsSection() {
             <Card key={host.host_id} className="bg-background/80 p-4">
               <div className="flex items-start gap-3">
                 <span className="shrink-0">
-                  <HostIcon id={host.host_id} />
+                  <HostIcon id={host.host_id} label={host.label} />
                 </span>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-title font-semibold text-foreground">
                       {host.label}
                     </div>
-                    <Chip
-                      tone={host.status === "active" ? "success" : "neutral"}
-                    >
-                      {host.status === "active" ? "detected" : "not detected"}
-                    </Chip>
+                    <HostSessionChip status={host.status} />
                     {HOST_SCOPE_BADGES[host.host_id] && (
-                      <Chip tone="warning">
+                      <Chip tone="warning" className="normal-case tracking-normal">
                         {HOST_SCOPE_BADGES[host.host_id]}
                       </Chip>
                     )}
                   </div>
-                  <p className="text-heading text-muted-foreground">
-                    {host.description ?? HOST_DESC[host.host_id] ?? ""}
-                  </p>
+                  {host.description && (
+                    <p className="text-heading text-muted-foreground">
+                      {host.description}
+                    </p>
+                  )}
                   {host.install_command && (
                     <div className="space-y-1">
                       <div className="text-caption uppercase tracking-widest text-muted-foreground font-mono">
@@ -218,13 +228,17 @@ export function HostsSection() {
 // Agents section
 // ---------------------------------------------------------------------------
 
-const AGENT_ICON: Record<string, React.ElementType> = {
-  code: Heart,
-  explore: Search,
-  review: CheckCircle,
-  repair: Wrench,
-  research: Microscope,
-};
+/**
+ * A one-line summary of an agent. Its `description` is routing text for the model ("Always use for
+ * read-only implementation planner."), so drop the leading instruction and keep the first sentence.
+ */
+export function agentSummary(description: string): string {
+  const text = description
+    .trim()
+    .replace(/^(?:always\s+)?use\s+(?:this\s+agent\s+)?(?:for|when)\s+/i, "");
+  const first = text.split(/(?<=[.!?])\s+(?=[A-Z])/)[0] ?? text;
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
 
 export function AgentsSection() {
   const [agents, setAgents] = useState<Agent[] | null>(null);
@@ -237,34 +251,29 @@ export function AgentsSection() {
       .catch((e) => console.error("Failed to load agents:", e));
   }, []);
 
-  if (agents === null) {
-    return (
-      <section className="space-y-3">
-        <h2 className="font-mono text-tag uppercase text-muted-foreground">
-          Agents
-        </h2>
-        <p className="text-body text-muted-foreground">Loading…</p>
-      </section>
-    );
-  }
-
   return (
-    <section className="space-y-3">
-      <h2 className="font-mono text-tag uppercase text-muted-foreground">
-        Agents
-      </h2>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {agents.map((agent) => (
-          <AgentCard
-            key={agent.id}
-            agent={agent}
-            expanded={expandedId === agent.id}
-            onToggle={() =>
-              setExpandedId(expandedId === agent.id ? null : agent.id)
-            }
-          />
-        ))}
-      </div>
+    <section className="space-y-4">
+      <PageHeader
+        eyebrow="Settings"
+        title="Agents"
+        description="Specialist agents LemonCrow adds to Claude Code. Open one to see its full instructions."
+      />
+      {agents === null ? (
+        <p className="text-body text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {agents.map((agent) => (
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              expanded={expandedId === agent.id}
+              onToggle={() =>
+                setExpandedId(expandedId === agent.id ? null : agent.id)
+              }
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -278,62 +287,56 @@ function AgentCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const { background: bg, text: color } = agentColors(agent.id, agent.color);
-  const Icon = AGENT_ICON[agent.id] ?? Bot;
   return (
     <DisclosureCard
       open={expanded}
       onToggle={onToggle}
       contentClassName="space-y-4"
       header={
-        <div className="flex min-w-0 items-start gap-4">
-          <div className={`mt-0.5 shrink-0 ${color}`}>
-            <Icon size={20} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-3">
-              <span
-                className={`${bg} ${color} font-mono text-body px-2 py-1 transition-transform inline-flex items-center gap-2 ${
-                  expanded ? "rotate-0" : ""
-                }`}
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <ChevronRight
+              size={14}
+              aria-hidden="true"
+              className={`shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+            />
+            <span className="font-mono text-heading font-semibold text-foreground">
+              {agent.name}
+            </span>
+            {agent.model && (
+              <Chip
+                tone="neutral"
+                className="normal-case tracking-normal text-caption"
               >
-                <ChevronRight
-                  size={14}
-                  className={`transition-transform ${expanded ? "rotate-90" : ""}`}
-                />
-                <span className="font-semibold text-heading">{agent.name}</span>
-              </span>
-              {agent.model && (
-                <Chip
-                  tone="neutral"
-                  className="normal-case tracking-normal text-caption"
-                >
-                  {agent.model}
-                </Chip>
-              )}
-            </div>
-            <p className="text-body text-muted-foreground">{agent.description}</p>
+                {agent.model}
+              </Chip>
+            )}
           </div>
+          <p className="text-body text-muted-foreground">
+            {agentSummary(agent.description)}
+          </p>
         </div>
       }
     >
       {/* Tools */}
-      <div>
-        <FieldLabel className="mb-2">
-          <ChevronRight size={14} className="inline mr-1" /> tools
-        </FieldLabel>
-        <div className="flex flex-wrap gap-1">
-          {agent.tools.map((t) => (
-            <Chip
-              key={t}
-              tone="neutral"
-              className="normal-case tracking-normal"
-            >
-              {t}
-            </Chip>
-          ))}
+      {agent.tools.length > 0 && (
+        <div>
+          <FieldLabel className="mb-2">
+            <ChevronRight size={14} className="inline mr-1" /> tools
+          </FieldLabel>
+          <div className="flex flex-wrap gap-1">
+            {agent.tools.map((t) => (
+              <Chip
+                key={t}
+                tone="neutral"
+                className="normal-case tracking-normal"
+              >
+                {t}
+              </Chip>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content (markdown body) */}
       {agent.content && (
@@ -364,33 +367,42 @@ function AgentCard({
 
 export function SkillsSection() {
   const [skills, setSkills] = useState<Skill[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
-
-  const visibleSkills = skills ?? [];
-  const totalSkillCount = skills === null ? null : visibleSkills.length;
 
   useEffect(() => {
     api
       .skills()
       .then(setSkills)
-      .catch((e) => console.error("Failed to load skills:", e));
+      .catch((e) => {
+        console.error("Failed to load skills:", e);
+        setFailed(true);
+      });
   }, []);
 
+  const count = skills?.length;
+
   return (
-    <section className="space-y-3">
-      <h2 className="font-mono text-tag uppercase text-muted-foreground">
-        Skills
-      </h2>
-      <p className="text-body text-muted-foreground mb-3">
-        {totalSkillCount === null
-          ? "Loading skill catalog..."
-          : `${totalSkillCount} skills available on the public host surface.`}
-      </p>
+    <section className="space-y-4">
+      <PageHeader
+        eyebrow="Settings"
+        title="Skills"
+        description={
+          count === undefined
+            ? "Skills LemonCrow adds to your coding tools."
+            : `${count} ${count === 1 ? "skill" : "skills"} LemonCrow adds to your coding tools. Open one to read its instructions.`
+        }
+      />
       <div className="grid gap-2 sm:grid-cols-2">
-        {visibleSkills.length === 0 ? (
-          <EmptyState title="Loading skills..." className="sm:col-span-2" />
+        {skills === null ? (
+          <EmptyState
+            title={failed ? "Couldn't load skills" : "Loading skills…"}
+            className="sm:col-span-2"
+          />
+        ) : skills.length === 0 ? (
+          <EmptyState title="No skills installed" className="sm:col-span-2" />
         ) : (
-          visibleSkills.map((s) => (
+          skills.map((s) => (
             <SkillCard
               key={s.name}
               skill={{ name: s.name, desc: s.description, icon: Check }}
@@ -417,6 +429,7 @@ function SkillCard({
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const contentId = `skill-instructions-${skill.name}`;
 
   const toggle = async () => {
     if (isExpanded) {
@@ -441,14 +454,19 @@ function SkillCard({
     }
   };
 
+  const actionLabel = loading ? "Loading…" : isExpanded ? "Hide" : "Show";
+
   return (
     <Card className="flex flex-col gap-2 bg-muted/30 p-2">
       <UiButton unstyled
         onClick={toggle}
+        aria-expanded={isExpanded}
+        aria-controls={isExpanded && content ? contentId : undefined}
+        title={`${isExpanded ? "Hide" : "Show"} the instructions for ${skill.name}`}
         className="flex items-start gap-2 w-full text-left"
       >
-        <span className="mt-0.5">
-          <skill.icon size={14} className="text-emerald-300" />
+        <span className="mt-0.5" aria-hidden="true">
+          <skill.icon size={14} className="text-ok" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-label font-mono font-medium text-foreground truncate">
@@ -458,18 +476,18 @@ function SkillCard({
             {skill.desc}
           </div>
         </div>
-        <span className="text-muted-foreground">
-          {loading ? (
-            "..."
-          ) : isExpanded ? (
-            <Minus size={14} />
-          ) : (
-            <Plus size={14} />
-          )}
+        <span className="inline-flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
+          {actionLabel}
+          {!loading &&
+            (isExpanded ? (
+              <Minus size={14} aria-hidden="true" />
+            ) : (
+              <Plus size={14} aria-hidden="true" />
+            ))}
         </span>
       </UiButton>
       {isExpanded && content && (
-        <div className="mt-1 pt-2 border-t border-border">
+        <div id={contentId} className="mt-1 pt-2 border-t border-border">
           <pre className="text-muted-foreground whitespace-pre-wrap font-mono max-h-60 overflow-y-auto bg-background/50 p-2 text-caption">
             {content}
           </pre>
@@ -489,16 +507,31 @@ const NS_MAP: Record<string, string> = {
   rescue: "reasoning",
   verify: "reasoning",
   code: "code_intel",
+  code_search: "code_intel",
   grep: "retrieval",
   search: "retrieval",
+  web_fetch: "retrieval",
   read: "file_io",
   edit: "file_io",
+  bash: "execution",
   shell: "execution",
   sql: "execution",
   trace: "state",
   memory: "state",
   compact: "state",
 };
+
+// The plural shown on a tool's chip for its main enum parameter: "3 operations", not "3 ops".
+const ENUM_PARAM_PLURAL: Record<string, string> = {
+  op: "operations",
+  action: "actions",
+  type: "types",
+};
+
+function enumParamCount(name: string, count: number): string {
+  if (count === 1) return `1 ${name === "op" ? "operation" : name}`;
+  return `${count} ${ENUM_PARAM_PLURAL[name] ?? `${name}s`}`;
+}
 
 const NS_META: Record<
   string,
@@ -577,10 +610,12 @@ export function ToolsSection() {
   if (err) return <Alert tone="destructive" description={err} />;
 
   return (
-    <section className="space-y-3">
-      <h2 className="font-mono text-tag uppercase text-muted-foreground">
-        Tools
-      </h2>
+    <section className="space-y-4">
+      <PageHeader
+        eyebrow="Settings"
+        title="MCP tools"
+        description="The tools LemonCrow gives your coding agents, grouped by what they do. A count beside a tool is how many operations it offers; open the tool to see them."
+      />
       {!mcpTools && <EmptyState title="Loading tools…" />}
       {mcpTools &&
         (() => {
@@ -613,8 +648,9 @@ export function ToolsSection() {
 
           return (
             <div className="grid gap-5 sm:grid-cols-2">
-              <p className="text-caption font-mono text-muted-foreground sm:col-span-2">
-                {deduped.length} tools on stdio server: <code>lc mcp</code>
+              <p className="text-caption text-muted-foreground sm:col-span-2">
+                {deduped.length} {deduped.length === 1 ? "tool" : "tools"}, from
+                LemonCrow's MCP server (<code className="font-mono">lc mcp</code>).
               </p>
               {nsOrder
                 .filter((ns) => groups[ns]?.length)
@@ -665,12 +701,14 @@ export function ToolsSection() {
                                   {tool.tool_name}
                                 </span>
                                 {primaryEnum && (
-                                  <span className="text-caption font-semibold text-cyan-300 border border-cyan-500/30 px-1 py-0.5 mr-2">
-                                    {primaryEnum.options.length}{" "}
-                                    {primaryEnum.name}
-                                    {primaryEnum.options.length === 1
-                                      ? ""
-                                      : "s"}
+                                  <span
+                                    className="text-caption font-semibold text-cyan-300 border border-cyan-500/30 px-1 py-0.5 mr-2"
+                                    title={`${tool.tool_name} takes one of these values for "${primaryEnum.name}". Open it to see them.`}
+                                  >
+                                    {enumParamCount(
+                                      primaryEnum.name,
+                                      primaryEnum.options.length
+                                    )}
                                   </span>
                                 )}
                                 {isDev && (
@@ -795,48 +833,57 @@ function HealthSection() {
   }, []);
 
   const activeHosts = (hosts ?? []).filter((h) => h.status === "active");
+  const serverValue = health
+    ? health.status === "ok"
+      ? "Running"
+      : health.status
+    : healthErr
+      ? "Not answering"
+      : "…";
 
   return (
-    <section className="space-y-3">
-      <h2 className="font-mono text-tag uppercase text-muted-foreground">
-        Health
-      </h2>
-      <p className="text-body text-muted-foreground">
-        Daemon liveness plus per-host adapter status. "Detected" reflects
-        whether LemonCrow has ever seen a session from that host; last import
-        below is the real per-host import time, not detection.
-      </p>
+    <section className="space-y-4">
+      <PageHeader
+        eyebrow="Settings"
+        title="Diagnostics"
+        description={
+          <>
+            Whether the local LemonCrow server is answering, and which coding
+            tools have sent it sessions. A tool shows “No sessions yet” until
+            LemonCrow has recorded a session from it; to connect one, use{" "}
+            <IntegrationsLink />.
+          </>
+        }
+      />
       <div className="grid gap-3 sm:grid-cols-2">
         <MetricCard
-          label="Daemon"
-          value={health?.status ?? (healthErr ? "unreachable" : "…")}
-          detail={health?.timestamp ? fmtDate(health.timestamp) : undefined}
+          label="Local server"
+          value={serverValue}
+          detail={health?.timestamp ? `Checked ${fmtDate(health.timestamp)}` : undefined}
           tone={
             health?.status === "ok" ? "success" : healthErr ? "destructive" : "neutral"
           }
         />
         <MetricCard
-          label="Hosts reporting"
-          value={hosts ? `${activeHosts.length}/${hosts.length}` : "…"}
+          label="Tools with sessions"
+          value={hosts ? `${activeHosts.length} of ${hosts.length}` : "…"}
           tone="info"
         />
       </div>
       {hosts && hosts.length === 0 ? (
-        <EmptyState title="No host adapters found" />
+        <EmptyState title="No coding tools found" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {(hosts ?? []).map((host) => (
             <Card key={host.host_id} className="p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-heading text-foreground">{host.label}</span>
-                <Chip tone={host.status === "active" ? "success" : "neutral"}>
-                  {host.status}
-                </Chip>
+                <HostSessionChip status={host.status} />
               </div>
               <div className="mt-1 text-caption text-muted-foreground">
                 {host.last_import_at
-                  ? `Last import: ${fmtDate(host.last_import_at)} · ${host.imported_session_count ?? 0} sessions`
-                  : "No imports recorded yet."}
+                  ? `Last session imported ${fmtDate(host.last_import_at)} · ${host.imported_session_count ?? 0} sessions`
+                  : "No sessions imported yet."}
               </div>
             </Card>
           ))}
@@ -861,7 +908,7 @@ export type Section =
   | "watchdogs"
   | "projection";
 
-export default function System({ forcedSection }: { forcedSection?: Section }) {
+export default function System({ forcedSection, after }: { forcedSection?: Section; after?: React.ReactNode }) {
   const { section } = useParams<{ section?: string }>();
   const active = forcedSection ?? (section as Section) ?? "health";
 
@@ -878,8 +925,28 @@ export default function System({ forcedSection }: { forcedSection?: Section }) {
       {active === "skills" && <SkillsSection />}
       {active === "mcp" && <ToolsSection />}
       {active === "telemetry" && <Telemetry />}
-      {active === "watchdogs" && <Watchdogs />}
-      {active === "projection" && <ProjectionInspector />}
+      {/* Watchdogs are not built yet, so an old link lands on Advanced instead of a "Coming soon" page. */}
+      {active === "watchdogs" && <Navigate to="/settings/advanced" replace />}
+      {active === "projection" && (
+        <section className="space-y-4">
+          <PageHeader
+            eyebrow="Developer tool"
+            title="Read preview"
+            description={
+              <>
+                Shows what LemonCrow's <code className="font-mono">read</code> tool
+                gives a coding agent for one file. <em>compact</em> is what an agent
+                gets by default, shortened where that saves tokens;{" "}
+                <em>exact</em> is the file as written,{" "}
+                <em>summary</em> caps the line count, and <em>range</em> returns
+                only the lines you choose.
+              </>
+            }
+          />
+          <ProjectionInspector />
+        </section>
+      )}
+      {after}
     </PageFrame>
   );
 }

@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException, Request, status
+from lemoncrow_client.review_words import revision_name
 
+from lemoncrow.pro.capabilities.review import viewer_lens
 from lemoncrow.pro.capabilities.review.derived_records import DerivedRecordLedger, RecordConflict
 from lemoncrow.pro.capabilities.review.review_actions import (
     ROUTE_TIERS,
@@ -66,7 +68,7 @@ class SplitDeps:
     actions: ReviewActionDeps
     """The Review action gates and seams, reused unchanged (same authority as Fix)."""
     cohorts: Callable[[Any, Any], tuple[Sequence[Mapping[str, Any]], Sequence[str]]]
-    """``(cohorts in canonical Brief order, changed file paths)`` for one Snapshot."""
+    """``(cohorts in canonical Brief order, changed file paths)`` for one revision."""
     source_store_root: Path
     collect_reason: str = ""
     """Why produced branches cannot be collected here; empty with a trusted checkout."""
@@ -178,11 +180,27 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         rows.sort(key=lambda item: (str(item[1].get("created_at") or ""), str(item[1].get("id") or "")))
         return rows
 
-    def find(review_id: str, split_id: str) -> tuple[str, dict[str, Any]]:
-        found = ledger.get(revision_ids(review_id), split_id)
-        if found is None or found[1].get("review_id") != review_id:
+    def hidden_of(session: Any) -> frozenset[str]:
+        return frozenset() if actions.hidden is None else actions.hidden(session)
+
+    def find(session: Any, split_id: str) -> tuple[str, dict[str, Any]]:
+        """A split by its id; one a hidden person started is missing, as an id that never existed (R15)."""
+
+        found = viewer_lens.reachable(
+            hidden_of(session),
+            ledger.get(revision_ids(session.id), split_id),
+            lambda found: str(found[1].get("created_by") or ""),
+        )
+        if found is None or found[1].get("review_id") != session.id:
             raise _refuse(status.HTTP_404_NOT_FOUND, "no such split request")
         return found
+
+    def busy_words(busy: Mapping[str, Any], session: Any) -> str:
+        """Which split is in flight, unless a hidden person started it: a refusal that names no one."""
+
+        if str(busy.get("created_by") or "") in hidden_of(session):
+            return "another split of this Review is still in progress"
+        return f"split {busy.get('id')} is still {busy.get('status')}"
 
     def transition(
         review_id: str, revision_id: str, split_id: str, allowed: frozenset[str], **fields: Any
@@ -254,7 +272,7 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
             plan,
             split_id=split_id,
             reviewer_id=str(session.reviewer_id),
-            snapshot_label=f"Snapshot {actions.display_number(revision)}",
+            snapshot_label=revision_name(actions.display_number(revision)),
             change_description=str(session.title or ""),
             directive=directive,
         )
@@ -265,8 +283,10 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
             (item for _rev, item in reversed(records(review_id)) if str(item.get("status")) not in TERMINAL), None
         )
 
-    def preview_payload(revision: Any, prepared: _Prepared, busy: Mapping[str, Any] | None) -> dict[str, Any]:
-        reason = prepared.refusal or (f"split {busy.get('id')} is still {busy.get('status')}" if busy else "")
+    def preview_payload(
+        session: Any, revision: Any, prepared: _Prepared, busy: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        reason = prepared.refusal or (busy_words(busy, session) if busy else "")
         return {
             "revision_id": revision.id,
             "operation_id": prepared.split_id,
@@ -391,7 +411,7 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         plan = SplitPlan.from_wire(record["plan"])
         source_revision = store.get_revision(str(record["source_revision_id"]))
         if source_revision is None:
-            raise SplitCollectError("the Snapshot this split was planned from no longer exists")
+            raise SplitCollectError("the revision this split was planned from no longer exists")
         layers = validate_branches(actions.source_repo, plan)
         count = len(layers)
         created: list[str] = []
@@ -561,8 +581,8 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
                         event_kind="migrated",
                         event_revision_id=str(child["revision_id"]),
                         event_reason=(
-                            f"carried by split from {original.id} Snapshot {source_revision.revision_number - 1}: "
-                            "identical unit and content fingerprint"
+                            f"carried by split from {original.id} {revision_name(source_revision.revision_number - 1)}: "
+                            "identical part and content fingerprint"
                         ),
                     )
                     carried += 1
@@ -588,7 +608,12 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         session = actions.session(review_id)
         numbers = {item.id: actions.display_number(item) for item in store.list_revisions(session.id)}
         return {
-            "splits": [wire(rev, item, numbers) for rev, item in records(session.id)][::-1],
+            "splits": [
+                wire(rev, item, numbers)
+                for rev, item in viewer_lens.visible(
+                    session.id, records(session.id), lambda row: str(row[1].get("created_by") or "")
+                )
+            ][::-1],
             "split_from": split_from(session),
             "collect_available": not deps.collect_reason,
             "collect_reason": deps.collect_reason,
@@ -606,7 +631,7 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         _strict(body, _PREVIEW_KEYS)
         actions.require_expected_revision(body, revision, "preparing this split")
         prepared = await run_in_threadpool(prepare, session, revision, body)
-        return preview_payload(revision, prepared, in_flight(session.id))
+        return preview_payload(session, revision, prepared, in_flight(session.id))
 
     @router.post("/reviews/{review_id}/split-requests")
     async def _post_split_request(review_id: str, request: Request) -> dict[str, Any]:
@@ -622,7 +647,11 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         if not operation_id:
             raise _refuse(status.HTTP_400_BAD_REQUEST, "starting a split requires operation_id from its preview")
         numbers = {item.id: actions.display_number(item) for item in store.list_revisions(session.id)}
-        existing = ledger.get(revision_ids(session.id), operation_id)
+        existing = viewer_lens.reachable(
+            hidden_of(session),
+            ledger.get(revision_ids(session.id), operation_id),
+            lambda found: str(found[1].get("created_by") or ""),
+        )
         if existing is not None:
             return {"split": wire(existing[0], existing[1], numbers), "replayed": True}
         actions.require_expected_revision(body, revision, "starting this split")
@@ -638,7 +667,7 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
             )
         busy = in_flight(session.id)
         if busy is not None:
-            raise _refuse(status.HTTP_409_CONFLICT, f"split {busy.get('id')} is still {busy.get('status')}")
+            raise _refuse(status.HTTP_409_CONFLICT, busy_words(busy, session))
         route = prepared.route
         if route.mode == "copy" and body.get("copied") is not True:
             raise _refuse(
@@ -686,14 +715,14 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         _strict(body, _COLLECT_KEYS)
         if deps.collect_reason:
             raise _refuse(status.HTTP_409_CONFLICT, deps.collect_reason)
-        revision_id, record = find(session.id, split_id)
+        revision_id, record = find(session, split_id)
         expected = str(body.get("expected_plan_digest") or "")
         if expected and expected != str((record.get("plan") or {}).get("digest") or ""):
             raise _refuse(status.HTTP_409_CONFLICT, "this split's plan is not the one you reviewed")
         if actions.latest(session).id != record.get("source_revision_id"):
             raise _refuse(
                 status.HTTP_409_CONFLICT,
-                "this Review has a newer Snapshot than the split was planned from; request a new split",
+                "this Review has a newer revision than the split was planned from; request a new split",
             )
         allowed = COLLECTABLE
         updated_at = str(record.get("updated_at") or "")
@@ -754,7 +783,7 @@ def register_split_request_routes(router: APIRouter, deps: SplitDeps) -> None:
         raw = await request.body()
         body = await _json_object(request) if raw.strip() else {}
         _strict(body, _CANCEL_KEYS)
-        revision_id, _record = find(session.id, split_id)
+        revision_id, _record = find(session, split_id)
         reason = str(body.get("reason") or "").strip()[:500]
         try:
             updated = transition(

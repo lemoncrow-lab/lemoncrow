@@ -131,8 +131,8 @@ DialogContent.displayName = "DialogContent";
 const InHeaderStrip = createContext(false);
 
 /**
- * The Hunk header strip of a dialog or sheet (spec 3.7): 36px, muted, mono. Its title is the object's name and
- * draws as `@@ TITLE @@` (the markers are CSS, so the accessible name is the title text and nothing else); the right
+ * The Hunk header strip of a dialog or sheet (spec 3.7): 36px, muted, mono. Its title is the object's name, plain:
+ * `@@` markers belong only to real diff hunks (review-23.4); the right
  * slot takes at most one badge, meta string or close button. A sentence of explanation goes in `DialogLede`
  * below the strip, not inside it. It grows past 36px only for the 44px touch targets of a coarse pointer.
  */
@@ -160,7 +160,7 @@ export const DialogTitle = forwardRef<
   return (
     <DialogPrimitive.Title
       ref={ref}
-      className={cn(inStrip ? "hunk-label font-medium text-foreground" : "text-heading font-semibold text-foreground", className)}
+      className={cn(inStrip ? "min-w-0 truncate font-medium text-foreground" : "text-heading font-semibold text-foreground", className)}
       {...props}
     />
   );

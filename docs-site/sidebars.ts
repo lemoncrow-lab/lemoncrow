@@ -23,13 +23,30 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "setup/workspaces-lite-quickstart",
+          label: "Workspaces Lite quickstart",
+        },
+        {
+          type: "doc",
           id: "setup/pro-hosted-runtime",
-          label: "LemonCrow Pro: Hosted Runtime",
+          label: "Workspaces Pro: hosted retrieval",
         },
         {
           type: "doc",
           id: "setup/github-action",
           label: "GitHub Action: AI pull request review",
+        },
+        {
+          type: "doc",
+          id: "setup/web-qa",
+        },
+        {
+          type: "doc",
+          id: "setup/proof",
+        },
+        {
+          type: "doc",
+          id: "setup/production-watch",
         },
         {
           type: "doc",
@@ -73,6 +90,10 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "hosts/codex-capabilities",
+        },
+        {
+          type: "doc",
           id: "hosts/copilot-install",
         },
         {
@@ -85,15 +106,15 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "hosts/lemoncode-install",
-        },
-        {
-          type: "doc",
           id: "hosts/cursor-install",
         },
         {
           type: "doc",
           id: "hosts/hermes-install",
+        },
+        {
+          type: "doc",
+          id: "hosts/pi-install",
         },
       ],
     },
@@ -129,7 +150,42 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "reference/environment",
+        },
+        {
+          type: "doc",
+          id: "reference/support-matrix",
+          label: "Support matrix",
+        },
+        {
+          type: "doc",
+          id: "reference/review-preview-plugins",
+        },
+      ],
+    },
+    {
+      label: "Architecture",
+      type: "category",
+      items: [
+        {
+          type: "doc",
           id: "reference/architecture",
+        },
+        {
+          type: "doc",
+          id: "architecture/runtime-lite",
+        },
+        {
+          type: "doc",
+          id: "architecture/oss-private-code-intelligence",
+        },
+        {
+          type: "doc",
+          id: "architecture/review-authority-map",
+        },
+        {
+          type: "doc",
+          id: "architecture/workspaces-and-review",
         },
       ],
     },
@@ -169,30 +225,8 @@ const sidebars: SidebarsConfig = {
         },
       ],
     },
-    {
-      label: "Roadmap & Savings",
-      type: "category",
-      items: [
-        {
-          type: "doc",
-          id: "planning/roadmap",
-        },
-        {
-          type: "doc",
-          id: "planning/savings-optimization-roadmap",
-        },
-      ],
-    },
-    {
-      label: "Operations",
-      type: "category",
-      items: [
-        {
-          type: "doc",
-          id: "operations/production-readiness",
-        },
-      ],
-    },
+    // planning/roadmap, planning/savings-optimization-roadmap and operations/production-readiness
+    // stay published (sync-docs.mjs PUBLIC_DOCS) and reachable by link, but are not in the sidebar.
   ],
 };
 

@@ -18,6 +18,8 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
+from lemoncrow_client.review_words import revision_name
+
 from lemoncrow.pro.capabilities.review.guidance import (
     GuidanceConcern,
     GuidanceDecision,
@@ -399,7 +401,7 @@ def review_questions(
             if definition.decision is not None and ref in definition.decision.relied_checks
         )
         number = _snapshot(row)
-        where = f" on Snapshot {number}" if number is not None else ""
+        where = f" on {revision_name(number)}" if number is not None else ""
         association = (
             f" Linked to: {', '.join(dict.fromkeys(linked))}."
             if linked
@@ -461,7 +463,7 @@ def review_questions(
         for row in cited:
             name = str(row.get("name") or row.get("source_ref") or "check")
             number = _snapshot(row)
-            where = f" on Snapshot {number}" if number is not None else ""
+            where = f" on {revision_name(number)}" if number is not None else ""
             questions.append(
                 ReviewQuestion(
                     id=f"q:check:{item.key}:{name}",
@@ -533,7 +535,7 @@ def _result_line(links: Sequence[EvidenceLink], snapshot_number: int | None) -> 
     failed = sum(link.status == "FAIL" for link in current)
     passed = sum(link.status == "PASS" for link in current)
     number = next((link.snapshot_number for link in current if link.snapshot_number is not None), snapshot_number)
-    where = f" on Snapshot {number}" if number is not None else ""
+    where = f" on {revision_name(number)}" if number is not None else ""
     noun = "linked check" if total == 1 else "linked checks"
     if failed:
         return f"{failed} of {total} {noun} failed{where}"
@@ -582,7 +584,7 @@ def _claim(
     for ref in item.evidence_refs:
         matched = [row for row in checks if _matches(ref, row)]
         if not matched:
-            limitations.append(f"Referenced evidence '{ref}' is not recorded on this Snapshot.")
+            limitations.append(f"Referenced evidence '{ref}' is not recorded on this revision.")
             continue
         for row in matched:
             reported = str(row.get("state") or "") == "session"
@@ -608,9 +610,9 @@ def _claim(
     summary = _evidence_summary(links, concerns=bool(item.concerns))
     if summary == "none":
         if any(link.state == "session" for link in links):
-            limitations.append("Agent-reported during authoring; not observed on this Snapshot.")
+            limitations.append("Agent-reported during authoring; not observed on this revision.")
         if any(link.state not in ("current", "session") for link in links):
-            limitations.append("Linked results are from an earlier Snapshot.")
+            limitations.append("Linked results are from an earlier revision.")
     return Claim(
         id=f"claim:{item.key}",
         statement=INTERNAL_ONLY_TEXT if item.internal_only else (item.after or item.title),
@@ -722,7 +724,8 @@ def _attention_groups(
             f"{item_id}:{attention}",
             "area",
             f"{title} · {_GROUP_ATTENTION_LABEL[attention]}",
-            "Grouped by recorded Review priority, not by a finding or a verified pass.",
+            # The title already names the priority bucket; the Brief states the grouping caveat once per section.
+            "",
             buckets[attention],
             _LEMONCROW_LABEL,
         )

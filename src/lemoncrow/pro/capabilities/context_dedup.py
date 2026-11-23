@@ -181,12 +181,27 @@ def _session_state_path() -> Path | None:
 
 
 def current_epoch() -> int:
-    """Read the session's compaction epoch from session_state (0 when absent)."""
-    path = _session_state_path()
-    if path is None or not path.exists():
+    """Read this Claude window's compaction epoch, not its sibling's."""
+    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
+    try:
+        from lemoncrow.core.foundation.claude_window_state import (
+            claude_window_state_path,
+            read_claude_window_state,
+        )
+
+        path = claude_window_state_path(workspace, os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+        if path.exists():
+            state = read_claude_window_state(workspace, os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+            return int(state.get("compaction_epoch", 0) or 0)
+    except (OSError, ValueError, TypeError, ImportError):
+        pass
+    # Legacy store compatibility: only used until this window has written its
+    # own state file.
+    fallback_path = _session_state_path()
+    if fallback_path is None or not fallback_path.exists():
         return 0
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(fallback_path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return int(data.get("compaction_epoch", 0) or 0)
     except (OSError, ValueError, TypeError):

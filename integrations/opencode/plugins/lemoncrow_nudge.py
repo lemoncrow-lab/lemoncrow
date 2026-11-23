@@ -7,28 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-
-# Stamp the host before any lemoncrow.core import runs. This helper is shared by
-# OpenCode and LemonCode. The LemonCode installer writes a tiny sibling marker
-# because workspace installs intentionally keep the upstream `.opencode/` path,
-# so path naming alone cannot distinguish the fork. Explicit env still wins.
-def _host_name() -> str:
-    explicit = os.environ.get("LEMONCROW_AGENT", "").strip().lower()
-    if explicit in {"opencode", "lemoncode"}:
-        return explicit
-    marker = Path(__file__).with_name(".lemoncrow-host")
-    try:
-        marked = marker.read_text(encoding="utf-8").strip().lower()
-    except OSError:
-        marked = ""
-    if marked in {"opencode", "lemoncode"}:
-        return marked
-    if os.environ.get("LEMONCODE_SESSION_ID") or os.environ.get("LEMONCODE_CLI"):
-        return "lemoncode"
-    return "opencode"
-
-
-HOST = _host_name()
+HOST = "opencode"
 os.environ["LEMONCROW_AGENT"] = HOST
 
 

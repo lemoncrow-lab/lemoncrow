@@ -2,7 +2,7 @@
 
 LemonCrow integrates with GitHub Copilot through VS Code/Copilot instructions, agent/task artifacts, and the host's external-tool connection.
 
-Copilot is an additional supported integration, but the primary Runtime quick-start path is Claude Code, Codex, OpenCode, Cursor, or the managed `lc code` loop.
+Copilot is an additional supported integration, but the primary Workspaces quick-start path is Claude Code, Codex, OpenCode, or Cursor.
 
 ## Source-checkout install
 
@@ -26,7 +26,7 @@ The installer can write:
 ## Verify
 
 ```bash
-make verify
+make verify-full
 lc rt status
 ```
 
@@ -44,6 +44,6 @@ VS Code tasks are shell tasks, so task presets invoke the `lc` CLI directly rath
 
 ## Implementation/debug details
 
-VS Code stores the LemonCrow external-tool connection in an `mcp.json` file. Current installer entries invoke the Runtime protocol adapter under `lc runtime mcp --host copilot`.
+VS Code stores the LemonCrow external-tool connection in an `mcp.json` file. Current installer entries invoke the Workspaces protocol adapter under `lc runtime mcp --host copilot`.
 
 That is a host implementation detail. Users should think of the result as the LemonCrow Copilot integration rather than a separate server they need to manage.

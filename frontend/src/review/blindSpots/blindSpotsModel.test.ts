@@ -22,7 +22,7 @@ describe("blindSpotsModel", () => {
     const result = model(INVESTIGATION_FIXTURES.cleanNoGraph());
     expect(result.counts.items).toBe(0);
     expect(result.categories.filter((row) => row.state === "known")).toEqual([]);
-    expect(category(result, "checks")).toMatchObject({ state: "nothing_open", scope: "1 recorded check on this Snapshot" });
+    expect(category(result, "checks")).toMatchObject({ state: "nothing_open", scope: "1 recorded check on this revision" });
     expect(category(result, "missing_traces").state).toBe("nothing_open");
     // Missing analysis stays visible as its own state, not as zero risk.
     expect(category(result, "unexamined_consumers").state).toBe("not_measured");
@@ -36,13 +36,13 @@ describe("blindSpotsModel", () => {
     const index = category(route, "index_coverage");
     expect(index.state).toBe("known");
     expect(index.items.map((item) => item.title)).toEqual([
-      "Only 3 of 6 changed targets are loaded",
+      "Only 3 of 6 parts are loaded",
       "1 author reference could not be matched",
       "Code graph covers 2 of 5 services",
       "Side-effect register covers changed files only",
     ]);
     expect(index.items.every((item) => item.anchor.level === "review")).toBe(true);
-    expect(index.notMeasured).toEqual(["Code-graph index readiness is not carried by this projection; the Map reports it."]);
+    expect(index.notMeasured).toEqual(["This review does not say how complete the code index is; the Map shows it."]);
     expect(category(route, "external_handoffs").items[0]).toMatchObject({
       title: "storage service: not verified",
       anchor: { level: "target", targetId: "route-handler" },
@@ -83,7 +83,7 @@ describe("blindSpotsModel", () => {
     expect(claim.actions).toEqual(["see_evidence", "ask"]);
   });
 
-  it("reopens only the affected work on a new Snapshot and keeps unrelated accepted judgments", () => {
+  it("reopens only the affected work on a new revision and keeps unrelated accepted judgments", () => {
     const before = model(INVESTIGATION_FIXTURES.billingBefore());
     expect(before.counts.items).toBe(0);
     const after = model(INVESTIGATION_FIXTURES.billingSuperseded());
@@ -94,13 +94,13 @@ describe("blindSpotsModel", () => {
     ]);
     expect(reopened.items[0].actions).toContain("record_decision");
     // Superseded evidence is listed once, from the claim, not again from the delta.
-    expect(category(after, "checks").items.map((item) => item.title)).toEqual(["Evidence from an earlier Snapshot: pytest tests/billing"]);
+    expect(category(after, "checks").items.map((item) => item.title)).toEqual(["Evidence from an earlier revision: pytest tests/billing"]);
     // The accepted currency decision is unaffected and appears nowhere.
     expect(JSON.stringify(after.categories)).not.toContain("currency");
     expect(category(after, "unresolved_human").items).toEqual([]);
   });
 
-  it("updates only the item for a target once it is reviewed", () => {
+  it("updates only the item for a part once it is reviewed", () => {
     const fixture = INVESTIGATION_FIXTURES.paymentRetry();
     expect(category(model(fixture), "uninspected_regions").items.map((item) => item.anchor)).toEqual([
       expect.objectContaining({ targetId: "pay-retry" }),
@@ -115,7 +115,7 @@ describe("blindSpotsModel", () => {
     expect(category(result, "untested_hypotheses").items).toHaveLength(3);
   });
 
-  it("lists unchanged consumers of unreviewed changed targets and reports index readiness from the projection", () => {
+  it("lists unchanged consumers of unreviewed parts and reports index readiness from the projection", () => {
     const fixture = authRefreshWithConsumers({ index_status: "stale", degraded: ["caller_queries_truncated"] });
     const result = model(fixture);
     const consumers = category(result, "unexamined_consumers");
@@ -147,9 +147,46 @@ describe("blindSpotsModel", () => {
     fresh.projection = { ...fresh.projection, context: { ...fresh.projection.context!, consumers: [] } };
     expect(category(model(fresh), "unexamined_consumers").state).toBe("nothing_open");
     expect(category(model(fresh), "index_coverage").items.some((item) => item.id.includes("readiness"))).toBe(false);
+
+    // No index answered, so the Reader searched the code: an empty answer is measured, and says where it came from.
+    const searched = authRefreshWithConsumers({ source: "checkout_search", index_status: "current" });
+    searched.projection = { ...searched.projection, context: { ...searched.projection.context!, consumers: [] } };
+    const found = category(model(searched), "unexamined_consumers");
+    expect(found.state).toBe("nothing_open");
+    expect(found.scope).toBe("0 unchanged consumers found by searching the code");
+    // A symbol the search could not finish is a gap: not measured, never nothing open.
+    const partial = authRefreshWithConsumers({ source: "checkout_search", index_status: "current", unmeasured: [{ path: "src/auth/refresh.ts", symbol: "refreshToken", reason: "past the 400-file bound" }] });
+    partial.projection = { ...partial.projection, context: { ...partial.projection.context!, consumers: [] } };
+    expect(category(model(partial), "unexamined_consumers").state).toBe("not_measured");
   });
 
-  it("stays bounded and deterministic on a 400+ target Review", () => {
+  it("names one analysis limit once and does not credit an index for searched callers", () => {
+    const note = "stopped after 1358 files; some side effects may be reported as new";
+    const fixture = authRefreshWithConsumers({ source: "checkout_search", index_status: "current" });
+    const route = INVESTIGATION_FIXTURES.crossServicePartialIndex().projection.behavior!;
+    fixture.projection = {
+      ...fixture.projection,
+      behavior: {
+        ...route,
+        degraded: [`lemoncrow.static_side_effects: side-effect register truncated: ${note}`, "lemoncrow.other_scan: graph is partial"],
+        static_inventory: {
+          ...route.static_inventory!,
+          degraded: [`side-effect register truncated: ${note}`, "graph is partial"],
+          register: { state: "truncated", note },
+        },
+      },
+    };
+    const coverage = category(model(fixture), "index_coverage");
+    expect(coverage.items.map((item) => item.title)).toEqual([
+      "graph is partial",
+      "Side-effect register was truncated",
+      "Callers found by searching the code",
+    ]);
+    expect(coverage.scope).toContain("callers searched in this revision");
+    expect(coverage.scope).not.toContain("code index");
+  });
+
+  it("stays bounded and deterministic on a 400+ part Review", () => {
     const fixture = INVESTIGATION_FIXTURES.largeReview();
     const result = model(fixture);
     expect(category(result, "uninspected_regions").items).toHaveLength(84);

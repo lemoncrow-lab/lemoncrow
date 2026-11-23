@@ -31,8 +31,10 @@ inventory by producer and subject namespace).
 Honesty limits (stated on every record): the observer runs inside the
 sandbox beside the reviewed code, so a hostile change can suppress or forge
 its own observations; the absence of a runtime side effect is therefore never
-a verified negative. Server-database queries (sidecars) are visible only as
-connections; SQL is captured for SQLite through the Python observer.
+a verified negative. SQL is captured for SQLite through the Python observer.
+A server database is visible as connections only, unless it is a declared
+service that names its SQL engine and the run is in a container: then the
+server's own statement log is read after the run (see ``SERVER_SQL_SOURCES``).
 """
 
 from __future__ import annotations
@@ -64,9 +66,9 @@ from lemoncrow.pro.capabilities.review.behavior import (
     ExecutedScope,
     ExecutorClass,
 )
-from lemoncrow.pro.capabilities.review.execution import SinkCapture, canonical_digest
 from lemoncrow.pro.capabilities.review.run_evidence import RedactionPolicy, protect_text
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence
+from lemoncrow.pro.environment.execution import SinkCapture, canonical_digest
 
 OBSERVATION_VERSION: Final[int] = 1
 RUNTIME_OBSERVATION_MEDIA_TYPE: Final[str] = "application/vnd.lemoncrow.runtime-observation+json;version=1"
@@ -107,12 +109,17 @@ CATEGORY_LABELS: Final[Mapping[str, str]] = {
 ObserverTier = Literal["strace", "hooks"]
 NetworkOutcome = Literal["blocked", "intercepted", "connected", ""]
 
-# lc-debt: SQL is observed through Python's sqlite3 only; a server database (PostgreSQL, MySQL) is a connection,
-# never a captured query. Upgrade: a wire-protocol or driver-level recorder per engine, qualified like the sinks.
+# lc-debt: a server database's statements are read from its own log only for declared `sql` services in a toolchain
+# container; any other server is a connection, never a captured query, and reviewed code holding a privileged login
+# can silence the log. Upgrade: a wire-protocol recorder between the run and the service, qualified like the sinks.
 LIMITATIONS: Final[tuple[str, ...]] = (
     "The observer runs inside the sandbox beside the reviewed code; absence of a side effect is not a verified negative.",
-    "SQL is captured for SQLite through the Python observer; server databases are visible as connections only.",
+    "SQL is captured for SQLite through the Python observer; server databases are visible as connections only, "
+    "except a declared service naming its SQL engine, whose own statement log is read after the run "
+    "(a privileged login can silence that log, so an empty log proves nothing).",
 )
+#: Engines whose statements arrive from the server's own log (never from rows reviewed code could write).
+SERVER_SQL_SOURCES: Final[frozenset[str]] = frozenset({"postgres", "mysql"})
 
 
 # --------------------------------------------------------------------------- #
@@ -469,6 +476,11 @@ class ObservationSetup:
         for key, value in sorted(environment.items()):
             args.extend(("--setenv", key, value))
         return args
+
+    def container_mounts(self) -> tuple[tuple[Path, str, bool], ...]:
+        """``(source, target, read_only)`` of the observer in a toolchain container (hook tier)."""
+
+        return ((self.directory / "assets", OBSERVE_ASSETS_MOUNT, True), (self.out, OBSERVE_OUT_MOUNT, False))
 
     def wrap(self, command: Sequence[str]) -> list[str]:
         if self.tier != "strace":
@@ -1015,11 +1027,15 @@ def build_observation(
     output: str = "",
     sandbox_root: str = "/workspace",
     policy: RedactionPolicy | None = None,
+    server_sql: Sequence[tuple[str, str]] = (),
+    network_reachable: bool = False,
 ) -> RuntimeObservation:
     """Normalize one side's raw observer rows, sink captures and workspace diff into effects.
 
     *raw* is untrusted (written beside reviewed code): every row is bounded,
-    type-checked and redacted here before anything is stored.
+    type-checked and redacted here before anything is stored. *server_sql* is
+    ``(engine, statement)`` from a server's own log, kept apart from *raw* so a
+    row reviewed code wrote can never claim to come from a server.
     """
 
     builder = _Builder(policy)
@@ -1048,7 +1064,8 @@ def build_observation(
             if _loopback(address):
                 continue  # sinks, sidecars and fixtures live on loopback inside the sandbox
             result = str(row.get("result") or "")
-            outcome: NetworkOutcome = "connected" if result == "ok" else "blocked"
+            # The hook fires before the call: on a network with declared services it may well have succeeded.
+            outcome: NetworkOutcome = "connected" if result == "ok" else "" if network_reachable else "blocked"
             target = f"[{address}]" if ":" in address else address
             builder.add(
                 "network",
@@ -1065,9 +1082,9 @@ def build_observation(
             builder.add(
                 "network",
                 f"dns {host}",
-                f"name lookup {host} (no resolver in the sandbox)",
+                f"name lookup {host}" if network_reachable else f"name lookup {host} (no resolver in the sandbox)",
                 source="dns",
-                outcome="blocked",
+                outcome="" if network_reachable else "blocked",
                 count=count,
             )
         elif kind == "write":
@@ -1098,6 +1115,16 @@ def build_observation(
             if edge.callee and edge not in seen_edges:
                 seen_edges.add(edge)
                 trace.append(edge)
+    for engine, statement in server_sql[:MAX_ROWS]:
+        sql = statement[:1000]
+        if engine not in SERVER_SQL_SOURCES or not sql.strip() or _SQL_SKIP_RE.match(sql):
+            continue
+        normalized = normalize_sql(sql)
+        if _DDL_RE.match(sql):
+            builder.add("schema_mutation", normalized, normalized, source=engine)
+        else:
+            query_count += 1
+            builder.add("db_query", normalized, normalized, source=engine)
     for capture in sink_captures:
         method = capture.method or capture.kind
         if capture.kind == "http":
@@ -1548,6 +1575,7 @@ __all__ = [
     "RUNTIME_OBSERVATION_ENTRY",
     "RUNTIME_OBSERVATION_MEDIA_TYPE",
     "RUNTIME_OBSERVATION_PRODUCER_ID",
+    "SERVER_SQL_SOURCES",
     "EffectChange",
     "ObservationDiff",
     "ObservationSetup",

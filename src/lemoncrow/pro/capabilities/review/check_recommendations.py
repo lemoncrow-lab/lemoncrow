@@ -77,10 +77,10 @@ def recommend_checks(
             reason = f"Previous execution {last_verdict}; inspect its failure and rerun only with explicit approval"
             order = 0
         elif previous_failure:
-            reason = f"Previous Snapshot had {prior_verdict}; this Snapshot has no corresponding check result"
+            reason = f"Previous revision had {prior_verdict}; this revision has no corresponding check result"
             order = 1
         elif prior_verdict in {"FAIL", "UNKNOWN"} and last_verdict == "PASS":
-            reason = "Current Snapshot's check passed; previous Snapshot's check failed. Inspect the specific fix."
+            reason = "Current revision's check passed; previous revision's check failed. Inspect the specific fix."
             order = 2
         elif entry.required:
             reason = "Required by the trusted Review policy"

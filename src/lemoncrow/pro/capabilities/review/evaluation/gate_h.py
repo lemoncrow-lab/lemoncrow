@@ -680,10 +680,10 @@ class SandboxExecutor:
 
     def run(self, recipe: CheckRecipe, repository: MaterializedRepository, commit: str) -> RunOutcome:
         from lemoncrow.pro.capabilities.review.check_runs import recipe_runtime
-        from lemoncrow.pro.capabilities.review.execution import ExecutionResult
-        from lemoncrow.pro.capabilities.review.runtimes import CommandRunner
         from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
         from lemoncrow.pro.capabilities.review.surfaces import ReviewSurfaceConfig, SurfaceContext
+        from lemoncrow.pro.environment.execution import ExecutionResult
+        from lemoncrow.pro.environment.runners import CommandRunner
 
         sha = repository.sha(commit)
         revision = ReviewRevision(

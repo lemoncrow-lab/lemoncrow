@@ -51,7 +51,7 @@ from lemoncrow.pro.capabilities.review.differential import (
     parse_report,
     reconcile_claims,
 )
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult, ExecutorClass
+from lemoncrow.pro.capabilities.review.hermetic import DeclaredDependencies
 from lemoncrow.pro.capabilities.review.incremental import (
     CarryDecision,
     CarryKey,
@@ -66,6 +66,8 @@ from lemoncrow.pro.capabilities.review.recipes import (
     TEST_DIFF_ENTRY,
     CheckRecipe,
     RecipeCatalog,
+    changed_listing,
+    changed_listing_refusal,
     entry_recipe_digest,
     head_definition_guard,
 )
@@ -79,13 +81,15 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     stamp_execution_record,
     validation_source_ref,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult, WorkspaceOverlay
 from lemoncrow.pro.capabilities.review.session_models import ReviewChangeProposal, ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.store import DerivedResult, new_evidence_id
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
 from lemoncrow.pro.capabilities.review.test_impact import RecipeSelection
 from lemoncrow.pro.capabilities.review.validity import carry_result
 from lemoncrow.pro.capabilities.review.validity import result as validity_result
+from lemoncrow.pro.environment.execution import ExecutionResult, ExecutorClass
+from lemoncrow.pro.environment.runners import SurfaceRunResult, WorkspaceOverlay
+from lemoncrow.pro.environment.services import ServiceSet
 
 Side = Literal["old", "new"]
 Variant = Literal["run", "probe", "fix"]
@@ -160,6 +164,9 @@ class CheckRunInputs:
     #: given the command). ``None`` or ``""`` means unknown, so no head run is
     #: carried from an earlier Snapshot.
     environment: Callable[[Sequence[str]], str] | None = None
+    #: M2: the record ``lc verify`` left for the head commit (``lemoncrow_client.environment.read_verify_record``),
+    #: or ``None`` when there is none or it cannot be read here (a hosted Review).
+    verify_record: Callable[[], Mapping[str, Any] | None] | None = None
 
 
 @dataclass(slots=True)
@@ -180,6 +187,8 @@ class CheckRunReport:
     #: Trust T1: per plain head attempt (``check:<recipe>#<attempt>``), why it was
     #: carried from an earlier Snapshot or runs again (a ``ValidityResult`` wire).
     validity: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: M2: per environment.toml check, how this run's definition fingerprint compares with lc verify's record.
+    verify: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -202,6 +211,7 @@ class CheckRunReport:
             "carried": self.carried,
             "validity": [self.validity[subject] for subject in sorted(self.validity)],
             "saved_seconds": round(self.saved_seconds, 3),
+            "verify": [self.verify[recipe_id] for recipe_id in sorted(self.verify)],
         }
 
 
@@ -216,17 +226,19 @@ def recipe_runtime(
     variant: Variant = "run",
     overlay: WorkspaceOverlay | None = None,
     tests: Sequence[str] | None = None,
+    changed: Sequence[str] = (),
 ) -> tuple[RuntimeConfigEntry, ReviewSurface]:
     """The runner-registry inputs for one recipe execution (never from head config).
 
     ``tests`` fills a test recipe's ``{tests}`` argument (impact selection);
-    ``None`` runs the whole suite.
+    ``None`` runs the whole suite. ``changed`` fills an environment.toml
+    check's ``{changed}`` argument (``recipes.changed_listing``).
     """
 
     suffix = "" if variant == "run" else f":{variant}"
     runtime_id = f"recipe:{recipe.id}{suffix}"
     values: dict[str, Any] = {
-        "command": list(recipe.fix_command if variant == "fix" else recipe.argv(tests)),
+        "command": list(recipe.fix_command if variant == "fix" else recipe.argv(tests, changed)),
         "root": recipe.cwd,
         "timeout": recipe.timeout,
         "report": bool(recipe.report) and variant != "fix",
@@ -234,6 +246,17 @@ def recipe_runtime(
     }
     if overlay is not None:
         values["overlay"] = overlay
+    definition = recipe.environment
+    if definition is not None:
+        # environment.toml: the services the check needs, and exactly the declared lockfiles for fetch.
+        services = tuple(found for name in recipe.needs if (found := definition.service(name)) is not None)
+        if services:
+            values["services"] = ServiceSet(services)
+        if definition.dependencies:
+            values["dependencies"] = DeclaredDependencies(tuple(item.lockfile for item in definition.dependencies))
+        if definition.toolchain is not None and definition.toolchain.digest:
+            # Pinned only: the run stage runs in this image where a rootless container engine is usable.
+            values["toolchain"] = definition.toolchain
     runtime = RuntimeConfigEntry(id=runtime_id, runner="command", values=values)
     surface = ReviewSurface(
         id=f"recipe:{recipe.id}",
@@ -271,7 +294,8 @@ def attempt_request(
     """Stable identity of one attempt: recipe digest, side, variant, attempt and executor class.
 
     Selected tests are part of the scope, only when a selection applies (every
-    full-suite attempt keeps its identity).
+    full-suite attempt keeps its identity). An environment.toml check's changed
+    paths are part of it too: its ``$LC_CHANGED`` file is an input of the run.
     """
 
     digest = recipe.fix_digest if variant == "fix" else recipe.digest
@@ -282,6 +306,8 @@ def attempt_request(
     }
     if tests is not None:
         scope["tests"] = list(tests)
+    if recipe.paths:
+        scope["changed"] = list(changed_listing(inputs.changed_paths))
     return ValidationRequest(
         review_id=inputs.revision.review_id,
         revision_id=inputs.revision.id,
@@ -904,7 +930,8 @@ class _Run:
                 return reused
         elif plain and side == "new" and fresh != _UNCARRIED_REF:
             self._explain_carry(recipe, attempt, "fresh_run_requested")
-        runtime, surface = recipe_runtime(recipe, variant=variant, overlay=overlay, tests=tests)
+        changed = changed_listing(self.inputs.changed_paths) if recipe.paths else ()
+        runtime, surface = recipe_runtime(recipe, variant=variant, overlay=overlay, tests=tests, changed=changed)
         started = time.monotonic()
         try:
             result = self.run_side(runtime, surface, side)
@@ -992,7 +1019,9 @@ class _Run:
     def recipe(self, recipe: CheckRecipe) -> RecipeDifferential:
         inputs = self.inputs
         policy = inputs.catalog.policy
-        guard = head_definition_guard(recipe, inputs.changed_paths, inputs.read_base, inputs.read_head)
+        # Too many changed paths for $LC_CHANGED: neither side runs (never on a subset).
+        refusal = changed_listing_refusal(changed_listing(inputs.changed_paths)) if recipe.paths else ""
+        guard = refusal or head_definition_guard(recipe, inputs.changed_paths, inputs.read_base, inputs.read_head)
         notes: dict[str, Any] = {"policy": policy.reruns}
         economy: dict[str, Any] = {}
         chosen = self.selection(recipe)
@@ -1007,7 +1036,7 @@ class _Run:
             head = [AttemptOutcome(side="new", attempt=1, status="not_run", reason=guard)]
         else:
             head = self.side_attempts(recipe, "new", reruns=policy.reruns, notes=notes)
-        run_base = "old" in inputs.sides
+        run_base = "old" in inputs.sides and not refusal
         if not run_base and inputs.base_on_demand:
             # The head failed when its last attempt failed (reruns stop at the first pass);
             # a head that passed on a rerun is flaky, which no base run can reclassify.
@@ -1091,6 +1120,7 @@ class _Run:
             autofix=autofix,
             head_guard=guard,
             economy=economy,
+            selected_files=tuple(chosen.tests) if chosen is not None and chosen.mode == "impact" else (),
         )
 
     def _environment_differences(self, attempts: Sequence[AttemptOutcome]) -> tuple[str, ...]:
@@ -1129,7 +1159,7 @@ class _Run:
             if fix.status == "not_run":
                 return {"status": "not_run", "reason": fix.reason or "the autofix command did not run"}, fixes
             if fix.reused and recipe.id not in self.fix_changes:
-                return {"status": "reused", "reason": "autofix already proposed for this Snapshot"}, fixes
+                return {"status": "reused", "reason": "autofix already proposed for this revision"}, fixes
         changes = self.fix_changes.get(recipe.id)
         if changes is None:
             return {
@@ -1254,7 +1284,7 @@ class _Run:
             )
         except ValueError as exc:
             inputs.store.discard_artifact(rel)
-            raise CheckRunSuperseded("check differential Snapshot was superseded before publication") from exc
+            raise CheckRunSuperseded("check differential revision was superseded before publication") from exc
         except Exception:
             inputs.store.discard_artifact(rel)
             raise
@@ -1409,6 +1439,60 @@ def selection_recipe_digest(recipes: Sequence[CheckRecipe], selection: Mapping[s
     return "selected:sha256:" + _hex({"recipes": full, "selection": narrowed})
 
 
+def verify_comparison(inputs: CheckRunInputs, recipe: CheckRecipe, record: Mapping[str, Any] | None) -> dict[str, Any]:
+    """How *recipe*'s definition fingerprint at the head compares with what ``lc verify`` recorded.
+
+    ``{}`` when the recipe is not an environment.toml check or lc verify did not run it at
+    the head commit. The fingerprint is computed from the trusted-base definition and the
+    head's lockfile bytes, the inputs lc verify fingerprinted in its working tree.
+    """
+
+    row = (record or {}).get("checks", {}).get(recipe.id) if record else None
+    if not isinstance(row, Mapping):
+        return {}
+
+    def head_bytes(path: str) -> bytes | None:
+        text = inputs.read_head(path)
+        return text.encode("utf-8", "surrogateescape") if text is not None else None
+
+    expected = recipe.definition_fingerprint(head_bytes)
+    recorded = row.get("fingerprint")
+    if expected is None or recorded is None:
+        return {}
+    differences = list(expected.differences(recorded))
+    dirty = bool(record.get("dirty")) if record else False
+    status = str(row.get("status") or "")
+    if differences:
+        note = f"lc verify {status} at this commit under a different environment ({', '.join(differences)})"
+    else:
+        note = f"lc verify {status} at this commit under the same environment fingerprint"
+    if dirty:
+        note += ", with uncommitted changes in the working tree"
+    return {
+        "recipe_id": recipe.id,
+        "status": status,
+        "same": not differences and not dirty,
+        "differences": differences,
+        "dirty": dirty,
+        "fingerprint": expected.digest,
+        "recorded": recorded.digest,
+        "note": note,
+    }
+
+
+def _granted_needs_note(recipes: Sequence[CheckRecipe]) -> str:
+    """Review grants none of the definition's top-level ``needs``; say so when it asks for any."""
+
+    definition = next((recipe.environment for recipe in recipes if recipe.environment is not None), None)
+    if definition is None or not (definition.needs.network or definition.needs.secrets):
+        return ""
+    asked = [
+        *((f"network hosts {', '.join(definition.needs.network)}",) if definition.needs.network else ()),
+        *((f"secrets {', '.join(definition.needs.secrets)}",) if definition.needs.secrets else ()),
+    ]
+    return f"environment.toml needs {' and '.join(asked)}; Review grants none: checks run offline without secrets"
+
+
 def run_check_entry(inputs: CheckRunInputs, run_side: RunSide, meter: Meter) -> CheckRunReport:
     """Execute one admitted check entry's recipes and publish their results.
 
@@ -1421,9 +1505,25 @@ def run_check_entry(inputs: CheckRunInputs, run_side: RunSide, meter: Meter) -> 
     report = run.report
     if not recipes:
         report.notes.append(f"{inputs.entry_id} has no trusted-base recipe to run")
+    needs_note = _granted_needs_note(recipes)
+    if needs_note:
+        report.notes.append(needs_note)
+    record: Mapping[str, Any] | None = None
+    if inputs.verify_record is not None and any(recipe.environment is not None for recipe in recipes):
+        try:
+            record = inputs.verify_record()
+        except (OSError, ValueError):
+            record = None
     kind_verdicts: dict[str, list[tuple[CheckRecipe, str, str]]] = {}
     not_run: dict[str, list[str]] = {}
     for recipe in recipes:
+        untouched = inputs.catalog.skipped(recipe.id)
+        if untouched:
+            # An environment.toml check runs only when the change touches its paths (as in lc verify).
+            report.notes.append(f"{recipe.id}: not run ({untouched})")
+            if recipe.kind_entry:
+                not_run.setdefault(recipe.kind_entry, []).append(f"{recipe.title or recipe.id}: not run ({untouched})")
+            continue
         chosen = inputs.selection.get(recipe.id)
         if chosen is not None and chosen.mode == "none":
             # Impact selection: no test of this recipe reaches the change (item 19).
@@ -1450,6 +1550,10 @@ def run_check_entry(inputs: CheckRunInputs, run_side: RunSide, meter: Meter) -> 
         )
         report.verdicts[recipe.entry_id] = differential.head_verdict
         report.verdict_evidence[recipe.entry_id] = verdict.id
+        compared = verify_comparison(inputs, recipe, record)
+        if compared:
+            report.verify[recipe.id] = compared
+            report.notes.append(f"{recipe.id}: {compared['note']}")
         if recipe.kind_entry and not inputs.entry_id.startswith(RECIPE_ENTRY_PREFIX):
             kind_verdicts.setdefault(recipe.kind_entry, []).append((recipe, differential.head_verdict, evidence.id))
     targets = (
@@ -1493,4 +1597,5 @@ __all__ = [
     "is_check_entry",
     "recipe_runtime",
     "run_check_entry",
+    "verify_comparison",
 ]

@@ -1,0 +1,5 @@
+{
+  "name": "data-path-express-fixture",
+  "private": true,
+  "dependencies": { "express": "^4.19.2", "typeorm": "^0.3.20" }
+}

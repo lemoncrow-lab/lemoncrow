@@ -3,9 +3,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from lemoncrow.pro.capabilities.verified_work import workspace as workspace_mod
 
 
+@pytest.mark.skipif(not Path("/proc").exists(), reason="the bubblewrap verifier is chosen only where /proc exists")
 def test_verifier_uses_bubblewrap_network_namespace_and_review_limits(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     root = tmp_path / "repo"
     root.mkdir()
@@ -14,7 +17,7 @@ def test_verifier_uses_bubblewrap_network_namespace_and_review_limits(tmp_path: 
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-leak")
     monkeypatch.setattr(workspace_mod.shutil, "which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else None)
 
-    from lemoncrow.pro.capabilities.review import sandbox_limits
+    from lemoncrow.pro.environment import sandbox_limits
 
     def fake_limit_prefix(*, memory_mb: int, timeout: float, tasks: int):
         captured["limits"] = (memory_mb, timeout, tasks)
@@ -55,7 +58,7 @@ def test_verifier_reports_when_network_namespace_is_unavailable(tmp_path: Path, 
     root = tmp_path / "repo"
     root.mkdir()
     monkeypatch.setattr(workspace_mod.shutil, "which", lambda name: None)
-    from lemoncrow.pro.capabilities.review import sandbox_limits
+    from lemoncrow.pro.environment import sandbox_limits
 
     monkeypatch.setattr(sandbox_limits, "limit_prefix_for", lambda **kwargs: [])
     monkeypatch.setattr(

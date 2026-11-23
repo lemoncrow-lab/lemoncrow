@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -264,26 +265,30 @@ class CachedJudge:
         answer = self._asker(request)
         kept, dropped = check_pairs(answer.pairs, request)
         self._dir.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(
-                {
-                    "digest": digest,
-                    "identity": dict(self.identity),
-                    "model_reported": answer.model_reported,
-                    "pairs": [{"comment": c, "golden": g, "reason": r} for c, g, r in kept],
-                    "dropped": dropped,
-                    "asked_with": answer.usage.to_wire(),
-                    "comments": len(request.comments),
-                    "goldens": len(request.goldens),
-                },
-                indent=1,
-                ensure_ascii=False,
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(
+                json.dumps(
+                    {
+                        "digest": digest,
+                        "identity": dict(self.identity),
+                        "model_reported": answer.model_reported,
+                        "pairs": [{"comment": c, "golden": g, "reason": r} for c, g, r in kept],
+                        "dropped": dropped,
+                        "asked_with": answer.usage.to_wire(),
+                        "comments": len(request.comments),
+                        "goldens": len(request.goldens),
+                    },
+                    indent=1,
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         return JudgeVerdict(kept, answer.usage, False, digest, answer.model_reported, dropped)
 
 

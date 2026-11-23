@@ -66,7 +66,7 @@ export default function ReviewContextFiles({ reviewId, revisionNumber, historica
         )}
       </div>
       <p className="mt-1 text-micro leading-4 text-muted-foreground">
-        Unchanged architecture/docs/spec/schema and relationship context. Context-only; opening or loading it never marks a Review target reviewed.
+        Unchanged architecture/docs/spec/schema and relationship context. Context-only; opening or loading it never marks a part reviewed.
       </p>
       {error && <div className="mt-2 text-caption text-amber-300">Context-file index unavailable.</div>}
       {loaded && rows.length === 0 && <div className="mt-2 text-caption text-muted-foreground">No unchanged context files were returned for this Change.</div>}
@@ -83,7 +83,7 @@ export default function ReviewContextFiles({ reviewId, revisionNumber, historica
             >
               <div className="flex min-w-0 gap-2 text-caption">
                 <span className="min-w-0 flex-1 truncate font-mono text-subtle">{row.path}</span>
-                <span className="shrink-0 text-muted-foreground">{row.exactness === "snapshot" ? "Snapshot context" : "current index"}</span>
+                <span className="shrink-0 text-muted-foreground">{row.exactness === "snapshot" ? "Revision context" : "current index"}</span>
               </div>
               {row.reasons?.[0] && <div className="truncate text-micro text-muted-foreground">{row.reasons[0]}</div>}
             </UiButton>

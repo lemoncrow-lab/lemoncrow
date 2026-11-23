@@ -57,7 +57,7 @@ lc review main..feature   # a branch, against main
 ## Continuous capture from a laptop, VPS or coding agent
 
 The standalone hosted/public `lcr` thin client and `lc review` interface also
-support `watch`; neither requires the coding agent's Runtime MCP session:
+support `watch`; neither requires the coding agent's Workspaces MCP session:
 
 ```bash
 # Install the hosted thin client and authenticate once on this machine:
@@ -74,7 +74,7 @@ lcr watch --interval 1 --settle 2 # polling/settle bounds, in seconds
 
 `lc review watch` is the same Review client path. The watcher stays in the
 foreground; Ctrl-C stops it. An initial clean checkout does not create an empty
-Review, but committing after an active Review advances its Snapshot. Review
+Review, but committing after an active Review advances its revision. Review
 updates appear as URLs (or JSON line events with `--json`). It does not execute
 checks and does not open a new browser tab per edit. P1 deduplicates unchanged
 source fingerprints but still submits complete head/base Views at capture; an
@@ -83,7 +83,7 @@ sandbox verification are explicitly later deliverables.
 
 **Data boundary:** only point Review at trusted checkouts whose tracked and
 unignored contents may be sent to the configured server. Do not rely on
-Runtime/MCP sync to discover edits for Review.
+Workspaces/MCP sync to discover edits for Review.
 
 ## What the terminal summary tells you
 
@@ -140,7 +140,7 @@ by its text and surrounding context on every later revision; if more than one
 location could be right, it's reported **orphaned rather than guessed**.
 
 **Send to agent** continues the author's own coding-agent session (Claude Code,
-Codex, OpenCode, LemonCode or Copilot) with your feedback. The checkout and the
+Codex, OpenCode or Copilot) with your feedback. The checkout and the
 feedback can carry untrusted text, so the delivered session keeps that host's
 normal approvals: LemonCrow never adds a bypass, skip-permissions or allow-all
 flag. Codex runs headless in its `workspace-write` sandbox with network access
@@ -193,7 +193,7 @@ rests on. Findings
 are AI hints, never review state: they cannot mark anything reviewed, approve or
 request changes.
 
-In the Reader, AI findings attach to the Snapshot they were produced for. From a
+In the Reader, AI findings attach to the revision they were produced for. From a
 terminal or CI, with no browser and no server:
 
 ```bash
@@ -215,6 +215,39 @@ names it. `lc review config --effective` prints the merged result with the file
 each rule came from, and `lc review config --dry-run --pr 123` shows which rules
 would apply to that pull request. See
 [Importing review rules](../setup/importing-review-rules.md).
+
+### Claude Code's own review
+
+With the LemonCrow plugin installed, `/code-review` in Claude Code lands in
+this branch's Review with no command to type. In the foreground the review
+ends with a findings call (`ReportFindings`). In the background (`@code-review`)
+it ends with the same findings as a JSON block, which the hook reads when the
+subagent stops. Either way the hook prints this branch Review's URL at once and
+hands the report to a detached worker. The worker captures the change as a bare
+`lc review` would, reusing the Snapshot draft the edit hooks keep ready, and
+anchors each finding to its line on that Snapshot:
+
+```
+lc review: 3 findings from Claude code review → http://127.0.0.1:7420/r/…
+```
+
+The hook never waits for the capture; it returns in under a second. The
+findings appear at the URL when the worker finishes: a couple of seconds for a
+working change, about 30 s for a branch 956 files ahead of its remote copy.
+When the branch has no Review yet, the line says a new one is being captured,
+and `lc review status` shows its link.
+
+The report is kept as one summary comment, listing severity, place and
+outcome. Each finding becomes an AI finding on its line, or a comment on the
+Change when its file is not part of the change. A review with no findings
+still prints its URL. A `--fix` run reports again with outcomes: that adds a
+second summary and never opens a finding twice. Only you mark a finding fixed
+or dismissed; the agent's own "fixed" stays a claim in its summary. A finding
+reported already fixed is not opened.
+
+This needs the local server: with a hosted configuration, outside a git
+checkout, or when the server is unreachable, the hook prints nothing and never
+blocks the session.
 
 ## The browser workspace
 
@@ -318,7 +351,7 @@ Trusted-base fixtures are not shipped to hosted workers yet: a hosted run
 with `fixtures` configured is `NOT_RUN` rather than run without them.
 
 The run plan decides what executes. A runtime validation runs only when the
-Snapshot's persisted effective run plan schedules its `surface:<id>` entry
+Revision's persisted effective run plan schedules its `surface:<id>` entry
 and places it on the executor that would run it: `author_machine` runs
 `local` entries, `customer_worker` runs `worker` entries and
 `managed_sandbox` runs `managed` entries. On a self-hosted deployment the
@@ -355,7 +388,7 @@ Every result carries a versioned execution record
   `managed_sandbox` results.
 - `environment_fingerprint`: an opaque digest of the image digest, toolchain,
   lockfile digest and recipe digest.
-- `identity`: subject (exact Snapshot side), executor class and environment
+- `identity`: subject (exact revision side), executor class and environment
   fingerprint. Outcomes are not part of the identity.
 - `verification`: a statement such as
   `managed sandbox · image sha256:… · network denied`, plus the integrations
@@ -401,7 +434,7 @@ deterministic.
 
 ## Side effects, weakened checks and agent actions
 
-On every pushed Snapshot, Review statically reads the changed files (no code is
+On every pushed revision, Review statically reads the changed files (no code is
 run) and adds what it finds to the Brief's **Behavior changes** section and the
 review queue. Each finding is something to judge, not a verdict:
 
@@ -437,9 +470,9 @@ dependency review, and readiness counts each one once.
 The analysis is the `side_effects.static` entry of the run plan. Turning the
 `static` family off in the trusted base `.lemoncrow/review.yaml` skips it; a
 `.lemoncrow/review.yaml` changed by the Review itself cannot turn it off. It
-runs once per Snapshot, and its compute is recorded with the Snapshot.
+runs once per revision, and its compute is recorded with the revision.
 
-Static analysis never runs the reviewed code, so it runs where the Snapshot is
+Static analysis never runs the reviewed code, so it runs where the revision is
 held: on your machine for a local Review, and on the Review server for a hosted
 one. It does not use `run_on`, the managed sandbox or its enablement, and its
 compute is labelled with the place it ran (`local` or `server`). A deployment
@@ -450,7 +483,7 @@ required, that blocks readiness instead of passing silently. A hosted request
 never waits for the analysis: it starts in the background, the Brief shows it
 as running, and readiness stays pending until it finishes.
 
-The estimate for the run plan's minute budget is 0.1 minutes per Snapshot until
+The estimate for the run plan's minute budget is 0.1 minutes per revision until
 the Review has measured a run, then this Review's average measured time per
 run. A per-Review minute ceiling below the estimate limits the entry, and the
 Brief says the inventory was limited by budget.
@@ -465,7 +498,7 @@ lockfile or running tests, is not listed.
 ## Observed side effects and rendering diffs
 
 Static analysis reads code; these entries run it. Each runs only when the
-Snapshot's effective run plan schedules it (when the plan does not, pick it
+Revision's effective run plan schedules it (when the plan does not, pick it
 from the Checks rail), in the same sandbox as every other
 run, with its compute recorded and its plan budget honored. Base and head are
 compared only when both ran under one environment fingerprint; otherwise the
@@ -543,7 +576,7 @@ attestation_keys:
 - The result is refused (422) unless a signature verifies with one of those
   keys. It is never stored as weaker evidence.
 - The Statement decides everything that matters: the commit (exactly one
-  `gitCommit` subject, which must be the Snapshot's head), the status
+  `gitCommit` subject, which must be the revision's head), the status
   (`PASSED`, `FAILED`, or `WARNED`, which counts as unknown) and the check
   identity (the first `configuration` entry's `uri`, else its `name`). The
   body's `title` is display only.
@@ -600,10 +633,10 @@ Hosted, the same projection is `GET /v1/repos/{repo_id}/data-flow`
 Both surfaces call one builder, so the rows match for the same policy.
 
 - The hosted trusted base is the provider-proven base that a Review captured
-  for its Snapshot, never a live read of the default branch. Without
+  for its revision, never a live read of the default branch. Without
   `?review_id=` the answer reads the most recently updated Review;
   `?review_id=<id>` pins one. The `policy.source_generation` row names the
-  Review, its Snapshot, and the captured commit. A Review that is unknown or
+  Review, its revision, and the captured commit. A Review that is unknown or
   belongs to another repository answers 404.
 - A repository that the organization has placed or viewed but never reviewed
   still gets an answer. Operator policy and deployment settings apply, and
@@ -616,7 +649,7 @@ Each row covers one place data can go:
 - intelligence routes and the models they allow;
 - each route's model-data locus (`models.locus.*`) and its provider training
   and retention terms (`models.terms.*`);
-- the models a Snapshot's intelligence runs recorded (`models.recorded`);
+- the models a revision's intelligence runs recorded (`models.recorded`);
 - AI content access;
 - public web for automatic review and Ask;
 - where AI and Runtime checks run (`execution.*`, including
@@ -650,7 +683,7 @@ repository's own restrictions on model access cannot be read, so an
 `ai_denied` rule for `**` (origin "unreadable trusted-base repository Review
 policy") covers every path, and the intelligence route, Ask-model and
 execution-evidence rows are `denied`. Organization content-access rules still
-apply. Hosted, no path of a Snapshot without a provider-proven trusted base
+apply. Hosted, no path of a revision without a provider-proven trusted base
 (a client capture, or a provider base that could not be read) reaches a
 model, and no automatic AI job is queued for it. Locally, a trusted base
 that does not resolve or cannot be read denies model access the same way.
@@ -794,7 +827,7 @@ do not read this document: a customer worker route's trust is its
 One redacted export for support: versions, the protocol window and Review
 capability manifest, the managed worker's protocol compatibility, data-flow
 origins, where review work runs and where model data goes, Gate I and Gate H
-state, Snapshot ids, AI and queued job states, provider operation and webhook
+state, revision ids, AI and queued job states, provider operation and webhook
 delivery ids, degradation reasons and recent errors.
 
 ```bash
@@ -907,7 +940,7 @@ refusal is `quota_support_rate` and is retryable.
 
 Bounds: the 20 most recently updated Reviews across at most 25 repository
 stores, at most 50 AI jobs, 50 queued jobs, 50 provider operations, 20 webhook
-deliveries, 20 degraded Snapshots (16 reasons each), 25 recent errors and the
+deliveries, 20 degraded revisions (16 reasons each), 25 recent errors and the
 data flow of 3 repositories. Each list says whether it was truncated, and the
 bundle states its limits.
 

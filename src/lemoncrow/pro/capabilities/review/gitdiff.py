@@ -23,7 +23,7 @@ import stat
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -52,6 +52,11 @@ EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 MAX_BLOB_BYTES = 512 * 1024
 MAX_DIFF_FILE_BYTES = 1024 * 1024
 MAX_REVIEW_MEDIA_BYTES = 32 * 1024 * 1024
+
+# Changed files up to this size are captured whole, text and binary, so every Snapshot side can be rebuilt
+# exactly (the AI review's snapshot, Ask, Compare). Analysis keeps its own smaller bound, MAX_BLOB_BYTES above.
+# A file over this stays absent and a Snapshot that needs it fails closed.
+MAX_CAPTURE_BLOB_BYTES = 500 * 1024 * 1024
 
 # The largest hunk body ``collect_diff(..., with_patch_text=True)`` will carry.
 # A hunk is one edit; 64 KB is far above any hand-written one and small enough
@@ -610,6 +615,35 @@ def review_branch_base(repo_root: Path, frozen_base: str, *, head: str = "", adv
     if head_commit is None or not advance:
         return frozen
     return _advance_review_base(repo, frozen, head_commit.id, _integration_tips(repo))
+
+
+def default_review_base(repo_root: Path) -> str:
+    """What a bare ``lc review`` diffs against: where this branch leaves the remote, or ``""`` for HEAD.
+
+    The merge base of HEAD and ``origin/<branch>``; with no remote copy of the branch, the merge base with origin's
+    default branch. The review then shows what is not published yet (unpushed commits and uncommitted edits), and not
+    what the remote gained since. Remote-tracking refs are local Git state; this never fetches. ``""`` when there is
+    no such ref, no shared history, or nothing ahead of it.
+    """
+
+    repo = _open_repo(repo_root)
+    head = _head_commit(repo)
+    if head is None:
+        return ""
+    branch = _branch_ref(repo).removeprefix("refs/heads/")
+    names = [f"refs/remotes/origin/{branch}"] if branch else []
+    if not names or repo.references.get(names[0]) is None:
+        default_ref = repo.references.get("refs/remotes/origin/HEAD")
+        names = [default_ref.target] if default_ref is not None and isinstance(default_ref.target, str) else []
+        names.extend(f"refs/remotes/origin/{name}" for name in _INTEGRATION_BRANCHES)
+    for name in dict.fromkeys(names):
+        reference = repo.references.get(name)
+        if reference is None:
+            continue
+        tip = reference.resolve().peel(require_pygit2().Commit)
+        point = repo.merge_base(head.id, tip.id)
+        return str(point) if point is not None and point != head.id else ""
+    return ""
 
 
 def with_review_base(repo_root: Path, frozen_base: str, rng: RevRange, *, advance: bool = False) -> RevRange:
@@ -1842,16 +1876,13 @@ def load_blobs(
     repo_root: Path,
     rng: RevRange,
     files: tuple[ChangedFile, ...],
-    *,
-    max_bytes_by_path: Mapping[str, int] | None = None,
 ) -> BlobPair:
     """Return the exact changed content needed by Review.
 
-    Text sides feed analysis/fingerprints and remain capped by the normal blob
-    limit unless a caller supplies a purpose-specific per-path cap. Review's
-    dependency normalizer uses that seam for supported generated lockfiles so
-    semantic component targets can replace raw lockfile churn without widening
-    the general source-analysis budget.
+    Every side up to ``MAX_CAPTURE_BLOB_BYTES`` is read whole, because the
+    frozen Snapshot is rebuilt from these bytes: one missing file made the whole
+    AI review fail. The impact detectors apply their own ``MAX_BLOB_BYTES``
+    bound to what they are handed (``packet._analysis_blobs``).
 
     A key is present only for a side that was actually read. A skipped or
     unreadable blob is **absent**, never ``""``: an empty string is a file we
@@ -1881,7 +1912,7 @@ def load_blobs(
                     rng,
                     head_tree,
                     item.path,
-                    max_bytes=MAX_REVIEW_MEDIA_BYTES,
+                    max_bytes=MAX_CAPTURE_BLOB_BYTES,
                 )
                 if reason:
                     degraded.add(reason)
@@ -1897,9 +1928,8 @@ def load_blobs(
             # would never have held this row. Skipped like a binary: the row
             # still renders, carrying the two commit ids that *are* its content.
             continue
-        path_max_bytes = (
-            max_bytes_by_path.get(item.path, MAX_BLOB_BYTES) if max_bytes_by_path is not None else MAX_BLOB_BYTES
-        )
+        # Read at call time, not bound as a default, so a test can lower it.
+        path_max_bytes = MAX_CAPTURE_BLOB_BYTES
         old_bytes: bytes | None = None
         new_bytes: bytes | None = None
         old_reason = ""
@@ -1922,6 +1952,42 @@ def load_blobs(
             new[item.path] = _decode(new_bytes)
 
     return BlobPair(old=old, new=new, degraded=tuple(sorted(degraded)), binary_new=binary_new)
+
+
+def wants_old_blob(item: ChangedFile) -> bool:
+    """Whether a changed file's base text is read at capture: it deletes a row, or it is a dependency manifest.
+
+    What a deleted row is anchored to (``units`` hashes the base rows above it and counts earlier copies of the
+    run) is the base file, so a file with no deleted row needs no base read. A manifest or lockfile is read
+    whole even when it only adds lines: its component diff needs both sides. An added, binary or submodule
+    file has no base text.
+    """
+
+    from lemoncrow.pro.capabilities.review.dependencies import supported_path
+
+    if item.status == "added" or item.is_binary or item.submodule_pointer is not None:
+        return False
+    return any(hunk.removed > 0 for hunk in item.hunks) or supported_path(item.path) is not None
+
+
+def load_old_blobs(repo_root: Path, rng: RevRange, files: tuple[ChangedFile, ...]) -> dict[str, str]:
+    """The base text of the files :func:`wants_old_blob` selects: the old side only, never the new side.
+
+    Each blob keeps the per-file ``MAX_BLOB_BYTES`` bound and an unreadable or over-bound one is absent, as in
+    :func:`load_blobs`.
+    """
+
+    wanted = [item for item in files if wants_old_blob(item)]
+    if not wanted:
+        return {}
+    repo = _open_repo(repo_root)
+    base_tree = _tree_for_sha(repo, rng.base_sha)
+    old: dict[str, str] = {}
+    for item in wanted:
+        payload, reason = _blob_from_tree(repo, base_tree, item.old_path or item.path, max_bytes=MAX_BLOB_BYTES)
+        if not reason:
+            old[item.path] = _decode(payload)
+    return old
 
 
 @dataclass(frozen=True)
@@ -2245,6 +2311,7 @@ __all__ = [
     "ITA_EXCLUDED_SIGNAL",
     "ITA_UNDETERMINED_SIGNAL",
     "MAX_BLOB_BYTES",
+    "MAX_CAPTURE_BLOB_BYTES",
     "MAX_HUNK_PATCH_BYTES",
     "STORE_DIR_EXCLUDED_SIGNAL",
     "SUBMODULE_DIRTY_SIGNAL",
@@ -2262,9 +2329,11 @@ __all__ = [
     "is_dirty",
     "legacy_source_fingerprint",
     "load_blobs",
+    "load_old_blobs",
     "resolve_rev_range",
     "review_branch_base",
     "review_branch_commits",
     "source_state",
+    "wants_old_blob",
     "with_review_base",
 ]

@@ -113,7 +113,7 @@ class LiteSemanticClient:
         command = self._command()
         if not command:
             self._disabled_reason = (
-                "optional Runtime Lite semantic helper is unavailable; "
+                "optional Workspaces Lite semantic helper is unavailable; "
                 "install the full LemonCrow lite-semantic extra"
             )
             return None

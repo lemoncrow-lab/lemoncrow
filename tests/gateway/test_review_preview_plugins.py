@@ -13,8 +13,8 @@ import pytest
 
 import lemoncrow.pro.capabilities.review.comparisons as comparisons_module
 import lemoncrow.pro.capabilities.review.previews as previews_module
-import lemoncrow.pro.capabilities.review.sandbox_limits as sandbox_limits
 import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
+import lemoncrow.pro.environment.sandbox_limits as sandbox_limits
 from lemoncrow.pro.capabilities.review.comparisons import (
     COMPARATOR_ENTRYPOINT_GROUP,
     ComparisonRequest,
@@ -349,7 +349,9 @@ def test_failing_provider_is_isolated_with_a_specific_reason(tmp_path: Path) -> 
             return ()
 
     registry = SurfaceRegistry([Broken(), Healthy()])
-    context = SurfaceContext(tmp_path, tmp_path, SimpleNamespace(id="r", review_id="v"), (), load_review_surface_config(tmp_path))  # type: ignore[arg-type]
+    context = SurfaceContext(
+        tmp_path, tmp_path, SimpleNamespace(id="r", review_id="v"), (), load_review_surface_config(tmp_path)
+    )  # type: ignore[arg-type]
 
     surfaces, issues = registry.discover_isolated(context)
 
@@ -366,7 +368,9 @@ def test_configured_provider_that_is_not_installed_is_reported(tmp_path: Path) -
         "version: 1\nsurfaces:\n  - id: tables\n    provider: csv-table\n    paths: [data/*.csv]\n", encoding="utf-8"
     )
     registry = SurfaceRegistry([])
-    context = SurfaceContext(tmp_path, tmp_path, SimpleNamespace(id="r", review_id="v"), (), load_review_surface_config(tmp_path))  # type: ignore[arg-type]
+    context = SurfaceContext(
+        tmp_path, tmp_path, SimpleNamespace(id="r", review_id="v"), (), load_review_surface_config(tmp_path)
+    )  # type: ignore[arg-type]
 
     surfaces, issues = registry.discover_isolated(context)
 
@@ -797,7 +801,7 @@ def test_missing_snapshot_side_is_reported_not_substituted(
     )
 
     assert result.status == "unavailable"
-    assert result.reason == "exact Snapshot old side is unavailable: old revision tree is unavailable"
+    assert result.reason == "exact revision old side is unavailable: old revision tree is unavailable"
     assert renderer.calls == []
 
 

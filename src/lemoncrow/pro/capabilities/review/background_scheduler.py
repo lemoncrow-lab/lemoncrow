@@ -23,7 +23,7 @@ registers one, so they are declared for the local locus only. The discussion
 capabilities are declarations whose executors land with DS0; until then
 scheduling them is refused with ``executor_unavailable``.
 
-**Enablement** is one conjunction: BI0's effective ``intelligence.enabled``
+**Enablement** is one conjunction: BI0's effective policy (on unless an operator layer turned it off)
 and ``intelligence.background.enabled``, and the background envelope's own
 switch (the hosted policy file's ``background`` section, or the local
 settings). Anything off or invalid is a typed refusal, never an exception.
@@ -50,6 +50,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Final, Literal
 
+from lemoncrow.pro.capabilities.review.ai_budget import admission_metering
 from lemoncrow.pro.capabilities.review.background_budget import (
     AdmissionReason,
     BackgroundAdmission,
@@ -111,7 +112,7 @@ class SchedulerReason(StrEnum):
     EXECUTOR_UNAVAILABLE = "executor_unavailable"
     #: BI0's effective intelligence policy or the envelope settings are malformed.
     POLICY_INVALID = "policy_invalid"
-    #: BI0 ``intelligence.enabled`` is off: no model work at all.
+    #: An operator layer turned AI off: no model work at all.
     INTELLIGENCE_DISABLED = "intelligence_disabled"
     #: BI0 ``intelligence.background.enabled`` or the envelope's own switch is off.
     BACKGROUND_DISABLED = "background_disabled"
@@ -130,6 +131,7 @@ PAUSING_REASONS: Final[frozenset[str]] = frozenset(
         AdmissionReason.MANAGED_SPEND_EXHAUSTED.value,
         AdmissionReason.PRIORITY_RESERVED.value,
         AdmissionReason.HOSTED_QUOTA_EXHAUSTED.value,
+        AdmissionReason.AI_BUDGET_EXHAUSTED.value,
         AdmissionReason.POLICY_INVALID.value,
     }
 )
@@ -324,7 +326,7 @@ def background_enablement(
 ) -> SchedulerReason | None:
     """``None`` when background work may run; otherwise the typed reason it may not.
 
-    The conjunction of BI0's ``intelligence.enabled`` and
+    The conjunction of BI0's operator AI-on and
     ``intelligence.background.enabled`` and the envelope's own switch.
     """
 
@@ -579,11 +581,15 @@ def run_admitted(
         if not current():
             calls, cost = 0, 0
             return AdmittedRun("superseded", SchedulerReason.SUPERSEDED.value, admission)
-        outcome = execute(granted)
+        # Calls made inside the execution are added up here and settled with it, never metered a second time.
+        with admission_metering() as metered:
+            outcome = execute(granted)
         used = max(0, int(outcome.calls_used))
         if used > granted:
             _LOG.warning("background %s reported %d model calls over a grant of %d", request.capability, used, granted)
-        calls, cost = min(used, granted), outcome.cost_micros
+        calls, cost = min(used, granted), (
+            outcome.cost_micros if outcome.cost_micros is not None else metered.cost_micros()
+        )
         return AdmittedRun("completed", AdmissionReason.ADMITTED.value, admission, calls, outcome.result)
     finally:
         try:

@@ -17,6 +17,7 @@ import {
   type CheckRecipesProjection,
   type CheckUnit,
 } from "./checkRecipesApi";
+import { revisionName } from "./revisionLabel";
 
 const CLASS_LABEL: Record<string, string> = {
   introduced_failure: "Introduced failure",
@@ -75,7 +76,7 @@ function provenance(attempt: CheckAttempt): string {
   const side = attempt.side === "old" ? "Base" : "Head";
   const took = origin.duration_ms > 0 ? ` (${Math.round(origin.duration_ms / 100) / 10} s not re-run)` : "";
   return origin.kind === "snapshot"
-    ? `${side} reused from Snapshot ${origin.snapshot}: inputs unchanged${took}`
+    ? `${side} reused from ${revisionName(origin.snapshot)}: inputs unchanged${took}`
     : `${side} shared from another Review on the same base, environment and recipe${took}`;
 }
 
@@ -351,7 +352,7 @@ export default function CheckRecipesPanel({
         : undefined;
       setOpenedProof({
         id, pending: false, artifact: artifact ?? null,
-        error: artifact ? "" : "The exact Snapshot evidence is unavailable; no proof has been opened.",
+        error: artifact ? "" : "The exact revision evidence is unavailable; no proof has been opened.",
       });
     } catch {
       if (sequence === proofSequence.current) {
@@ -455,7 +456,7 @@ export default function CheckRecipesPanel({
             reviewId, snapshot.revision_id, item.entry_id, false, preceding,
           );
           if (result.revision_id !== snapshot.revision_id) {
-            throw new Error("the check returned a different Snapshot; remaining checks were not run");
+            throw new Error("the check returned a different revision; remaining checks were not run");
           }
           completed += 1;
         }
@@ -464,7 +465,7 @@ export default function CheckRecipesPanel({
         const detail = reason instanceof Error ? reason.message : "execution was refused";
         throw new Error(`Stopped after ${completed}/${eligibleRechecks.length} checks: ${detail}`);
       }
-      return `Reverified ${completed} trusted check${completed === 1 ? "" : "s"} on this Snapshot`;
+      return `Reverified ${completed} trusted check${completed === 1 ? "" : "s"} on this revision`;
     });
   }
 
@@ -514,7 +515,7 @@ export default function CheckRecipesPanel({
             className="space-y-1 border-t border-border/80 pt-2 text-micro">
             <p className="font-semibold text-foreground">Agent correction captured · fresh verification pending</p>
             <p className="text-muted-foreground">
-              Exact authoring-session Snapshot recorded for {attributedCorrection.subjects[0]?.title ?? "the correction"}.
+              Exact authoring-session revision recorded for {attributedCorrection.subjects[0]?.title ?? "the correction"}.
               {` ${pendingRechecks.length} previously failing trusted check${pendingRechecks.length === 1 ? "" : "s"} need a new result.`}
               {" "}Every run still requires the current plan, trusted recipe and budget admission.
             </p>
@@ -560,7 +561,7 @@ export default function CheckRecipesPanel({
         {(snapshot.observed_regressions?.rows.length ?? 0) > 0 && (
           <section aria-label="Observed test regressions" data-testid="check-observed-regressions" className="space-y-1 border-t border-border/80 pt-2">
             <p className="text-caption font-semibold text-red-300">Observed test regressions · {snapshot.observed_regressions!.rows.length}</p>
-            <p className="text-micro text-muted-foreground">These tests passed on the base and failed on this Snapshot in comparable runs. An assertion failure is not automatically a confirmed code defect.</p>
+            <p className="text-micro text-muted-foreground">These tests passed on the base and failed on this revision in comparable runs. An assertion failure is not automatically a confirmed code defect.</p>
             {snapshot.observed_regressions!.rows.map((row) => (
               <div key={`${row.recipe_id}:${row.subject}`} className="flex min-w-0 flex-wrap gap-x-2 text-micro">
                 <span className="min-w-0 break-all font-mono text-foreground">{row.subject}</span>
@@ -614,7 +615,7 @@ export default function CheckRecipesPanel({
           onClose={() => setFixAutofixId("")}
           onStarted={(action) => {
             setFixAutofixId("");
-            setMessage(`Agent correction ${action.status === "awaiting_snapshot" ? "dispatched" : action.status}; waiting for a new Snapshot`);
+            setMessage(`Agent correction ${action.status === "awaiting_snapshot" ? "dispatched" : action.status}; waiting for a new revision`);
             void load();
           }} />}
         {message && <div className="text-micro text-subtle" role="status">{message}</div>}

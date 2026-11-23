@@ -542,6 +542,18 @@ def test_read_image_file_returns_viewable_image_block(tmp_path: Path, monkeypatc
     assert payload["bytes_total"] == len(_TINY_PNG)
 
 
+def test_read_image_has_no_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A large screenshot still comes back as an image; the model provider decides what it accepts."""
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+    target = tmp_path / "page.png"
+    target.write_bytes(_TINY_PNG + b"\x00" * (5 * 1024 * 1024))
+
+    payload = tool_smart_read({"path": str(target)})
+
+    assert payload["mode"] == "image"
+    assert payload["bytes_total"] > 5 * 1024 * 1024
+
+
 def test_read_text_file_with_stray_non_utf8_bytes_is_lossy_decoded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

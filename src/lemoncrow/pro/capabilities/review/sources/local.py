@@ -28,13 +28,16 @@ import json
 import logging
 import re
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lemoncrow_client.review_words import revision_name
+
 from lemoncrow.core.foundation.optional_modules import module_absent, skip_if_absent
+from lemoncrow.pro.capabilities.review import viewer_lens
 from lemoncrow.pro.capabilities.review.anchors import AnchorResolution, blob_sha, build_anchor, resolve_anchor
 from lemoncrow.pro.capabilities.review.gitdiff import EMPTY_TREE_SHA, RevRange, source_state
 from lemoncrow.pro.capabilities.review.gitdiff import legacy_source_fingerprint as legacy_source_identity
@@ -46,8 +49,15 @@ from lemoncrow.pro.capabilities.review.packet import (
     attach_provenance,
     build_review_packet_with_blobs,
 )
+from lemoncrow.pro.capabilities.review.packet_index import decode_packet_bytes
 from lemoncrow.pro.capabilities.review.relationships import scm_identity_from_source_ref
-from lemoncrow.pro.capabilities.review.revisions import Reconciliation, compute_frontier, file_revision_delta, reconcile
+from lemoncrow.pro.capabilities.review.revisions import (
+    Reconciliation,
+    compute_frontier,
+    file_revision_delta,
+    reconcile,
+    symbol_move_candidates,
+)
 from lemoncrow.pro.capabilities.review.session_models import (
     ANCHOR_SIDES,
     ANNOTATION_KINDS,
@@ -81,7 +91,16 @@ from lemoncrow.pro.capabilities.review.session_models import (
     ThreadTurnOwnerKind,
 )
 from lemoncrow.pro.capabilities.review.store import AnnotationHistoryContext, ReviewStore, new_revision_id
-from lemoncrow.pro.capabilities.review.units import derive_units, tree_fingerprint, unit_key
+from lemoncrow.pro.capabilities.review.units import (
+    bare_fingerprint,
+    derive_units,
+    owns_deleted_text,
+    split_anchor,
+    symbol_body_digest,
+    symbol_header,
+    tree_fingerprint,
+    unit_key,
+)
 from lemoncrow.pro.capabilities.review.validity import mark_event_reason
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
@@ -101,7 +120,24 @@ _MARK_STATE_BY_NAME: dict[str, MarkState] = {
     "needs_changes": "needs_changes",
     "changed_since_review": "changed_since_review",
     "unknown": "unknown",
+    "later": "later",
 }
+
+
+def _marked_generated(store: ReviewStore, repo_root: str, base_sha: str, packet: ReviewPacket) -> frozenset[str]:
+    """Paths the trusted base marks generated, for stamping; nothing where the base is not locally trusted.
+
+    A hosted store takes its trusted base from a provider-proven capture, never from the base a client
+    pushed, so a hosted capture accepts nothing by the generated rule until that base is wired in (P7).
+    """
+
+    if callable(getattr(store, "trusted_base_authority", None)):
+        return frozenset()
+    from lemoncrow.pro.capabilities.review.review_roles import marked_generated_paths
+
+    return marked_generated_paths(
+        repo_root, base_sha, [(item.path, item.old_path, item.status) for item in packet.files]
+    )
 
 
 def encode_packet(packet: ReviewPacket) -> bytes:
@@ -129,14 +165,7 @@ def read_packet_json(store: ReviewStore, revision: ReviewRevision) -> dict[str, 
     caller still has the revision row and must be able to say so.
     """
 
-    raw = store.read_packet_artifact(revision)
-    if raw is None:
-        return None
-    try:
-        decoded = json.loads(gzip.decompress(raw).decode("utf-8"))
-    except (OSError, EOFError, UnicodeDecodeError, ValueError):
-        return None
-    return decoded if isinstance(decoded, dict) else None
+    return decode_packet_bytes(store.read_packet_artifact(revision))
 
 
 def coerce_mark_state(value: str) -> MarkState:
@@ -164,9 +193,9 @@ _PRECOMPUTE = "lemoncrow.pro.capabilities.review.precompute"
 def _canonical_named_ref(repo_root: Path, spec: str) -> str:
     """Return a canonical Git ref name when *spec* is genuinely a named ref.
 
-    Relative expressions and raw SHAs intentionally return ``""``. ``HEAD`` is
-    also excluded even though libgit2 can resolve it to the checked-out branch:
-    a review keyed to the word HEAD would jump branches after checkout.
+    Relative expressions and raw SHAs intentionally return ``""``. So does the
+    word ``HEAD``: a review keyed to it would jump branches after checkout. The
+    head of a range spelled with ``HEAD`` goes through ``_checked_out_branch``.
     """
 
     if not spec or spec == "HEAD":
@@ -182,11 +211,28 @@ def _canonical_named_ref(repo_root: Path, spec: str) -> str:
     return name if name.startswith("refs/") else ""
 
 
+def _checked_out_branch(repo_root: Path) -> str:
+    """The branch ``HEAD`` is attached to, or ``""`` when detached or unborn."""
+
+    try:
+        import pygit2
+
+        repo = pygit2.Repository(str(repo_root.resolve()))
+        if repo.head_is_detached or repo.head_is_unborn:
+            return ""
+        name = str(repo.head.name or "")
+    except Exception:  # libgit2 has several invalid-spec/not-found exceptions.
+        return ""
+    return name if name.startswith("refs/heads/") else ""
+
+
 def _named_range_source_ref(repo_root: Path, rng: RevRange) -> str:
     if rng.mode != "commit_range":
         return ""
     base = _canonical_named_ref(repo_root, rng.base_rev)
-    head = _canonical_named_ref(repo_root, rng.head_rev)
+    # ``main...HEAD`` on a checked-out branch is that branch's review, under the
+    # branch's name, so it is the same Review as ``main...feature``.
+    head = _checked_out_branch(repo_root) if rng.head_rev == "HEAD" else _canonical_named_ref(repo_root, rng.head_rev)
     if not base or not head:
         return ""
     relation = "..." if rng.merge_base_sha else ".."
@@ -204,7 +250,7 @@ def source_ref(rng: RevRange, *, repo_root: Path | None = None) -> str:
     A range whose two endpoints are proven named Git refs is different:
     ``main...feature`` is one evolving review. In that case the session key uses
     canonical ref names so the same ReviewSession receives new ReviewRevisions
-    as the branch moves.
+    as the branch moves. ``main...HEAD`` counts when ``HEAD`` is on a branch.
     """
 
     if rng.mode != "commit_range":
@@ -235,7 +281,8 @@ def _legacy_session_score(store: ReviewStore, session: ReviewSession) -> tuple[i
 
     marks = store.list_marks(session.id)
     human_annotations = sum(1 for item in store.list_annotations(session.id) if item.source == "human")
-    substantive_marks = sum(1 for item in marks if item.state != "unreviewed")
+    # ``later`` is a human setting a part aside, not a judgment: it is not scarce judgment worth preferring.
+    substantive_marks = sum(1 for item in marks if item.state not in ("unreviewed", "later"))
     return (
         human_annotations + substantive_marks,
         human_annotations,
@@ -855,6 +902,13 @@ def resolve_mark_units(
     return MarkResolution(covered, tuple(unit for unit in labelled if unit.unit_key not in landed))
 
 
+LATER_UNAVAILABLE = "Decide later is not available on hosted reviews yet; mark the part reviewed or needs_changes"
+
+
+class LaterMarkUnavailable(ValueError):
+    """The store cannot record ``later`` yet (a hosted store that an older build may still serve)."""
+
+
 def effective_mark_state(unit: ReviewUnit, requested: MarkState) -> MarkState:
     """The state that will actually be stored for *requested* on *unit*.
 
@@ -916,6 +970,8 @@ def mark_unit(
     they formed there. See :meth:`ReviewStore.record_frontier`.
     """
 
+    if state == "later" and not store.later_mark_supported():
+        raise LaterMarkUnavailable(LATER_UNAVAILABLE)
     effective = effective_mark_state(unit, state)
     with store.atomic_review_transition():
         if expected_current_revision_id:
@@ -935,7 +991,9 @@ def mark_unit(
             event_revision_id=revision.id,
             event_reason=note,
         )
-        store.record_frontier(session.id, reviewer_id, revision.id)
+        # Setting a part aside is not a judgment, so it does not move "the revision I last reviewed".
+        if effective != "later":
+            store.record_frontier(session.id, reviewer_id, revision.id)
     return recorded
 
 
@@ -1228,6 +1286,9 @@ def annotate(
     repo_root: Path | None = None,
     annotation_id: str = "",
     expected_current_revision_id: str = "",
+    reconsidered_after_structure: bool = False,
+    structure_revision_id: str = "",
+    hidden_authors: Collection[str] = (),
 ) -> Annotation:
     """Attach a comment to a line range, and capture everything to find it again.
 
@@ -1261,10 +1322,12 @@ def annotate(
     units = store.list_units(revision.id)
     file_unit = next((unit for unit in units if unit.kind == "file" and unit.path == path), None)
     if file_unit is None:
-        raise ValueError(f"{path!r} is not a file in Revision {_snapshot_number(revision)} of this review")
+        raise ValueError(f"{path!r} is not a file in {revision_name(_snapshot_number(revision))} of this review")
 
     if parent_id:
-        parent = store.get_annotation(parent_id)
+        # A parent whose author this person may not read yet is no parent (SPEC 7.1 P9-4 A): a reply would also
+        # reopen and re-version a note she cannot name.
+        parent = viewer_lens.reachable(hidden_authors, store.get_annotation(parent_id), lambda note: note.created_by)
         if parent is None or parent.review_id != session.id:
             raise ValueError(f"no comment {parent_id!r} in this review to reply to")
 
@@ -1284,7 +1347,7 @@ def annotate(
             unit_key=file_unit.unit_key,
         )
         method: AnchorMethod = "file"
-        detail = f"file-level comment on Snapshot {_snapshot_number(revision)}"
+        detail = f"file-level comment on {revision_name(_snapshot_number(revision))}"
     elif new_text is None:
         anchor = AnnotationAnchor(
             path=path,
@@ -1315,7 +1378,7 @@ def annotate(
             symbol_fingerprint=symbol_unit.content_fingerprint if symbol_unit is not None else "",
         )
         method = "identical_blob"
-        detail = f"anchored on Snapshot {_snapshot_number(revision)}"
+        detail = f"anchored on {revision_name(_snapshot_number(revision))}"
 
     with store.atomic_review_transition():
         if expected_current_revision_id:
@@ -1327,6 +1390,8 @@ def annotate(
                 revision_id=revision.id,
                 anchor=anchor,
                 body=body,
+                reconsidered_after_structure=reconsidered_after_structure,
+                structure_revision_id=structure_revision_id,
                 kind=resolved_kind,
                 parent_id=parent_id,
                 created_by=created_by,
@@ -1429,7 +1494,7 @@ def annotate_machine_finding(
     units = store.list_units(revision.id)
     file_unit = next((unit for unit in units if unit.kind == "file" and unit.path == path), None)
     if file_unit is None:
-        raise ValueError(f"{path!r} is not a file in Revision {_snapshot_number(revision)} of this review")
+        raise ValueError(f"{path!r} is not a file in {revision_name(_snapshot_number(revision))} of this review")
     symbol_unit = None if file_level else owning_symbol_unit(units, path, start, end)
     owner = symbol_unit or file_unit
     finding = _machine_finding_fingerprint(
@@ -1503,6 +1568,38 @@ class ReviewClosure:
     unknown_targets: int
     open_comments: int
     orphaned_comments: int
+    later_targets: int = 0
+    """Parts the reviewer left for later: not judged, so they are part of what is still open."""
+
+
+def _owe_reopen_withdrawal(store: ReviewStore, session: ReviewSession) -> None:
+    """Reopening a finished Review owes the withdrawal of an armed Merge when ready.
+
+    Merge when ready is offered only on a finished Review. The withdrawal is
+    recorded as owed before any provider is asked, here where every status
+    change (Reader, CLI, hosted) lands, so a provider failure leaves it owed and
+    retried; the caller holding a provider delegate settles it.
+    """
+
+    from lemoncrow.pro.capabilities.review.landing import landing_metadata, owe_landing_withdrawal
+
+    owed = owe_landing_withdrawal(store, session.id, reason="reopened")
+    if owed is None:
+        return
+    store.record_activity(
+        ReviewActivityEvent(
+            id="",
+            review_id=session.id,
+            revision_id=str(landing_metadata(owed).get("revision_id") or ""),
+            kind="landing.withdrawn",
+            actor_id="lemoncrow",
+            actor_type="unknown",
+            subject_type="landing",
+            subject_id=owed.id,
+            summary="Merge when ready withdrawn: the review was reopened",
+            detail_json=json.dumps({"origin": "reopen", "reason": "reopened"}, sort_keys=True),
+        )
+    )
 
 
 def set_review_status(
@@ -1555,11 +1652,13 @@ def set_review_status(
                 summary=f"Review status: {prior_status} → {status}",
             )
         )
+    if status_changed and status == "open" and prior_status == "finished":
+        _owe_reopen_withdrawal(store, session)
     units = store.list_units(revision.id) if revision is not None else ()
     marks = store.list_marks(session.id, reviewer_id=reviewer_id)
     annotations = store.list_annotations(session.id)
 
-    target_count = reviewed = unreviewed = changed_count = needs = unknown = 0
+    target_count = reviewed = unreviewed = changed_count = needs = unknown = later = 0
     if revision is not None:
         from lemoncrow.pro.capabilities.review.targets import derive_review_targets, review_progress
 
@@ -1584,6 +1683,7 @@ def set_review_status(
         changed_count = progress.changed_since_review
         needs = progress.needs_changes
         unknown = progress.unknown
+        later = progress.later
 
     return ReviewClosure(
         review_id=session.id,
@@ -1594,6 +1694,7 @@ def set_review_status(
         changed_since_review=changed_count,
         needs_changes=needs,
         unknown_targets=unknown,
+        later_targets=later,
         open_comments=sum(
             1 for item in annotations if item.source == "human" and not item.parent_id and item.state == "open"
         ),
@@ -1959,6 +2060,81 @@ def _rename_migrations(
     )
 
 
+@dataclass(frozen=True)
+class _SymbolTexts:
+    """What reading the churned symbols' text yields: name-masked body digests and the decorator lines above each."""
+
+    digests: dict[str, str]
+    headers: dict[str, str]
+
+
+def _symbol_body_digests(
+    store: ReviewStore,
+    review_id: str,
+    previous_revision_id: str,
+    previous_units: Sequence[ReviewUnit],
+    next_blobs: Mapping[str, str],
+    next_units: Sequence[ReviewUnit],
+) -> _SymbolTexts:
+    """Name-masked body digests and decorator headers of the symbols that left or arrived.
+
+    Only the :func:`symbol_move_candidates` are read, and only when there is at least one on each
+    side, so a revision with no symbol churn reads no frozen text. The new revision's text is the
+    *next_blobs* already in memory; only the previous revision's frozen artifact is read from the
+    store. A unit whose text is missing or whose window is empty has no digest and simply cannot be
+    recognised as renamed; one with no readable header cannot be carried as moved.
+    """
+
+    removed, added = symbol_move_candidates(previous_units, next_units)
+    if not removed or not added:
+        return _SymbolTexts({}, {})
+    digests: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    previous_blobs = store.read_blob_artifact(review_id, previous_revision_id) or {}
+    for blobs, units in ((previous_blobs, removed), (next_blobs, added)):
+        lines_by_path: dict[str, list[str]] = {}
+        for unit in units:
+            text = blobs.get(unit.path)
+            if text is None or unit.fingerprint_method == "unknown" or not 0 < unit.start_line <= unit.end_line:
+                continue
+            lines = lines_by_path.setdefault(unit.path, text.splitlines())
+            digest = symbol_body_digest("symbol", unit.symbol, "\n".join(lines[unit.start_line - 1 : unit.end_line]))
+            if digest:
+                digests[unit.unit_key] = digest
+            header = symbol_header(lines, unit.start_line)
+            if header is not None:
+                headers[unit.unit_key] = header
+    return _SymbolTexts(digests, headers)
+
+
+def _prefetch_symbol_digests(
+    store: ReviewStore,
+    review_id: str,
+    reviewer_id: str,
+    record_id: str,
+    next_blobs: Mapping[str, str],
+    next_units: Sequence[ReviewUnit],
+) -> tuple[str, _SymbolTexts]:
+    """``(baseline revision id, texts)`` computed *before* the transition lock is taken.
+
+    The previous revision's frozen artifact is gzip + JSON: reading it while holding the write lock
+    stalls every other writer for as long as that takes. The baseline is read again under the lock
+    (a competing refresh may have moved it), and these digests are used only if it is the same
+    revision -- both sides are immutable, so then they are exactly what the lock would have computed.
+    """
+
+    if not any(unit.kind == "symbol" for unit in next_units):
+        return "", _SymbolTexts({}, {})  # nothing can have arrived as a symbol: read neither marks nor the baseline
+    baseline = baseline_revision(
+        store, review_id, marks=store.list_marks(review_id, reviewer_id=reviewer_id), reviewer_id=reviewer_id
+    )
+    if baseline is None or baseline.id == record_id:
+        return "", _SymbolTexts({}, {})
+    return baseline.id, _symbol_body_digests(
+        store, review_id, baseline.id, store.list_units(baseline.id), next_blobs, next_units
+    )
+
+
 def unseen_units(
     store: ReviewStore,
     review_id: str,
@@ -2046,7 +2222,8 @@ def baseline_revision(
         seen = {durable}
     else:
         recorded = store.list_marks(review_id, reviewer_id=reviewer_id) if marks is None else marks
-        seen = {mark.reviewed_revision_id for mark in recorded if mark.reviewed_revision_id}
+        # A part left for later is not a look at the revision in the sense this baseline means (SPEC P1-2 B).
+        seen = {mark.reviewed_revision_id for mark in recorded if mark.reviewed_revision_id and mark.state != "later"}
     if not seen:
         return None
     baseline: ReviewRevision | None = None
@@ -2146,7 +2323,7 @@ def _incremental_impact_reuse(
         return None
 
     previous_units = tuple(unit for unit in store.list_units(previous.id) if unit.kind == "file")
-    current_units = derive_units(current.packet, current.blobs.new)
+    current_units = derive_units(current.packet, current.blobs.new, old_blobs=current.blobs.old)
     transition = file_revision_delta(previous_units, current_units, renames=_renames(current.packet))
     exact_preserved = set(transition.preserved)
 
@@ -2411,8 +2588,9 @@ def record_revision(
         previous_packet=previous_packet,
         previous_units=previous_units,
         previous_blobs=previous_blobs,
+        old_blobs=blobs.old,
         progress=(
-            (lambda completed, total: progress(f"Building review targets · {completed}/{total} files"))
+            (lambda completed, total: progress(f"Finding changed parts · {completed}/{total} files"))
             if progress is not None
             else None
         ),
@@ -2420,6 +2598,7 @@ def record_revision(
     if progress is not None:
         progress("Deriving dependency targets")
     from lemoncrow.pro.capabilities.review.dependencies import dependency_capture_gaps, derive_dependency_units
+    from lemoncrow.pro.capabilities.review.units import stamp_answers
 
     changed_paths = tuple(item.path for item in packet.files)
     # An existing side whose text is absent was never read (over the cap,
@@ -2435,6 +2614,11 @@ def record_revision(
     )
     if dependency_units:
         units = (*units, *dependency_units)
+    units = stamp_answers(
+        units,
+        packet,
+        marked_generated=_marked_generated(store, str(repo_root), rng.base_sha, packet),
+    )
     capture_degraded = set(nested_snapshot_degraded)
     if dependency_capture_gaps(
         blobs.old, blobs.new, changed_paths, base_expected=base_expected, head_expected=head_expected
@@ -2488,7 +2672,7 @@ def record_revision(
             raise ValueError("could not verify captured Review source before publication") from exc
 
     if progress is not None:
-        progress("Saving snapshot and source artifacts")
+        progress("Saving revision and source artifacts")
     existing = store.find_revision_by_snapshot_identity(session.id, fingerprint, watch_fingerprint)
     if existing is None and watch_fingerprint and legacy_watch and legacy_watch != watch_fingerprint:
         # lc-debt: a Snapshot recorded before the tree-id source identity (2026-10-13)
@@ -2673,6 +2857,9 @@ def record_revision(
         )
         _write_review_commit_note(store, repo_root, session, checkpoint)
 
+    prefetched_baseline, prefetched_texts = _prefetch_symbol_digests(
+        store, session.id, reviewer_id, record.id, blobs.new, stored_units
+    )
     with store.atomic_review_transition():
         current_session = store.get_session(session.id)
         current_revision_id = current_session.current_revision_id if current_session is not None else ""
@@ -2699,12 +2886,31 @@ def record_revision(
         # side supplied the left hand.
         against = baseline_units if baseline is not None and record.id != baseline.id else stored_units
         base_only = _base_only_unit_keys(store, baseline, baseline_units, record, stored_units, marks)
-        result = reconcile(against, stored_units, marks, renames=_renames(packet), base_only=base_only)
+        previous_revision_id = baseline.id if baseline is not None and record.id != baseline.id else record.id
+        texts = (
+            prefetched_texts
+            if prefetched_baseline and prefetched_baseline == previous_revision_id
+            else _symbol_body_digests(store, session.id, previous_revision_id, against, blobs.new, stored_units)
+        )
+        result = reconcile(
+            against,
+            stored_units,
+            marks,
+            renames=_renames(packet),
+            base_only=base_only,
+            body_digests=texts.digests,
+            headers=texts.headers,
+        )
+        moves_by_new = {(move.reviewer_id, move.new_key): move for move in result.moves}
+        followed_old = {(move.reviewer_id, move.old_key): move for move in result.moves}
 
         # Writes before deletes: a renamed unit's mark is inserted under its new key
         # and only then removed from the old one, so a crash between the two leaves
         # a duplicate verdict rather than no verdict at all.
-        previous_key_by_current = {new: old for old, new in result.aliases}
+        # File-rename aliases only: a symbol move names its source per reviewer (``moves_by_new``).
+        previous_key_by_current = {
+            new: old for old, new in result.aliases if (old, new) not in {(m.old_key, m.new_key) for m in result.moves}
+        }
         for mark in result.rebased:
             store.set_mark(
                 mark,
@@ -2714,20 +2920,33 @@ def record_revision(
             )
         # Trust T1: the audited reason names the rule that decided each mark.
         reason_codes = {(reviewer, key): code for reviewer, key, code in result.reasons}
+        for mark in result.restamped:
+            # Kept, not reopened and not a base-only carry: the part shows less than the verdict covered.
+            store.set_mark(
+                mark,
+                event_kind="reconciled",
+                event_revision_id=record.id,
+                event_reason=mark_event_reason(reason_codes.get((mark.reviewer_id, mark.unit_key), "")),
+            )
         for mark in result.reopened:
-            prior_key = previous_key_by_current.get(mark.unit_key, "")
+            move = moves_by_new.get((mark.reviewer_id, mark.unit_key))
+            prior_key = previous_key_by_current.get(mark.unit_key, "") or (move.old_key if move is not None else "")
             code = reason_codes.get((mark.reviewer_id, mark.unit_key), "")
             store.set_mark(
                 mark,
                 event_kind="reconciled",
                 event_revision_id=record.id,
                 event_reason=(
-                    mark_event_reason(code, renamed=bool(prior_key))
-                    if code
+                    mark_event_reason(code, symbol_move=(move.kind, move.previous_path, move.previous_symbol))
+                    if code and move is not None
                     else (
-                        "unit identity migrated across rename and its judgment was reconciled"
-                        if prior_key
-                        else "revision reconciliation changed the judgment state"
+                        mark_event_reason(code, renamed=bool(prior_key))
+                        if code
+                        else (
+                            "unit identity migrated across rename and its judgment was reconciled"
+                            if prior_key
+                            else "revision reconciliation changed the judgment state"
+                        )
                     )
                 ),
                 previous_unit_key=prior_key,
@@ -2745,10 +2964,15 @@ def record_revision(
             # its mark; one it merely lacks keeps the mark for the next draft.
             present = {unit.unit_key for unit in stored_units}
             alias = dict(result.aliases)
-            dropped = tuple(mark for mark in dropped if alias.get(mark.unit_key, mark.unit_key) in present)
+
+            def _lands_on(mark: ReviewMark) -> str:
+                move = followed_old.get((mark.reviewer_id, mark.unit_key))
+                return move.new_key if move is not None else alias.get(mark.unit_key, mark.unit_key)
+
+            dropped = tuple(mark for mark in dropped if _lands_on(mark) in present)
         discarded: list[DiscardedMark] = []
         for mark in dropped:
-            if mark.unit_key in migrated:
+            if mark.unit_key in migrated or (mark.reviewer_id, mark.unit_key) in followed_old:
                 continue
             unit = known.get(mark.unit_key)
             discarded.append(
@@ -2771,7 +2995,7 @@ def record_revision(
                 )
             )
         for mark in dropped:
-            moved = mark.unit_key in migrated
+            moved = mark.unit_key in migrated or (mark.reviewer_id, mark.unit_key) in followed_old
             store.clear_mark(
                 session.id,
                 mark.reviewer_id,
@@ -2941,6 +3165,34 @@ def record_revision(
     )
 
 
+def carry_recorded_anchors(
+    derived: Sequence[ReviewUnit], recorded: Sequence[ReviewUnit], old_blobs: Mapping[str, str]
+) -> list[ReviewUnit]:
+    """*derived*, with a unit that owns deleted text, or sits in an ordered file, keeping its recorded fingerprint.
+
+    Such a unit is anchored in the exact base blob (its deleted text, or its place among the base lines of an ordered
+    file). An enrichment does not carry the blob, and without it the
+    fingerprint is the ``unanchored:`` one, which never equals the anchored one and would rewrite every owned-text
+    part's identity.
+    The recorded value is kept only for the same ``unit_key`` whose body digest (the bare part) is unchanged and
+    whose path has no base blob at hand; anything else keeps what was derived.
+    """
+
+    recorded_by_key = {unit.unit_key: unit.content_fingerprint for unit in recorded}
+    out: list[ReviewUnit] = []
+    for unit in derived:
+        stored = recorded_by_key.get(unit.unit_key)
+        if (
+            (owns_deleted_text(unit.content_fingerprint) or bool(split_anchor(unit.content_fingerprint)[1]))
+            and unit.path not in old_blobs
+            and stored is not None
+            and bare_fingerprint(stored) == bare_fingerprint(unit.content_fingerprint)
+        ):
+            unit = replace(unit, content_fingerprint=stored)
+        out.append(unit)
+    return out
+
+
 # Degraded signals only a capture can observe; an enrichment must carry them.
 _CAPTURE_ONLY_DEGRADED = frozenset({"dependency_side_unavailable", "submodule_snapshot_unavailable"})
 
@@ -3021,9 +3273,19 @@ def enrich_revision_projection(
         # sides. Enrichment sees only the new side, so it carries them as
         # recorded instead of re-deriving (or dropping) them -- and it keeps the
         # capture-time gaps it has no way to recompute.
-        units = (
-            *derive_units(packet, build.blobs.new),
-            *(unit for unit in store.list_units(revision.id) if unit.kind == "dependency"),
+        from lemoncrow.pro.capabilities.review.units import stamp_answers
+
+        stored_units = store.list_units(revision.id)
+        derived_units = carry_recorded_anchors(
+            derive_units(packet, build.blobs.new, old_blobs=build.blobs.old), stored_units, build.blobs.old
+        )
+        units = stamp_answers(
+            (
+                *derived_units,
+                *(unit for unit in stored_units if unit.kind == "dependency"),
+            ),
+            packet,
+            marked_generated=_marked_generated(store, session.repo_root, revision.base_sha, packet),
         )
         capture_degraded = set(revision.degraded) & _CAPTURE_ONLY_DEGRADED
         record = store.update_revision_projection(
@@ -3128,6 +3390,9 @@ def sync_commit_checkpoints(
     reviewer_id: str = "local",
     scope_paths: Sequence[str] = (),
     progress: Callable[[str], None] | None = None,
+    completed_checkpoints: dict[str, tuple[RevRange, RevisionRecording]] | None = None,
+    finalize_commit_sha: str = "",
+    final_project_annotations: bool = True,
 ) -> tuple[ReviewCommit, ...]:
     """Capture the branch's own commits that this Review has not checkpointed yet.
 
@@ -3182,14 +3447,23 @@ def sync_commit_checkpoints(
             with_patch_text=True,
             unbounded_patch_text=True,
         )
-        checkpoint_build = attach_changed_symbols(repo_root, checkpoint_build, limit=limit)
+        if sha == finalize_commit_sha:
+            # When a clean refresh will immediately expose this HEAD as its
+            # final Review, persist complete provenance/impact *now*. A later
+            # idempotent record_revision cannot enrich an existing packet.
+            checkpoint_build = attach_provenance(store_root, repo_root, rng, checkpoint_build, session_id=session_id)
+            previous = store.latest_revision(session.id)
+            reuse = _incremental_impact_reuse(store, previous, checkpoint_build, rng) if previous is not None else None
+            checkpoint_build = attach_impact(repo_root, rng, checkpoint_build, limit=limit, reuse=reuse)
+        else:
+            checkpoint_build = attach_changed_symbols(repo_root, checkpoint_build, limit=limit)
         checkpoint_label = f"Commit checkpoint {index}/{len(owned)}"
 
         def checkpoint_progress(detail: str, prefix: str = checkpoint_label) -> None:
             if progress is not None:
                 progress(f"{prefix} · {detail}")
 
-        record_revision(
+        recording = record_revision(
             store,
             session,
             repo_root,
@@ -3199,13 +3473,24 @@ def sync_commit_checkpoints(
             limit=limit,
             build=checkpoint_build,
             reviewer_id=reviewer_id,
-            project_annotations=False,
-            checkpoint_history=True,
+            project_annotations=final_project_annotations if sha == finalize_commit_sha else False,
+            checkpoint_history=sha != finalize_commit_sha,
             progress=checkpoint_progress if progress is not None else None,
         )
         item = store.find_commit(session.id, sha)
         if item is not None:
             recorded.append(item)
+            if (
+                completed_checkpoints is not None
+                and sha == finalize_commit_sha
+                and index == len(owned)
+                and recording.created
+                and recording.revision.id == item.revision_id
+            ):
+                # Fully reconciled the clean HEAD with authoritative evidence.
+                # Return this exact recording to the caller; repeating it adds
+                # no evidence and would repeat all of the database reads.
+                completed_checkpoints[sha] = (rng, recording)
     return tuple(recorded)
 
 
@@ -3235,6 +3520,10 @@ def refresh(
     if rng is None:
         rng = range_for_session(repo_root, session, scope_paths=scope)
 
+    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
+
+    completed_checkpoints: dict[str, tuple[RevRange, RevisionRecording]] = {}
+    recording: RevisionRecording | None = None
     if session.range_mode in MUTABLE_RANGE_MODES and session.review_base_sha:
         sync_commit_checkpoints(
             store,
@@ -3245,32 +3534,50 @@ def refresh(
             limit=limit,
             reviewer_id=reviewer_id,
             scope_paths=scope,
+            completed_checkpoints=completed_checkpoints,
+            final_project_annotations=project_annotations,
+            # Mutable working-tree ranges have head_sha="" (WORKDIR); use
+            # the real HEAD commit as the only checkpoint eligible for
+            # complete, immutable-commit enrichment.
+            finalize_commit_sha=(
+                resolve_rev_range(repo_root, working_tree=True).base_sha
+                if rng.mode == "working_tree" and not rng.dirty
+                else ""
+            ),
         )
         rng = range_for_session(repo_root, session, scope_paths=scope)
         if rng.mode in MUTABLE_RANGE_MODES and not rng.dirty:
-            from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
-
             current_head = resolve_rev_range(repo_root, working_tree=True).base_sha
             checkpoint = store.find_commit(session.id, current_head) if current_head else None
             if checkpoint is not None:
                 rng = _with_scope(checkpoint_range_for(repo_root, session, current_head), scope)
                 # A supplied mutable-side packet does not describe this immutable
-                # commit range even though the bytes are identical. Rebuild the
-                # cheap exact commit packet so the existing checkpoint is reused.
+                # commit range. A *newly recorded* commit checkpoint does: it
+                # already froze this same commit-range's exact diff and blobs.
+                # Reuse only if its range (base/head/scope) matches exactly.
+                # Existing checkpoints or a raced/advanced branch fall back to
+                # the ordinary fresh packet, never a stale cached snapshot.
                 build = None
+                completed = completed_checkpoints.get(current_head)
+                if completed is not None and completed[0] == rng:
+                    # Commit-range Snapshot and mark/annotation reconciliation
+                    # were completed once above. Never reconstruct a second
+                    # record for a just-persisted identical commit.
+                    recording = completed[1]
 
-    recording = record_revision(
-        store,
-        session,
-        repo_root,
-        rng,
-        store_root=store_root,
-        session_id=session_id,
-        limit=limit,
-        build=build,
-        reviewer_id=reviewer_id,
-        project_annotations=project_annotations,
-    )
+    if recording is None:
+        recording = record_revision(
+            store,
+            session,
+            repo_root,
+            rng,
+            store_root=store_root,
+            session_id=session_id,
+            limit=limit,
+            build=build,
+            reviewer_id=reviewer_id,
+            project_annotations=project_annotations,
+        )
     revision = recording.revision
 
     frontier = compute_frontier(
@@ -3294,7 +3601,9 @@ def refresh(
 
 
 __all__ = [
+    "LATER_UNAVAILABLE",
     "AnchorMove",
+    "LaterMarkUnavailable",
     "RefreshResult",
     "ReviewClosure",
     "RevisionRecording",

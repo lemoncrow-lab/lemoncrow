@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 # Module level: FastAPI resolves the (postponed) ``Request`` annotation from these globals.
 from fastapi import HTTPException, Request, status
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.analysis_common import (
     ANALYSIS_ENTRIES,
     ANALYSIS_MEDIA_TYPE,
@@ -35,7 +36,7 @@ from lemoncrow.pro.capabilities.review.artifact_analyses import (
     run_analysis_entry,
 )
 from lemoncrow.pro.capabilities.review.check_api import CheckRecipeDeps, rerun_budget_seconds
-from lemoncrow.pro.capabilities.review.execution import ExecutorClass
+from lemoncrow.pro.environment.execution import ExecutorClass
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
@@ -97,8 +98,9 @@ def register_artifact_analysis_routes(router: APIRouter, deps: CheckRecipeDeps) 
         revision = deps.requested_revision(session, revision_id) if revision_id else latest
 
         def build() -> dict[str, Any]:
-            catalog = run_plans.analysis_catalog(revision)
-            plan = run_plans.peek(session, revision)
+            with request_reads.reads_once():
+                catalog = run_plans.analysis_catalog(revision)
+                plan = run_plans.peek(session, revision)
             entries = _entries(plan, catalog)
             shown = {row["id"] for row in entries}
             records, verdicts = latest_analyses(store, revision)
@@ -132,7 +134,7 @@ def register_artifact_analysis_routes(router: APIRouter, deps: CheckRecipeDeps) 
                 or item.revision_id != revision.id
                 or item.mime_type != ANALYSIS_MEDIA_TYPE
             ):
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no analysis record on this Snapshot")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no analysis record on this revision")
             record = read_analysis_record(store, item)
             rows = record.get("artifacts") if isinstance(record, Mapping) else None
             row = next(
@@ -171,8 +173,8 @@ def register_artifact_analysis_routes(router: APIRouter, deps: CheckRecipeDeps) 
         )
         from lemoncrow.pro.capabilities.review.run_evidence import DEFAULT_RAW_RETENTION_SECONDS, RedactionPolicy
         from lemoncrow.pro.capabilities.review.run_plan import ManualPick
+        from lemoncrow.pro.capabilities.review.runner_host import revision_snapshot_identity
         from lemoncrow.pro.capabilities.review.runtime_validation import trusted_policy_digest
-        from lemoncrow.pro.capabilities.review.runtimes import revision_snapshot_identity
 
         session = deps.mutable_session(review_id)
         body = await deps.json_object(request)
@@ -180,7 +182,7 @@ def register_artifact_analysis_routes(router: APIRouter, deps: CheckRecipeDeps) 
         if not requested:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="artifact analyses run on an exact revision_id (Snapshot)",
+                detail="artifact analyses run on an exact revision_id (revision)",
             )
         revision = deps.requested_revision(session, requested)
         current = revision.id == deps.latest(session).id

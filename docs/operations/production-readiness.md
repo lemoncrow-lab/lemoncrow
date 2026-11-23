@@ -1,6 +1,6 @@
 # Production and self-hosting notes
 
-Normal local Runtime plugin use does not require a LemonCrow application server. This page is for teams deliberately running Review/shared Runtime APIs, workers, Postgres-backed deployments, hosted services, or Enterprise infrastructure.
+Normal local Workspaces plugin use does not require a LemonCrow application server. This page is for teams deliberately running Review/shared Workspaces APIs, workers, Postgres-backed deployments, hosted services, or Enterprise infrastructure.
 
 ## Before exposing a shared service
 
@@ -13,14 +13,14 @@ Normal local Runtime plugin use does not require a LemonCrow application server.
 
 ## Service commands
 
-Shared HTTP services live under the advanced Runtime namespace:
+Shared HTTP services live under the advanced Workspaces namespace:
 
 ```bash
 lc rt service --help
 lc rt worker --help
 ```
 
-They are separate from the normal local Runtime plugin workflow.
+They are separate from the normal local Workspaces plugin workflow.
 
 ## Storage
 
@@ -120,7 +120,7 @@ Set the monthly and daily ceilings with this in mind.
 
 ## Health and observability
 
-For a shared service, verify the service's documented health/config endpoints and the current CLI status surfaces rather than using old Runtime plugin port checks.
+For a shared service, verify the service's documented health/config endpoints and the current CLI status surfaces rather than using old Workspaces plugin port checks.
 
 Useful commands include:
 
@@ -132,7 +132,7 @@ lc runs --help
 lc usage --help
 ```
 
-Runtime plugin health is checked with `lc rt status`, not by assuming a local Runtime server exists.
+Workspaces plugin health is checked with `lc rt status`, not by assuming a local Workspaces server exists.
 
 ## Logging and evidence
 
@@ -150,7 +150,7 @@ Production logging should:
 - keep local-only trust assumptions local;
 - do not expose a loopback Review/service port as a public remote service;
 - verify secret-redaction and shell/tool supervision tests for the release;
-- keep Enterprise identity/RBAC/policy controls in the Enterprise plane rather than recreating them in local Runtime.
+- keep Enterprise identity/RBAC/policy controls in the Enterprise plane rather than recreating them in local Workspaces.
 
 ## Workers and queued jobs
 
@@ -249,16 +249,16 @@ The audit log sinks are not touched; rotate them in your log pipeline.
 
 ## Fresh-store validation
 
-For changes that affect Runtime storage/index initialization, use the current Runtime init command in an isolated store/worktree:
+For changes that affect Workspaces storage/index initialization, use the current Workspaces init command in an isolated store/worktree:
 
 ```bash
 lc rt init
 ```
 
-Then run the targeted benchmarks/evals relevant to the changed capability. Do not treat a fresh init as proof for unrelated Runtime/Review behavior.
+Then run the targeted benchmarks/evals relevant to the changed capability. Do not treat a fresh init as proof for unrelated Workspaces/Review behavior.
 
 ## Enterprise deployments
 
 Enterprise can run in customer-controlled or dedicated infrastructure and adds identity, policy, managed workspaces, audit, usage attribution, and broader agent-workload controls.
 
-Production deployment details depend on the chosen Enterprise topology; the public local Runtime architecture is not a substitute for those controls.
+Production deployment details depend on the chosen Enterprise topology; the public local Workspaces architecture is not a substitute for those controls.

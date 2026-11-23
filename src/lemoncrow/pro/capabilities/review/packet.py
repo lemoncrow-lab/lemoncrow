@@ -30,6 +30,7 @@ from typing import Any
 from lemoncrow.core.foundation.optional_modules import skip_if_absent
 
 from .gitdiff import (
+    MAX_BLOB_BYTES,
     MAX_HUNK_PATCH_BYTES,
     BlobPair,
     RevRange,
@@ -57,6 +58,27 @@ from .models import (
 #: Its reader of the author's session records, which Runtime writes: a build without it
 #: (the Review-only engine) builds packets with no journal, as when there is no session.
 REVIEW_JOURNAL = "lemoncrow.pro.capabilities.review.journal"
+
+
+def _analysis_blobs(blobs: BlobPair) -> tuple[dict[str, str], dict[str, str], bool]:
+    """The captured text the impact detectors read: source up to ``MAX_BLOB_BYTES``, dependency metadata up to
+    ``MAX_SEMANTIC_DEPENDENCY_BYTES``, as before capture was widened. Returns (old, new, whether any was left out).
+
+    The detectors diff text, and a multi-megabyte generated file costs more than it informs. Sizes are counted in
+    characters of the decoded text, which is never more than its bytes.
+    """
+
+    from .dependencies import MAX_SEMANTIC_DEPENDENCY_BYTES, supported_path
+
+    def bounded(side: Mapping[str, str]) -> dict[str, str]:
+        return {
+            path: text
+            for path, text in side.items()
+            if len(text) <= (MAX_SEMANTIC_DEPENDENCY_BYTES if supported_path(path) is not None else MAX_BLOB_BYTES)
+        }
+
+    old, new = bounded(blobs.old), bounded(blobs.new)
+    return old, new, len(old) < len(blobs.old) or len(new) < len(blobs.new)
 
 
 def _collect_impact(
@@ -471,11 +493,14 @@ def attach_impact(
     except Exception:
         in_head = None
 
+    analysis_old, analysis_new, skipped = _analysis_blobs(blobs)
+    if skipped:
+        degraded.add("large_file_skipped")
     symbols, impact, index_status, impact_degraded = _collect_impact(
         repo_root,
         files,
-        old_blobs=blobs.old,
-        new_blobs=blobs.new,
+        old_blobs=analysis_old,
+        new_blobs=analysis_new,
         limit_sites=limit,
         exists_in_head=in_head,
         reuse=reuse,
@@ -550,19 +575,13 @@ def _build(
         pending_workspace = PendingWorkspaceImpact(repo_root, packet_rows(files))
 
     # One read, whether it feeds the impact pass, the fingerprints, or both.
-    # Supported dependency manifests/lockfiles get a separate bounded allowance
-    # so semantic dependency review can replace generated lockfile churn even
-    # when a lockfile exceeds the generic source-analysis blob cap.
+    # Every changed file is captured whole (up to MAX_CAPTURE_BLOB_BYTES); the
+    # impact pass below still reads only what its detectors are bounded for.
     blobs = BlobPair(old={}, new={}, degraded=())
     if files and (with_impact or keep_blobs):
         if progress is not None:
             progress("source")
-        from .dependencies import MAX_SEMANTIC_DEPENDENCY_BYTES, supported_path
-
-        dependency_caps = {
-            item.path: MAX_SEMANTIC_DEPENDENCY_BYTES for item in files if supported_path(item.path) is not None
-        }
-        blobs = load_blobs(repo_root, rng, files, max_bytes_by_path=dependency_caps)
+        blobs = load_blobs(repo_root, rng, files)
         degraded.update(blobs.degraded)
 
     source_fingerprint = ""
@@ -588,11 +607,14 @@ def _build(
             # Never a precondition: without it the impact pass just keeps the
             # pre-existing, over-broad behaviour.
             in_head = None
+        analysis_old, analysis_new, skipped = _analysis_blobs(blobs)
+        if skipped:
+            degraded.add("large_file_skipped")
         symbols, impact, index_status, impact_degraded = _collect_impact(
             repo_root,
             files,
-            old_blobs=blobs.old,
-            new_blobs=blobs.new,
+            old_blobs=analysis_old,
+            new_blobs=analysis_new,
             limit_sites=limit,
             exists_in_head=in_head,
         )
@@ -709,15 +731,21 @@ def attach_workspace_impact(build: PacketBuild, found: tuple[Mapping[str, Any], 
     any earlier slice and workspace degraded names; the diff, blobs and every other analysis stay as they were.
     """
 
-    from .workspace_impact import FAILED, PARTIAL, UNAVAILABLE
-
-    payload, names = found
-    degraded = (set(build.packet.degraded) - {FAILED, PARTIAL, UNAVAILABLE}) | set(names)
     return PacketBuild(
-        packet=replace(build.packet, workspace_impact=dict(payload), degraded=tuple(sorted(degraded))),
+        packet=packet_with_workspace_impact(build.packet, found),
         blobs=build.blobs,
         source_fingerprint=build.source_fingerprint,
     )
+
+
+def packet_with_workspace_impact(packet: ReviewPacket, found: tuple[Mapping[str, Any], Sequence[str]]) -> ReviewPacket:
+    """*packet* with *found* as its ``workspace_impact`` slice and workspace degraded names (see above)."""
+
+    from .workspace_impact import FAILED, PARTIAL, UNAVAILABLE
+
+    payload, names = found
+    degraded = (set(packet.degraded) - {FAILED, PARTIAL, UNAVAILABLE}) | set(names)
+    return replace(packet, workspace_impact=dict(payload), degraded=tuple(sorted(degraded)))
 
 
 __all__ = [
@@ -729,4 +757,5 @@ __all__ = [
     "attach_workspace_impact",
     "build_review_packet",
     "build_review_packet_with_blobs",
+    "packet_with_workspace_impact",
 ]

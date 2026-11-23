@@ -111,6 +111,23 @@ class CiReport:
         }
 
 
+def recorded_checks(ci: CiReport | None) -> tuple[dict[str, str], str]:
+    """The run record the Risk rule reads: ``({check name: PASS | FAIL}, "")``, or ``({}, what could not be read)``.
+
+    Only a check CI finished on the head counts as run: one still running, skipped, cancelled or neutral has not run.
+    With CI unread or refused, whether any check ran is unknown, never "none ran" (``brief_summary.change_risk``).
+    """
+
+    if ci is None:
+        return {}, "whether any check ran on this commit (CI was not read)"
+    if not ci.readable:
+        return {}, "whether any check ran on this commit (CI could not be read)"
+    done = {check.name: "PASS" if check.outcome == "passed" else "FAIL" for check in ci.of("passed") + ci.of("failed")}
+    if not done and ci.statuses_unreadable:
+        return {}, "whether any check ran on this commit (commit statuses could not be read)"
+    return done, ""
+
+
 def refused(message: str) -> bool:
     """Whether a ``gh api`` error is GitHub refusing the read (a missing permission), not a transient failure."""
 

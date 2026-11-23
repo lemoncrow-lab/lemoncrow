@@ -11,7 +11,6 @@ from typing import Any
 import pytest
 
 from lemoncrow.pro.capabilities.review.behavior import BehaviorContext
-from lemoncrow.pro.capabilities.review.execution import SinkCapture
 from lemoncrow.pro.capabilities.review.flow_traces import ground_flow, observed_traces, sequence_steps
 from lemoncrow.pro.capabilities.review.runtime_observation import (
     ObservedEffect,
@@ -22,6 +21,7 @@ from lemoncrow.pro.capabilities.review.runtime_observation import (
     diff_observations,
     parse_strace,
 )
+from lemoncrow.pro.environment.execution import SinkCapture
 
 ENV = "envfp:sha256:" + "a" * 64
 OTHER_ENV = "envfp:sha256:" + "b" * 64
@@ -392,14 +392,14 @@ def test_flow_steps_are_observed_only_with_a_matching_trace_and_otherwise_stay_i
 
 
 def test_the_entry_budget_limits_later_recipes_and_says_so(tmp_path: Any) -> None:
-    from lemoncrow.pro.capabilities.review.execution import ExecutorClass
     from lemoncrow.pro.capabilities.review.recipes import CheckRecipe
     from lemoncrow.pro.capabilities.review.runtime_observation_runs import (
         ObservationRunInputs,
         run_observation_entry,
     )
-    from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult
     from lemoncrow.pro.capabilities.review.store import ReviewStore
+    from lemoncrow.pro.environment.execution import ExecutorClass
+    from lemoncrow.pro.environment.runners import SurfaceRunResult
 
     store = ReviewStore(tmp_path / "store")
     revision = _store_revision(store, tmp_path)

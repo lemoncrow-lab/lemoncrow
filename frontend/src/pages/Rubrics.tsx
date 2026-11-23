@@ -7,6 +7,9 @@ import {
   X,
 } from "lucide-react";
 import { api, type Rubric } from "../api";
+import { fmtWhen } from "../lib/format";
+import { domainLabel, humanize } from "../lib/labels";
+import { CopyId } from "../components/CopyId";
 import {
   Alert,
   Button,
@@ -16,7 +19,15 @@ import {
   FieldLabel,
   Select,
   SelectItem,
+  SnippetCard,
 } from "../components/WorkbenchUI";
+
+/** The MCP `verify` call an agent makes for this rubric, one key per check it must report. */
+export function verifyCall(rubric: Rubric): string {
+  const names = [...rubric.required_checks, ...rubric.warning_checks];
+  const checks = names.length ? `{${names.map((name) => `${JSON.stringify(name)}: true`).join(", ")}}` : "{}";
+  return `verify(rubric_id=${JSON.stringify(rubric.id)}, checks=${checks})`;
+}
 
 export default function Rubrics() {
   const { rubricId } = useParams<{ rubricId?: string }>();
@@ -53,14 +64,23 @@ export default function Rubrics() {
       ? items
       : items.filter((r) => r.domain === domainFilter);
   }, [items, domainFilter]);
-
+  if (err) return <Alert tone="destructive" description={err} />;
   if (err) return <Alert tone="destructive" description={err} />;
   if (!items) return <EmptyState title="Loading rubrics…" className="p-6" />;
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        title="No rubrics yet"
+        description="Rubrics are the checklists agents verify their work against before calling it done. None are loaded in this workspace."
+        className="p-6"
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        {rubricId && (
+      {rubricId && (
+        <div className="flex items-center gap-3">
           <Button
             onClick={() => navigate("/knowledge/rubrics")}
             size="xs"
@@ -68,13 +88,11 @@ export default function Rubrics() {
           >
             All rubrics
           </Button>
-        )}
-        <FieldLabel>
-          {rubricId
-            ? `Rubric · ${items.find((r) => r.id === rubricId)?.domain || rubricId}`
-            : `Rubrics · ${items.length} total`}
-        </FieldLabel>
-      </div>
+          <FieldLabel>
+            {`Rubric · ${domainLabel(items.find((r) => r.id === rubricId)?.domain || "") || "Untitled"}`}
+          </FieldLabel>
+        </div>
+      )}
 
       {/* Rubrics List */}
       <div className="space-y-4">
@@ -90,7 +108,7 @@ export default function Rubrics() {
             <SelectItem value="all">All domains</SelectItem>
             {domains.map((d) => (
               <SelectItem key={d} value={d}>
-                {d}
+                {domainLabel(d)}
               </SelectItem>
             ))}
           </Select>
@@ -114,7 +132,7 @@ export default function Rubrics() {
                 contentClassName="space-y-4"
                 header={
                   <div className="flex min-w-0 items-start gap-3">
-                    <Chip tone="neutral">{r.domain}</Chip>
+                    <Chip tone="neutral">{domainLabel(r.domain)}</Chip>
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <ChevronRight
@@ -123,8 +141,8 @@ export default function Rubrics() {
                             isExpanded ? "rotate-90" : ""
                           }`}
                         />
-                        <h3 className="font-semibold text-foreground">
-                          {r.id}
+                        <h3 className="font-semibold text-foreground" title={r.id}>
+                          {humanize(r.id.replace(/^rubric_/, ""))}
                         </h3>
                       </div>
                       <p className="text-body text-muted-foreground">
@@ -140,9 +158,7 @@ export default function Rubrics() {
                       <FieldLabel className="mb-2">
                         <ChevronRight size={14} className="inline mr-1" /> ID
                       </FieldLabel>
-                      <code className="text-caption bg-background px-2 py-1 text-muted-foreground font-mono border border-border block break-all">
-                        {r.id}
-                      </code>
+                      <CopyId value={r.id} label="Rubric ID" />
                     </div>
 
                     {/* Timestamps */}
@@ -151,11 +167,11 @@ export default function Rubrics() {
                         <ChevronRight size={14} className="inline mr-1" /> created
                       </FieldLabel>
                       <p className="text-body text-muted-foreground font-mono">
-                        {new Date(r.created_at).toLocaleString()}
+                        {fmtWhen(r.created_at)}
                       </p>
                       {r.updated_at && (
                         <p className="text-body text-muted-foreground font-mono mt-1">
-                          Updated: {new Date(r.updated_at).toLocaleString()}
+                          Updated: {fmtWhen(r.updated_at)}
                         </p>
                       )}
                     </div>
@@ -216,10 +232,10 @@ export default function Rubrics() {
                         )}
                     </div>
 
-                    {/* Related Blocks */}
+                    {/* Related playbooks */}
                     {r.related_blocks && r.related_blocks.length > 0 && (
                       <div className="pt-2 border-t border-border">
-                        <FieldLabel className="mb-2">Related blocks</FieldLabel>
+                        <FieldLabel className="mb-2">Related playbooks</FieldLabel>
                         <div className="flex flex-wrap gap-1">
                           {r.related_blocks.map((b, j) => (
                             <Button
@@ -227,23 +243,23 @@ export default function Rubrics() {
                               onClick={() => navigate(`/knowledge/blocks`)}
                               size="xs"
                               className="normal-case"
+                              title={b}
                             >
-                              {b}
+                              {humanize(b)}
                             </Button>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {/* Usage */}
+                    {/* Usage: the real MCP call (there is no `lc run-rubric` command). */}
                     <div className="pt-2 border-t border-border">
-                      <FieldLabel className="mb-2">Usage</FieldLabel>
-                      <code className="text-caption bg-background px-2 py-1 block text-subtle break-all font-mono border border-border mb-1">
-                        lc run-rubric {r.id} --json '{"{"}...{"}"}'
-                      </code>
-                      <code className="text-caption bg-background px-2 py-1 block text-subtle break-all font-mono border border-border">
-                        MCP: verify --rubric_id {r.id} --checks '{"{"}...{"}"}'
-                      </code>
+                      <SnippetCard
+                        title="How an agent runs this check"
+                        caption="MCP tool call; report each check as true or false."
+                        body={verifyCall(r)}
+                        wrap
+                      />
                     </div>
               </DisclosureCard>
             );

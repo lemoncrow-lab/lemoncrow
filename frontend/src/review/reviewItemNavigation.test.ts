@@ -29,7 +29,7 @@ describe("dedicated review item navigation", () => {
     expect(fullReviewUrlFromDedicatedItem()).toBe("/review?review-return-path=src%2Fcomponents%2FHero.tsx#t=secret-token&r=review-1");
   });
 
-  it("lands a file tab on a target and leaves this tab's Review Map behind", () => {
+  it("lands a file tab on a part and leaves this tab's Review Map behind", () => {
     window.history.replaceState(null, "", "/review?base=1&target=2&map=file&map-focus=file%3Aa&map-node=file%3Aa#r=review-1");
     const url = new URL(dedicatedReviewItemUrl({ kind: "file", path: "src/a.py", targetId: "target-a" }));
 

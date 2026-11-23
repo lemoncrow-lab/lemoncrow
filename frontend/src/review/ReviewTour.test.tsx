@@ -68,49 +68,83 @@ function props(overrides: Partial<React.ComponentProps<typeof ReviewTour>> = {})
     revisionId: "rev-1",
     tour: tour(),
     targets,
-    onExit: vi.fn(),
-    onBackToBrief: vi.fn(),
+    onBack: vi.fn(),
     onOpenTarget: vi.fn(),
-    onInspectEvidence: vi.fn(),
+    onShowOnMap: vi.fn(),
     onAsk: vi.fn(),
     ...overrides,
   };
 }
 
-describe("ReviewTour guided review", () => {
+describe("ReviewTour walkthrough", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
   });
 
-  it("is navigation only and opens the exact Code target", () => {
+  it("is navigation only and opens the exact part", () => {
     const open = vi.fn();
     render(<ReviewTour {...props({ onOpenTarget: open })} />);
 
-    expect(screen.getByText("Guided review · step 1/2")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open code" }));
+    expect(screen.getByText("Walkthrough · step 1 of 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open this part" }));
     expect(open).toHaveBeenCalledWith("t-api");
-    expect(screen.getByText("Guided Review is navigation only. Visiting a step never changes your durable Reviewed state.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "src/api.ts · handle" }));
+    expect(open).toHaveBeenLastCalledWith("t-api");
+    expect(screen.getByText("The walkthrough only moves you between parts. Visiting a step never changes what you have reviewed.")).toBeInTheDocument();
     expect(screen.queryByText(/mark.*reviewed/i)).toBeNull();
   });
 
-  it("supports next/back keyboard reading, explicit Brief exit and exact Enter navigation", () => {
+  it("tells a file's hunks apart by their lines", () => {
+    const hunks = [
+      { target_id: "t-api", kind: "hunk", path: "src/api.ts", symbol: "", start_line: 10, end_line: 20 },
+      { target_id: "t-db", kind: "hunk", path: "src/api.ts", symbol: "", start_line: 40, end_line: 40 },
+      { target_id: "t-top", kind: "hunk", path: "src/api.ts", symbol: "", start_line: 1, end_line: 15 },
+    ];
+    const merged = tour();
+    merged.steps[0].target_ids = ["t-api", "t-db", "t-top"];
+    render(<ReviewTour {...props({ tour: merged, targets: hunks as unknown as typeof targets })} />);
+
+    expect(screen.getByRole("button", { name: "src/api.ts · lines 10–20" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "src/api.ts · line 40" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "src/api.ts · top of file, lines 1–15" })).toBeInTheDocument();
+    expect(screen.getByText("3 parts in this step")).toBeInTheDocument();
+  });
+
+  it("supports next/back keyboard reading, Esc back to the Overview and exact Enter navigation", () => {
     const open = vi.fn();
     const back = vi.fn();
     const change = vi.fn();
-    render(<ReviewTour {...props({ onOpenTarget: open, onBackToBrief: back, onCohortChange: change })} />);
+    render(<ReviewTour {...props({ onOpenTarget: open, onBack: back, onCohortChange: change })} />);
 
     fireEvent.keyDown(window, { key: "j" });
     expect(screen.getByRole("heading", { name: "Persistence" })).toBeInTheDocument();
-    expect(screen.getByText("Guided review · step 2/2")).toBeInTheDocument();
+    expect(screen.getByText("Walkthrough · step 2 of 2")).toBeInTheDocument();
     expect(change).toHaveBeenCalledWith("db");
-    expect(screen.getByText("t-old · no longer maps to a current target")).toBeInTheDocument();
+    expect(screen.getByText("t-old · no longer maps to a current part")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Enter" });
     expect(open).toHaveBeenCalledWith("t-db");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(back).toHaveBeenCalledTimes(1);
   });
 
-  it("persists semantic cohort position across remounts for one Snapshot", () => {
+  it("leaves keys pressed inside the Ask rail to Ask", () => {
+    const back = vi.fn();
+    render(<><ReviewTour {...props({ onBack: back })} /><aside data-review-rail="ask"><button type="button">Ask control</button></aside></>);
+    const control = screen.getByRole("button", { name: "Ask control" });
+    fireEvent.keyDown(control, { key: "Escape" });
+    fireEvent.keyDown(control, { key: "j" });
+    expect(back).not.toHaveBeenCalled();
+    expect(screen.getByText("Walkthrough · step 1 of 2")).toBeInTheDocument();
+  });
+
+  it("leaves Enter on a focused button to that button", () => {
+    const open = vi.fn();
+    render(<ReviewTour {...props({ onOpenTarget: open })} />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Next" }), { key: "Enter" });
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("persists semantic cohort position across remounts for one revision", () => {
     const shared = props();
     const first = render(<ReviewTour {...shared} />);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -120,7 +154,7 @@ describe("ReviewTour guided review", () => {
 
     render(<ReviewTour {...shared} />);
     expect(screen.getByRole("heading", { name: "Persistence" })).toBeInTheDocument();
-    expect(screen.getByText("Guided review · step 2/2")).toBeInTheDocument();
+    expect(screen.getByText("Walkthrough · step 2 of 2")).toBeInTheDocument();
   });
 
   it("lets URL/browser state select the same canonical cohort", () => {
@@ -133,7 +167,7 @@ describe("ReviewTour guided review", () => {
     expect(screen.getByTestId("review-tour")).toHaveAttribute("data-guided-cohort", "db");
   });
 
-  it("resets the Tour immediately when the Snapshot changes despite an equal step count", () => {
+  it("resets the Tour immediately when the revision changes despite an equal step count", () => {
     const shared = props();
     const view = render(<ReviewTour {...shared} />);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -150,26 +184,44 @@ describe("ReviewTour guided review", () => {
   it("degrades to deterministic content when AI is unavailable", () => {
     render(<ReviewTour {...props({ tour: tour("unavailable") })} />);
 
-    expect(screen.getByText("AI guidance unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Built from the code only · no AI wording")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "API contract" })).toBeInTheDocument();
     expect(screen.getByText("Clients now send two fields.")).toBeInTheDocument();
   });
 
-  it("keeps Ask and evidence bound to the current step target and exposes both exits", () => {
+  it("offers Refine explanation only when a model could answer", () => {
+    const synthesize = vi.fn(async () => undefined);
+    const view = render(<ReviewTour {...props({ onSynthesize: synthesize })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("button", { name: "Refine explanation" })).toBeInTheDocument();
+    view.unmount();
+
+    render(<ReviewTour {...props({ tour: tour("unavailable"), onSynthesize: synthesize })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "Persistence" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refine explanation" })).toBeNull();
+  });
+
+  it("keeps Ask bound to the current step part, and offers the Map and the host's view switch", () => {
     const ask = vi.fn();
-    const evidence = vi.fn();
-    const exit = vi.fn();
-    const back = vi.fn();
-    render(<ReviewTour {...props({ onAsk: ask, onInspectEvidence: evidence, onExit: exit, onBackToBrief: back })} />);
+    const map = vi.fn();
+    const { rerender } = render(<ReviewTour {...props({ onAsk: ask, onShowOnMap: map })} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    fireEvent.click(screen.getByRole("button", { name: "Inspect evidence" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask about this part" }));
     expect(ask).toHaveBeenCalledWith("t-api");
-    expect(evidence).toHaveBeenCalledWith("t-api");
+    fireEvent.click(screen.getByRole("button", { name: "Show on the Map" }));
+    expect(map).toHaveBeenCalledTimes(1);
+    // The map view is offered only where the host can draw it, and only under the Walkthrough's own name.
+    expect(screen.queryByTestId("walkthrough-switch")).toBeNull();
+    expect(screen.queryByText(/Change Story/)).toBeNull();
+    rerender(<ReviewTour {...props({ onAsk: ask, onShowOnMap: map, viewSwitch: <span data-testid="walkthrough-switch" /> })} />);
+    expect(screen.getByTestId("walkthrough-switch")).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to Brief" }));
+  it("says so and goes back to the Overview when the revision has no steps", () => {
+    const back = vi.fn();
+    render(<ReviewTour {...props({ onBack: back, tour: { ...tour(), step_count: 0, steps: [] } })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Back to the Overview" }));
     expect(back).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Exit guided review" }));
-    expect(exit).toHaveBeenCalledTimes(1);
   });
 });

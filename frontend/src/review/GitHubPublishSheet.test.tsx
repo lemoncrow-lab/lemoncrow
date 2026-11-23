@@ -17,6 +17,7 @@ const preview: GitHubPublishPreview = {
   commit_id: "a".repeat(40),
   event: "APPROVE",
   summary: "Ship it",
+  body: "Ship it\n\nHuman review. Nothing here was decided by an AI.",
   inline: [{ annotation_id: "ann-1", path: "src/app.py", side: "RIGHT", start_line: 3, line: 3, body: "why three?" }],
   folded: [{ annotation_id: "ann-2", location: "src/app.py:L25", body: "cleanup", reason: "outside the lines GitHub shows in the diff" }],
   notices: [],
@@ -47,12 +48,21 @@ describe("GitHubPublishSheet", () => {
     render(<GitHubPublishSheet reviewId="review-1" onClose={() => {}} />);
 
     expect(await screen.findByText("src/app.py:L3")).toBeTruthy();
-    expect(screen.getByText("Approve — Ship it")).toBeTruthy();
+    expect(screen.getByText("Approve")).toBeTruthy();
+    expect(screen.getByTestId("github-sheet-body").textContent).toBe("Ship it\n\nHuman review. Nothing here was decided by an AI.");
     expect(screen.getByText(/outside the lines GitHub shows/)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Publish to GitHub" }));
 
     await waitFor(() => expect(api.publishGitHubReview).toHaveBeenCalledWith("review-1", preview));
     expect(await screen.findByText(/Published: Approve, 1 inline, 1 in the review body/)).toBeTruthy();
+  });
+
+  it("shows the human-review line GitHub will receive under the reviewer's name, and no hidden marker", async () => {
+    api.previewGitHubPublish.mockResolvedValue({ ...preview, summary: "", body: "Human review. Nothing here was decided by an AI." });
+    render(<GitHubPublishSheet reviewId="review-1" onClose={() => {}} />);
+
+    expect((await screen.findByTestId("github-sheet-body")).textContent).toBe("Human review. Nothing here was decided by an AI.");
+    expect(document.body.textContent).not.toContain("lemoncrow:op=");
   });
 
   it("will not publish a stale or empty preview", async () => {

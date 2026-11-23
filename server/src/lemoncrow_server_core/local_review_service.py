@@ -19,20 +19,24 @@ import inspect
 import logging
 import sqlite3
 import subprocess
+import threading
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
 from aiohttp import web
+from lemoncrow_client.review_words import part_count, revision_name
 
-from lemoncrow.pro.capabilities.review import fix_lines
+from lemoncrow.pro.capabilities.review import fix_lines, titles
 from lemoncrow.pro.capabilities.review.archive_safety import owed_cancellation
 from lemoncrow.pro.capabilities.review.development import DevelopmentStore, DevelopmentUnavailable
 from lemoncrow.pro.capabilities.review.hosted_attachment import attached_identity
+from lemoncrow.pro.capabilities.review.inbox_progress import stored_progress
 from lemoncrow.pro.capabilities.review.readiness import SnapshotProgress
 from lemoncrow.pro.capabilities.review.relationships import change_context_payload
 from lemoncrow.pro.capabilities.review.revisions import compute_frontier
@@ -47,15 +51,12 @@ from lemoncrow.pro.capabilities.review.store import (
 )
 from lemoncrow.pro.capabilities.review.targets import (
     DerivedRefresh,
-    derivation_stamp,
-    derive_review_targets,
-    review_progress,
 )
 
 from .context import Principal, validate_opaque_id
 from .errors import AgentAction, ErrorCode, ServerError
 from .http.wire import json_response, require_object, require_str
-from .local_inbox import SEARCH_KEYS, LocalInbox, local_review_workflow
+from .local_inbox import SEARCH_KEYS, LocalInbox, local_review_wait, local_review_workflow
 from .local_project_knowledge import LocalProjectKnowledge
 from .local_review_analytics import LocalReviewAnalytics
 from .local_reviews import LocalReviewReader, LocalReviewRepository
@@ -65,6 +66,7 @@ from .review_preparation import ReviewPreparationJobs
 __all__ = ["LocalReviewService"]
 
 _LOG = logging.getLogger("lemoncrow.server.local_review_service")
+_USER_SETTINGS_OWNER = "local"
 
 
 def _review_handoff(
@@ -75,10 +77,17 @@ def _review_handoff(
 ) -> dict[str, dict[str, Any]]:
     """Per Review: whether its feedback is back with the reviewer or waiting on its fixer."""
 
-    from lemoncrow.pro.capabilities.review.handoff import handoff_row_fields, review_handoff
+    from lemoncrow.pro.capabilities.review.handoff import (
+        approved_on,
+        handoff_row_fields,
+        review_handoff,
+        settled_by_approval,
+    )
     from lemoncrow.pro.capabilities.review.sources.github import GITHUB_SOURCE_PREFIX
 
-    versions, deliveries = store.feedback_rows_for_reviews([str(session.id) for session, _item in items])
+    ids = [str(session.id) for session, _item in items]
+    versions, deliveries = store.feedback_rows_for_reviews(ids)
+    side = store.inbox_side_facts(ids)
     out: dict[str, dict[str, Any]] = {}
     for session, item in items:
         session_id = str(session.id)
@@ -90,22 +99,16 @@ def _review_handoff(
         )
         counts = progress[(repo_id, session_id)]
         out[session_id] = handoff_row_fields(
-            review_handoff(item.revision.id, item.annotations, versions, deliveries, pull_request=pull_request),
+            settled_by_approval(
+                review_handoff(item.revision.id, item.annotations, versions, deliveries, pull_request=pull_request),
+                approved_on(side.get(session_id, {}), str(item.revision.id)),
+            ),
             status=str(session.status),
-            actionable_targets=counts["unreviewed"] + counts["changed_since_review"] + counts["unknown"],
+            actionable_targets=(
+                counts["unreviewed"] + counts["changed_since_review"] + counts["unknown"] + counts.get("later", 0)
+            ),
         )
     return out
-
-
-_EMPTY_PROGRESS: Final[Mapping[str, int]] = {
-    "target_count": 0,
-    "reviewed": 0,
-    "changed_since_review": 0,
-    "needs_changes": 0,
-    "unreviewed": 0,
-    "unknown": 0,
-    "mechanical": 0,
-}
 
 
 def _git_stdout(root: Path, *args: str) -> str:
@@ -142,28 +145,7 @@ def _automatic_review_title(
         return author_title
     if revision is None:
         return str(session.title or "Working tree")
-    packet_title = str((packet or {}).get("title") or "").strip()
-    if packet_title and packet_title.lower() not in {"working tree", "staged changes"}:
-        return packet_title
-    files = (packet or {}).get("files")
-    if not isinstance(files, list) or not files:
-        return f"Snapshot {_public_snapshot_number(revision)}: {packet_title or session.title or 'Changes'}"
-    paths = [str(item.get("path") or "") for item in files if isinstance(item, Mapping) and item.get("path")]
-    if not paths:
-        return f"Snapshot {_public_snapshot_number(revision)}: {packet_title or session.title or 'Changes'}"
-    if len(paths) == 1:
-        item = files[0] if isinstance(files[0], Mapping) else {}
-        action = {"added": "Add", "deleted": "Remove", "renamed": "Rename"}.get(str(item.get("status")), "Update")
-        summary = f"{action} {paths[0]}"
-    else:
-        areas: dict[str, int] = {}
-        for path in paths:
-            area = path.split("/", 1)[0] if "/" in path else "root"
-            areas[area] = areas.get(area, 0) + 1
-        leaders = sorted(areas, key=lambda area: (-areas[area], area))[:2]
-        scope = " + ".join(leaders)
-        summary = f"{scope} changes · {len(paths)} files"
-    return f"Snapshot {_public_snapshot_number(revision)}: {summary}"
+    return titles.packet_title(packet, fallback=str(session.title or "Changes"))
 
 
 @functools.cache
@@ -171,7 +153,7 @@ def _title_code_stamp() -> str:
     """Identity of the title rule, so a stored title made by other code is re-derived."""
 
     try:
-        source = inspect.getsource(_automatic_review_title)
+        source = inspect.getsource(_automatic_review_title) + inspect.getsource(titles)
     except (OSError, TypeError):
         source = ""
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -277,6 +259,102 @@ def _review_location_metadata(root: Path) -> dict[str, Any]:
     }
 
 
+def _stat_key(path: Path) -> tuple[int, int, int] | None:
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size, info.st_ino)
+
+
+def _git_head_stamp(root: Path) -> tuple[Any, ...] | None:
+    """What the three Git reads behind :func:`_review_location_metadata` depend on, read from files.
+
+    The checkout's HEAD (its text and file), the ref it names (loose, in the worktree or the common dir) and
+    ``packed-refs``. Git replaces each of them by renaming a lock file over it, so any branch switch, commit or
+    ref pack changes the stamp. ``None`` -- ask Git every time -- whenever that cannot be said: no ``.git`` at the
+    root, an unreadable ``gitdir`` pointer, or a reftable repository (no single file moves with a ref).
+    """
+
+    dot = root / ".git"
+    try:
+        if dot.is_dir():
+            git_dir = dot
+        elif dot.is_file():
+            pointer = dot.read_text(encoding="utf-8").strip()
+            if not pointer.startswith("gitdir:"):
+                return None
+            git_dir = Path(pointer.removeprefix("gitdir:").strip())
+            if not git_dir.is_absolute():
+                git_dir = (root / git_dir).resolve(strict=False)
+        else:
+            return None
+        common = git_dir
+        common_pointer = git_dir / "commondir"
+        if common_pointer.is_file():
+            named = Path(common_pointer.read_text(encoding="utf-8").strip())
+            common = named if named.is_absolute() else (git_dir / named).resolve(strict=False)
+        if (common / "reftable").exists() or (git_dir / "reftable").exists():
+            return None
+        head = git_dir / "HEAD"
+        head_text = head.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    stamp: list[Any] = [str(git_dir), head_text, _stat_key(head), _stat_key(common / "packed-refs")]
+    if head_text.startswith("ref:"):
+        ref = head_text.removeprefix("ref:").strip()
+        stamp += [_stat_key(git_dir / ref), _stat_key(common / ref)]
+    return tuple(stamp)
+
+
+class _CheckoutLocations:
+    """Checkout metadata kept across requests while the checkout's HEAD and refs are unchanged (bounded, LRU).
+
+    Home lists every local Review on each load, and each checkout costs three Git subprocesses (about 40 ms):
+    with dozens of checkouts that was most of the read. A checkout whose stamp (:func:`_git_head_stamp`) cannot be
+    taken is never kept, so it is described by Git on every request as before. The short revision Git prints may
+    lengthen as a repository grows; a kept one stays a valid prefix until HEAD next moves.
+    """
+
+    LIMIT = 1024
+
+    def __init__(self) -> None:
+        self._kept: OrderedDict[Path, tuple[tuple[Any, ...], dict[str, Any]]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def describe(self, root: Path) -> dict[str, Any]:
+        stamp = _git_head_stamp(root)
+        if stamp is not None:
+            with self._lock:
+                kept = self._kept.get(root)
+                if kept is not None and kept[0] == stamp:
+                    self._kept.move_to_end(root)
+                    return dict(kept[1])
+        described = _review_location_metadata(root)
+        if stamp is not None:
+            with self._lock:
+                self._kept[root] = (stamp, dict(described))
+                self._kept.move_to_end(root)
+                while len(self._kept) > self.LIMIT:
+                    self._kept.popitem(last=False)
+        return described
+
+    def warm(self, roots: Sequence[Path]) -> None:
+        """Describe the checkouts not yet kept, a few at a time: each is Git subprocesses that wait, not compute."""
+
+        cold = [root for root in dict.fromkeys(roots) if not self._fresh(root)]
+        if len(cold) < 2:
+            return
+        with ThreadPoolExecutor(max_workers=min(8, len(cold)), thread_name_prefix="lc-checkout") as pool:
+            list(pool.map(self.describe, cold))
+
+    def _fresh(self, root: Path) -> bool:
+        stamp = _git_head_stamp(root)
+        with self._lock:
+            kept = self._kept.get(root)
+        return stamp is not None and kept is not None and kept[0] == stamp
+
+
 async def _to_thread[T](fn: Callable[..., T], *args: Any) -> T:
     return await asyncio.to_thread(fn, *args)
 
@@ -298,6 +376,8 @@ class LocalReviewService:
         self._principal = principal
         self._body = body
         self._in_worker = run_blocking
+        # Checkout metadata kept while the checkout's HEAD and refs stay put (Home reads every Review each load).
+        self._locations = _CheckoutLocations()
         # Snapshots already warmed (or being warmed), LRU-capped, and the live tasks.
         self._warmed: OrderedDict[tuple[str, str, str], None] = OrderedDict()
         self._warm_tasks: set[asyncio.Task[None]] = set()
@@ -318,6 +398,12 @@ class LocalReviewService:
             store, repo_id, session, progress_of=self._review_progress, as_of=as_of, progress=progress
         )
 
+    def review_wait(self, review_id: str) -> tuple[str, float] | None:
+        """The friction metric and seconds this Review has waited, for the Reader's one count per open."""
+
+        repo_id, store, session, _root = self._fix_scope(review_id, need_checkout=False)
+        return local_review_wait(store, repo_id, session, progress_of=self._review_progress, as_of=datetime.now(UTC))
+
     def _schedule_warm(self, repo_id: str, review_id: str, phase: str) -> None:
         """Warm the Reader's first-load caches for the latest Snapshot, once per phase.
 
@@ -332,7 +418,20 @@ class LocalReviewService:
             return
         if revision is None:
             return
-        key = (str(session.id), revision.id, phase)
+        self._start_warm(repo_id, session, revision.id, phase)
+
+    def schedule_capture_warm(self, repo_id: str, session: Any, revision_id: str) -> None:
+        """Start the background derivation of a Snapshot the moment its capture is recorded.
+
+        A capture is the durable event: everything the Reader's first screens need (overview,
+        targets, every card's frozen code, readiness, the Brief) is computed now, not when the
+        URL is first opened. Call on the event loop; it does no store read itself.
+        """
+
+        self._start_warm(repo_id, session, revision_id, "captured")
+
+    def _start_warm(self, repo_id: str, session: Any, revision_id: str, phase: str) -> None:
+        key = (str(session.id), revision_id, phase)
         if key in self._warmed:
             return
         self._warmed[key] = None
@@ -381,6 +480,9 @@ class LocalReviewService:
             ("GET", BRANCH_REVIEW_PATH, self.review_branch_review),
             ("GET", "/api/review-intelligence", self.review_intelligence),
             ("PUT", "/api/review-intelligence/settings", self.review_intelligence_settings_update),
+            ("GET", "/api/review-settings", self.user_settings_get),
+            ("PATCH", "/api/review-settings", self.user_settings_patch),
+            ("DELETE", "/api/review-settings", self.user_settings_reset),
             ("GET", "/api/reviews/{review_id}/fix-lines", self.review_fix_lines),
             ("POST", "/api/reviews/{review_id}/snapshots/{revision_id}/fix-line", self.review_start_fix_line),
             ("POST", "/api/reviews/{review_id}/fix-lines/{fix_id}/apply-plan", self.review_fix_apply_plan),
@@ -441,12 +543,15 @@ class LocalReviewService:
         cache request-scoped (a later request must see branch/HEAD changes).
         """
 
+        kept: _CheckoutLocations | None = getattr(self, "_locations", None)
+        describe = _review_location_metadata if kept is None else kept.describe
+
         def metadata(root: Path) -> dict[str, Any]:
             if metadata_cache is None:
-                return _review_location_metadata(root)
+                return describe(root)
             cached = metadata_cache.get(root)
             if cached is None:
-                cached = _review_location_metadata(root)
+                cached = describe(root)
                 metadata_cache[root] = cached
             # Branch hints describe each Review's captured identity; never
             # mutate the shared checkout projection when applying a hint.
@@ -489,6 +594,12 @@ class LocalReviewService:
             "revision": "",
             "detached": False,
         }
+
+    def warm_checkout_locations(self, repo_ids: Iterable[str]) -> None:
+        """Describe these repositories' proven checkouts ahead of a page's rows, concurrently (see ``_CheckoutLocations``)."""
+
+        roots = [root for repo_id in repo_ids if (root := self.review_repository.checkout_root(repo_id)) is not None]
+        self._locations.warm(roots)
 
     def review_session_wire(
         self,
@@ -655,65 +766,9 @@ class LocalReviewService:
         Review is one stored read.
         """
 
-        refresh = refresh if refresh is not None else DerivedRefresh()
-        out: dict[str, dict[str, int]] = {}
-        pending: list[tuple[Any, ReviewListInputs, str]] = []
-        for session, item in items:
-            if item.revision is None:
-                out[str(session.id)] = dict(_EMPTY_PROGRESS)
-                continue
-            stamp = derivation_stamp(item.revision, session.reviewer_id, item.marks, item.annotations)
-            pending.append((session, item, stamp))
-        stored = store.derived_results("progress", (item.revision.id for _s, item, _t in pending if item.revision))
-        fresh: list[DerivedResult] = []
-        for session, item, stamp in pending:
-            revision = item.revision
-            assert revision is not None
-            hit = stored.get((revision.id, str(session.reviewer_id)))
-            if refresh.serve(hit[0] if hit is not None else None, stamp):
-                assert hit is not None
-                out[str(session.id)] = {key: int(value) for key, value in hit[1].items()}
-                continue
-            with refresh.deriving():
-                units = store.list_units(revision.id)
-                frontier = compute_frontier(
-                    session.id,
-                    session.reviewer_id,
-                    revision,
-                    units,
-                    item.marks,
-                    annotations=item.annotations,
-                )
-                progress = review_progress(
-                    derive_review_targets(
-                        units,
-                        frontier.entries,
-                        read_packet_json(store, revision),
-                        annotations=item.annotations,
-                    )
-                )
-            result = {
-                "target_count": progress.target_count,
-                "reviewed": progress.reviewed,
-                "changed_since_review": progress.changed_since_review,
-                "needs_changes": progress.needs_changes,
-                "unreviewed": progress.unreviewed,
-                "unknown": progress.unknown,
-                "mechanical": progress.mechanical,
-            }
-            out[str(session.id)] = result
-            fresh.append(
-                DerivedResult(
-                    review_id=str(session.id),
-                    revision_id=revision.id,
-                    kind="progress",
-                    scope_key=str(session.reviewer_id),
-                    stamp=stamp,
-                    payload=result,
-                )
-            )
-        _store_derived(store, fresh)
-        return out
+        return stored_progress(
+            store, items, refresh, read_packet=read_packet_json, reader_targets=self.review_reader.reader_targets
+        )
 
     def review_count(self) -> int:
         """How many Reviews exist, without building a wire row (git reads) for each."""
@@ -1041,7 +1096,7 @@ class LocalReviewService:
             unreviewed = sum(
                 1
                 for entry in frontier.entries
-                if entry.state in {"unreviewed", "changed_since_review"} or entry.changed_since_mark
+                if entry.state in {"unreviewed", "changed_since_review", "later"} or entry.changed_since_mark
             )
         checklist = fix_lines.fix_line_checklist(store, line, repo_root=root) if root is not None else ()
         return {
@@ -1105,7 +1160,7 @@ class LocalReviewService:
         if snapshot is None or snapshot.review_id != session.id:
             raise ServerError(
                 ErrorCode.REVIEW_UNKNOWN,
-                "the Snapshot is not part of this Review",
+                "the revision is not part of this Review",
             )
         with _fix_line_errors():
             line, created = fix_lines.start_fix_line(
@@ -1143,11 +1198,16 @@ class LocalReviewService:
         wire: Mapping[str, Any],
     ) -> dict[str, Any]:
         warnings = list(plan.warnings)
-        if wire["unreviewed"]:
-            warnings.append(f"{wire['unreviewed']} review areas in the fix are not reviewed yet")
+        unreviewed = int(wire["unreviewed"] or 0)
+        if unreviewed:
+            warnings.append(
+                f"{part_count(unreviewed)} in the fix {'is' if unreviewed == 1 else 'are'} not reviewed yet"
+            )
         still_open = sum(1 for item in wire["checklist"] if item["state"] != "resolved")
         if still_open:
-            warnings.append(f"{still_open} comments on Snapshot {wire['snapshot_number']} are still open")
+            comments = "1 comment" if still_open == 1 else f"{still_open} comments"
+            verb = "is" if still_open == 1 else "are"
+            warnings.append(f"{comments} on {revision_name(wire['snapshot_number'])} {verb} still open")
         return {
             "fix_line_id": plan.fix_line_id,
             "revision_id": plan.revision_id,
@@ -1394,6 +1454,41 @@ class LocalReviewService:
         response = json_response(await self._in_worker(local_intelligence_settings))
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @staticmethod
+    def _user_settings_wire(stored: Mapping[str, Any]) -> web.StreamResponse:
+        from lemoncrow.pro.capabilities.review.user_settings import effective
+
+        response = json_response({"settings": effective(stored), "set": sorted(stored)})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    async def user_settings_get(self, request: web.Request) -> web.StreamResponse:
+        """The reviewer's personal settings, defaults filled in, and which keys they set (SPEC 4.11)."""
+
+        self._principal(request)
+        store = self.review_repository.user_store()
+        return self._user_settings_wire(await self._in_worker(store.get_user_settings, _USER_SETTINGS_OWNER))
+
+    async def user_settings_patch(self, request: web.Request) -> web.StreamResponse:
+        """Validate and save a change; a null value forgets the key. A taken key is a 422 with the sentence to show."""
+
+        from lemoncrow.pro.capabilities.review.user_settings import UserSettingsError
+
+        self._principal(request)
+        body = await self._body(request)
+        store = self.review_repository.user_store()
+        try:
+            stored = await self._in_worker(store.patch_user_settings, _USER_SETTINGS_OWNER, body)
+        except UserSettingsError as exc:
+            raise ServerError(ErrorCode.PAYLOAD_INVALID, str(exc), action=AgentAction.FIX_REQUEST) from exc
+        return self._user_settings_wire(stored)
+
+    async def user_settings_reset(self, request: web.Request) -> web.StreamResponse:
+        self._principal(request)
+        store = self.review_repository.user_store()
+        await self._in_worker(store.reset_user_settings, _USER_SETTINGS_OWNER)
+        return self._user_settings_wire({})
 
     async def review_api_directory(self, request: web.Request) -> web.StreamResponse:
         self._principal(request)

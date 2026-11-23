@@ -27,7 +27,7 @@ What LemonCrow supports today, and where. Each status is the present-tense state
 | Review intelligence: Thorough | Preview | Local, Hosted |
 | Review intelligence: Deep | Preview | Local, Hosted |
 | Ask | Supported | Local, Hosted |
-| Map and Architecture Delta | Supported | Local, Hosted |
+| Map and Architecture Delta | Not supported | Local, Hosted |
 | Review analytics | Supported | Local, Hosted |
 | Effective data flow | Supported | Local, Hosted |
 | Diagnostic bundle | Supported | Local, Hosted |
@@ -42,7 +42,7 @@ What LemonCrow supports today, and where. Each status is the present-tense state
 | Container image checks (Images are not built or scanned; packages and archives built by a command are compared.) | Not supported | Local, Hosted |
 | SQL observation on PostgreSQL and MySQL (Only SQLite queries are captured; server databases appear as connections.) | Not supported | Local, Hosted |
 | Interactive side-by-side preview (At most four previews run at once per repository (per machine locally); hosted previews need a dedicated preview domain.) | Available, off by default | Local, Hosted |
-| Runtime Lite | Supported | Local |
+| Workspaces Lite | Supported | Local |
 | Local code map | Supported | Local |
 
 ## Operating systems

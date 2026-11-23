@@ -153,6 +153,15 @@ def _period_start(instant: datetime, granularity: str) -> str:
     return (day - timedelta(days=day.weekday())).strftime("%Y-%m-%d")
 
 
+def _period_label(start: str, granularity: str) -> str:
+    """A period row's name for people: "Week of 16 Nov 2026" or "November 2026", never the drill key."""
+
+    day = datetime.strptime(start, "%Y-%m-%d")
+    if granularity == "month":
+        return f"{day:%B %Y}"
+    return f"Week of {day.day} {day:%b %Y}"
+
+
 # --------------------------------------------------------------------------- #
 # building
 # --------------------------------------------------------------------------- #
@@ -645,9 +654,9 @@ def build_report(
     # -- correction loops ---------------------------------------------------- #
     for name, label in (
         ("started", "Fix requests started"),
-        ("snapshot_recorded", "New Snapshot recorded"),
+        ("snapshot_recorded", "New revision recorded"),
         ("re_reviewed", "Re-reviewed after the fix"),
-        ("in_flight", "Waiting for a new Snapshot"),
+        ("in_flight", "Waiting for a new revision"),
         ("failed", "Failed"),
         ("cancelled", "Cancelled"),
     ):
@@ -714,7 +723,8 @@ def build_report(
             index.add(f"drift.category.{change.category}", ref, label=change.category.replace("_", " "))
             index.add(f"drift.change.{change.change}", ref, label=change.change.capitalize())
             if instant is not None:
-                index.add(f"drift.period.{_period_start(instant, granularity)}", ref)
+                start = _period_start(instant, granularity)
+                index.add(f"drift.period.{start}", ref, label=_period_label(start, granularity))
             drift_items.append(
                 {
                     "review_id": item.review_id,

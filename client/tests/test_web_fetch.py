@@ -85,7 +85,11 @@ def test_html_and_error_status(origin: Any, config: Any) -> None:
     assert "# Title" in result.content[0]["text"]
     assert f"[world]({origin[0]}/link)" in result.content[0]["text"]
     assert "noise" not in result.content[0]["text"]
+    # The full server's credit: the page's HTML against the markdown sent.
+    html = '<nav>noise</nav><h1>Title</h1><p>Hello <a href="/link">world</a></p>'
+    assert result.tokens_saved == max(0, len(html) // 4 - len(result.structured["content"]) // 4)
     missing = run_web_fetch(context(config), {"url": origin[0] + "/missing"})
+    assert missing.tokens_saved == 0  # markdown, not HTML
     assert not missing.is_error
     assert missing.structured["status"] == 404
 

@@ -17,7 +17,7 @@ def test_contract_and_provider_defaults() -> None:
     assert isinstance(contract, RouteExecutionContract)
     "case: test_provider_enforced_always_disabled"
     "provider_enforced mode must never be the active mode for any host."
-    for host in ("claude", "codex", "copilot", "opencode", "lemoncode", "antigravity"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         contract = route_execution_contract(host)
         assert contract.mode != "provider_enforced", f"host={host!r}: provider_enforced must not be the active mode"
         assert contract.provider_enforced_disabled is True, f"host={host!r}: provider_enforced_disabled must be True"
@@ -76,11 +76,6 @@ def test_opencode_family_routing_contract() -> None:
     assert contract.host == "opencode"
     assert contract.mode == "wrapper_enforced"
     assert contract.can_block_start is True
-    "case: test_lemoncode_wrapper_enforced"
-    contract = route_execution_contract("lemoncode")
-    assert contract.host == "lemoncode"
-    assert contract.mode == "wrapper_enforced"
-    assert contract.can_block_start is True
 
 
 def test_advisory_and_tier_contract() -> None:
@@ -92,7 +87,7 @@ def test_advisory_and_tier_contract() -> None:
     assert contract.fallback_mode == "advisory"
     "case: test_all_hosts_support_standard_tiers"
     expected = {"cheap", "mid", "premium", "deterministic"}
-    for host in ("claude", "codex", "copilot", "opencode", "lemoncode", "antigravity"):
+    for host in ("claude", "codex", "copilot", "opencode", "antigravity"):
         contract = route_execution_contract(host)
         assert (
             set(contract.supported_tiers) == expected

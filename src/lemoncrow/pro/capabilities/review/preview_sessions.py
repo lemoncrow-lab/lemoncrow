@@ -20,6 +20,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal, cast
 
+from lemoncrow.pro.environment.preview_state import SIDES, Sides
+
 INTERACTIVE_PREVIEW_ENTRY: Final[str] = "visual.interactive_preview"
 SESSION_KIND: Final[str] = "interactive_preview_session"
 SESSION_SCHEMA_VERSION: Final[int] = 1
@@ -33,8 +35,6 @@ MIN_SESSION_SECONDS: Final[int] = 60
 SessionState = Literal["starting", "running", "expired", "stopped", "superseded", "closed", "failed"]
 SESSION_STATES: Final[tuple[str, ...]] = ("starting", "running", "expired", "stopped", "superseded", "closed", "failed")
 TERMINAL_STATES: Final[frozenset[str]] = frozenset({"expired", "stopped", "superseded", "closed", "failed"})
-Sides = Literal["old", "new"]
-SIDES: Final[tuple[Sides, Sides]] = ("old", "new")
 
 _TOKEN_CONTEXT: Final[bytes] = b"lemoncrow-interactive-preview-token\0"
 
@@ -108,6 +108,8 @@ class PreviewSession:
     plan_digest: str = ""
     entry_id: str = INTERACTIVE_PREVIEW_ENTRY
     mode: str = ""
+    #: The environment.toml preview this session serves (``""``: review.yaml or a static build).
+    preview: str = ""
     sides: tuple[PreviewSide, ...] = ()
     comparable: bool = False
     comparability: str = ""
@@ -148,6 +150,7 @@ class PreviewSession:
             "plan_digest": self.plan_digest,
             "entry_id": self.entry_id,
             "mode": self.mode,
+            "preview": self.preview,
             "sides": [row.to_wire() for row in self.sides],
             "comparable": self.comparable,
             "comparability": self.comparability,
@@ -187,6 +190,7 @@ class PreviewSession:
             plan_digest=str(raw.get("plan_digest") or ""),
             entry_id=str(raw.get("entry_id") or INTERACTIVE_PREVIEW_ENTRY),
             mode=str(raw.get("mode") or ""),
+            preview=str(raw.get("preview") or "")[:64],
             sides=tuple(
                 PreviewSide.from_wire(row)
                 for row in (sides if isinstance(sides, Sequence) else ())
@@ -215,11 +219,11 @@ def token_matches(session: PreviewSession, token: str) -> bool:
 def comparability(fingerprints: Mapping[str, Mapping[str, Any]]) -> tuple[bool, str]:
     """Base and head are comparable only under the same environment fingerprint.
 
-    The fingerprint is the R4 :class:`~lemoncrow.pro.capabilities.review.execution.EnvironmentFingerprint`
+    The fingerprint is the R4 :class:`~lemoncrow.pro.environment.execution.EnvironmentFingerprint`
     wire shape. Differences are named so the pair can say *why* it is not comparable.
     """
 
-    from lemoncrow.pro.capabilities.review.execution import EnvironmentFingerprint
+    from lemoncrow.pro.environment.execution import EnvironmentFingerprint
 
     old, new = fingerprints.get("old"), fingerprints.get("new")
     if not old or not new:

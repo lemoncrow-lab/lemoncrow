@@ -11,7 +11,7 @@ can turn authentication into arbitrary egress.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import urlsplit
@@ -43,13 +43,22 @@ class AuthwardClient:
     contract: AuthwardContract
     transport: HttpTransport
 
-    def start_device(self) -> Mapping[str, Any]:
-        form = {
+    def start_device(self, resources: Sequence[str] = ()) -> Mapping[str, Any]:
+        """Start a device sign-in for the LemonCrow API resource and each of *resources* (RFC 8707, repeated).
+
+        Every token request that follows names one of them only: :meth:`poll_device` the API resource, and
+        :meth:`refresh` whichever it is given.
+        """
+
+        form: dict[str, str | Sequence[str]] = {
             "client_id": self.contract.client_id,
             "scope": " ".join(self.contract.scopes),
         }
-        if self.contract.resource:
-            form["resource"] = self.contract.resource
+        named = [resource for resource in dict.fromkeys((self.contract.resource, *resources)) if resource]
+        if len(named) == 1:
+            form["resource"] = named[0]
+        elif named:
+            form["resource"] = named
         response = self.transport.post_form(self.contract.device_authorization_endpoint, form=form)
         return _oauth_payload(response, operation="device authorization")
 
@@ -64,14 +73,16 @@ class AuthwardClient:
         response = self.transport.post_form(self.contract.token_endpoint, form=form)
         return _oauth_payload(response, operation="device token")
 
-    def refresh(self, refresh_token: str) -> tuple[str, str]:
+    def refresh(self, refresh_token: str, *, resource: str = "") -> tuple[str, str]:
+        """``(access token, newest refresh token)`` for one resource: *resource*, else the LemonCrow API's."""
+
         form = {
             "grant_type": REFRESH_TOKEN_GRANT,
             "refresh_token": refresh_token,
             "client_id": self.contract.client_id,
         }
-        if self.contract.resource:
-            form["resource"] = self.contract.resource
+        if resource or self.contract.resource:
+            form["resource"] = resource or self.contract.resource
         payload = _oauth_payload(
             self.transport.post_form(self.contract.token_endpoint, form=form),
             operation="token refresh",
@@ -215,6 +226,10 @@ def _oauth_payload(response: Response, *, operation: str) -> Mapping[str, Any]:
         return payload
 
     error = raw_error if isinstance(raw_error, str) and raw_error else "oauth_error"
+    if error == "oauth_error" and response.status == 429 and operation == "device token":
+        # A rate limit in front of the token endpoint answers 429 with a plain message and no OAuth error: the
+        # sign-in is still pending, so poll again more slowly rather than abandon the device code.
+        error = "slow_down"
     retryable = error in {"authorization_pending", "slow_down"}
     action = AgentAction.RETRY_LATER if retryable else AgentAction.REAUTHENTICATE
     code = ErrorCode.UNAUTHENTICATED

@@ -337,7 +337,7 @@ def test_the_split_handoff_delimits_cohort_text_as_data() -> None:
         plan,
         split_id="spl_test",
         reviewer_id="alice",
-        snapshot_label="Snapshot 1",
+        snapshot_label="Revision 2",
         change_description=INJECTIONS["pr_text"],
     )
     benign_cohorts = [{**cohort, "title": f"Cohort {n}"} for n, cohort in enumerate(cohorts)]
@@ -345,10 +345,10 @@ def test_the_split_handoff_delimits_cohort_text_as_data() -> None:
         plan_from_cohorts(benign_cohorts, changed, review_short="abcd", base_sha=SHA_A, head_sha=SHA_B),
         split_id="spl_test",
         reviewer_id="alice",
-        snapshot_label="Snapshot 1",
+        snapshot_label="Revision 2",
         change_description="A normal description",
     )
-    assert hostile.startswith(f"{HANDOFF_HEADER} spl_test · split request · Snapshot 1")
+    assert hostile.startswith(f"{HANDOFF_HEADER} spl_test · split request · Revision 2")
     inside, outside = _data_lines(hostile)
     for marker in _MARKERS:
         assert not any(marker in line for line in outside), marker
@@ -377,7 +377,8 @@ def test_a_split_produces_linked_stacked_reviews_and_carries_exact_judgments(tmp
     preview = split.preview({"directive": "Keep each layer green."})
     assert preview["ready"] is True and preview["collect_available"] is True
     plan = preview["plan"]
-    assert [layer["title"] for layer in plan["layers"]] == ["Billing", "Auth", "Tests", "Docs"]
+    # Layers are named as the Brief names its areas: the real folder, never an invented area name.
+    assert [layer["title"] for layer in plan["layers"]] == ["src/billing/", "src/auth/", "Tests", "Docs"]
     assert preview["route"]["tier"] == "prompt_fallback"
     assert "Keep each layer green." in preview["handoff"]
 
@@ -470,7 +471,7 @@ def test_a_target_the_agent_changed_does_not_carry_its_judgment(tmp_path: Path) 
     judged = _judge(split)
     preview = split.preview()
     record = split.start({}, preview, copied=True).json()["split"]
-    auth_layer = next(layer["index"] for layer in preview["plan"]["layers"] if layer["title"] == "Auth")
+    auth_layer = next(layer["index"] for layer in preview["plan"]["layers"] if layer["title"] == "src/auth/")
     assert auth_layer == 2
     # Judged while the split runs (after the plan, which orders cohorts by attention):
     # needs_changes is the state reconcile keeps across a content change on the same
@@ -605,7 +606,7 @@ def test_a_newer_snapshot_refuses_collection(tmp_path: Path) -> None:
     revision = snapshot_revision(split.store, session, split.repo_root, rng, store_root=tmp_path / "store")
     split.store.publish_snapshot(split.review_id, revision.id)
     refused = split.collect(record["id"])
-    assert refused.status_code == 409 and "newer Snapshot" in refused.text
+    assert refused.status_code == 409 and "newer revision" in refused.text
 
 
 # --------------------------------------------------------------------------- #

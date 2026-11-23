@@ -306,6 +306,31 @@ def main() -> int:
             if transcript_path:
                 state_update["transcript_path"] = transcript_path
             _write_session_state(state_update)
+            if source in ("compact", "clear"):
+                with suppress(Exception):
+                    from lemoncrow.core.foundation.claude_window_state import mutate_claude_window_state
+
+                    def _reset_window(state: dict[str, Any]) -> None:
+                        state["prompt_topic_history"] = []
+                        for key in (
+                            "drift_streak",
+                            "last_compact_notice_count",
+                            "last_occupancy",
+                            "noop_continue_count",
+                        ):
+                            state.pop(key, None)
+                        if source == "clear":
+                            for key in (
+                                "precompact_pending",
+                                "precompact_occupancy",
+                                "precompact_model",
+                                "precompact_attempts",
+                            ):
+                                state.pop(key, None)
+
+                    mutate_claude_window_state(
+                        os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd()), session_id_raw, _reset_window
+                    )
 
             # Window-anchored identity: write THIS window's own file so the
             # long-lived MCP server recovers the live id across /clear without

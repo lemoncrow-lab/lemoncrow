@@ -29,6 +29,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from lemoncrow.pro.capabilities.review.answer_category import (
+    QUICK_CHECK,
+    Answer,
+    StructuralFacts,
+    answer_counts,
+    answer_payload,
+    effective_answer,
+    stamped_answer,
+    structural_answer,
+)
+from lemoncrow.pro.capabilities.review.impact import function_valued_binding as _function_valued_binding
 from lemoncrow.pro.capabilities.review.review_priority import (
     QueueReason,
     TargetPriority,
@@ -42,10 +53,15 @@ from lemoncrow.pro.capabilities.review.session_models import (
     ReviewEvidence,
     ReviewUnit,
 )
-from lemoncrow.pro.capabilities.review.units import module_data_name
+from lemoncrow.pro.capabilities.review.units import DEFINITION_HEADER as _DEFINITION_HEADER
+from lemoncrow.pro.capabilities.review.units import change_blocks as _change_blocks
+from lemoncrow.pro.capabilities.review.units import module_data_name, new_side_line_text, owned_old_count
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.routine import RoutineProof
+
+TOP_LEVEL_CODE_LABEL = "Imports and top-level code"
+"""What a person reads for a module-level (document_section) target; never part of a target id."""
 
 TargetKind = Literal["symbol", "hunk", "file", "dependency", "document_section"]
 TargetSide = Literal["old", "new"]
@@ -71,17 +87,6 @@ _DESCRIPTIVE_REASONS = frozenset(
         "symbol deleted",
         "symbol unknown",
     }
-)
-# A deleted row that opens a definition of its own. Deliberately an allowlist of
-# declaration keywords with a name after them: a keyword this misses costs one
-# extra line on a symbol's old span, while a false positive would split an
-# ordinary rewrite into two review targets.
-_DEFINITION_HEADER = re.compile(
-    r"^\s*(?:(?:export|default|public|private|protected|internal|static|final"
-    r"|abstract|override|open|pub|declare|inline)\s+)*"
-    r"(?:async\s+)?"
-    r"(?:def|class|function|func|fn|struct|trait|impl|enum|interface"
-    r"|namespace|module|record|object|type|sub|proc)\s+(?:\([^)]*\)\s*)?[A-Za-z_$]"
 )
 
 
@@ -132,16 +137,26 @@ class ReviewTarget:
     additions: int
     deletions: int
     fingerprint_method: str
+    content_fingerprint: str = ""
     verification: TargetVerification = TargetVerification()
     annotation_counts: TargetAnnotationCounts = TargetAnnotationCounts()
     structural_level: AttentionLevel = "normal"
     """Generated/vendor classification before the queue rewrote ``attention_level``."""
     priority: TargetPriority = field(default_factory=TargetPriority)
     """Canonical queue placement; see :mod:`review_priority`."""
+    structural: Answer = QUICK_CHECK
+    """What the captured change alone says (the unit's stamp, or derived for an unstamped unit)."""
+    answer: Answer = QUICK_CHECK
+    """How a person is asked about this part: ``structural`` raised to a decision by the queue's own
+    Review-first facts (:func:`~lemoncrow.pro.capabilities.review.answer_category.effective_answer`).
+    Never changes with a mark."""
 
 
 @dataclass(frozen=True)
 class ReviewProgress:
+    """Counts over the reviewer's targets. ``later`` is not a judgment: it is counted apart from
+    ``reviewed`` and ``needs_changes`` and every pending sum must include it."""
+
     target_count: int = 0
     reviewed: int = 0
     changed_since_review: int = 0
@@ -149,6 +164,10 @@ class ReviewProgress:
     unreviewed: int = 0
     unknown: int = 0
     mechanical: int = 0
+    later: int = 0
+    decision: int = 0
+    quick_check: int = 0
+    accepted_by_rule: int = 0
 
 
 @dataclass(frozen=True)
@@ -173,6 +192,7 @@ class ReviewOutlineItem:
     review_first: int = 0
     understand: int = 0
     routine: int = 0
+    later: int = 0
 
 
 @dataclass(frozen=True)
@@ -184,19 +204,6 @@ class RevisionTargetDelta:
     added: tuple[ReviewTarget, ...] = ()
     removed: tuple[ReviewTarget, ...] = ()
     active: tuple[ReviewTarget, ...] = ()
-
-
-@dataclass(frozen=True)
-class _ChangeBlock:
-    old_lines: tuple[int, ...]
-    new_lines: tuple[int, ...]
-    new_anchor: int
-    old_text: tuple[str, ...] = ()
-    """The deleted rows' own source text, parallel to *old_lines*.
-
-    The base blob is not an input here, and the deleted text is the only
-    evidence in the packet about what the old side of a block actually was.
-    """
 
 
 # Variable-like declarations are valuable to the index but usually too
@@ -239,126 +246,6 @@ def _as_int(value: object, default: int = 0) -> int:
         return int(cast(Any, value))
     except (TypeError, ValueError):
         return default
-
-
-def _patch_rows(patch: str) -> list[str]:
-    """The rows of a patch body, split only where a unified diff ends one.
-
-    A diff row ends at ``\\n`` and nowhere else. ``str.splitlines`` also breaks on
-    form feeds, vertical tabs, the file/group/record separators and the Unicode
-    line separators, so a changed source line containing one of those would
-    become two rows -- and a tail that happened to start with ``' '``, ``'+'`` or
-    ``'-'`` would be read as another diff row, shifting every line number after
-    it. The final empty element is the body's own trailing newline, not a row.
-    """
-
-    rows = patch.split("\n")
-    if rows and rows[-1] == "":
-        rows.pop()
-    return rows
-
-
-def _new_side_line_text(entry: Mapping[str, Any]) -> dict[int, str]:
-    """Best-effort new-side source lines available inside captured patch hunks."""
-
-    out: dict[int, str] = {}
-    for raw_hunk in entry.get("hunks") or ():
-        if not isinstance(raw_hunk, Mapping):
-            continue
-        patch = str(raw_hunk.get("patch") or "")
-        if not patch:
-            continue
-        old_line = _as_int(raw_hunk.get("old_start"), 0)
-        new_line = _as_int(raw_hunk.get("new_start"), 0)
-        for raw in _patch_rows(patch):
-            if raw.startswith("\\"):
-                continue
-            prefix = raw[:1]
-            if prefix == " ":
-                if new_line > 0:
-                    out[new_line] = raw[1:]
-                old_line += 1
-                new_line += 1
-            elif prefix == "+":
-                if new_line > 0:
-                    out[new_line] = raw[1:]
-                new_line += 1
-            elif prefix == "-":
-                old_line += 1
-            elif not raw:
-                # An empty row is an empty context line whose single trailing
-                # space a producer stripped. It is still one line on both sides:
-                # skipping it without moving the cursors would file every later
-                # row of this hunk one line too high.
-                if new_line > 0:
-                    out[new_line] = ""
-                old_line += 1
-                new_line += 1
-            else:
-                # A row with some other origin character leaves both cursors
-                # where they are, so every later row of this hunk would be filed
-                # under the wrong line number. Stopping keeps the text read so
-                # far honest.
-                break
-    return out
-
-
-def _change_blocks(hunk: Mapping[str, Any]) -> tuple[_ChangeBlock, ...] | None:
-    """Parse exact +/- geometry from a captured hunk body.
-
-    ``None`` means the body was unavailable or unrecognised.  In that case the
-    caller must use one hunk fallback target; it must not manufacture symbol
-    precision from the context-inclusive hunk header.
-    """
-
-    patch = str(hunk.get("patch") or "")
-    if not patch:
-        return None
-    old_line = _as_int(hunk.get("old_start"), 0)
-    new_line = _as_int(hunk.get("new_start"), 0)
-    blocks: list[_ChangeBlock] = []
-    old_changed: list[int] = []
-    old_text: list[str] = []
-    new_changed: list[int] = []
-    block_anchor = max(1, new_line)
-
-    def flush() -> None:
-        nonlocal old_changed, old_text, new_changed, block_anchor
-        if old_changed or new_changed:
-            blocks.append(_ChangeBlock(tuple(old_changed), tuple(new_changed), max(1, block_anchor), tuple(old_text)))
-        old_changed = []
-        old_text = []
-        new_changed = []
-        block_anchor = max(1, new_line)
-
-    for raw in _patch_rows(patch):
-        if raw.startswith("\\"):
-            continue
-        if not raw:
-            # An empty patch row still has an origin prefix in a valid unified
-            # diff.  Seeing a truly empty row means this body cannot be trusted.
-            return None
-        prefix = raw[0]
-        if prefix == " ":
-            flush()
-            old_line += 1
-            new_line += 1
-            block_anchor = max(1, new_line)
-        elif prefix == "-":
-            if not old_changed and not new_changed:
-                block_anchor = max(1, new_line)
-            old_changed.append(max(1, old_line))
-            old_text.append(raw[1:])
-            old_line += 1
-        elif prefix == "+":
-            if not old_changed and not new_changed:
-                block_anchor = max(1, new_line)
-            new_changed.append(max(1, new_line))
-            new_line += 1
-        else:
-            return None
-    flush()
-    return tuple(blocks)
 
 
 def _compress(lines: Sequence[int], *, side: TargetSide, hunk_ordinal: int) -> tuple[TargetSpan, ...]:
@@ -657,6 +544,16 @@ def _target(
     path_target_keys: Collection[str] = (),
 ) -> ReviewTarget:
     state, changed, reviewed_revision_id = _frontier_state(entry)
+    structural = stamped_answer(unit.answer_category, unit.category_rule) or structural_answer(
+        # An unstamped unit (stored before the stamp existed) has no generated marking or Git change to
+        # read, so it can reach accepted-by-rule only as a lockfile version move, never from a guess.
+        StructuralFacts(
+            path=unit.path,
+            kind=unit.kind,
+            fingerprint_known=unit.fingerprint_method != "unknown",
+            reasons=unit.reasons,
+        )
+    )
     ordered_spans = tuple(
         sorted(spans, key=lambda span: (span.hunk_ordinal, span.side, span.start_line, span.end_line))
     )
@@ -665,7 +562,7 @@ def _target(
         unit_key=unit.unit_key,
         kind=unit.kind if unit.kind in ("symbol", "hunk", "file", "dependency", "document_section") else "file",
         path=unit.path,
-        label=f"{unit.path}::Module declarations" if unit.kind == "document_section" else _unit_label(unit),
+        label=f"{unit.path}::{TOP_LEVEL_CODE_LABEL}" if unit.kind == "document_section" else _unit_label(unit),
         symbol="" if unit.kind == "document_section" else unit.symbol,
         start_line=unit.start_line,
         end_line=unit.end_line,
@@ -681,8 +578,11 @@ def _target(
         additions=_span_size(ordered_spans, "new") if additions is None else additions,
         deletions=_span_size(ordered_spans, "old") if deletions is None else deletions,
         fingerprint_method=unit.fingerprint_method,
+        content_fingerprint=unit.content_fingerprint,
         verification=verification or TargetVerification(),
         annotation_counts=_annotation_counts(unit, ordered_spans, annotations, path_target_keys),
+        structural=structural,
+        answer=effective_answer(structural),
     )
 
 
@@ -729,108 +629,6 @@ def _strictly_contains(outer: ReviewUnit, inner: ReviewUnit) -> bool:
         and outer.end_line >= inner.end_line
         and (outer.start_line < inner.start_line or outer.end_line > inner.end_line)
     )
-
-
-def _indent_width(line: str) -> int:
-    return len(line) - len(line.lstrip())
-
-
-def _prelude_row(line: str) -> bool:
-    """Whether *line* is blank, a comment or a decorator/annotation.
-
-    These belong to the definition *below* them, which is the same rule
-    ``impact._prelude_start`` uses to fence one definition off from the next.
-    """
-
-    text = line.strip()
-    return not text or text.startswith(("#", "//", "/*", "*", "@"))
-
-
-def _definition_shape(line: str) -> str | None:
-    """Normalize only the declared name of a visible callable/definition."""
-
-    binding = re.match(
-        r"^(\s*(?:(?:export|default|public|private|protected|static|declare)\s+)*"
-        r"(?:const|let|var)\s+)([A-Za-z_$][\w$]*)(\s*=\s*.+)$",
-        line,
-    )
-    if binding and _function_valued_binding(line):
-        return f"{binding.group(1)}<name>{binding.group(3)}"
-
-    definition = re.match(
-        r"^(\s*(?:(?:export|default|public|private|protected|internal|static|final|abstract|override|open|pub|declare|inline)\s+)*"
-        r"(?:async\s+)?(?:def|class|function|func|fn|struct|trait|impl|enum|interface|namespace|module|record|object|type|sub|proc)\s+"
-        r"(?:\([^)]*\)\s*)?)([A-Za-z_$][\w$]*)(.*)$",
-        line,
-    )
-    if definition:
-        return f"{definition.group(1)}<name>{definition.group(3)}"
-    return None
-
-
-def _same_definition_replacement(block: _ChangeBlock, owner_declaration: str) -> bool:
-    """Whether one deleted declaration is plainly the surviving declaration renamed."""
-
-    if len(block.old_lines) != 1 or len(block.new_lines) != 1 or len(block.old_text) != 1:
-        return False
-    old_shape = _definition_shape(block.old_text[0])
-    new_shape = _definition_shape(owner_declaration)
-    return bool(old_shape and new_shape and old_shape == new_shape)
-
-
-def _foreign_definition_start(block: _ChangeBlock, owner_declaration: str) -> int | None:
-    """Where in *block*'s deleted rows a definition the owner does not own begins.
-
-    A block whose added lines all belong to one symbol usually also owns the
-    lines it deleted -- a body rewritten in place, which is the ordinary case and
-    must stay one review target. But the same shape covers a second, dangerous
-    one: the symbol's body was rewritten *and a neighbour was deleted beside it*
-    in one block. There the owner's ``symbol_body_sha256`` hashes only its own
-    surviving body, so the neighbour's deleted lines would ride under a mark
-    that cannot notice them -- delete another method next revision and the
-    fingerprint, and the reader, do not move.
-
-    Only the deleted text tells the two apart, and only its structure: a row
-    that opens a definition at or above the owner's own nesting level is not the
-    owner's body. Deeper than the owner is a nested helper inside it, which the
-    owner's fingerprint does cover. The definition's prelude -- the blank lines,
-    comments and decorators immediately above it -- goes with it.
-
-    ``None`` means every deleted row is the owner's own, so it keeps them all.
-    """
-
-    if len(block.old_text) != len(block.old_lines):
-        return None
-    if _same_definition_replacement(block, owner_declaration):
-        return None
-    # An owner whose declaration line is outside the captured patch cannot vouch
-    # for its own nesting level, so any definition in the deleted text counts.
-    owner_indent = _indent_width(owner_declaration) if owner_declaration.strip() else -1
-    for index, text in enumerate(block.old_text):
-        if not text.strip():
-            continue
-        if not (_DEFINITION_HEADER.match(text) or _function_valued_binding(text)):
-            continue
-        if _indent_width(text) > owner_indent:
-            continue
-        start = index
-        while start > 0 and _prelude_row(block.old_text[start - 1]):
-            start -= 1
-        return start
-    return None
-
-
-def _function_valued_binding(line: str) -> bool:
-    """Whether a variable declaration visibly defines callable behavior."""
-
-    if "=" not in line:
-        return False
-    rhs = line.split("=", 1)[1].strip()
-    if re.match(r"(?:async\s+)?function\b", rhs):
-        return True
-    if re.match(r"(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>", rhs):
-        return True
-    return re.match(r"(?:useCallback|forwardRef|memo)\s*\(", rhs) is not None
 
 
 def _review_worthy_symbols(
@@ -1016,7 +814,7 @@ def derive_review_targets(
         assert entry is not None
 
         hunk_units = {unit.ordinal: unit for unit in path_units if unit.kind == "hunk"}
-        source_lines = _new_side_line_text(entry)
+        source_lines = new_side_line_text(entry.get("hunks") or ())
         symbols = _review_worthy_symbols(
             path_units,
             symbol_metadata_by_path.get(path, {}),
@@ -1101,19 +899,6 @@ def derive_review_targets(
                     # deletion has no surviving changed line to prove ownership;
                     # its join point may merely be the following symbol.
                     removal_owner = concrete[0]
-                    if removal_owner.kind == "document_section":
-                        # A surviving group cannot vouch for a deleted member
-                        # missing from its current content fingerprint.
-                        current_names = {
-                            name
-                            for line in range(removal_owner.start_line, removal_owner.end_line + 1)
-                            if (name := module_data_name(source_lines.get(line, ""))) is not None
-                        }
-                        deleted_names = {
-                            name for text in block.old_text if (name := module_data_name(text)) is not None
-                        }
-                        if not deleted_names.issubset(current_names):
-                            removal_owner = None
 
                 if removal_owner is None:
                     assign_hunk(ordinal, "old", block.old_lines)
@@ -1121,13 +906,16 @@ def derive_review_targets(
                     # The owner keeps its own deleted body. A definition deleted
                     # beside it is not its own: its fingerprint cannot vouch for
                     # that text, so it goes to the hunk, whose patch fingerprint
-                    # can.
-                    boundary = _foreign_definition_start(block, source_lines.get(removal_owner.start_line, ""))
-                    if boundary is None:
-                        assign_symbol(removal_owner, "old", ordinal, block.old_lines)
-                    else:
-                        assign_symbol(removal_owner, "old", ordinal, block.old_lines[:boundary])
-                        assign_hunk(ordinal, "old", block.old_lines[boundary:])
+                    # can. ``owned_old_count`` is the rule the capture hashes by.
+                    owned = owned_old_count(
+                        block,
+                        source_lines,
+                        removal_owner.start_line,
+                        removal_owner.end_line,
+                        owner_is_group=removal_owner.kind == "document_section",
+                    )
+                    assign_symbol(removal_owner, "old", ordinal, block.old_lines[:owned])
+                    assign_hunk(ordinal, "old", block.old_lines[owned:])
 
         if hard_fallback:
             additions = _as_int(entry.get("additions"), 0)
@@ -1372,7 +1160,20 @@ def review_progress(targets: Sequence[ReviewTarget]) -> ReviewProgress:
         unreviewed=sum(target.state == "unreviewed" for target in targets),
         unknown=sum(target.state == "unknown" for target in targets),
         mechanical=sum(target.attention_level == "mechanical" for target in targets),
+        later=sum(target.state == "later" for target in targets),
+        decision=sum(target.answer.category == "decision" for target in targets),
+        quick_check=sum(target.answer.category == "quick_check" for target in targets),
+        accepted_by_rule=sum(target.answer.category == "accepted_by_rule" for target in targets),
     )
+
+
+def answers_payload(targets: Sequence[ReviewTarget]) -> dict[str, Any]:
+    """How many parts are decisions, quick checks and accepted by rule, and how many each rule accepted.
+
+    Listed, never judged: an accepted-by-rule part is counted here and in no judged tally.
+    """
+
+    return answer_counts([target.answer for target in targets])
 
 
 _OUTLINE_SECTION = {"review_first": "review_first", "understand": "unreviewed", "routine": "mechanical"}
@@ -1410,6 +1211,7 @@ def build_review_outline(targets: Sequence[ReviewTarget]) -> tuple[ReviewOutline
                 needs_changes=sum(target.state == "needs_changes" for target in path_targets),
                 unreviewed=sum(target.state == "unreviewed" for target in path_targets),
                 unknown=sum(target.state == "unknown" for target in path_targets),
+                later=sum(target.state == "later" for target in path_targets),
                 mechanical=sum(target.attention_level == "mechanical" for target in path_targets),
                 attention_rank=min(ranks) if ranks else 0,
                 reasons=tuple(reasons),
@@ -1503,6 +1305,36 @@ def revision_delta_payload(delta: RevisionTargetDelta) -> dict[str, Any]:
     }
 
 
+def label_symbol_moves(
+    payloads: Sequence[dict[str, Any]], provenance: Mapping[str, tuple[str, str, str]]
+) -> list[dict[str, Any]]:
+    """Add ``moved_from`` / ``renamed_from`` to the target payloads whose mark followed a symbol.
+
+    *provenance* is ``unit_key -> (kind, previous path, previous qualified name)`` from one store
+    read, so the Reader gets it with the targets it already fetches. ``symbol`` is present only when
+    the qualified name differs from the target's own (a pure move keeps its name).
+
+    ``renamed_from`` is a hint, **not proof the change is routine**: the same-body test also matches
+    a body whose only change is a use of the old name elsewhere than the definition (an attribute
+    access, a string). Whoever batches renamed parts (P11-2) has to compare the full content.
+    """
+
+    if not provenance:
+        return list(payloads)
+    out: list[dict[str, Any]] = []
+    for payload in payloads:
+        found = provenance.get(str(payload.get("unit_key") or ""))
+        if found is None:
+            out.append(payload)
+            continue
+        kind, path, symbol = found
+        origin: dict[str, str] = {"path": path}
+        if symbol and symbol != str(payload.get("symbol") or ""):
+            origin["symbol"] = symbol
+        out.append({**payload, "moved_from" if kind == "moved" else "renamed_from": origin})
+    return out
+
+
 def target_payload(target: ReviewTarget) -> dict[str, Any]:
     return {
         "target_id": target.target_id,
@@ -1532,6 +1364,7 @@ def target_payload(target: ReviewTarget) -> dict[str, Any]:
         "additions": target.additions,
         "deletions": target.deletions,
         "fingerprint_method": target.fingerprint_method,
+        "content_fingerprint": target.content_fingerprint,
         "verification": {
             "pass": target.verification.pass_count,
             "fail": target.verification.fail_count,
@@ -1543,6 +1376,7 @@ def target_payload(target: ReviewTarget) -> dict[str, Any]:
             "addressed_needs_rereview": target.annotation_counts.addressed_needs_rereview,
         },
         "priority": priority_payload(target.priority),
+        "answer": answer_payload(target.answer),
     }
 
 
@@ -1556,8 +1390,14 @@ def priorities_payload(targets: Sequence[ReviewTarget]) -> dict[str, dict[str, A
     return {target.target_id: priority_payload(target.priority) for target in targets}
 
 
-def progress_payload(progress: ReviewProgress) -> dict[str, int]:
-    return {
+def progress_payload(progress: ReviewProgress, *, answers: bool = True) -> dict[str, int]:
+    """Counts per state. ``answers=False`` leaves out the decision / quick check / accepted-by-rule counts.
+
+    Those need the queue's own facts (policy, wide reach, safeguards), which only the Reader API derives; a
+    surface that cannot derive them (the CLI) prints none rather than a different answer.
+    """
+
+    counts = {
         "target_count": progress.target_count,
         "reviewed": progress.reviewed,
         "changed_since_review": progress.changed_since_review,
@@ -1565,7 +1405,13 @@ def progress_payload(progress: ReviewProgress) -> dict[str, int]:
         "unreviewed": progress.unreviewed,
         "unknown": progress.unknown,
         "mechanical": progress.mechanical,
+        "later": progress.later,
     }
+    if answers:
+        counts["decision"] = progress.decision
+        counts["quick_check"] = progress.quick_check
+        counts["accepted_by_rule"] = progress.accepted_by_rule
+    return counts
 
 
 def outline_payload(item: ReviewOutlineItem) -> dict[str, Any]:
@@ -1577,6 +1423,7 @@ def outline_payload(item: ReviewOutlineItem) -> dict[str, Any]:
         "needs_changes": item.needs_changes,
         "unreviewed": item.unreviewed,
         "unknown": item.unknown,
+        "later": item.later,
         "mechanical": item.mechanical,
         "attention_rank": item.attention_rank,
         "reasons": list(item.reasons),
@@ -1601,8 +1448,10 @@ __all__ = [
     "TargetOrder",
     "TargetSpan",
     "TargetVerification",
+    "answers_payload",
     "build_review_outline",
     "derive_review_targets",
+    "label_symbol_moves",
     "order_review_targets",
     "outline_payload",
     "paths_with_unattributed_request_change",

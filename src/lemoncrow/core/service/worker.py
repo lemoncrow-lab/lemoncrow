@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from lemoncrow.core.foundation.history_store import prune_raw_content
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.core.service.ingest_session import ingest_session_file
 from lemoncrow.core.service.jobs import (
@@ -45,6 +46,10 @@ DEFAULT_JOB_RETENTION_DAYS = 14
 # explicitly archived is a discarded record of somebody's work, not a spent
 # queue row, and the artifacts make it the larger thing on disk.
 DEFAULT_REVIEW_RETENTION_DAYS = 90
+
+# Redacted copies of host transcripts under ``raw/`` older than this are deleted (the parsed traces stay).
+# ``0`` keeps them all. See ``prune_raw_content`` for which sources are never touched.
+DEFAULT_RAW_RETENTION_DAYS = 90
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +89,17 @@ def _held_lease(jobs: Any, job_id: str, worker_id: str, *, interval_s: float) ->
     finally:
         stop.set()
         thread.join(timeout=max(1.0, interval_s))
+
+
+def _raw_retention_days(payload: dict[str, Any]) -> int:
+    """``raw_days`` in the job payload, else ``LEMONCROW_RAW_RETENTION_DAYS``, else the default; ``0`` keeps everything."""
+
+    for configured in (payload.get("raw_days"), os.environ.get("LEMONCROW_RAW_RETENTION_DAYS")):
+        if configured in (None, ""):
+            continue
+        with contextlib.suppress(TypeError, ValueError):
+            return max(0, int(configured))
+    return DEFAULT_RAW_RETENTION_DAYS
 
 
 def _prune_archived_reviews(store_root: Path, older_than_days: int) -> int:
@@ -216,11 +232,14 @@ class Worker:
             # raises so the worker records a failed maintenance job and retries
             # rather than treating "could not inspect the review store" as zero.
             deleted_reviews = _prune_archived_reviews(store_root, max(1, review_days))
+            raw_files, raw_bytes = prune_raw_content(store_root / "raw", older_than_days=_raw_retention_days(payload))
             return {
                 "status": "success",
                 "deleted_jobs": deleted,
                 "deleted_reviews": deleted_reviews,
                 "expired_run_artifacts": _expire_run_artifacts(store_root),
+                "pruned_raw_files": raw_files,
+                "pruned_raw_bytes": raw_bytes,
             }
 
         def background_intelligence_handler(payload: dict[str, Any]) -> dict[str, Any]:

@@ -51,7 +51,7 @@ def test_stale_mcp_returns_actionable_one_shot_error_without_deleting_index(tmp_
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "code_search", "arguments": {"query": "credit_probe"}},
+                "params": {"name": "relations", "arguments": {"symbol": "credit_probe"}},
             }
         )
         assert response is not None

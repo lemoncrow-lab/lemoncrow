@@ -1,0 +1,235 @@
+# LemonCrow data path rules: Express on Node (TypeScript and JavaScript).
+#
+# SPDX-License-Identifier: Apache-2.0
+# Written for LemonCrow (see README.md in this directory). Not copied or adapted from the Semgrep registry, the
+# semgrep-rules repository or opengrep-rules, whose licences do not allow redistribution inside a product.
+#
+# One taint rule per kind of sink (db, http, file, log). The four rules share the same sources, propagators and
+# sanitizers, written out in each rule because Opengrep rejects YAML anchors and unknown top-level keys;
+# tests/gateway/test_review_data_path.py fails when they drift apart. `options.interfile` turns on cross-file
+# taint (`--enable-interfile`, Opengrep v2.0.0 and later).
+rules:
+- id: lemoncrow.data-path.express.db
+  mode: taint
+  languages:
+  - typescript
+  - javascript
+  severity: INFO
+  message: Request data reaches a database write or query.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: express
+    sink_kind: db
+  pattern-sources:
+  - patterns:
+    - pattern: $R.$A
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $A
+        regex: ^(params|query|body|headers|cookies|files|file)$
+  - patterns:
+    - pattern: $R.$M(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $M
+        regex: ^(get|header|param)$
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $ROUTER.param($NAME, ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, async ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, function ($REQ, $RES, $NEXT, $V) { ... })
+    - pattern: $V
+  pattern-propagators:
+  - pattern: Object.assign($TO, ..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: Boolean(...)
+  - pattern: typeof $X
+  - pattern: $X.length
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?si:.*(manager|repositor|repo|transaction|db|datasource|connection|querybuilder|docstorage).*\.(save|insert|upsert|softDelete|update|delete|remove|query|exec|run|execTransaction|execute))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?si:.*(manager|repositor|repo|transaction|db|datasource|connection|querybuilder|docstorage).*\.(save|insert|upsert|softDelete|update|delete|remove|query|exec|run|execTransaction|execute))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.express.http
+  mode: taint
+  languages:
+  - typescript
+  - javascript
+  severity: INFO
+  message: Request data reaches an outgoing HTTP request.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: express
+    sink_kind: http
+  pattern-sources:
+  - patterns:
+    - pattern: $R.$A
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $A
+        regex: ^(params|query|body|headers|cookies|files|file)$
+  - patterns:
+    - pattern: $R.$M(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $M
+        regex: ^(get|header|param)$
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $ROUTER.param($NAME, ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, async ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, function ($REQ, $RES, $NEXT, $V) { ... })
+    - pattern: $V
+  pattern-propagators:
+  - pattern: Object.assign($TO, ..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: Boolean(...)
+  - pattern: typeof $X
+  - pattern: $X.length
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(fetch|axios|got)(\.(get|post|put|patch|delete|request|head))?)))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(fetch|axios|got)(\.(get|post|put|patch|delete|request|head))?)))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.express.file
+  mode: taint
+  languages:
+  - typescript
+  - javascript
+  severity: INFO
+  message: Request data reaches a file write.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: express
+    sink_kind: file
+  pattern-sources:
+  - patterns:
+    - pattern: $R.$A
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $A
+        regex: ^(params|query|body|headers|cookies|files|file)$
+  - patterns:
+    - pattern: $R.$M(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $M
+        regex: ^(get|header|param)$
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $ROUTER.param($NAME, ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, async ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, function ($REQ, $RES, $NEXT, $V) { ... })
+    - pattern: $V
+  pattern-propagators:
+  - pattern: Object.assign($TO, ..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: Boolean(...)
+  - pattern: typeof $X
+  - pattern: $X.length
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(fs|fse|fsp|promises)\.(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|outputFile|outputJson|outputJSON|writeJson|writeJSON|rename|move|copy|copyFile|unlink|remove|rm))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(fs|fse|fsp|promises)\.(writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|outputFile|outputJson|outputJSON|writeJson|writeJSON|rename|move|copy|copyFile|unlink|remove|rm))))$
+    - focus-metavariable: $F
+- id: lemoncrow.data-path.express.log
+  mode: taint
+  languages:
+  - typescript
+  - javascript
+  severity: INFO
+  message: Request data reaches a log line.
+  options:
+    interfile: true
+  metadata:
+    category: data-path
+    framework: express
+    sink_kind: log
+  pattern-sources:
+  - patterns:
+    - pattern: $R.$A
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $A
+        regex: ^(params|query|body|headers|cookies|files|file)$
+  - patterns:
+    - pattern: $R.$M(...)
+    - metavariable-regex:
+        metavariable: $R
+        regex: ^(req|request)$
+    - metavariable-regex:
+        metavariable: $M
+        regex: ^(get|header|param)$
+  - patterns:
+    - pattern-either:
+      - pattern-inside: $ROUTER.param($NAME, ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, async ($REQ, $RES, $NEXT, $V) => { ... })
+      - pattern-inside: $ROUTER.param($NAME, function ($REQ, $RES, $NEXT, $V) { ... })
+    - pattern: $V
+  pattern-propagators:
+  - pattern: Object.assign($TO, ..., $FROM, ...)
+    from: $FROM
+    to: $TO
+  pattern-sanitizers:
+  - pattern: Boolean(...)
+  - pattern: typeof $X
+  - pattern: $X.length
+  pattern-sinks:
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(_?log|_?logger|console)\.(debug|info|warn|error|log|rawInfo|rawWarn|rawError|rawDebug|rawLog|origLog))))$
+  - patterns:
+    - pattern: $F(...)
+    - metavariable-regex:
+        metavariable: $F
+        regex: ^(?:(?:(?s:(.*\.)?(_?log|_?logger|console)\.(debug|info|warn|error|log|rawInfo|rawWarn|rawError|rawDebug|rawLog|origLog))))$
+    - focus-metavariable: $F

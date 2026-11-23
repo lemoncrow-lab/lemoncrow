@@ -3,26 +3,56 @@
 The plan is written by the plan job, which runs no pull request code, so the report job trusts it (thread ids,
 finding ids, the generated test). The results file is written by the run job, which executes pull request code:
 in a plain (unsandboxed) runner that code can rewrite the file, so the report job validates every field of it
-against this vocabulary and bounds every text before it is shown, and the check says which sandbox ran it.
+against this vocabulary and bounds every text before it is shown, and the check says which sandbox ran it. Under
+GitHub Actions the run job never runs that code plainly (:func:`in_github_actions`) and looks every program it
+runs outside the sandbox up on the system path, never on ``PATH`` (:func:`system_executable`).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
+from lemoncrow.pro.environment import sandbox_limits
+
 PLAN_SCHEMA: Final[str] = "lemoncrow.proof.plan/v1"
 RESULTS_SCHEMA: Final[str] = "lemoncrow.proof.results/v1"
 CHECK_NAME: Final[str] = "LemonCrow Proof"
+#: The artifact ``proof-report`` uploads: the exact summary it posts as the check. A hosted Review reads the report
+#: from the workflow run's artifact, never from the check (the check's ``external_id`` only names the run).
+REPORT_ARTIFACT: Final[str] = "lemoncrow-proof-report"
+#: The one JSON file in that artifact: the exact report text and the GitHub identity token ``proof-report`` minted for it.
+REPORT_FILE_SCHEMA: Final[str] = "lemoncrow.proof.report/v1"
+#: The audience prefix of that token; the rest is the digest :func:`report_audience` makes of the head and the report.
+AUDIENCE_PREFIX: Final[str] = "lemoncrow-proof:"
 
 #: What a reproduction showed about its finding.
 REPRO_OUTCOMES: Final[tuple[str, ...]] = ("supported", "contradicted", "inconclusive", "could_not_run")
 #: What running one of the pull request's added or changed tests on the base commit showed.
 RED_OUTCOMES: Final[tuple[str, ...]] = ("fails_on_base", "passes_on_base", "could_not_run")
+#: The words ``run.red_verdict`` gives a changed test that is not red on base. Hosted reviews read them back from the
+#: check run's table (``part_proof_ci``), so they are named here once for the writer and the reader.
+RED_HEAD_FAILED: Final[str] = "it does not pass on head, so there is no green baseline"
+RED_HEAD_NOT_PASSED: Final[str] = "it is {} on head"
+RED_BASE_UNDECIDED: Final[str] = "it is {} in the base run"
+#: The word for a changed test that did not run at all because the sandbox it needs is unusable here (GitHub Actions
+#: without a working bubblewrap). The same single reader (``part_proof_ci``) turns it into one named reason.
+RED_SANDBOX_MISSING: Final[str] = "the sandbox is missing, so nothing was run"
+#: The word for a changed test that failed on head while the pull request also changes a dependency manifest the run
+#: does not install (``lc review proof run --deps-manifest``): the head ran against the base's dependencies, so the
+#: failure is not shown to be the test's own. ``part_proof_ci`` turns it into one named reason, never ``Fails``.
+RED_DEPS_CHANGED: Final[str] = (
+    "the pull request changes a dependency file this run did not install, so a head failure is not shown to be the test's own"
+)
+#: Ends the ``Sandbox:`` line of a check whose sandbox was unusable, so nothing ran. A hosted review reads it back
+#: for a part that has no row (a source file, a pull request that changes no test).
+SANDBOX_UNUSABLE_MARK: Final[str] = "Nothing was run: the sandbox is missing."
 #: One recorded command run.
 RUN_STATUSES: Final[tuple[str, ...]] = ("passed", "failed", "timeout", "error", "not_run")
 SANDBOXES: Final[tuple[str, ...]] = ("bubblewrap", "none")
@@ -47,6 +77,51 @@ class ProofFileError(ValueError):
 
 def digest(raw: bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def in_github_actions(environ: Mapping[str, str] | None = None) -> bool:
+    """``True`` under GitHub Actions, the one place a proof run is attested to a hosted Review."""
+
+    return (os.environ if environ is None else environ).get("GITHUB_ACTIONS") == "true"
+
+
+#: Where the operating system keeps its own programs; the only places a proof step under GitHub Actions looks.
+SYSTEM_PATH: Final[str] = sandbox_limits.SYSTEM_PATH
+
+
+def system_path(environ: Mapping[str, str] | None = None) -> str | None:
+    """The search path for a program the proof runs outside the sandbox.
+
+    Under GitHub Actions the workflow puts a virtualenv holding the pull request's test dependencies first on
+    ``PATH``, and a dependency can ship a console script named ``bwrap``, ``git`` or ``systemd-run``. So there it is
+    :data:`SYSTEM_PATH`, never ``PATH``. Elsewhere ``None``: the process's own ``PATH``, as before. Every program the
+    proof starts on the host is found through this function or :func:`system_executable`; nothing else decides.
+    """
+
+    return SYSTEM_PATH if in_github_actions(environ) else None
+
+
+def system_executable(name: str, environ: Mapping[str, str] | None = None) -> str:
+    """``argv[0]`` for the host program *name*: its absolute path under GitHub Actions, *name* elsewhere.
+
+    A program missing from the system path still comes back absolute (``/usr/bin/<name>``), so the caller fails the
+    way it already does for an absent program and never falls back to a lookup on ``PATH``.
+    """
+
+    if not in_github_actions(environ):
+        return name
+    return shutil.which(name, path=SYSTEM_PATH) or f"/usr/bin/{name}"
+
+
+def report_audience(head_sha: str, report: str) -> str:
+    """The audience a GitHub Actions identity token carries for *report* on commit *head_sha* (full 40-hex sha).
+
+    A hosted Review recomputes it from the Snapshot's head and the artifact's report text, so the token vouches for
+    exactly that pair: the report cannot be swapped, and the token cannot be replayed onto another commit.
+    """
+
+    material = f"{head_sha.strip().lower()}\n{report}".encode()
+    return AUDIENCE_PREFIX + hashlib.sha256(material).hexdigest()
 
 
 def dump(document: Mapping[str, Any]) -> bytes:

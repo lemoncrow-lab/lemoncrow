@@ -85,7 +85,7 @@ def test_thin_code_help_is_hosted_boundary(monkeypatch, tmp_path) -> None:
     assert cli.main(["code", "--help"], sink) == 0
     output = sink.getvalue()
     assert "Hosted coding agent" in output
-    assert "not the open-source local Runtime Lite launcher" in output
+    assert "not the open-source local Workspaces Lite launcher" in output
     assert "lc with claude" in output
     assert "lc rt host" in output
 
@@ -100,7 +100,7 @@ def test_managed_only_runtime_command_does_not_recommend_local_server(monkeypatc
     sink = io.StringIO()
 
     assert cli.main(["session", "list"], sink) == 2
-    assert "not part of serverless Runtime Lite" in sink.getvalue()
+    assert "not part of serverless Workspaces Lite" in sink.getvalue()
     assert "--product runtime --local" not in sink.getvalue()
 
 
@@ -132,8 +132,8 @@ def test_thin_status_reports_review_only(monkeypatch, tmp_path) -> None:
     assert cli.main(["status"], sink) == 0
     output = sink.getvalue()
     assert "Review\n  Installed      yes" in output
-    assert "Runtime\n  Installed      no" in output
-    assert "lemoncrow.com → Runtime" in output
+    assert "Workspaces\n  Installed      no" in output
+    assert "lemoncrow.com → Workspaces" in output
 
 
 def test_thin_uninstall_delegates_to_persisted_product_wrapper(monkeypatch, tmp_path) -> None:
@@ -223,8 +223,8 @@ def test_local_savings_runtime_commands_delegate_or_fail_cleanly(monkeypatch, tm
         sink = io.StringIO()
         assert cli.main(command, sink) == 2
         output = sink.getvalue()
-        assert "not part of serverless Runtime Lite" in output
-        assert "managed/full Runtime CLI" in output
+        assert "not part of serverless Workspaces Lite" in output
+        assert "optional managed/full CLI" in output
         assert "unknown runtime command" not in output
         assert f"lc runtime {command[1]}" in output
 

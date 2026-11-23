@@ -24,7 +24,6 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     validate_queue_completion_receipt,
     validate_reproduction_proposal,
 )
-from lemoncrow.pro.capabilities.review.runtimes import RunnerRegistry, SurfaceRunResult
 from lemoncrow.pro.capabilities.review.session_models import (
     ReviewEvidence,
     ReviewRevision,
@@ -39,6 +38,7 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     SurfaceConfigEntry,
     SurfaceContext,
 )
+from lemoncrow.pro.environment.runners import RunnerRegistry, SurfaceRunResult
 
 
 def _revision(**overrides: object) -> ReviewRevision:
@@ -236,13 +236,13 @@ def test_hosted_completion_persists_exact_queue_job_and_replay(tmp_path: Path) -
 def test_worker_report_and_queue_receipt_never_claim_independent_process_attestation(tmp_path: Path) -> None:
     """A content digest and fenced queue lifecycle are not signed process proof."""
     from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+    from lemoncrow.pro.environment.execution import (
         ExecutionRecipe,
         ExecutionSubject,
         ExecutorClass,
         StageOutcome,
     )
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
 
     store, revision, _context, config, surface = _stored_validation_context(tmp_path)
     runtime = config.runtimes[0]
@@ -319,14 +319,14 @@ def test_worker_report_and_queue_receipt_never_claim_independent_process_attesta
 
 def test_evaluation_receipt_reads_protected_artifact_bytes_before_exposing_inspection_role(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.evaluation_timeline import execution_receipt
-    from lemoncrow.pro.capabilities.review.execution import (
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
+    from lemoncrow.pro.capabilities.review.run_evidence import protect_bytes
+    from lemoncrow.pro.environment.execution import (
         ExecutionRecipe,
         ExecutionSubject,
         ExecutorClass,
         StageOutcome,
     )
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticPolicy, build_execution_result
-    from lemoncrow.pro.capabilities.review.run_evidence import protect_bytes
 
     store, revision, _context, config, surface = _stored_validation_context(tmp_path)
     runtime = config.runtimes[0]
@@ -436,9 +436,9 @@ def test_hosted_queue_receipt_rejects_corruption_and_cross_snapshot(tmp_path: Pa
             execution_intent="current",
             queue_completion_receipt=corrupted,
         )
-    with pytest.raises(ValueError, match="exact job and Snapshot"):
+    with pytest.raises(ValueError, match="exact job and revision"):
         validate_queue_completion_receipt(receipt, replace(request, revision_id="rr-another"))
-    with pytest.raises(ValueError, match="exact job and Snapshot"):
+    with pytest.raises(ValueError, match="exact job and revision"):
         validate_queue_completion_receipt(receipt, request, job_id="queue-job-foreign")
     assert len(store.list_evidence(request.review_id)) == 1
 
@@ -811,9 +811,9 @@ def test_artifact_reference_requires_same_review_revision_kind_and_hash() -> Non
         mime_type="image/png",
     )
     assert validate_artifact_reference(evidence, request, "screenshot") is evidence
-    with pytest.raises(ValueError, match="same exact Snapshot"):
+    with pytest.raises(ValueError, match="same exact revision"):
         validate_artifact_reference(replace(evidence, revision_id="rr-other"), request, "screenshot")
-    with pytest.raises(ValueError, match="same exact Snapshot"):
+    with pytest.raises(ValueError, match="same exact revision"):
         validate_artifact_reference(replace(evidence, review_id="other"), request, "screenshot")
     with pytest.raises(ValueError, match="wrong kind"):
         validate_artifact_reference(replace(evidence, kind="video"), request, "screenshot")
@@ -1008,7 +1008,7 @@ def test_current_runtime_result_is_not_published_after_snapshot_supersession(tmp
                 surface.provider,
                 side,
                 "passed",
-                "old Snapshot completed late",
+                "old revision completed late",
                 self.runner_id,
                 runtime.id,
                 exit_code=0,

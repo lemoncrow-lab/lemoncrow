@@ -10,19 +10,33 @@ that does not say what a call cost does not get a made-up figure), and streaming
 
 Environment: ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_BASE_URL`` (the SDKs' own names), ``LEMONCROW_OPENAI_API_KEY`` /
 ``OPENAI_API_KEY`` and ``LEMONCROW_OPENAI_BASE_URL``.
+
+Workload Identity Federation, with no stored key: ``ANTHROPIC_FEDERATION_RULE_ID`` and ``ANTHROPIC_ORGANIZATION_ID``
+(``ANTHROPIC_SERVICE_ACCOUNT_ID`` and ``ANTHROPIC_WORKSPACE_ID`` when the rule needs them), and an identity token: the
+file ``ANTHROPIC_IDENTITY_TOKEN_FILE`` names, re-read for every exchange, else a fresh GitHub Actions OIDC token
+fetched from ``ACTIONS_ID_TOKEN_REQUEST_URL`` for every exchange (a GitHub token lives about five minutes and its
+``jti`` is single-use). The token is exchanged at ``/v1/oauth/token`` for a short-lived access token, which is kept
+in memory only, sent as ``Authorization: Bearer`` and exchanged again 120 s before it expires. ``ANTHROPIC_API_KEY``,
+when set, wins, as in the vendor SDKs.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, OpenAIClientUnavailable, describe_refusal
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+from lemoncrow.infra.internal_llm.usage import note_response
 
 ANTHROPIC_VERSION: Final[str] = "2023-06-01"
 DEFAULT_ANTHROPIC_URL: Final[str] = "https://api.anthropic.com"
@@ -41,9 +55,197 @@ def anthropic_key() -> str:
 
 
 def handles_anthropic(model: str) -> bool:
-    """Whether *model* is an ``anthropic/...`` model with a key to call it: the route ``ANTHROPIC_API_KEY`` selects."""
+    """Whether *model* is an ``anthropic/...`` model with a credential to call it: an API key or a federation."""
 
-    return model.startswith(_ANTHROPIC_PREFIX) and bool(anthropic_key())
+    return model.startswith(_ANTHROPIC_PREFIX) and (bool(anthropic_key()) or federation_config() is not None)
+
+
+def uses_federation(model: str) -> bool:
+    """Whether *model* is called through Workload Identity Federation: an ``anthropic/`` model, a federation, no key.
+
+    LiteLLM knows nothing of a federated token, so this route never goes through it, installed or not.
+    """
+
+    return model.startswith(_ANTHROPIC_PREFIX) and not anthropic_key() and federation_config() is not None
+
+
+# --------------------------------------------------------------------------- #
+# Workload Identity Federation: an identity token exchanged for a short-lived access token
+# --------------------------------------------------------------------------- #
+
+GITHUB_AUDIENCE: Final[str] = "https://api.anthropic.com"
+_JWT_BEARER: Final[str] = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+#: Exchange again this long before the access token expires (the vendor SDKs' advisory refresh).
+_REFRESH_MARGIN_S: Final[float] = 120.0
+#: The one fix for an opaque refusal: Anthropic names the reason only in the Console.
+FEDERATION_DENIED: Final[str] = (
+    'Anthropic refused the workload identity token exchange (HTTP 401 "Authentication failed"). The reason is '
+    "shown only in the Claude Console: Settings > Workload identity > Authentication history "
+    "(platform.claude.com/settings/workload-identity-federation?tab=history). The usual cause is a federation rule "
+    "that does not match the token's `sub` claim: a pull_request run's is `repo:<owner>/<repo>:pull_request`, not "
+    "`repo:<owner>/<repo>:ref:refs/heads/<branch>`. Check also the rule, organization, service account and workspace "
+    "IDs passed to the Action."
+)
+
+
+@dataclass(frozen=True)
+class FederationConfig:
+    """The non-secret IDs of a federation, and where its identity token comes from."""
+
+    rule_id: str
+    organization_id: str
+    service_account_id: str
+    workspace_id: str
+    token_file: str
+    github_request_url: str
+
+
+def federation_config(env: Mapping[str, str] | None = None) -> FederationConfig | None:
+    """The federation *env* configures (default: the process environment), or ``None`` without a rule, an
+    organization or a source of identity tokens."""
+
+    source = os.environ if env is None else env
+
+    def get(name: str) -> str:
+        return str(source.get(name) or "").strip()
+
+    rule, organization = get("ANTHROPIC_FEDERATION_RULE_ID"), get("ANTHROPIC_ORGANIZATION_ID")
+    token_file = get("ANTHROPIC_IDENTITY_TOKEN_FILE")
+    github = get("ACTIONS_ID_TOKEN_REQUEST_URL") if get("ACTIONS_ID_TOKEN_REQUEST_TOKEN") else ""
+    if not (rule and organization and (token_file or github)):
+        return None
+    return FederationConfig(
+        rule, organization, get("ANTHROPIC_SERVICE_ACCOUNT_ID"), get("ANTHROPIC_WORKSPACE_ID"), token_file, github
+    )
+
+
+class _AccessToken:
+    """The current access token, in memory only, and when to exchange for the next one."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.value = ""
+        self.refresh_at = 0.0
+        self.config: FederationConfig | None = None
+
+
+_ACCESS = _AccessToken()
+
+
+def _mask(value: str) -> None:
+    """Tell the GitHub runner to hide *value* in every log line, before anything could print it."""
+
+    if os.environ.get("GITHUB_ACTIONS") == "true" and value:
+        try:
+            # The step's own standard output, which the runner reads for workflow commands, whatever sys.stdout is now.
+            os.write(1, f"::add-mask::{value}\n".encode())
+        except OSError:
+            pass
+
+
+def _identity_token(config: FederationConfig, timeout: float) -> str:
+    """A fresh identity token: the file re-read, else a new GitHub OIDC token (one per exchange: ``jti`` is single-use)."""
+
+    if config.token_file:
+        try:
+            token = Path(config.token_file).read_text(encoding="utf-8").strip()
+        except OSError as error:
+            raise AnthropicRequestFailed(
+                f"could not read the identity token file ANTHROPIC_IDENTITY_TOKEN_FILE ({error.strerror})"
+            ) from error
+        if not token:
+            raise AnthropicRequestFailed("the identity token file ANTHROPIC_IDENTITY_TOKEN_FILE is empty")
+        return token
+    separator = "&" if "?" in config.github_request_url else "?"
+    request = urllib.request.Request(
+        f"{config.github_request_url}{separator}audience={urllib.parse.quote(GITHUB_AUDIENCE, safe='')}",
+        headers={
+            "Authorization": f"Bearer {os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN', '').strip()}",
+            "Accept": "application/json",
+            "User-Agent": "lemoncrow-review",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            token = str((json.loads(response.read().decode("utf-8")) or {}).get("value") or "").strip()
+    except urllib.error.HTTPError as error:
+        raise AnthropicRequestFailed(
+            f"GitHub refused the OIDC token request (HTTP {error.code}): the workflow needs `permissions: id-token: write`"
+        ) from error
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError) as error:
+        raise AnthropicRequestFailed(f"could not get a GitHub OIDC token ({type(error).__name__})") from error
+    if not token:
+        raise AnthropicRequestFailed("GitHub's OIDC token endpoint sent no token")
+    _mask(token)
+    return token
+
+
+def _exchange(config: FederationConfig, base: str, timeout: float) -> tuple[str, float]:
+    """One token exchange: ``(access token, seconds it lives)``. No error message ever holds either token."""
+
+    body: dict[str, str] = {
+        "grant_type": _JWT_BEARER,
+        "assertion": _identity_token(config, timeout),
+        "federation_rule_id": config.rule_id,
+        "organization_id": config.organization_id,
+    }
+    if config.service_account_id:
+        body["service_account_id"] = config.service_account_id
+    if config.workspace_id:
+        body["workspace_id"] = config.workspace_id
+    request = urllib.request.Request(
+        f"{base}/v1/oauth/token",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": "lemoncrow-review"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            reply = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in (400, 401, 403):
+            raise AnthropicRequestFailed(FEDERATION_DENIED) from None
+        raise AnthropicRequestFailed(f"Anthropic's token exchange answered HTTP {error.code}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise AnthropicRequestFailed(
+            f"could not reach Anthropic's token exchange ({getattr(error, 'reason', type(error).__name__)})"
+        ) from None
+    except ValueError:
+        raise AnthropicRequestFailed("Anthropic's token exchange sent a reply that is not JSON") from None
+    token = str(reply.get("access_token") or "").strip() if isinstance(reply, Mapping) else ""
+    if not token:
+        raise AnthropicRequestFailed("Anthropic's token exchange sent no access_token")
+    _mask(token)
+    lifetime = reply.get("expires_in")
+    seconds = float(lifetime) if isinstance(lifetime, int | float) and not isinstance(lifetime, bool) else 60.0
+    return token, max(seconds, 1.0)
+
+
+def federated_access_token(*, base: str = "", timeout: float | None = None) -> str:
+    """The access token for the configured federation: the cached one, or a new exchange 120 s before it expires."""
+
+    config = federation_config()
+    if config is None:
+        raise AnthropicRequestFailed("no Anthropic credential: set ANTHROPIC_API_KEY or a workload identity federation")
+    base = base or os.environ.get("ANTHROPIC_BASE_URL", "").strip().rstrip("/") or DEFAULT_ANTHROPIC_URL
+    with _ACCESS.lock:
+        now = time.monotonic()
+        if _ACCESS.value and _ACCESS.config == config and now < _ACCESS.refresh_at:
+            return _ACCESS.value
+        token, lifetime = _exchange(config, base, _timeout(timeout))
+        # A token shorter-lived than twice the margin is refreshed at half its life instead of never being reused.
+        margin = _REFRESH_MARGIN_S if lifetime > 2 * _REFRESH_MARGIN_S else lifetime / 2
+        _ACCESS.value, _ACCESS.refresh_at, _ACCESS.config = token, now + lifetime - margin, config
+        return token
+
+
+def _anthropic_auth(base: str, timeout: float | None) -> dict[str, str]:
+    """The credential header of a Messages call: the API key when there is one (it wins), else a federated token."""
+
+    key = anthropic_key()
+    if key:
+        return {"x-api-key": key}
+    return {"Authorization": f"Bearer {federated_access_token(base=base, timeout=timeout)}"}
 
 
 def _timeout(timeout: float | None) -> float:
@@ -146,13 +348,14 @@ def anthropic_chat_with_result(
     from lemoncrow.infra.internal_llm.litellm_client import _parse_json
 
     base = os.environ.get("ANTHROPIC_BASE_URL", "").strip().rstrip("/") or DEFAULT_ANTHROPIC_URL
-    headers = {"x-api-key": anthropic_key(), "anthropic-version": ANTHROPIC_VERSION}
+    headers = {**_anthropic_auth(base, timeout), "anthropic-version": ANTHROPIC_VERSION}
     request = _anthropic_request(messages, model=model, json_mode=json_schema is not None)
     replies: list[Any] = []
 
     def call(body: Mapping[str, Any]) -> str:
         reply = _post(f"{base}/v1/messages", headers, body, timeout=_timeout(timeout), provider="Anthropic")
         replies.append(reply)
+        note_response(model, reply.get("usage") if isinstance(reply, Mapping) else None)
         blocks = reply.get("content") if isinstance(reply, Mapping) else None
         return "".join(
             str(block.get("text") or "")
@@ -237,6 +440,7 @@ def openai_chat_with_result(
         timeout=_timeout(timeout),
         provider="OpenAI",
     )
+    note_response(model, reply.get("usage") if isinstance(reply, Mapping) else None)
     try:
         content = str(reply["choices"][0]["message"]["content"] or "")
     except (KeyError, IndexError, TypeError) as error:
@@ -265,11 +469,16 @@ def openai_chat_with_result(
 
 
 __all__ = [
+    "FEDERATION_DENIED",
     "AnthropicRequestFailed",
+    "FederationConfig",
     "OpenAIRequestFailed",
     "anthropic_chat_with_result",
     "anthropic_key",
+    "federated_access_token",
+    "federation_config",
     "handles_anthropic",
     "openai_chat_with_result",
     "openai_credentials",
+    "uses_federation",
 ]

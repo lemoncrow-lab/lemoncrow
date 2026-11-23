@@ -5,8 +5,8 @@
 #
 # To publish new content, add it here and re-run `make mirror ARGS="--resync"`
 # -- widening the allowlist needs a full-tree resync, because an incremental run
-# only applies paths each new commit touched (`--force` also works, but rewrites
-# all public history).
+# only applies paths each new commit touched (`--per-commit --force` also works, but
+# rewrites all public history).
 
 # === Source code, CLI, MCP server ===
 # Explicit package-level allowlist: a new sibling under src/ is private until
@@ -38,6 +38,36 @@ src/lemoncrow/sdk/
 !src/lemoncrow/pro/capabilities/owned_agent_session/phase_runner.py
 !src/lemoncrow/pro/capabilities/owned_agent_session/stem_prompt.py
 
+# The Workspaces server is offered only as Workspaces Cloud (run by LemonCrow) or within Enterprise, never as a
+# self-run download (D2 of docs/planning/2026-11-09-workspaces-lite-cloud-enterprise-plan.md). Its source, its
+# `lc workspaces` command, Review's Workspaces source and their tests stay private; no public commit has held
+# them, and its operator reference lives under enterprise/. Workspaces Lite and the client's `lc task --server`
+# stay public, and the command registry imports `workspaces_server` inside a try. tests/test_mirror_denylist.py
+# refuses a public importer.
+!src/lemoncrow/pro/workspaces/
+!src/lemoncrow/gateway/cli/commands/workspaces_server.py
+!src/lemoncrow/pro/capabilities/review/sources/workspaces.py
+!tests/gateway/test_review_workspaces_source.py
+!tests/gateway/test_workspaces_agents.py
+!tests/gateway/test_workspaces_agents_oci.py
+!tests/gateway/test_workspaces_config_pull.py
+!tests/gateway/test_workspaces_entitlement.py
+!tests/gateway/test_workspaces_github_app.py
+!tests/gateway/test_workspaces_history.py
+!tests/gateway/test_workspaces_identity.py
+!tests/gateway/test_workspaces_land_review.py
+!tests/gateway/test_workspaces_lite_to_server.py
+!tests/gateway/test_workspaces_members.py
+!tests/gateway/test_workspaces_org.py
+!tests/gateway/test_workspaces_owners.py
+!tests/gateway/test_workspaces_pushes.py
+!tests/gateway/test_workspaces_registry_reconcile.py
+!tests/gateway/test_workspaces_repair.py
+!tests/gateway/test_workspaces_repair_oci.py
+!tests/gateway/test_workspaces_server.py
+!tests/gateway/test_workspaces_server_oci.py
+!tests/gateway/test_workspaces_token_minter.py
+
 # === Public server core + local composition ===
 server/
 
@@ -60,6 +90,16 @@ evals/review/
 !evals/review/golden_comment_prs.yaml
 # Its tests read that file, so they stay private with it.
 !tests/gateway/test_review_golden_corpus_shipped.py
+# The read-burden corpus: 53 pull requests of third-party repositories, about 14 MB of verbatim source once inflated,
+# each under its own licence and attribution. It stays private (OWNER-18: the benchmark is shared as the report, the
+# manifest and a fetcher, `make review-read-burden-bundle`); the report, the README, the recorded counts, the manifest,
+# the fetch list (sources.json) and the licence texts are public. The gate test reads the corpus, so it stays private
+# with it. (Anything under prs/ and the collector, which is not in this list, are private.)
+!evals/review/read_burden/prs/
+!tests/gateway/test_review_read_burden.py
+# The bundle test reads the corpus and the private bundle builder (scripts/build_read_burden_bundle.py), so it stays
+# private with them. The fetcher itself is public: it is how a reader rebuilds the corpus from GitHub.
+!tests/gateway/test_review_read_burden_bundle.py
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
@@ -190,6 +230,7 @@ scripts/build_review_client.sh
 scripts/build_review_engine.sh
 scripts/build_runtime_client.sh
 scripts/bundle.sh
+scripts/fetch_read_burden_corpus.py
 scripts/install_agents.sh
 scripts/install_antigravity.sh
 scripts/install_claude.sh
@@ -198,7 +239,6 @@ scripts/install_copilot.sh
 scripts/install_cursor.sh
 scripts/install_hermes.sh
 scripts/install_hosts.sh
-scripts/install_lemoncode.sh
 scripts/install_opencode.sh
 scripts/opencode_v2_config.py
 scripts/install_pi.sh
@@ -243,7 +283,6 @@ scripts/uninstall_codex.sh
 scripts/uninstall_copilot.sh
 scripts/uninstall_cursor.sh
 scripts/uninstall_hermes.sh
-scripts/uninstall_lemoncode.sh
 scripts/uninstall_opencode.sh
 scripts/uninstall_pi.sh
 scripts/uninstall.sh
@@ -257,16 +296,14 @@ scripts/verify_opencode.sh
 # Executed or named by published tests, integrations and benchmarks
 # (tests/test_mirror_denylist.py fails when a public file references an omitted script).
 scripts/verify_cursor.sh
-scripts/verify_lemoncode.sh
 scripts/smoke_cursor.sh
 scripts/rebuild_isolated_bench_secondary_dbs.py
 
 # === Examples ===
 examples/
-# Local Review demo and example preview plugin: documented in
-# docs/reference/review-demo.md and review-preview-plugins.md, and exercised by
-# the published Review tests.
-demo/review-surfaces/
+# Example preview plugin (the Review demo itself lives under examples/demo):
+# documented in docs/reference/review-preview-plugins.md and exercised by the
+# published Review tests.
 demo/review-preview-plugin/
 
 # === Vendored stubs (required by pyproject.toml path dependency) ===

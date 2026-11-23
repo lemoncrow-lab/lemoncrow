@@ -21,12 +21,10 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.compute_ledger import ComputeLedger
-from lemoncrow.pro.capabilities.review.execution import EnvironmentFingerprint, ExecutorClass
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.interactive_preview import LoopbackExposure
 from lemoncrow.pro.capabilities.review.interactive_preview_api import TOKEN_HEADER, InteractivePreviewBackend
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
-from lemoncrow.pro.capabilities.review.preview_proxy import ProxyRequest, ProxyResponse
 from lemoncrow.pro.capabilities.review.preview_runtime import PreviewStartSpec, RunningPreview
 from lemoncrow.pro.capabilities.review.preview_sessions import (
     INTERACTIVE_PREVIEW_ENTRY,
@@ -36,6 +34,8 @@ from lemoncrow.pro.capabilities.review.preview_sessions import (
 from lemoncrow.pro.capabilities.review.run_plan import load_run_plan
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
+from lemoncrow.pro.environment.execution import EnvironmentFingerprint, ExecutorClass
+from lemoncrow.pro.environment.preview_proxy import ProxyRequest, ProxyResponse
 
 TOKEN = "-".join(("preview", "api", "fixture"))
 PORT = 45997
@@ -114,6 +114,7 @@ def _review(
     tmp_path: Path,
     *,
     base_config: str = RECIPE,
+    environment: str = "",
     driver: FakeDriver | None = None,
     viewer: dict[str, str] | None = None,
     unavailable: str = "",
@@ -126,6 +127,8 @@ def _review(
     _write(repo_root, "site/index.html", "<h1>base</h1>\n")
     if base_config:
         _write(repo_root, ".lemoncrow/review.yaml", base_config)
+    if environment:
+        _write(repo_root, ".lemoncrow/environment.toml", environment)
     _commit(repo, "base", 0)
     _write(repo_root, "site/index.html", "<h1>head</h1>\n")
     _commit(repo, "change", 1)
@@ -288,6 +291,62 @@ def test_offer_is_available_from_the_trusted_base_recipe(tmp_path: Path) -> None
     assert offer["opens_from"] == ["behavior_changes", "checks_rail"]
     assert offer["run_on"] == "local"
     assert offer["sessions"] == []
+
+
+PREVIEWS = """\
+version = 1
+
+[previews.web]
+run = "npm start"
+ready = "/health"
+
+[previews.docs]
+run = "make serve"
+ready = "/"
+"""
+
+
+def test_every_declared_preview_is_offered_and_the_first_is_the_default(tmp_path: Path) -> None:
+    review = _review(tmp_path, base_config="", environment=PREVIEWS)
+    offer = review.client.get(_url(review), headers=HEADERS).json()
+    assert offer["state"] == "available", offer
+    assert (offer["previews"], offer["preview"]) == (["web", "docs"], "web")
+    picked = review.client.get(_url(review), headers=HEADERS, params={"preview": "docs"}).json()
+    assert (picked["state"], picked["previews"], picked["preview"]) == ("available", ["web", "docs"], "docs")
+    # review.yaml's interactive_preview offers no named previews.
+    other = _review(tmp_path / "plain")
+    plain = other.client.get(_url(other), headers=HEADERS).json()
+    assert (plain["previews"], plain["preview"]) == ([], None)
+
+
+def test_a_start_runs_the_preview_it_names_else_the_first_declared(tmp_path: Path) -> None:
+    review = _review(tmp_path, base_config="", environment=PREVIEWS)
+    started = _start(review, preview="docs")
+    assert started.status_code == 200, started.text
+    assert started.json()["session"]["preview"] == "docs"
+    assert review.driver.started[-1].recipe.command == ("sh", "-c", "make serve")
+    assert review.driver.started[-1].recipe.source == ".lemoncrow/environment.toml previews.docs"
+    rows = PreviewSessionStore(review.store).for_review(review.review_id)
+    assert [row.preview for row in rows if row.state == "running"] == ["docs"]
+
+    default = _start(review)
+    assert default.status_code == 200, default.text
+    assert default.json()["session"]["preview"] == "web"
+    assert review.driver.started[-1].recipe.command == ("sh", "-c", "npm start")
+
+
+def test_an_unknown_or_malformed_preview_name_is_refused(tmp_path: Path) -> None:
+    review = _review(tmp_path, base_config="", environment=PREVIEWS)
+    unknown = _start(review, preview="admin")
+    assert unknown.status_code == 422
+    assert unknown.json()["detail"] == "no preview named 'admin'; the trusted base declares web, docs"
+    assert review.client.get(_url(review), headers=HEADERS, params={"preview": "admin"}).status_code == 422
+    assert _start(review, preview=7).status_code == 422
+    assert review.driver.started == []
+    # Without environment.toml previews, any name is unknown.
+    plain = _review(tmp_path / "plain")
+    refused = _start(plain, preview="web")
+    assert refused.status_code == 422 and "declares no previews" in refused.json()["detail"]
 
 
 def test_disabled_driver_is_honestly_not_available(tmp_path: Path) -> None:
@@ -680,6 +739,14 @@ def test_the_cap_counts_previews_another_replica_started_through_the_shared_stat
     record, _token = start_on_second("bob")
     assert record.state == "running"
     second.shutdown()
+
+
+def test_local_review_apps_share_one_machine_wide_preview_cap(tmp_path: Path) -> None:
+    # The local server builds one Review app (and backend) per repository and Review.
+    first = InteractivePreviewBackend.local(tmp_path / "repo-a", port=PORT)
+    second = InteractivePreviewBackend.local(tmp_path / "repo-b", port=PORT)
+    assert first.state is not None and first.state is second.state
+    assert first.scope == second.scope
 
 
 def test_concurrent_starts_never_exceed_the_cap(tmp_path: Path) -> None:

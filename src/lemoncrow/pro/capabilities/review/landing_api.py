@@ -35,6 +35,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from lemoncrow.pro.capabilities.review import auto_approval as aa
 from lemoncrow.pro.capabilities.review import break_glass as bg
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.blocking_reasons import merge_result_status, scm_status
 from lemoncrow.pro.capabilities.review.freshness import parse_timestamp
 from lemoncrow.pro.capabilities.review.landing_policy import (
@@ -587,7 +588,11 @@ def landing_extras(store: Any, session: Any, revision: Any, *, now: str) -> dict
 
     instant = parse_timestamp(now) or datetime.now(UTC)
     decision = aa.stored_decision(store, revision.id)
-    outcomes = store.list_outcomes(session.id)
+    from lemoncrow.pro.capabilities.review.record_retraction import retracted_outcome_ids
+
+    # Follow-up reads every verdict, but not one the person retracted (SPEC 4.18): it completes nothing.
+    retracted = retracted_outcome_ids(store, session.id)
+    outcomes = [item for item in store.list_outcomes(session.id) if item.id not in retracted]
     revisions = [item.id for item in store.list_revisions(session.id)]
     records = bg.records(store, revisions)
     return {
@@ -631,7 +636,12 @@ def register_landing_routes(router: APIRouter, deps: LandingDeps) -> None:
 
     @router.get("/reviews/{review_id}/landing/auto-approval")
     async def _get_auto_approval(review_id: str) -> dict[str, Any]:
-        result: dict[str, Any] = await run_in_threadpool(_eligibility, review_id)
+
+        def scoped() -> dict[str, Any]:
+            with request_reads.reads_once():
+                return _eligibility(review_id)
+
+        result: dict[str, Any] = await run_in_threadpool(scoped)
         return result
 
     @router.post("/reviews/{review_id}/landing/auto-approval")
@@ -674,7 +684,7 @@ def register_landing_routes(router: APIRouter, deps: LandingDeps) -> None:
             parsed = bg.parse_request(body)
             if parsed.expected_revision_id != revision.id:
                 raise bg.BreakGlassRefused(
-                    "the Snapshot changed since readiness was inspected; reload before break-glass", status=409
+                    "the revision changed since readiness was inspected; reload before break-glass", status=409
                 )
             if parsed.expected_conditions_hash != current["conditions_hash"]:
                 raise bg.BreakGlassRefused(

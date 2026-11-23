@@ -37,7 +37,7 @@ _logger = logging.getLogger(__name__)
 
 # Schema version: bump if the persisted Tag shape changes so stale rows are
 # transparently ignored (mismatched table is dropped + recreated).
-_SCHEMA_VERSION = 2  # v2: Tag.node_kind (definition node kind for symbol-kind mapping)
+_SCHEMA_VERSION = 3  # v2: Tag.node_kind; v3: Tag.container_kind (enclosing scope, for local-binding filtering)
 _DB_FILENAME = "repo_map_tags.sqlite"
 
 _DISABLE_VALUES = {"0", "false", "off", "no"}
@@ -74,6 +74,7 @@ def _tag_to_dict(tag: Tag) -> dict[str, Any]:
         "line": tag.line,
         "byte_range": list(tag.byte_range),
         "node_kind": tag.node_kind,
+        "container_kind": tag.container_kind,
     }
 
 
@@ -86,6 +87,7 @@ def _dict_to_tag(data: dict[str, Any]) -> Tag:
         line=int(data["line"]),
         byte_range=(int(start), int(end)),
         node_kind=data.get("node_kind"),
+        container_kind=data.get("container_kind"),
     )
 
 

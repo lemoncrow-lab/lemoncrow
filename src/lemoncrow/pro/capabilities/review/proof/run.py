@@ -3,8 +3,9 @@
 This step executes pull request code, so it holds nothing worth stealing: the child process gets an
 allow-listed environment (``PATH``, a throwaway ``HOME`` and ``TMPDIR``, ``CI=1``, a locale) and never a model
 key or a GitHub token, whatever this process holds. In bubblewrap the child also gets no network, no host home
-and only the toolchain directories named with ``toolchain``; without bubblewrap it runs plainly in the
-throwaway runner, and every run records which (``sandbox: bubblewrap`` or ``none``).
+and only the toolchain directories named with ``toolchain``. Outside GitHub Actions, without bubblewrap it can run
+plainly in the throwaway runner, and every run records which (``sandbox: bubblewrap`` or ``none``). Under GitHub
+Actions it never does: without a working bubblewrap nothing runs and every part reads "Couldn't run".
 
 Each commit is materialized from the object store into its own scratch workspace. A reproduction runs once on
 head and once on base; the pull request's added or changed test files run on head and then on base with the
@@ -33,9 +34,9 @@ from lemoncrow.pro.capabilities.review.differential import (
     is_test_path,
     parse_report,
 )
-from lemoncrow.pro.capabilities.review.execution import REPORT_DIR, ExecutionSubject
 from lemoncrow.pro.capabilities.review.proof import wire
 from lemoncrow.pro.capabilities.review.proof.frameworks import Detection, Framework, GitTree, detect
+from lemoncrow.pro.environment.execution import REPORT_DIR, ExecutionSubject
 
 SANDBOX_CHOICES: Final[tuple[str, ...]] = ("auto", "bubblewrap", "none")
 DEFAULT_TIMEOUT: Final[int] = 300
@@ -44,7 +45,7 @@ MAX_TIMEOUT: Final[int] = 900
 MAX_RED_FILES: Final[int] = 20
 REPORTS: Final[str] = ".lemoncrow-proof-reports"
 SANDBOX_ROOT: Final[str] = "/workspace"
-_STANDARD_PATH: Final[str] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_STANDARD_PATH: Final[str] = wire.SYSTEM_PATH
 _OUTPUT_BYTES: Final[int] = 16384
 #: A failure that is not the claimed bug: the test or the code under it did not load, compile or start.
 _SETUP_PROBLEM: Final[re.Pattern[str]] = re.compile(
@@ -59,7 +60,7 @@ Execute = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
 def _default_execute(argv: Sequence[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    from lemoncrow.pro.capabilities.review.sandbox_limits import run_limited_bounded
+    from lemoncrow.pro.environment.sandbox_limits import run_limited_bounded
 
     return run_limited_bounded(argv, **kwargs)
 
@@ -79,13 +80,22 @@ class Sandbox:
     usable: bool = True
 
 
+def _bwrap_prefix() -> list[str]:
+    """The bubblewrap argv every proof run starts from; under GitHub Actions ``bwrap`` is the system's own."""
+
+    from lemoncrow.pro.capabilities.review.hermetic import offline_bwrap_prefix
+
+    path = wire.system_path()
+    return offline_bwrap_prefix() if path is None else offline_bwrap_prefix(search_path=path)
+
+
 def probe_bubblewrap() -> str:
     """``""`` when an offline bubblewrap namespace starts here; otherwise why not."""
 
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticUnavailable, offline_bwrap_prefix
+    from lemoncrow.pro.capabilities.review.hermetic import HermeticUnavailable
 
     try:
-        command = [*offline_bwrap_prefix(), "--", "/bin/true"]
+        command = [*_bwrap_prefix(), "--", "/bin/true"]
     except HermeticUnavailable:
         return "bubblewrap is not installed"
     try:
@@ -100,9 +110,30 @@ def probe_bubblewrap() -> str:
     return ""
 
 
-def resolve_sandbox(requested: str, *, require: bool, probe: Callable[[], str] = probe_bubblewrap) -> Sandbox:
-    """The sandbox for *requested* (``auto``, ``bubblewrap`` or ``none``); *require*: no plain fallback."""
+def resolve_sandbox(
+    requested: str,
+    *,
+    require: bool,
+    probe: Callable[[], str] = probe_bubblewrap,
+    environ: Mapping[str, str] | None = None,
+) -> Sandbox:
+    """The sandbox for *requested* (``auto``, ``bubblewrap`` or ``none``); *require*: no plain fallback.
 
+    Under GitHub Actions the run is attested, so pull request code never runs plainly there, whatever *requested*
+    says: ``auto`` and ``none`` both need bubblewrap, and when it does not work nothing runs. This is the one place
+    that decides it, and it is called before any pull request code starts. Everywhere else *requested* means what
+    it says.
+    """
+
+    if wire.in_github_actions(environ):
+        problem = probe()
+        if not problem:
+            return Sandbox("bubblewrap", "offline bubblewrap namespace")
+        return Sandbox(
+            "bubblewrap",
+            f"GitHub Actions requires bubblewrap and never runs the pull request's code plainly; sandbox missing: {problem}",
+            usable=False,
+        )
     if requested == "none":
         if require:
             return Sandbox("none", "a local proof run needs bubblewrap; --sandbox none is refused", usable=False)
@@ -131,6 +162,11 @@ class RunConfig:
     #: Repository-relative dependency directories of the checkout (``node_modules``, ``.venv``) made visible in
     #: each workspace: read-only in bubblewrap, a symlink otherwise.
     deps: tuple[str, ...] = ()
+    #: Repository-relative dependency manifests whose change the run does not install (the runner has the *base's*
+    #: dependencies). A pull request that changes one has its head failures and ``supported`` reproductions downgraded.
+    #: lc-debt: an explicit list the workflow author keeps in step with the install (a file the install ``-r``-includes
+    #: or a lockfile not named here is not watched); upgrade: read the manifests out of the install step itself.
+    deps_manifests: tuple[str, ...] = ()
     timeout: int = DEFAULT_TIMEOUT
     max_red_files: int = MAX_RED_FILES
     execute: Execute = _default_execute
@@ -180,9 +216,7 @@ def child_env(home: str, tmp: str, path: str) -> dict[str, str]:
 def _bwrap_command(
     config: RunConfig, workspace: Path, argv: Sequence[str], cwd: str, env: Mapping[str, str]
 ) -> list[str]:
-    from lemoncrow.pro.capabilities.review.hermetic import offline_bwrap_prefix
-
-    command = offline_bwrap_prefix()
+    command = _bwrap_prefix()
     for root in config.toolchain:
         command += ["--ro-bind", str(root), str(root)]
     command += ["--bind", str(workspace), SANDBOX_ROOT]
@@ -252,7 +286,7 @@ def run_one(
         if sandboxed and done.returncode != 0 and output.lstrip().startswith("bwrap:"):
             record["status"] = "error"
     record["duration_ms"] = int((time.monotonic() - started) * 1000)
-    from lemoncrow.pro.capabilities.review.runtimes import read_report
+    from lemoncrow.pro.environment.runners import read_report
 
     text, truncated = read_report(reports)
     report = parse_report(framework.report, text, truncated=truncated) if record["exit_code"] is not None else None
@@ -316,10 +350,40 @@ def _named(report: TestReport | None, name: str) -> list[TestCase]:
 
 
 def classify_repro(
+    head: Outcome,
+    base: Outcome | None,
+    *,
+    name: str,
+    marker: str,
+    report_format: str,
+    deps_changed: Sequence[str] = (),
+) -> tuple[str, str]:
+    """``(outcome, reason)`` for one reproduction from its head and base runs.
+
+    *deps_changed* names the dependency manifests the pull request changes (``RunConfig.deps_manifests``). The run
+    installed the base's dependencies, so neither side of a verdict is shown to be the change's own. A reproduction
+    that fails on head and passes on base may be failing for the old dependencies, not for the claimed defect, and one
+    that passes on head has not met the head's dependencies (the code that would fail may never load): ``supported``
+    and ``contradicted`` both become ``inconclusive``. ``supported`` would turn the check red, and ``contradicted``
+    would answer the finding's thread, and could turn the check green, with a verdict nothing ran.
+    """
+
+    outcome, reason = _classify_repro(head, base, name=name, marker=marker, report_format=report_format)
+    if outcome in {"supported", "contradicted"} and deps_changed:
+        files = ", ".join(deps_changed)
+        if outcome == "supported":
+            return "inconclusive", f"{reason}, but the pull request changes {files}, which this run did not install"
+        return (
+            "inconclusive",
+            f"passes on head, but with the base's dependencies: the pull request changes {files}, "
+            "which this run did not install",
+        )
+    return outcome, reason
+
+
+def _classify_repro(
     head: Outcome, base: Outcome | None, *, name: str, marker: str, report_format: str
 ) -> tuple[str, str]:
-    """``(outcome, reason)`` for one reproduction from its head and base runs."""
-
     if head.status not in {"passed", "failed"}:
         return "could_not_run", f"the head run did not complete ({head.status}): {_short(head)}"
     target = _named(head.report, name)
@@ -363,7 +427,14 @@ def _plan_framework(repro: Mapping[str, Any]) -> Framework | None:
 
 
 def run_repros(
-    config: RunConfig, plan: Mapping[str, Any], head_ws: Path, base_ws: Path, base_tree: GitTree, scratch: Path
+    config: RunConfig,
+    plan: Mapping[str, Any],
+    head_ws: Path,
+    base_ws: Path,
+    base_tree: GitTree,
+    scratch: Path,
+    *,
+    deps_changed: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     base_paths = set(base_tree.paths())
@@ -400,6 +471,7 @@ def run_repros(
             name=name,
             marker=wire.text(repro.get("failure_marker"), 200),
             report_format=framework.report,
+            deps_changed=deps_changed,
         )
         row.update(outcome=outcome, reason=reason, runs=[run.record for run in runs])
     return results
@@ -410,11 +482,11 @@ def run_repros(
 # --------------------------------------------------------------------------- #
 
 
-def changed_paths(repo: Path, base: str, head: str) -> list[str]:
-    """Paths the change adds, modifies or renames into (deleted files are not run)."""
+def _name_status(repo: Path, base: str, head: str) -> list[tuple[str, list[str]]]:
+    """``(status letter, paths)`` per entry of ``git diff --name-status`` (a rename or copy lists old then new)."""
 
     done = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--name-status", "-z", "-M", base, head],
+        [wire.system_executable("git"), "-C", str(repo), "diff", "--name-status", "-z", "-M", base, head],
         capture_output=True,
         timeout=60,
         check=False,
@@ -422,18 +494,30 @@ def changed_paths(repo: Path, base: str, head: str) -> list[str]:
     if done.returncode != 0:
         raise ValueError(f"git diff {base[:12]}..{head[:12]} failed: {done.stderr.decode(errors='replace').strip()}")
     parts = [item.decode("utf-8", "replace") for item in done.stdout.split(b"\0")]
-    out: list[str] = []
+    out: list[tuple[str, list[str]]] = []
     index = 0
     while index < len(parts) and parts[index]:
         status = parts[index]
-        if status[:1] in {"R", "C"}:
-            out.append(parts[index + 2])
-            index += 3
-            continue
-        if status[:1] in {"A", "M"}:
-            out.append(parts[index + 1])
-        index += 2
+        width = 2 if status[:1] in {"R", "C"} else 1
+        out.append((status[:1], parts[index + 1 : index + 1 + width]))
+        index += 1 + width
     return out
+
+
+def changed_paths(repo: Path, base: str, head: str) -> list[str]:
+    """Paths the change adds, modifies or renames into (deleted files are not run)."""
+
+    return [paths[-1] for status, paths in _name_status(repo, base, head) if status in {"A", "M", "R", "C"} and paths]
+
+
+def changed_manifests(repo: Path, base: str, head: str, manifests: Iterable[str]) -> list[str]:
+    """The *manifests* the change touches in any way: added, modified, deleted, renamed from or into, or retyped."""
+
+    wanted = {item.removeprefix("./") for item in manifests}
+    if not wanted:
+        return []
+    touched = {path for _status, paths in _name_status(repo, base, head) for path in paths}
+    return sorted(wanted & touched)
 
 
 #: A file named like a test in any language, so a test no detected framework can run is still said.
@@ -487,13 +571,17 @@ def _status(cases: Sequence[TestCase]) -> str:
     return "passed" if "passed" in statuses else "skipped"
 
 
-def red_verdict(head: str, base: str, *, base_run: Outcome) -> tuple[str, str]:
-    """``(outcome, reason)`` for one changed test from its head status and base status."""
+def red_verdict(head: str, base: str, *, base_run: Outcome, deps_changed: bool = False) -> tuple[str, str]:
+    """``(outcome, reason)`` for one changed test from its head status and base status.
+
+    With *deps_changed* (the pull request changes a dependency manifest the run did not install) a test that fails on
+    head is not shown to be failing for its own reasons: the head ran against the base's dependencies.
+    """
 
     if head != "passed":
-        return "could_not_run", (
-            "it does not pass on head, so there is no green baseline" if head == "failed" else f"it is {head} on head"
-        )
+        if head == "failed":
+            return "could_not_run", (wire.RED_DEPS_CHANGED if deps_changed else wire.RED_HEAD_FAILED)
+        return "could_not_run", wire.RED_HEAD_NOT_PASSED.format(head)
     if base == "failed":
         return "fails_on_base", "fails on base and passes on head: it can catch the change being undone"
     if base == "passed":
@@ -501,7 +589,7 @@ def red_verdict(head: str, base: str, *, base_run: Outcome) -> tuple[str, str]:
     if base == "missing" and base_run.status == "failed":
         problem = _setup_problem(base_run.output, base_run.report_text) or _short(base_run)
         return "fails_on_base", f"cannot load or compile on base ({problem}): it depends on this change"
-    return "could_not_run", f"it is {base} in the base run"
+    return "could_not_run", wire.RED_BASE_UNDECIDED.format(base)
 
 
 def run_red_on_base(
@@ -512,6 +600,8 @@ def run_red_on_base(
     head_tree: GitTree,
     base_tree: GitTree,
     scratch: Path,
+    *,
+    deps_changed: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """``(per-test outcomes, runs, files not run past the cap)``."""
 
@@ -561,16 +651,29 @@ def run_red_on_base(
             base_run = run_one(config, base_ws, framework, framework.argv(batch), side="base", scratch=scratch)
             runs.extend((head_run.record, base_run.record))
             for path in batch:
-                outcomes.extend(_red_for_file(framework, path, head_run, base_run, head_tree, base_tree))
+                outcomes.extend(
+                    _red_for_file(framework, path, head_run, base_run, head_tree, base_tree, deps_changed=deps_changed)
+                )
     return outcomes, runs, overflow
 
 
 def _red_for_file(
-    framework: Framework, path: str, head_run: Outcome, base_run: Outcome, head_tree: GitTree, base_tree: GitTree
+    framework: Framework,
+    path: str,
+    head_run: Outcome,
+    base_run: Outcome,
+    head_tree: GitTree,
+    base_tree: GitTree,
+    *,
+    deps_changed: bool = False,
 ) -> list[dict[str, Any]]:
     def row(test: str, outcome: str, reason: str) -> dict[str, Any]:
         return {"path": path, "test": test, "outcome": outcome, "reason": reason}
 
+    if "not_run" in (head_run.status, base_run.status):
+        # Nothing started because the sandbox is unusable (the only way a run is recorded ``not_run``). The report's
+        # ``Sandbox:`` line carries the detail; this row carries the one word a hosted review reads back.
+        return [row("", "could_not_run", wire.RED_SANDBOX_MISSING)]
     if head_run.status not in {"passed", "failed"}:
         return [row("", "could_not_run", f"the head run did not complete ({head_run.status}): {_short(head_run)}")]
     if base_run.status not in {"passed", "failed"}:
@@ -578,7 +681,7 @@ def _red_for_file(
     if not framework.report:
         head = "passed" if head_run.status == "passed" else "failed"
         base = "passed" if base_run.status == "passed" else "failed"
-        return [row("", *red_verdict(head, base, base_run=base_run))]
+        return [row("", *red_verdict(head, base, base_run=base_run, deps_changed=deps_changed))]
     head_text = head_tree.read(path) or ""
     change = diff_test_file(path, base_tree.read(path), head_text)
     defined = defined_tests(framework.language, head_text)
@@ -592,7 +695,12 @@ def _red_for_file(
     base_report = base_run.report if base_run.report is not None and not base_run.report.error else TestReport("")
     base_cases = _file_cases(base_report, framework, path, names)
     return [
-        row(name, *red_verdict(_status(head_cases[name]), _status(base_cases[name]), base_run=base_run))
+        row(
+            name,
+            *red_verdict(
+                _status(head_cases[name]), _status(base_cases[name]), base_run=base_run, deps_changed=deps_changed
+            ),
+        )
         for name in names
     ]
 
@@ -611,7 +719,7 @@ def run_proof(config: RunConfig, plan: Mapping[str, Any] | None, *, plan_digest:
         "head_sha": config.head_sha,
         "base_sha": config.base_sha,
         "plan_digest": plan_digest,
-        "sandbox": {"mode": config.sandbox.mode, "reason": config.sandbox.reason},
+        "sandbox": {"mode": config.sandbox.mode, "reason": config.sandbox.reason, "usable": config.sandbox.usable},
         "repros": [],
         "red_on_base": [],
         "red_runs": [],
@@ -622,13 +730,24 @@ def run_proof(config: RunConfig, plan: Mapping[str, Any] | None, *, plan_digest:
     head_tree = GitTree(config.repo, config.head_sha)
     detection = detect(base_tree)
     notes.extend(detection.notes)
+    deps_changed = changed_manifests(config.repo, config.base_sha, config.head_sha, config.deps_manifests)
+    if deps_changed:
+        notes.append(
+            f"the pull request changes {', '.join(deps_changed)}, which this run did not install (it has the base's "
+            "dependencies): a test that fails on head reads could-not-run and a reproduction reads neither "
+            "`supported` nor `contradicted`"
+        )
     scratch = Path(tempfile.mkdtemp(prefix="lemoncrow-proof-"))
     try:
         head_ws = _materialize(config, config.head_sha, scratch / "head")
         base_ws = _materialize(config, config.base_sha, scratch / "base")
         if plan is not None:
-            document["repros"] = run_repros(config, plan, head_ws, base_ws, base_tree, scratch)
-        red, runs, overflow = run_red_on_base(config, detection, head_ws, base_ws, head_tree, base_tree, scratch)
+            document["repros"] = run_repros(
+                config, plan, head_ws, base_ws, base_tree, scratch, deps_changed=deps_changed
+            )
+        red, runs, overflow = run_red_on_base(
+            config, detection, head_ws, base_ws, head_tree, base_tree, scratch, deps_changed=bool(deps_changed)
+        )
         document.update(red_on_base=red, red_runs=runs, red_overflow=overflow)
         if overflow:
             notes.append(f"{overflow} more changed test file(s) were not run (the cap is {config.max_red_files})")

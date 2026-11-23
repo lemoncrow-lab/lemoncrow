@@ -155,11 +155,8 @@ def personal_attention(inputs: PersonalAttentionInputs, *, now: datetime) -> Per
     if inputs.open and inputs.effort is not None and inputs.effort > 0:
         for ceiling, points, size in _EFFORT_STEPS:
             if inputs.effort <= ceiling:
-                factors.append(
-                    AttentionFactor(
-                        "effort", "Expected effort", points, f"{size}: {inputs.effort} {inputs.effort_unit}"
-                    )
-                )
+                unit = inputs.effort_unit[:-1] if inputs.effort == 1 else inputs.effort_unit
+                factors.append(AttentionFactor("effort", "Expected effort", points, f"{size}: {inputs.effort} {unit}"))
                 break
     return PersonalAttention(
         score=sum(factor.points for factor in factors),

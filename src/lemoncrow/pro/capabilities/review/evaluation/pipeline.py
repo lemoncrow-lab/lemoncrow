@@ -504,7 +504,6 @@ def _pipeline(
         triage_policy_for,
     )
     from lemoncrow.pro.capabilities.review.differential import CheckDifferentialProducer
-    from lemoncrow.pro.capabilities.review.execution import ExecutorClass
     from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
     from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallBudget
     from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
@@ -515,10 +514,10 @@ def _pipeline(
     from lemoncrow.pro.capabilities.review.rules import resolve_review_governance
     from lemoncrow.pro.capabilities.review.run_plan import ai_stage_plan
     from lemoncrow.pro.capabilities.review.run_plan_service import RunPlanService, git_tree_paths
+    from lemoncrow.pro.capabilities.review.runner_host import revision_snapshot_identity
     from lemoncrow.pro.capabilities.review.runtime_observation import RuntimeObservationProducer
     from lemoncrow.pro.capabilities.review.runtime_observation_runs import ObservationRunInputs, run_observation_entry
     from lemoncrow.pro.capabilities.review.runtime_validation import trusted_policy_digest
-    from lemoncrow.pro.capabilities.review.runtimes import revision_snapshot_identity
     from lemoncrow.pro.capabilities.review.side_effects import (
         STATIC_ENTRY_ID,
         ChangedPath,
@@ -529,6 +528,7 @@ def _pipeline(
     from lemoncrow.pro.capabilities.review.targets import derive_review_targets, order_review_targets
     from lemoncrow.pro.capabilities.review.test_impact import selections_from_document
     from lemoncrow.pro.capabilities.review.trusted_base import resolve_trusted_base_document
+    from lemoncrow.pro.environment.execution import ExecutorClass
 
     repo_root = workdir / "repo"
     store_root = workdir / "store"

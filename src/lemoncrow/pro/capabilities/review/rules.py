@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 
+from lemoncrow.pro.capabilities.review import request_reads
 from lemoncrow.pro.capabilities.review.trusted_base import TrustedBaseDocument
 
 if TYPE_CHECKING:
@@ -296,6 +297,18 @@ def content_access_for_path(
     policy: Sequence[ContentAccessRule],
     *,
     route_trust: ModelRouteTrust,
+) -> ContentAccessDecision:
+    # The answer is a pure function of these three values, and one Review's projection asks it about every path half a
+    # dozen times (a 10,000-file change: 50,000 asks). Rules and decisions are frozen, so within one request sharing the
+    # answer is exact. Held for the request only (request_reads), never across requests or tenants.
+    rules = tuple(policy)
+    return request_reads.read_once(
+        ("content_access", path, route_trust, rules), lambda: _content_access_for_path(path, rules, route_trust)
+    )
+
+
+def _content_access_for_path(
+    path: str, policy: tuple[ContentAccessRule, ...], route_trust: ModelRouteTrust
 ) -> ContentAccessDecision:
     # RC6 fail-safe: a restricting row also matches case-insensitively (``Secrets/x``
     # under ``secrets/**`` on a case-insensitive checkout); allow rows stay exact.

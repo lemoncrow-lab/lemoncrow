@@ -101,6 +101,8 @@ def artifact_kind(name: str, builder: str) -> str:
         return "sdist"
     if builder == "npm" and base.endswith(".tgz"):
         return "npm"
+    if builder == "container":
+        return "image"
     return re.sub(r"\d+", "N", base)
 
 
@@ -293,6 +295,12 @@ def inspect_files(files: Iterable[tuple[str, bytes]], builder: str, count: int) 
         if surface:
             surfaces[kind] = surface
     return {"artifacts": artifacts, "secrets": secrets, "api": surfaces}
+
+
+def inspect_container_archive(data: bytes) -> dict[str, Any]:
+    """Stage B over one built image's root filesystem archive."""
+
+    return inspect_files([("rootfs.tar", data)], "container", 1)
 
 
 def _json_size(value: Any) -> int:

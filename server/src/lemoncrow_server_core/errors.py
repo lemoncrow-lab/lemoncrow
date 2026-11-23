@@ -60,6 +60,10 @@ class ErrorCode(StrEnum):
     REVIEW_UNKNOWN = "review_unknown"
     REVIEW_STATE_CONFLICT = "review_state_conflict"
 
+    # Usage ledger
+    USAGE_EVENT_CONFLICT = "usage_event_conflict"
+    USAGE_STATEMENT_UNKNOWN = "usage_statement_unknown"
+
     # Content sync
     BLOB_MISSING = "blob_missing"
     BLOB_DIGEST_MISMATCH = "blob_digest_mismatch"
@@ -120,6 +124,9 @@ _SPEC: Final[Mapping[ErrorCode, tuple[int, bool, AgentAction]]] = {
     ErrorCode.VIEW_REVISION_CONFLICT: (409, True, AgentAction.REFRESH_VIEW_REVISION),
     ErrorCode.REVIEW_UNKNOWN: (404, False, AgentAction.ABANDON),
     ErrorCode.REVIEW_STATE_CONFLICT: (409, True, AgentAction.FIX_REQUEST),
+    # Not retryable: the same id with other content will conflict for as long as the ledger keeps it.
+    ErrorCode.USAGE_EVENT_CONFLICT: (409, False, AgentAction.FIX_REQUEST),
+    ErrorCode.USAGE_STATEMENT_UNKNOWN: (404, False, AgentAction.ABANDON),
     ErrorCode.BLOB_MISSING: (409, False, AgentAction.UPLOAD_BLOBS),
     ErrorCode.BLOB_DIGEST_MISMATCH: (400, False, AgentAction.FIX_REQUEST),
     # Not retryable, and not a reopen either. It means the rows this client

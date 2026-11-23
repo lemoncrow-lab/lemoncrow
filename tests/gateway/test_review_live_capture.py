@@ -119,6 +119,9 @@ class _FakeRemote:
     def open_review_snapshot(self, _root: Path, **_kwargs: Any) -> dict[str, Any]:
         return {"view_id": "base-view", "view_revision": 1, "repo_id": "repo-synced"}
 
+    def upload_large_review_source(self, **_kwargs: Any) -> tuple[int, int]:
+        return 0, 0
+
     def update_review_preparation(self, *, state: str, **_kwargs: Any) -> dict[str, Any]:
         self.preparation_states.append(state)
         self.events.append(f"preparation:{state}")

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { annotationIdentityColor, annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, locationLabel } from "./annotationModel";
 import { BelowThresholdList } from "./findingThreshold";
 import { fetchReviewEvidenceContent } from "./reviewApi";
+import { plainCode, plainCodeSentence } from "./plainWords";
+import { revisionName } from "./revisionLabel";
 import type {
   Annotation,
   EvidenceRow,
@@ -188,7 +190,7 @@ export function Discussion({ annotations, path }: { annotations: Annotation[]; p
             <span className={annotationIdentityColor(item)}>{annotationIdentityLabel(item)}</span>
             {item.agent_host && <span title={annotationProducerTitle(item)}>{annotationProducerDetail(item)}</span>}
             <span>{item.file_level ? "file" : locationLabel(item.start_line, item.end_line)}</span>
-            <span>{item.state}</span>
+            <span>{plainCode(item.state)}</span>
             {/* Raw model confidence is intentionally not a default reviewer signal.
                 Source/model details remain available in the finding's explicit details. */}
           </div>
@@ -228,16 +230,16 @@ export function ArtifactCard({ artifact }: { artifact: ReviewEvidence }) {
     <div className="border border-border bg-muted/20 p-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-caption text-subtle">{artifact.title || artifact.kind}</div>
-          <div className="mt-0.5 font-mono text-caption text-muted-foreground">
-            {artifact.kind} · {artifact.source}{artifact.verification_status ? ` · ${artifact.verification_status}` : ""} · {artifact.revision_number != null ? `Snapshot ${artifact.revision_number}` : `Snapshot ${artifact.revision_id}`}{artifact.status === "stale" ? " · stale" : ""}
+          <div className="truncate text-caption text-subtle">{artifact.title || plainCodeSentence(artifact.kind)}</div>
+          <div className="mt-0.5 text-caption text-muted-foreground">
+            {plainCodeSentence(artifact.kind)} · {plainCode(artifact.source)}{artifact.verification_status ? ` · ${plainCode(artifact.verification_status)}` : ""}{artifact.revision_number != null ? ` · ${revisionName(artifact.revision_number)}` : ""}{artifact.status === "stale" ? " · stale" : ""}
           </div>
         </div>
         {(artifact.url || artifact.content_url) && (
           <UiButton type="button" variant="link" onClick={() => void openArtifact()} disabled={opening} className="text-meta text-cyan-400 hover:text-cyan-300 disabled:opacity-40">{opening ? "Opening…" : "Open"}</UiButton>
         )}
       </div>
-      {artifact.status === "stale" && <div className="mt-1 text-caption leading-4 text-amber-400/70">This artifact belongs to an older Snapshot and is not current proof.</div>}
+      {artifact.status === "stale" && <div className="mt-1 text-caption leading-4 text-amber-400/70">This artifact belongs to an older revision and is not current proof.</div>}
       {artifact.detail && <div className="mt-1 text-caption leading-4 text-muted-foreground">{artifact.detail}</div>}
       {error && <div className="mt-1 text-caption text-amber-300">{error}</div>}
     </div>

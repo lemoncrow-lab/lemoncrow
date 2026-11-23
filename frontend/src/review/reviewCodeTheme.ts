@@ -35,6 +35,24 @@ export function getInitialReviewCodeTheme(): ReviewCodeTheme {
   return chromeTheme === "dark" ? "lemoncrow-dark" : "lemoncrow";
 }
 
+/** The code colours a reviewer picks in Settings › Look; light or dark always follows the page theme. */
+export type ReviewCodeFamily = "lemoncrow" | "github";
+
+export function getReviewCodeFamily(): ReviewCodeFamily {
+  return getInitialReviewCodeTheme().startsWith("github") ? "github" : "lemoncrow";
+}
+
+/** Saves the family for the next code view; the Reader reads it when it opens (`getInitialReviewCodeTheme`). */
+export function setReviewCodeFamily(family: ReviewCodeFamily): void {
+  const dark = getInitialTheme() === "dark";
+  const id: ReviewCodeTheme = family === "github" ? (dark ? "github-dark" : "github-light") : dark ? "lemoncrow-dark" : "lemoncrow";
+  try {
+    localStorage.setItem(STORAGE_KEY, id);
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
 export function applyReviewCodeTheme(id: ReviewCodeTheme): Theme {
   const definition = reviewCodeThemeDefinition(id);
   applyTheme(definition.chromeTheme);

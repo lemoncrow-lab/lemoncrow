@@ -1,6 +1,6 @@
 # Protocol / MCP reference
 
-> **Integration-author reference.** Normal users should use the LemonCrow plugin/integration instructions for their coding agent. You do not need to start or manage an MCP server for normal Runtime use.
+> **Integration-author reference.** Normal users should use the LemonCrow plugin/integration instructions for their coding agent. You do not need to start or manage an MCP server for normal Workspaces use.
 
 This page documents the underlying Model Context Protocol transport used by host adapters and the explicit remote-workspace feature.
 
@@ -78,9 +78,9 @@ For a source checkout using `uv`:
 
 Actual host installers may use host-specific keys, absolute executable paths, plugin bundles, hooks, or additional environment values. Prefer the host installer over hand-written config.
 
-## Runtime Lite host adapter
+## Workspaces Lite host adapter
 
-Claude Code, Codex, and OpenCode use a lighter local adapter for their normal local Runtime plugin path. Their installers configure the appropriate Runtime Lite entry point automatically; users should not reproduce that configuration manually.
+Claude Code, Codex, and OpenCode use a lighter local adapter for their normal local Workspaces plugin path. Their installers configure the appropriate Workspaces Lite entry point automatically; users should not reproduce that configuration manually.
 
 Cursor likewise has a dedicated installer that owns its config and lifecycle hooks.
 
@@ -129,7 +129,7 @@ lc rt mcp debug --help
 lc rt mcp stats
 ```
 
-These are integration/debug surfaces. They are not required for normal local Runtime usage.
+These are integration/debug surfaces. They are not required for normal local Workspaces usage.
 
 ## SDK embedding
 

@@ -70,6 +70,8 @@ _TERM_GRACE_S: Final[float] = 2.0
 #: Below this many trimmed characters a trim gets no footer; the main
 #: package's renderer uses the same threshold.
 _TRIVIAL_TRIM_CHARS: Final[int] = 300
+# The host's built-in Bash tool cuts output at about this many chars itself.
+_HOST_BASH_OUTPUT_CHARS: Final[int] = 30_000
 
 # Bounded retention for the spill directory -- nothing else ever deletes these
 # files, so an unbounded sweep runs best-effort on every spill write. Same
@@ -264,10 +266,22 @@ def _trim_footer(compacted: CompactedOutput) -> str:
     return "[output compacted]"
 
 
+def _compaction_tokens_saved(shown: int, chars_omitted: int) -> int:
+    """Tokens compaction kept out, against the host Bash's own ~30k-char cut.
+
+    The full server's formula: a 10 MB log is not 2.5M tokens saved, because
+    the built-in Bash tool would have shown at most 30k chars of it.
+    """
+    if chars_omitted <= 0:
+        return 0
+    naive = min(shown + chars_omitted, _HOST_BASH_OUTPUT_CHARS)
+    return max(0, naive - shown) // 4
+
+
 def _present(
     context: LocalContext, command: str, raw: str, exit_code: int, cwd: Path, ran_note: str, *, dedupe: bool = True
-) -> str:
-    """What the model sees of one command's combined output."""
+) -> tuple[str, int]:
+    """What the model sees of one command's combined output, and tokens saved."""
     from ..kit.bash_output import (
         MAX_OUTPUT_BYTES,
         OUTPUT_CAP_NOTICE,
@@ -288,7 +302,7 @@ def _present(
     ):
         marker = unchanged_marker(raw, "")
         footer = spill_footer(raw, len(marker), store)
-        return f"{marker}\n\n{footer}" if footer else marker
+        return (f"{marker}\n\n{footer}" if footer else marker), 0
 
     kept, capped = cap_output_bytes(raw)
     if capped:
@@ -303,7 +317,8 @@ def _present(
     footer = _trim_footer(compacted)
     if footer:
         parts.extend(("", footer) if parts else (footer,))
-    return "\n".join(parts)
+    saved = 0 if capped else _compaction_tokens_saved(len(compacted.stdout), compacted.chars_omitted)
+    return "\n".join(parts), saved
 
 
 def _kill_group(process: subprocess.Popen[Any]) -> None:
@@ -406,6 +421,7 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
 
     sections: list[str] = []
     failed = False
+    tokens_saved = 0
     for index, command in enumerate(commands, start=1):
         header = f"## lc:cmd {index}/{len(commands)}" if len(commands) > 1 else ""
         policy = classify_command(command, allowed_write_roots=[context.repo_root, *context.write_roots()], cwd=cwd)
@@ -414,7 +430,8 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
             code, body = -1, policy.reason
         elif policy.action == "rewrite" and policy.rewrite_target in INLINE_OPS and policy.rewrite_payload:
             out, err, code = execute_inline_op(policy.rewrite_target, policy.rewrite_payload, str(cwd))
-            body = _present(context, command, out + err, code, cwd, "")
+            body, saved = _present(context, command, out + err, code, cwd, "")
+            tokens_saved += saved
         else:
             # Rewrites to a tool this client does not serve here (read, grep,
             # web_fetch, ...) run as written.
@@ -425,12 +442,13 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
             exec_command, ran_note = inject_stable_flags(source)
             code, raw, timed_out = _run_one(exec_command, cwd, timeout_s, dict(context.environment))
             notes = "\n".join(note for note in (seek_note, ran_note) if note)
-            body = _present(context, command, raw, code, cwd, notes)
+            body, saved = _present(context, command, raw, code, cwd, notes)
+            tokens_saved += saved
         failed = failed or code != 0
         suffix = f"\n[timed out after {timeout_s:g}s; process group terminated]" if timed_out else ""
         sections.append(f"{header}\n{body}{suffix}".strip("\n") + f"\n[exit {code}]")
 
-    return text_result("\n".join(sections), is_error=failed)
+    return text_result("\n".join(sections), is_error=failed, tokens_saved=tokens_saved)
 
 
 def _run_one(command: str, cwd: Path, timeout_s: float, environment: dict[str, str]) -> tuple[int, str, bool]:
@@ -703,7 +721,7 @@ def _reply(context: LocalContext, run: _BackgroundRun, *, peek: bool) -> tuple[s
         raw, more = _read_delta(run)
     running = not _is_done(run)
     code = 0 if running else int(run.process.returncode or 0)
-    body = _present(context, run.command, raw, code, run.cwd, "", dedupe=False) if raw else ""
+    body = _present(context, run.command, raw, code, run.cwd, "", dedupe=False)[0] if raw else ""
     elapsed = int(time.monotonic() - run.started)
     if running:
         state = f"[running id={run.id} pid={run.process.pid} elapsed={elapsed}s]"

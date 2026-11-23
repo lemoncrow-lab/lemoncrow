@@ -76,7 +76,6 @@ from lemoncrow.pro.capabilities.review.behavior import (
 )
 from lemoncrow.pro.capabilities.review.capability_catalog import STATIC_CATALOG, DetectedCapabilities
 from lemoncrow.pro.capabilities.review.differential import combine_verdicts
-from lemoncrow.pro.capabilities.review.execution import ExecutionResult, ExecutorClass
 from lemoncrow.pro.capabilities.review.hermetic import REPRODUCE_COMMAND
 from lemoncrow.pro.capabilities.review.run_evidence import (
     DEFAULT_RAW_RETENTION_SECONDS,
@@ -93,10 +92,11 @@ from lemoncrow.pro.capabilities.review.runtime_validation import (
     snapshot_semantic_identity,
     validation_source_ref,
 )
-from lemoncrow.pro.capabilities.review.runtimes import SurfaceRunResult, WorkspaceOverlay
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.store import new_evidence_id
 from lemoncrow.pro.capabilities.review.surfaces import ReviewSurface, RuntimeConfigEntry
+from lemoncrow.pro.environment.execution import ExecutionResult, ExecutorClass
+from lemoncrow.pro.environment.runners import SurfaceRunResult, WorkspaceOverlay
 
 RunSide = Callable[[RuntimeConfigEntry, ReviewSurface, str], SurfaceRunResult]
 """Executes one synthetic analysis surface on one side through the runner registry."""
@@ -184,7 +184,7 @@ def fit_command(spec: AnalysisSpec) -> AnalysisSpec:
         payload = flag_matrix.worst_case_payload(spec)
     else:
         payload = infra_render.payload(spec)
-    problem = payload_problem(_driver(spec.entry_id), spec, payload)
+    problem = payload_problem(_driver(spec.entry_id, spec), spec, payload)
     if not problem:
         return spec
     return replace(spec, executable=False, reason=problem, setup_hint=_FIT_HINTS[spec.entry_id])
@@ -241,7 +241,9 @@ def build_analysis_catalog(
                 continue
             ids.add(spec.id)
             if entry_id == MIGRATIONS_ENTRY:
-                spec = migration_execution.attach_base_files(spec, listing)
+                spec = migration_execution.attach_base_files(
+                    migration_execution.attach_environment(spec, read_base), listing
+                )
             elif entry_id == COMPAT_ENTRY:
                 spec = compat_mixed_version.attach_base_files(spec, listing)
             specs.append(fit_command(spec))
@@ -356,7 +358,9 @@ class AnalysisRunReport:
         }
 
 
-def _driver(entry_id: str) -> str:
+def _driver(entry_id: str, spec: AnalysisSpec | None = None) -> str:
+    if spec is not None and spec.entry_id == MIGRATIONS_ENTRY and spec.tool != "sql":
+        return migration_execution.FRAMEWORK_DRIVER
     return {
         MIGRATIONS_ENTRY: migration_execution.DRIVER,
         REGENERATE_ENTRY: regenerate_compare.DRIVER,
@@ -578,8 +582,12 @@ class _Run:
     def _stage_b(
         self, spec: AnalysisSpec, side: Side, decoded: dict[str, Any], exit_code: int | None
     ) -> tuple[dict[str, Any] | None, str]:
+        if spec.entry_id == SHIPPED_ENTRY and spec.tool == "container":
+            return shipped_artifacts.inspect_image_report(decoded)
         if spec.entry_id == SHIPPED_ENTRY:
             return shipped_artifacts.inspect_outputs(decoded, exit_code)
+        if spec.entry_id == MIGRATIONS_ENTRY and spec.tool != "sql":
+            return migration_execution.inspect_framework_report(decoded, exit_code)
         if spec.entry_id == REGENERATE_ENTRY:
             read_side = self.inputs.read_side
             return regenerate_compare.compare_outputs(spec, decoded, exit_code, lambda path: read_side(path, side))
@@ -603,7 +611,7 @@ class _Run:
             "timeout": spec.timeout,
             "limit": inputs.report_limit,
         }
-        argv, problem = driver_command(_driver(spec.entry_id), document)
+        argv, problem = driver_command(_driver(spec.entry_id, spec), document)
         if problem:
             return SideRun(side, "not_run", problem)
         scenario = self._scenario(spec)
@@ -636,7 +644,13 @@ class _Run:
         }
         if overlay is not None:
             values["overlay"] = overlay
-        runtime = RuntimeConfigEntry(id=request.runtime_id, runner="command", values=values)
+        runner = "command"
+        if spec.entry_id == MIGRATIONS_ENTRY and spec.tool != "sql":
+            values.update(migration_execution.runtime_values(spec))
+        elif spec.entry_id == SHIPPED_ENTRY and spec.tool == "container":
+            runner = "container_image"
+            values = shipped_artifacts.runtime_values(spec)
+        runtime = RuntimeConfigEntry(id=request.runtime_id, runner=runner, values=values)
         surface = ReviewSurface(
             id=f"analysis:{spec.entry_id}:{spec.id}",
             provider=ANALYSIS_PROVIDER,
@@ -936,7 +950,7 @@ class _Run:
             )
         except ValueError as exc:
             inputs.store.discard_artifact(rel)
-            raise AnalysisRunSuperseded("analysis Snapshot was superseded before publication") from exc
+            raise AnalysisRunSuperseded("analysis revision was superseded before publication") from exc
         except Exception:
             inputs.store.discard_artifact(rel)
             raise

@@ -1,3 +1,4 @@
+import { isHostedReview } from "./hostedOrigin";
 import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import { subscribeReviewState } from "./reviewStateEvents";
 /**
@@ -13,6 +14,7 @@ import { subscribeReviewState } from "./reviewStateEvents";
 
 import { transientRequestFailure } from "./transientRetry";
 import type {
+  ReviewAiSetupHelp,
   ReviewProjectContextResponse,
   ReviewProjectContextSelection,
   ThreadSummaryRead,
@@ -45,6 +47,7 @@ import type {
   FixLineList,
   ReviewFileContents,
   ReviewComparisonFileContents,
+  GitHubBotApprovals,
   GitHubPublishPreview,
   GitHubPublishResult,
   MarkResult,
@@ -67,6 +70,8 @@ import type {
   ReviewLandingReadiness,
   ReviewRecordExportResult,
   ReviewRecordStatus,
+  ReviewRecordSummary,
+  ReviewRecordVerifyResult,
   ReviewPremergeProjection,
   ReviewVerificationProjection,
   ReviewVerificationWaiverResult,
@@ -104,6 +109,8 @@ import type {
   InboxView,
   InboxWorkflowState,
   SavedInboxFilter,
+  ReviewQueueState,
+  ReviewResume,
   SavedInboxFilterList,
 } from "./types";
 export { LOCAL_BROWSER_RECONNECT_MESSAGE };
@@ -259,10 +266,12 @@ export function __setBootstrapForTest(next: Bootstrap): void {
   browserSession = "";
   localBrowserClaim = null;
   browserSessionRenewChecked = false;
+  localClaimUnavailable = false;
 }
 
 function isLiteralLoopbackOrigin(): boolean {
-  if (typeof window === "undefined") return false;
+  // The hosted bundle never claims a local capability, even when a preview serves it on loopback (hosted-15.1).
+  if (typeof window === "undefined" || isHostedReview()) return false;
   const host = window.location.hostname.toLowerCase();
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
@@ -301,6 +310,11 @@ function forgetBrowserSession(): void {
 const BROWSER_SESSION_RENEW_AFTER_S = 24 * 60 * 60;
 const BROWSER_SESSION_TTL_S = 30 * 24 * 60 * 60;
 let browserSessionRenewChecked = false;
+/**
+ * Set by the first 404 from the claim endpoint: this origin has no local pairing (a hosted dev or test
+ * server on loopback), so the up-front claim would only repeat that 404 before every request.
+ */
+let localClaimUnavailable = false;
 
 function browserSessionWantsRenewal(capability: string): boolean {
   // ``v1.<expires_at>.<nonce>.<signature>``: the expiry is not secret.
@@ -340,6 +354,7 @@ function claimLocalBrowserSession(path: string, renewing = ""): Promise<Response
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (response.status === 404) localClaimUnavailable = true;
       if (!response.ok) return response;
       try {
         const payload = (await response.clone().json()) as { token?: unknown };
@@ -403,13 +418,15 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}): 
     const local = isLiteralLoopbackOrigin();
     const localReviewRoute = typeof window !== "undefined"
       && (/^\/r\//.test(window.location.pathname) || /^\/rr\//.test(window.location.pathname)
-        || window.location.pathname.startsWith("/reviews/preparing/"));
+        || window.location.pathname.startsWith("/reviews/preparing/")
+        // Home: its loaders fire together, so claim once before them instead of answering each 401 later.
+        || /^\/reviews\/?$/.test(window.location.pathname));
     let initialLocalClaim: Response | null = null;
 
     // Claim a local Review capability before any Reader loader fires so startup
     // does not spray predictable 401s and then retry them. Concurrent loaders
     // share claimLocalBrowserSession's single in-flight promise.
-    if (local && localReviewRoute && !currentBrowserSession()) {
+    if (local && localReviewRoute && !currentBrowserSession() && !localClaimUnavailable) {
       initialLocalClaim = await claimLocalBrowserSession(window.location.pathname);
       if (!initialLocalClaim.ok && initialLocalClaim.status !== 404) {
         return initialLocalClaim.clone();
@@ -425,8 +442,12 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}): 
       }
     }
 
+    // The capability the latest send carried, so a 401 can tell a refused current
+    // capability from an answer to a request that went out before a newer one arrived.
+    let sentWith = "";
     const sendOnce = () => {
       const capability = local ? currentBrowserSession() : "";
+      sentWith = capability;
       const hasInit = Object.keys(init).length > 0;
       if (!capability && !hasInit) {
         // Fetch already defaults credentials to same-origin. Preserve the simple
@@ -450,10 +471,27 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}): 
     if (response.status !== 401 || typeof window === "undefined") return response;
 
     if (local) {
-      // A stale capability is never kept alive by accident. The local UI
+      // A pairing is spent by its first claim. This request may have gone out before
+      // a claim finished (none, or the old capability) and been refused after it; the
+      // capability it was refused with is no longer the current one, so the answer is
+      // to repeat it with the new one, never to erase that one and claim again.
+      const current = currentBrowserSession();
+      if (current && current !== sentWith) {
+        const retried = await send();
+        if (retried.status !== 401) return retried;
+        // The newer capability was refused too. If yet another has replaced it meanwhile, that one
+        // is not ours to erase; one already erased by a sibling request leaves nothing to keep, and
+        // this request claims below like any other whose capability was refused.
+        const now = currentBrowserSession();
+        if (now && now !== sentWith) return retried;
+      }
+      // The refused capability is still the current one: it is stale. The local UI
       // claims a fresh one on the current same-origin page.
       forgetBrowserSession();
-      const claimed = initialLocalClaim ?? await claimLocalBrowserSession(window.location.pathname);
+      // Only a 404 from the up-front claim is reusable: a successful one was just refused.
+      const claimed = initialLocalClaim?.status === 404
+        ? initialLocalClaim
+        : await claimLocalBrowserSession(window.location.pathname);
       if (claimed.ok) return send();
       // A hosted test/dev origin may itself be loopback. Absence of the local
       // pairing endpoint means this is not the local topology; continue with the
@@ -532,6 +570,8 @@ export interface ReviewDirectoryQuery {
   view?: InboxView;
   workflow?: InboxWorkflowState | "";
   filter?: string;
+  /** "home": up to 500 rows in this one request (Home's read); absent: a page of at most 100. */
+  read?: "home";
   /** Initial local-only list: no progress, workflow, readiness or Git reads. */
   summary?: boolean;
 }
@@ -546,11 +586,20 @@ export function reviewDirectoryParams(query: ReviewDirectoryQuery): URLSearchPar
   if (query.filter) params.set("filter", query.filter);
   if (query.cursor) params.set("cursor", query.cursor);
   if (query.summary) params.set("summary", "1");
+  if (query.read) params.set("read", query.read);
   return params;
 }
 
 export function fetchReviewDirectory(query: ReviewDirectoryQuery): Promise<ReviewDirectoryPage> {
   return request<ReviewDirectoryPage>(`/v1/reviews?${reviewDirectoryParams(query).toString()}`);
+}
+
+/** This viewer's own snooze and saved place for one Review (P5-1). A key left out keeps what is stored; null clears it. */
+export function putReviewQueueState(
+  id: string,
+  change: { snoozed_until?: string | null; resume?: ReviewResume | null },
+): Promise<ReviewQueueState> {
+  return request<ReviewQueueState>(`/api/reviews/${encodeURIComponent(id)}/queue-state`, { method: "PUT", body: JSON.stringify(change) });
 }
 
 /** The local user's saved Inbox filters (a selection, never access). */
@@ -954,6 +1003,25 @@ export function postAiReviewFresh(
   );
 }
 
+/** D7: browser-reported exposure is accepted by the server as an auditable,
+ * reviewer-scoped self-report, never as an independent observation or verdict. */
+export interface ReviewSeenCoverageResponse {
+  basis: string;
+  revision_id: string;
+  seen: Array<{ block_key: string; unit_key: string; source: string; elapsed_ms: number; reported_at: string; event_id: string }>;
+  skipped: Array<{ block_key: string; event_id: string; reported_at: string }>;
+}
+export function fetchReviewSeenCoverage(id: string): Promise<ReviewSeenCoverageResponse> {
+  return request<ReviewSeenCoverageResponse>(`/api/reviews/${encodeURIComponent(id)}/seen-coverage`);
+}
+export function postReviewSeenCoverage(id: string, payload: {
+  revision_id: string; action: "seen" | "skipped"; unit_key?: string;
+  block_key?: string; side?: "old" | "new"; start?: number; end?: number;
+  hunk?: number; elapsed_ms?: number; source?: "dwell" | "focus_answer"; block_keys?: string[];
+}): Promise<{ review_id: string; revision_id: string; event_id: string; action: string; basis: string }> {
+  return request(`/api/reviews/${encodeURIComponent(id)}/seen-coverage`, { method: "POST", body: JSON.stringify(payload) });
+}
+
 export function fetchReviewSurfaces(id: string, revisionId = ""): Promise<ReviewSurfaceList> {
   const params = new URLSearchParams();
   if (revisionId) params.set("revision_id", revisionId);
@@ -1158,9 +1226,29 @@ export async function fetchSurfacePreview(
   };
 }
 
-export function fetchFile(id: string, path: string): Promise<FileDetail> {
+/** Frozen-code reads in flight, keyed by review, expected revision and path: removed the moment each settles, so nothing is cached past the response. */
+const fileReadsInFlight = new Map<string, Promise<FileDetail>>();
+
+/**
+ * One request per review, revision and path at a time. Quick check's window read and Focus's own read ask for the same anchor
+ * file of the same Snapshot in the same instant; the second asker shares the first's response instead of making the server
+ * decode it again. `revisionId` is the Snapshot the caller will accept: a caller that has moved on to a newer Snapshot never
+ * joins a read started for the older one, which would answer with the older revision. A read that starts after the first
+ * settles is a new request, so a refetch after a change never sees an old answer. Callers treat the detail as read-only (it
+ * is spread or read, never edited), which is what makes sharing the one object safe.
+ */
+export function fetchFile(id: string, path: string, revisionId = ""): Promise<FileDetail> {
+  const key = `${id}\u0000${revisionId}\u0000${path}`;
+  const running = fileReadsInFlight.get(key);
+  if (running) return running;
   const segments = path.split("/").map(encodeURIComponent).join("/");
-  return request<FileDetail>(`/api/reviews/${encodeURIComponent(id)}/files/${segments}/patch?include_web_preview=false`);
+  const read = request<FileDetail>(`/api/reviews/${encodeURIComponent(id)}/files/${segments}/patch?include_web_preview=false`);
+  const done = () => {
+    if (fileReadsInFlight.get(key) === read) fileReadsInFlight.delete(key);
+  };
+  read.then(done, done);
+  fileReadsInFlight.set(key, read);
+  return read;
 }
 
 export function fetchHistoricalFile(id: string, revisionNumber: number, path: string): Promise<FileDetail> {
@@ -1235,6 +1323,26 @@ export async function exportReviewRecord(
 /** The stored DSSE envelope, exactly as exported (verifiable with `lc review verify-record`). */
 export function fetchReviewRecordFile(id: string, recordId: string): Promise<Blob> {
   return fetchReviewBlob(`/api/reviews/${encodeURIComponent(id)}/records/${encodeURIComponent(recordId)}`);
+}
+
+/** A readable PDF copy of one record; the JSON file stays the evidence. */
+export function fetchReviewRecordPdf(id: string, recordId: string): Promise<Blob> {
+  return fetchReviewBlob(`/api/reviews/${encodeURIComponent(id)}/records/${encodeURIComponent(recordId)}/pdf`);
+}
+
+/**
+ * Retract a signed verdict (P6-2): the server signs the retraction with the key that signed the record, only inside
+ * 24 hours of signing on its own clock. A refusal carries `detail.code` (`window_closed`, `different_key`, ...).
+ */
+export function retractReviewRecord(id: string, recordId: string): Promise<{ record: ReviewRecordSummary; retraction: { by: string; at: string; created: boolean } }> {
+  return request(`/api/reviews/${encodeURIComponent(id)}/records/${encodeURIComponent(recordId)}/retract`, { method: "POST" });
+}
+
+/** Verify one stored record now: the signature, the key, the code against the latest captured revision. */
+export function fetchReviewRecordVerify(id: string, recordId: string): Promise<ReviewRecordVerifyResult> {
+  return request<ReviewRecordVerifyResult>(
+    `/api/reviews/${encodeURIComponent(id)}/records/${encodeURIComponent(recordId)}/verify`,
+  );
 }
 
 export function fetchReviewPatch(id: string, revisionNumber?: number): Promise<Blob> {
@@ -1377,7 +1485,15 @@ export type ReviewAskStreamEvent =
   | { type: "working"; elapsed_ms: number; driver: string; model: string }
   | { type: "delta"; text: string }
   | { type: "result"; result: ReviewAskResult }
-  | { type: "error"; status: number; detail: string };
+  | { type: "error"; status: number; detail: string; code?: string; setup_help?: ReviewAiSetupHelp };
+
+function askStreamError(event: Extract<ReviewAskStreamEvent, { type: "error" }>): Error {
+  return Object.assign(new Error(event.detail), {
+    status: event.status,
+    ...(event.code ? { code: event.code } : {}),
+    ...(event.setup_help ? { setup_help: event.setup_help } : {}),
+  });
+}
 
 export async function streamReviewAsk(
   id: string,
@@ -1394,13 +1510,18 @@ export async function streamReviewAsk(
   });
   if (!response.ok) {
     let detail = `${response.status}`;
+    let structured: Record<string, unknown> | undefined;
     try {
       const payload = (await response.json()) as { detail?: unknown };
       if (typeof payload.detail === "string") detail = payload.detail;
+      else if (payload.detail && typeof payload.detail === "object") {
+        structured = payload.detail as Record<string, unknown>;
+        if (typeof structured.message === "string") detail = structured.message;
+      }
     } catch {
       // Keep the status fallback for a non-JSON response.
     }
-    throw Object.assign(new Error(detail), { status: response.status });
+    throw Object.assign(new Error(detail), { status: response.status, detail: structured });
   }
   if (!response.body) return postReviewAsk(id, input);
 
@@ -1418,9 +1539,7 @@ export async function streamReviewAsk(
       if (!line) continue;
       const event = JSON.parse(line) as ReviewAskStreamEvent;
       onEvent(event);
-      if (event.type === "error") {
-        throw Object.assign(new Error(event.detail), { status: event.status });
-      }
+      if (event.type === "error") throw askStreamError(event);
       if (event.type === "result") finalResult = event.result;
     }
     if (done) break;
@@ -1428,7 +1547,7 @@ export async function streamReviewAsk(
   if (buffer.trim()) {
     const event = JSON.parse(buffer) as ReviewAskStreamEvent;
     onEvent(event);
-    if (event.type === "error") throw Object.assign(new Error(event.detail), { status: event.status });
+    if (event.type === "error") throw askStreamError(event);
     if (event.type === "result") finalResult = event.result;
   }
   if (!finalResult) throw new Error("Review Ask stream ended before a response was ready");
@@ -1868,8 +1987,17 @@ export function patchAnnotation(
 }
 
 /** Render the review's comments as Markdown. Renders; delivers nothing. */
-export function exportFeedback(id: string): Promise<FeedbackExport> {
-  return request<FeedbackExport>(`/api/reviews/${encodeURIComponent(id)}/feedback/export`, { method: "POST" });
+export function exportFeedback(
+  id: string,
+  options?: { expectedRevisionId?: string; presentation?: import("./types").FeedbackPresentation },
+): Promise<FeedbackExport> {
+  return request<FeedbackExport>(`/api/reviews/${encodeURIComponent(id)}/feedback/export`, {
+    method: "POST",
+    ...(options ? { body: JSON.stringify({
+      expected_revision_id: options.expectedRevisionId || "",
+      ...(options.presentation ? { presentation: options.presentation } : {}),
+    }) } : {}),
+  });
 }
 
 /**
@@ -1887,6 +2015,7 @@ export function deliverFeedback(
       operation_id: feedback.operation_id,
       expected_revision_id: feedback.revision_id,
       expected_feedback_hash: feedback.feedback_hash,
+      ...(feedback.presentation ? { presentation: feedback.presentation } : {}),
       ...(options.copied ? { copied: true } : {}),
     }),
   });
@@ -1905,9 +2034,20 @@ export function putReviewDestination(id: string, choice: ReviewDestinationChoice
   });
 }
 
-/** Plan the GitHub review for a pull-request Review; posts nothing. */
-export function previewGitHubPublish(id: string): Promise<GitHubPublishPreview> {
-  return request<GitHubPublishPreview>(`/api/reviews/${encodeURIComponent(id)}/github/preview`, { method: "POST" });
+/**
+ * Plan the GitHub review for a pull-request Review; posts nothing. With `proposed` the plan is for a verdict
+ * the reviewer has not recorded yet (Wrap up); without it, for the verdict already recorded.
+ */
+export function previewGitHubPublish(id: string, proposed?: { outcome: ReviewOutcomeKind; summary: string }): Promise<GitHubPublishPreview> {
+  return request<GitHubPublishPreview>(`/api/reviews/${encodeURIComponent(id)}/github/preview`, {
+    method: "POST",
+    ...(proposed ? { body: JSON.stringify(proposed) } : {}),
+  });
+}
+
+/** Bot accounts whose latest verdict on this pull request is an approval. Fails (409) off a pull request. */
+export function fetchGitHubBotApprovals(id: string): Promise<GitHubBotApprovals> {
+  return request<GitHubBotApprovals>(`/api/reviews/${encodeURIComponent(id)}/github/bot-approvals`);
 }
 
 /** Post exactly the previewed plan to the pull request as one GitHub review. */
@@ -1960,6 +2100,40 @@ export function resolveHostedAction(
 export function detachHostedAttachment(id: string, discardUnresolved: boolean): Promise<HostedDetachResult> {
   const query = discardUnresolved ? "?discard_unresolved=true" : "";
   return request<HostedDetachResult>(`/api/reviews/${encodeURIComponent(id)}/hosted${query}`, { method: "DELETE" });
+}
+
+/** Server-held send with a ten-second undo interval. No network dispatch occurs on enqueue. */
+export function queueReviewFlowSend(id: string, args: {
+  expectedRevisionId: string;
+  outcome: import("./types").ReviewOutcomeKind;
+  summary: string;
+  feedback: (Pick<import("./types").FeedbackExport, "revision_id" | "operation_id" | "feedback_hash"> &
+    Partial<Pick<import("./types").FeedbackExport, "presentation">>) | null;
+  clientOperationId?: string;
+}): Promise<import("./types").ReviewFlowSend> {
+  return request(`/api/reviews/${encodeURIComponent(id)}/flow-send`, {
+    method: "POST",
+    body: JSON.stringify({
+      expected_revision_id: args.expectedRevisionId,
+      ...(args.clientOperationId ? { client_operation_id: args.clientOperationId } : {}),
+      outcome: args.outcome,
+      summary: args.summary,
+      feedback: args.feedback ? {
+        revision_id: args.feedback.revision_id,
+        operation_id: args.feedback.operation_id,
+        feedback_hash: args.feedback.feedback_hash,
+        ...(args.feedback.presentation ? { presentation: args.feedback.presentation } : {}),
+      } : null,
+    }),
+  });
+}
+
+export function fetchReviewFlowSend(id: string): Promise<import("./types").ReviewFlowSend> {
+  return request(`/api/reviews/${encodeURIComponent(id)}/flow-send`);
+}
+
+export function undoReviewFlowSend(id: string, operationId: string): Promise<import("./types").ReviewFlowSend> {
+  return request(`/api/reviews/${encodeURIComponent(id)}/flow-send/${encodeURIComponent(operationId)}/undo`, { method: "POST" });
 }
 
 export function fetchFinishReview(id: string): Promise<ReviewClosure> {

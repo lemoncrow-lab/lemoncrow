@@ -174,24 +174,24 @@ describe("ReviewPremergeChecks inside Review Status", () => {
     const lapsed = check({ id: "rollout-notes", title: "Rollout and backout notes", waiver_note: "The waiver was granted under another policy generation." });
     render(<ReviewPremergeChecks premerge={premerge({ checks: [waived, lapsed], trial: { would_block: [], summary: "" } })} actions={{ onWaive: vi.fn() }} />);
     const row = screen.getByText(/waived by release-captain/);
-    expect(row.textContent).toContain("(FAIL)");
+    expect(row.textContent).toContain("(failed)");
     expect(row.textContent).toContain("bf8dcc90a051");
-    expect(row.textContent).toContain("this Snapshot");
+    expect(row.textContent).toContain("this revision");
     expect(row.textContent).not.toContain("PASS");
     expect(screen.getByText(/another policy generation/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Waive…" })).toBeNull(); // a waived check is no longer waivable
   });
 
-  it("names intent drift since its Snapshot and re-binds only on an explicit action", () => {
+  it("names intent drift since its revision and re-binds only on an explicit action", () => {
     const onRebind = vi.fn();
-    const changedNote = "Intent changed since Snapshot 1: Checkout totals include tax now reads differently (sha256:bbbb).";
+    const changedNote = "Intent changed since Revision 2: Checkout totals include tax now reads differently (sha256:bbbb).";
     const block = premerge({
       intents: [{ ref: "github:acme/shop#7", kind: "issue", origin: "provider_linked", bound: capture(), latest: capture({ digest: "sha256:bbbb", role: "observed", snapshot_number: 2 }), changed: true, changed_note: changedNote }],
       intent_changed: [changedNote],
     });
     render(<ReviewPremergeChecks premerge={block} actions={{ onRebind }} />);
     expect(screen.getByRole("link", { name: /Checkout totals include tax/ })).toBeTruthy();
-    expect(screen.getByText("issue · Snapshot 1")).toBeTruthy();
+    expect(screen.getByText("issue · Revision 2")).toBeTruthy();
     expect(screen.getByText(changedNote)).toBeTruthy();
     expect(onRebind).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Re-bind" }));
@@ -200,7 +200,7 @@ describe("ReviewPremergeChecks inside Review Status", () => {
 
   it("offers no waive, re-bind or evaluate action on a read-only sheet", () => {
     const block = premerge({
-      intents: [{ ref: "github:acme/shop#7", kind: "issue", origin: "provider_linked", bound: capture(), latest: capture({ digest: "sha256:bbbb" }), changed: true, changed_note: "Intent changed since Snapshot 1." }],
+      intents: [{ ref: "github:acme/shop#7", kind: "issue", origin: "provider_linked", bound: capture(), latest: capture({ digest: "sha256:bbbb" }), changed: true, changed_note: "Intent changed since Revision 2." }],
     });
     render(<ReviewPremergeChecks premerge={block} readOnly actions={{ onWaive: vi.fn(), onRebind: vi.fn(), onEvaluate: vi.fn() }} />);
     expect(screen.queryByRole("button", { name: "Waive…" })).toBeNull();

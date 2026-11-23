@@ -7,7 +7,9 @@ model output may tighten a title/explanation but cannot add targets or facts.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
+from pathlib import PurePosixPath
 from typing import Any
 
 TOUR_SCHEMA_VERSION = 1
@@ -38,7 +40,7 @@ TOUR_JSON_SCHEMA: dict[str, Any] = {
 
 TOUR_SYSTEM_PROMPT = """You refine a deterministic code-review Change Tour.
 
-You are given existing Tour steps derived from an immutable Review Snapshot.
+You are given existing Tour steps derived from an immutable Review revision.
 For a step, make the title and why-this-matters explanation concise and useful
 to a human reviewer. Use only the supplied step and target facts. Do not invent
 targets, evidence, test results, architecture relationships, author intent, or
@@ -76,7 +78,30 @@ def _verification(target: Any) -> tuple[int, int]:
     return int(getattr(value, "fail_count", 0) or 0), int(getattr(value, "unknown_count", 0) or 0)
 
 
-def _signal_text(item: Mapping[str, Any], targets: Sequence[Any]) -> str:
+_WORD_BREAK = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_WORD = re.compile(r"[a-z0-9]+")
+# Whole words of a name or path: "client" is not "cli", "author" is not "auth", "estimate" is not "state".
+_SECURITY_WORDS = frozenset(
+    {
+        "auth",
+        "authn",
+        "authz",
+        "oauth",
+        "authentication",
+        "authorization",
+        "permission",
+        "security",
+        "trust",
+        "credential",
+        "token",
+        "tenant",
+    }
+)
+_STATE_WORDS = frozenset({"persist", "persistence", "storage", "database", "schema", "state", "migration", "cache"})
+_CONTRACT_WORDS = frozenset({"api", "public", "contract", "protocol", "wire", "cli", "endpoint"})
+
+
+def _signal_words(item: Mapping[str, Any], targets: Sequence[Any]) -> frozenset[str]:
     parts = [
         str(item.get("title") or ""),
         str(item.get("before") or ""),
@@ -91,7 +116,8 @@ def _signal_text(item: Mapping[str, Any], targets: Sequence[Any]) -> str:
                 " ".join(str(value) for value in (_target_value(target, "reasons", ()) or ())),
             ]
         )
-    return " ".join(parts).casefold()
+    words = _WORD.findall(_WORD_BREAK.sub(" ", " ".join(parts)).casefold())
+    return frozenset(word for raw in words for word in (raw, raw.removesuffix("s")))
 
 
 def _deterministic_signals(
@@ -117,17 +143,37 @@ def _deterministic_signals(
         signals.append("snapshot_delta")
     if item.get("kind") == "behavior" or item.get("before") or item.get("after"):
         signals.append("behavior_contract")
-    text = _signal_text(item, targets)
-    if any(token in text for token in ("auth", "permission", "security", "trust", "credential", "token", "tenant")):
+    words = _signal_words(item, targets)
+    if words & _SECURITY_WORDS:
         signals.append("security_trust_boundary")
-    if any(token in text for token in ("persist", "storage", "database", "schema", "state", "migration", "cache")):
+    if words & _STATE_WORDS:
         signals.append("state_persistence")
-    if any(token in text for token in ("api", "public", "contract", "protocol", "wire", "cli", "endpoint")):
+    if words & _CONTRACT_WORDS:
         signals.append("public_contract")
     return list(dict.fromkeys(signals))
 
 
-def _why(item: Mapping[str, Any], signals: Sequence[str]) -> tuple[str, bool]:
+def _what_changed(targets: Sequence[Any]) -> str:
+    """The step's parts by name and size: all that is known without a claim or a model."""
+
+    names: list[str] = []
+    for target in targets:
+        name = (
+            str(_target_value(target, "symbol", "") or "")
+            or PurePosixPath(str(_target_value(target, "path", "") or "")).name
+        )
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        return "Review the changed implementation and its observable effect."
+    shown = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+    added = sum(int(_target_value(target, "additions", 0) or 0) for target in targets)
+    removed = sum(int(_target_value(target, "deletions", 0) or 0) for target in targets)
+    size = f" (+{added} \u2212{removed})" if added or removed else ""
+    return _text(f"Changes {shown}{size}.")
+
+
+def _why(item: Mapping[str, Any], signals: Sequence[str], targets: Sequence[Any]) -> tuple[str, bool]:
     after = _text(item.get("after"))
     before = _text(item.get("before"))
     rationale = _text(item.get("rationale"))
@@ -145,12 +191,30 @@ def _why(item: Mapping[str, Any], signals: Sequence[str]) -> tuple[str, bool]:
     if "verification_failed" in signals:
         return "Recorded verification for this part of the change is failing.", False
     if "reopened_judgment" in signals:
-        return "A prior human judgment was reopened by this Snapshot.", False
-    return "Review the changed implementation and its observable effect.", True
+        return "A prior human judgment was reopened by this revision.", False
+    return _what_changed(targets), True
+
+
+def _re_review_bucket(reopened: bool, added: bool, states: set[str]) -> int:
+    """Re-review reading order: what changed since review, then new, then unreviewed, then kept."""
+
+    if reopened:
+        return 0
+    if added:
+        return 1
+    if not states or states - {"reviewed"}:
+        return 2
+    return 3
 
 
 def build_change_tour(projection: Mapping[str, Any], targets: Sequence[Any]) -> dict[str, Any]:
-    """Build an ordered Tour without creating any new Review state."""
+    """Build an ordered Tour without creating any new Review state.
+
+    On a re-review (the projection carries a Snapshot delta) the Tour leads with
+    steps whose prior judgment reopened, then new targets, then the remaining
+    unreviewed ones; steps whose every judgment was kept come last. A first
+    review keeps the plain consequence order.
+    """
 
     target_by_id = {
         str(_target_value(target, "target_id", "")): target
@@ -160,6 +224,7 @@ def build_change_tour(projection: Mapping[str, Any], targets: Sequence[Any]) -> 
     claims = {str(row.get("id") or ""): row for row in _values(projection.get("claims"))}
     decisions = _values(projection.get("decisions"))
     raw_delta = projection.get("delta")
+    re_review = isinstance(raw_delta, Mapping)
     delta: Mapping[str, Any] = raw_delta if isinstance(raw_delta, Mapping) else {}
     changed = {str(value) for value in (delta.get("changed") or ())}
     added = {str(value) for value in (delta.get("added") or ())}
@@ -197,7 +262,9 @@ def build_change_tour(projection: Mapping[str, Any], targets: Sequence[Any]) -> 
             for row in decisions
             if set(str(value) for value in (row.get("target_ids") or ())) & set(current_ids)
         ]
-        reopened = bool(set(decision_refs) & reopened_decisions)
+        target_states = {str(_target_value(target, "state", "") or "") for target in current_targets}
+        # A reviewed (or needs-changes) judgment whose content moved is reopened, like a decision.
+        reopened = bool(set(decision_refs) & reopened_decisions) or "changed_since_review" in target_states
         signals = _deterministic_signals(
             item,
             current_targets,
@@ -233,7 +300,7 @@ def build_change_tour(projection: Mapping[str, Any], targets: Sequence[Any]) -> 
                     }
                 )
 
-        why, synthesis_needed = _why(item, signals)
+        why, synthesis_needed = _why(item, signals, current_targets)
         first = current_targets[0] if current_targets else None
         changed_ids = set(current_ids) & changed
         added_ids = set(current_ids) & added
@@ -243,6 +310,7 @@ def build_change_tour(projection: Mapping[str, Any], targets: Sequence[Any]) -> 
         first_path = str(_target_value(first, "path", "")) if first is not None else ""
         first_line = int(_target_value(first, "start_line", 0) or 0) if first is not None else 0
         priority = (
+            _re_review_bucket(reopened, bool(added_ids), target_states) if re_review else 0,
             0 if reopened else 1,
             0 if "verification_failed" in signals else 1,
             0 if decision_refs else 1,

@@ -6,6 +6,10 @@ came from the job that ran pull request code, so it is checked before anything i
 plan's head and the plan's digest, every outcome must be in vocabulary, and a pass or a reproduced bug is
 believed only beside a recorded run that agrees with it. Every text from it is bounded and made inert.
 
+Under GitHub Actions a results file that records a run without a sandbox is refused (:func:`plain_run`): the check is
+posted ``neutral`` with the reason, no identity token is requested, and the report file carries an empty token, so
+a hosted Review reads it as unattested.
+
 Conclusion: ``failure`` when a finding is reproduced (``supported``); ``success`` only when runs were recorded
 and every finding was contradicted and every changed test fails on base; ``neutral`` otherwise, including when
 nothing could run. ``could_not_run`` is never ``success``.
@@ -14,9 +18,14 @@ nothing could run. ``could_not_run`` is never ``success``.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+import os
+import re
+import urllib.parse
+import urllib.request
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.proof import wire
@@ -87,6 +96,8 @@ class Summary:
     #: The plan's digest and what its model calls cost (the plan job's own ``usage``), counted once on the summary.
     plan_digest: str = ""
     plan_usage: dict[str, Any] = field(default_factory=dict)
+    #: ``False`` when the run recorded its sandbox as unusable, so nothing ran (GitHub Actions without bubblewrap).
+    sandbox_usable: bool = True
 
     def record(self, check_id: int = 0) -> str:
         """This proof as the summary state keeps it (``pr_bot.state.PROOF_STATE``)."""
@@ -200,6 +211,7 @@ def summarize(plan: Mapping[str, Any], plan_raw: bytes, results: Mapping[str, An
         notes=notes,
         plan_digest=wire.digest(plan_raw).removeprefix("sha256:"),
         plan_usage=dict(plan["usage"]) if isinstance(plan.get("usage"), dict) else {},
+        sandbox_usable=sandbox.get("usable") is not False,
     )
 
 
@@ -215,7 +227,9 @@ def check_summary(summary: Summary) -> tuple[str, str]:
             "written its own results."
             if summary.sandbox == "none"
             else ""
-        ),
+        )
+        # The last thing on the line: a hosted review reads it back (``part_proof_ci``) for parts that have no row.
+        + ("" if summary.sandbox_usable else f" {wire.SANDBOX_UNUSABLE_MARK}"),
         "",
     ]
     if summary.findings:
@@ -257,7 +271,22 @@ def check_summary(summary: Summary) -> tuple[str, str]:
     return "\n".join(lines)[:65_000], "\n".join(text)[:65_000]
 
 
-def check_payload(summary: Summary, *, details_url: str = "") -> dict[str, Any]:
+_RUN_ID: Final[re.Pattern[str]] = re.compile(r"^[0-9]{1,19}$")
+_RUN_ATTEMPT: Final[re.Pattern[str]] = re.compile(r"^[0-9]{1,6}$")
+
+
+def run_external_id(environ: Mapping[str, str]) -> str:
+    """``"<GITHUB_RUN_ID>:<GITHUB_RUN_ATTEMPT>"``, the pointer the check carries to its workflow run; ``""`` outside one.
+
+    The check only names the run. A hosted Review takes the report from that run's ``lemoncrow-proof-report``
+    artifact and checks GitHub's own record of the run, so nothing the check says is believed.
+    """
+
+    run, attempt = str(environ.get("GITHUB_RUN_ID") or ""), str(environ.get("GITHUB_RUN_ATTEMPT") or "")
+    return f"{run}:{attempt}" if _RUN_ID.fullmatch(run) and _RUN_ATTEMPT.fullmatch(attempt) else ""
+
+
+def check_payload(summary: Summary, *, details_url: str = "", external_id: str = "") -> dict[str, Any]:
     """``POST /repos/{owner}/{repo}/check-runs`` body for the ``LemonCrow Proof`` check."""
 
     body, text = check_summary(summary)
@@ -271,7 +300,107 @@ def check_payload(summary: Summary, *, details_url: str = "") -> dict[str, Any]:
     }
     if details_url:
         payload["details_url"] = details_url
+    if external_id:
+        payload["external_id"] = external_id
     return payload
+
+
+#: How long the identity-token request may take, and the most of its answer that is read.
+_TOKEN_TIMEOUT_S: Final[int] = 20
+_TOKEN_MAX_BYTES: Final[int] = 16 * 1024
+
+
+def identity_token(
+    environ: Mapping[str, str], audience: str, *, urlopen: Callable[..., Any] | None = None
+) -> tuple[str, str]:
+    """``(token, "")`` GitHub mints for *audience* to this job, or ``("", why not)``.
+
+    Only a job with ``permissions: id-token: write`` is given ``ACTIONS_ID_TOKEN_REQUEST_URL``; the documented
+    ``proof-report`` job is the only one that has it. The token is returned to the caller and written to the report
+    artifact only: it is never printed and never part of the check.
+    """
+
+    base, bearer = (
+        str(environ.get("ACTIONS_ID_TOKEN_REQUEST_URL") or ""),
+        str(environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN") or ""),
+    )
+    if not base or not bearer:
+        return "", "no GitHub identity token: give the proof-report job `permissions: id-token: write`"
+    if not base.startswith("https://"):
+        return "", "the GitHub identity token endpoint is not https"
+    url = base + ("&" if "?" in base else "?") + "audience=" + urllib.parse.quote(audience, safe="")
+    request = urllib.request.Request(url, headers={"Authorization": f"bearer {bearer}", "Accept": "application/json"})
+    try:
+        with (urlopen or urllib.request.urlopen)(request, timeout=_TOKEN_TIMEOUT_S) as response:
+            document = json.loads(response.read(_TOKEN_MAX_BYTES))
+    except (OSError, ValueError) as exc:
+        return "", f"could not get a GitHub identity token: {type(exc).__name__}"
+    value = document.get("value") if isinstance(document, dict) else None
+    if not isinstance(value, str) or not value:
+        return "", "GitHub answered the identity token request with no token"
+    return value, ""
+
+
+def plain_run(results: Mapping[str, Any]) -> str:
+    """Why *results* records a run that was not in a sandbox, or ``""`` when every run it records was.
+
+    A sandbox is recorded as ``bubblewrap`` or ``none``; anything else reads as ``none``, as :func:`summarize` reads
+    it. The results document names it once, and every recorded run names it again.
+
+    This only catches honest misconfiguration, such as a run job that fell back to a plain run or an older CLI. Pull
+    request code that ran plainly could have written a results file that says ``bubblewrap``, so this is not what
+    makes a report trustworthy: that is the run job refusing to run without a sandbox under GitHub Actions
+    (:func:`run.resolve_sandbox`).
+    """
+
+    def plain(value: object) -> bool:
+        return wire.one_of(value, wire.SANDBOXES, "none") != "bubblewrap"
+
+    raw = results.get("sandbox")
+    if not isinstance(raw, dict) or plain(raw.get("mode")):
+        return "the results file records a run without a sandbox"
+    runs: list[object] = []
+    for repro in results.get("repros") or ():
+        if isinstance(repro, dict) and isinstance(repro.get("runs"), list):
+            runs += repro["runs"]
+    if isinstance(results.get("red_runs"), list):
+        runs += results["red_runs"]
+    if any(isinstance(run, dict) and plain(run.get("sandbox")) for run in runs):
+        return "the results file records a run without a sandbox"
+    return ""
+
+
+def write_report(
+    payload: Mapping[str, Any],
+    path: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+    urlopen: Callable[..., Any] | None = None,
+    withhold: str = "",
+) -> str:
+    """Write the report *payload* carries, with the identity token minted for it, to *path*; returns a warning or ``""``.
+
+    The file is the one JSON member of the ``lemoncrow-proof-report`` artifact: the exact summary the check carries and
+    a GitHub Actions identity token whose audience is :func:`wire.report_audience` of the commit and that summary. A
+    hosted Review believes the report only when it can verify that token, so a missing one is a warning here (the
+    check is still posted) and an unattested report there.
+
+    *withhold*, a reason not to attest this report, writes it with no token (none is requested from GitHub at all) and
+    returns that reason as the warning.
+    """
+
+    report = str(payload["output"]["summary"])
+    if withhold:
+        token, note = "", withhold
+    else:
+        token, note = identity_token(
+            os.environ if environ is None else environ,
+            wire.report_audience(str(payload.get("head_sha") or ""), report),
+            urlopen=urlopen,
+        )
+    document = {"schema": wire.REPORT_FILE_SCHEMA, "report": report, "token": token}
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    return note
 
 
 def thread_reply(item: Finding, summary: Summary) -> str:
@@ -360,15 +489,24 @@ def post(
     host: str,
     runner: Any,
     details_url: str = "",
+    external_id: str = "",
+    report_file: Path | None = None,
     replies: bool = True,
+    withhold: str = "",
 ) -> dict[str, Any]:
-    """Post the check run and the thread replies with *runner* (a ``gh`` runner). Returns what was posted."""
+    """Post the check run and the thread replies with *runner* (a ``gh`` runner). Returns what was posted.
+
+    *report_file* is written with the exact summary that is posted (and its identity token), before anything is
+    posted; a token that could not be minted, or was *withhold*-ed (see :func:`write_report`), is reported in
+    ``errors``.
+    """
 
     from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub
     from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError, PullRequestRef, gh_json
 
     owner, _, name = repository.partition("/")
-    payload = check_payload(summary, details_url=details_url)
+    payload = check_payload(summary, details_url=details_url, external_id=external_id)
+    attest_note = write_report(payload, report_file, withhold=withhold) if report_file is not None else withhold
     created = gh_json(
         runner,
         ["api", "--method", "POST", f"repos/{owner}/{name}/check-runs", "--input", "-"],
@@ -381,6 +519,8 @@ def post(
         "errors": [],
         "summary": "",
     }
+    if attest_note:
+        posted["errors"].append(attest_note)
     if not number:
         return posted
     github = BotGitHub(PullRequestRef(owner, name, number, host), runner)

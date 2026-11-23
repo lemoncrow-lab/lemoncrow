@@ -24,6 +24,7 @@ from lemoncrow.pro.capabilities.review import ai_review
 from lemoncrow.pro.capabilities.review.pr_bot import engine, opengrep_install, security
 from lemoncrow.pro.capabilities.review.pr_bot.render import badge
 from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError
+from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
 from lemoncrow.pro.capabilities.review.static_findings import investigator_static_context, static_security_lines
 from tests.gateway.pr_bot_support import BASE, FakeModel, World, build_world
@@ -93,7 +94,7 @@ def test_native_output_becomes_severity_mapped_findings_without_copying_matched_
     assert by_rule[HASH_RULE].severity == "p2"
     assert by_rule["acme.style.todo-comment"].severity == "suggestion"
     assert by_rule["acme.crypto.maybe-bad"].severity == "p2"
-    assert by_rule[OS_RULE].path == "app/handlers.py", "a leading ./ is normalised against the Snapshot's paths"
+    assert by_rule[OS_RULE].path == "app/handlers.py", "a leading ./ is normalised against the revision's paths"
     assert (by_rule[OS_RULE].start_line, by_rule[OS_RULE].end_line) == (14, 14)
     assert by_rule[OS_RULE].cwe == (78,) and by_rule["acme.crypto.maybe-bad"].cwe == (327,)
     # The matched source line (here a redacted key assignment) is hashed into the fingerprint and kept nowhere else.
@@ -1280,9 +1281,10 @@ def test_a_scan_result_below_the_threshold_is_held_back_and_the_risks_examined_s
     held = body.split("held back below strictness 3</summary>", 1)[1].split("</details>", 1)[0]
     assert "Weak hash: MD5 or SHA-1" in held and "`app/hashing.py:5` · new · security" in held
     assert not [text for text in report.inline_bodies if "Weak hash" in text]
-    # The scanner's error-level result is a risk signal of the change, found without a model, and sets the impact label.
-    impact_row = next(row for row in lines if row.startswith("**[Medium impact]**"))
-    assert lines[lines.index(impact_row) + 1].startswith("<sub>security-sensitive code")
+    # The scanner's error-level result is a risk signal of the change, found without a model, and sets the impact label
+    # (kept in the hidden state for tools; the comment shows the Risk line).
+    weighed = parse_state(body)
+    assert weighed is not None and weighed.impact.startswith("medium:security:")
     assert "<summary>Risks examined: 1 of 1 · 1 found</summary>" in body and "2 open findings" in body
     assert body.index("held back below strictness 3") < body.index("Risks examined")
     prompt = body.split("Fix with agent prompt", 1)[1].split("</details>", 1)[0]

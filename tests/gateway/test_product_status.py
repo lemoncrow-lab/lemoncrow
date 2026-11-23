@@ -34,7 +34,7 @@ def test_status_reports_products_and_runtime_integrations(tmp_path: Path) -> Non
     assert "Review" in lines
     assert "✓ Installed    hosted deployment" in lines
     assert "✓ Signed in    yes" in lines
-    assert "Runtime · coding agents" in lines
+    assert "Workspaces · coding agents" in lines
     assert "full CLI" not in result.output
     assert "✓ claude       enabled" in lines
     assert "○ codex        not enabled" in lines

@@ -142,7 +142,7 @@ export function orderSnapshots(): { before: InvestigationFixture; after: Investi
       : { state: "reviewed", reviewed_revision_id: rev })];
     return {
       name: `orders-snapshot-${snapshot}`,
-      description: "An idempotency claim that a new Snapshot's source change reopens.",
+      description: "An idempotency claim that a new revision's source change reopens.",
       revision: { id: rev, base_sha: "a".repeat(40), head_sha: (changed ? "c" : "b").repeat(40) },
       targets,
       checks: [{ name: "pytest tests/orders", status: "PASS", detail: "", source: "ci", scope: "review" }],

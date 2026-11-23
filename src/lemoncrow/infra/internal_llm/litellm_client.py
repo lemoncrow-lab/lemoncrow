@@ -33,6 +33,7 @@ from typing import Any
 
 from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, refusal_from_exception
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+from lemoncrow.infra.internal_llm.usage import note_response
 
 
 def _litellm_module() -> Any:
@@ -221,6 +222,7 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
         if isinstance(exc, LiteLLMUnavailable):
             raise
         raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
+    note_response(chosen_model, _field(response, "usage"), provider_cost=_reported_cost(response))
     return _content(response)
 
 
@@ -247,12 +249,17 @@ def chat_with_result(
     """
     chosen_model = _resolve_model(model)
     request_messages = _apply_cache_control(messages, chosen_model=chosen_model, cache_metadata=cache_metadata)
+    from lemoncrow.infra.internal_llm import direct_http
+
+    if direct_http.uses_federation(chosen_model):
+        # A federated access token is not a key LiteLLM can send: the direct route makes the call, installed SDK or not.
+        return direct_http.anthropic_chat_with_result(
+            request_messages, model=chosen_model, json_schema=json_schema, cache_metadata=cache_metadata
+        )
     try:
         litellm = _litellm_module()
     except LiteLLMUnavailable:
         # The installed Review engine ships no SDK: ANTHROPIC_API_KEY alone must be enough for `lc review --ai`.
-        from lemoncrow.infra.internal_llm import direct_http
-
         if not direct_http.handles_anthropic(chosen_model):
             raise
         return direct_http.anthropic_chat_with_result(
@@ -285,6 +292,7 @@ def chat_with_result(
             ) from exc
 
     response = complete(request_kwargs)
+    note_response(chosen_model, _field(response, "usage"), provider_cost=_reported_cost(response))
     responses = [response]
     content = _content(response)
     parsed_json: dict[str, Any] | None = None
@@ -297,6 +305,7 @@ def chat_with_result(
                 "messages": [*request_kwargs["messages"], {"role": "user", "content": _JSON_ONLY}],
             }
             response = complete(retry)
+            note_response(chosen_model, _field(response, "usage"), provider_cost=_reported_cost(response))
             responses.append(response)
             content = _content(response)
             parsed, why = _parse_json(content)
@@ -329,10 +338,19 @@ def chat_with_result(
 
 
 def _reported_cost(response: Any) -> float | None:
+    """What LiteLLM says the call cost; ``None`` when it does not know.
+
+    LiteLLM answers ``0.0`` for a model missing from its price table, so ``0.0`` on a call that used tokens means "no
+    price", not "free". Read as a price, it would hold every cost cap open at $0.00.
+    """
+
     reported = _field(_field(response, "_hidden_params"), "response_cost")
-    if isinstance(reported, (int, float)) and not isinstance(reported, bool) and reported >= 0:
-        return float(reported)
-    return None
+    if not isinstance(reported, (int, float)) or isinstance(reported, bool) or reported < 0:
+        return None
+    usage = _field(response, "usage")
+    if reported == 0 and (_token_value(usage, "prompt_tokens") or _token_value(usage, "completion_tokens")):
+        return None
+    return float(reported)
 
 
 def chat(
@@ -355,8 +373,15 @@ def chat_stream(
     json_schema: dict[str, Any] | None = None,
 ) -> str | dict[str, Any]:
     """Stream LiteLLM completion chunks and preserve chat()'s parsed result contract."""
-    litellm = _litellm_module()
     chosen_model = _resolve_model(model)
+    from lemoncrow.infra.internal_llm import direct_http
+
+    if direct_http.uses_federation(chosen_model):
+        # The direct route does not stream: the whole answer is one delta, and the contract is the same.
+        whole = direct_http.anthropic_chat_with_result(messages, model=chosen_model, json_schema=json_schema)
+        on_delta(whole.content)
+        return whole.content if json_schema is None else dict(whole.parsed_json or {})
+    litellm = _litellm_module()
     request_kwargs: dict[str, Any] = {
         "model": chosen_model,
         "messages": messages,
@@ -364,11 +389,17 @@ def chat_stream(
     }
     if json_schema is not None:
         request_kwargs["response_format"] = {"type": "json_object"}
+    request_kwargs["stream_options"] = {"include_usage": True}  # the last chunk carries the use
     request_kwargs = _with_provider_transport(request_kwargs)
+    streamed_usage: Any = None
+    reached = False
     try:
         response = litellm.completion(**request_kwargs)
+        reached = True
         chunks: list[str] = []
         for chunk in response:
+            if _field(chunk, "usage") is not None:
+                streamed_usage = _field(chunk, "usage")
             choices = _field(chunk, "choices")
             choice = choices[0] if isinstance(choices, list) and choices else None
             delta = _field(choice, "delta") if choice is not None else None
@@ -382,6 +413,10 @@ def chat_stream(
         if isinstance(exc, LiteLLMUnavailable):
             raise
         raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
+    finally:
+        # An opened stream is a call that was made, however it ends; no usage seen means cost not reported.
+        if reached:
+            note_response(chosen_model, streamed_usage)
     content = "".join(chunks)
     if json_schema is None:
         return content

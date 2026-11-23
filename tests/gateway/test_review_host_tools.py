@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.pro.capabilities.review import delivery, host_tools
+from lemoncrow.pro.capabilities.review import delivery
+from lemoncrow.pro.environment import host_tools
 
 
 def test_review_agents_found_without_login_shell_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -15,7 +16,6 @@ def test_review_agents_found_without_login_shell_path(tmp_path: Path, monkeypatc
             ("claude", ".local/bin"),
             ("codex", ".local/bin"),
             ("opencode", ".opencode/bin"),
-            ("lemoncode", ".lemoncrow/bin"),
         ]
     ):
         case_tmp_path = tmp_path / f"case-{case_index}"

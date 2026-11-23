@@ -617,6 +617,14 @@ def test_impact_reads_git_changes_per_member(workspace: Path) -> None:
     assert {error.repo for error in against_parent.errors} == {"app/vendor/lib", "bazaar", "billing-js", "web"}
 
 
+def test_a_checkout_inside_a_repository_is_not_a_change_to_it(workspace: Path) -> None:
+    _git(workspace / "billing", "worktree", "add", "-q", "-b", "side", "wt")
+    _git(workspace / "web", "clone", "-q", str(workspace / "billing"), "cloned")
+    assert not impact(workspace).changed
+    (workspace / "web" / "real.js").write_text("export {};\n", encoding="utf-8")
+    assert {entry.repo: entry.files for entry in impact(workspace).changed} == {"web": ("web/real.js",)}
+
+
 def test_unknown_members_are_reported(workspace: Path) -> None:
     report = impact(workspace, {"nope": ["x.py"]})
 

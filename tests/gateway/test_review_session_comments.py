@@ -462,22 +462,22 @@ def test_branch_reuse_does_not_reattribute_previous_agent_messages(tmp_path: Pat
 def test_historical_file_comment_excludes_later_draft_imports(tmp_path: Path):
     repo, root = tmp_path / "repo", tmp_path / "store"
     _repo(repo)
-    _reply(root, repo, "planner", "plan", "Plan before Snapshot one")
+    _reply(root, repo, "planner", "plan", "Plan before revision one")
     store, session, first = _snapshot(root, repo)
     (repo / "app.py").write_text("def price():\n    return 3\n")
     refresh(store, session, repo, store_root=root)
-    _reply(root, repo, "coder", "code", "Explanation after Snapshot two")
+    _reply(root, repo, "coder", "code", "Explanation after revision two")
     SessionCommentIngestor(store, root).sync(session)
     assert {comment.body for comment in store.list_discussion_comments(session.id)} == {
-        "Plan before Snapshot one",
-        "Explanation after Snapshot two",
+        "Plan before revision one",
+        "Explanation after revision two",
     }
     assert [comment.body for comment in store.list_discussion_comments_at_revision(session.id, first.id)] == [
-        "Plan before Snapshot one"
+        "Plan before revision one"
     ]
     assert not store.list_annotations_at_revision(session.id, first.id)
     assert [row["title"] for row in brief_agent_context(store, session, first, historical=True)] == [
-        "Plan before Snapshot one"
+        "Plan before revision one"
     ]
 
 

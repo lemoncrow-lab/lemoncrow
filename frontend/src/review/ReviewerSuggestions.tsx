@@ -81,7 +81,7 @@ export function ReviewerSuggestionList({ data, loading = false, error = "", onRe
         </div>
       ))}
       {data && data.suggestions.length === 0 && (
-        <div className="py-2 text-caption text-muted-foreground">No reviewer suggestions for this Snapshot.</div>
+        <div className="py-2 text-caption text-muted-foreground">No reviewer suggestions for this revision.</div>
       )}
       {data && data.suggestions.length > 0 && (
         <ul className="divide-y divide-border border-y border-border">

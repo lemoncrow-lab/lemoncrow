@@ -26,19 +26,18 @@ from lemoncrow.core.capabilities.default_definitions import (
 from lemoncrow.core.capabilities.workspace_host_overrides import (
     write_codex_agents,
     write_workspace_claude_overrides,
-    write_workspace_lemoncode_agents,
     write_workspace_opencode_agents,
 )
 from lemoncrow.core.environment import skill_visible
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
 
 # Hosts that support on-demand agent roles vs. skills are not identical:
-# OpenCode (and its LemonCode fork) has no skills concept; Antigravity has no
+# OpenCode has no skills concept; Antigravity has no
 # per-role agent concept.
-AGENT_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode")
+AGENT_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode")
 SKILL_HOSTS: tuple[str, ...] = ("claude", "codex", "antigravity")
-ALL_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode", "antigravity")
-SKILL_LESS_HOSTS: frozenset[str] = frozenset({"opencode", "lemoncode"})
+ALL_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "antigravity")
+SKILL_LESS_HOSTS: frozenset[str] = frozenset({"opencode"})
 
 INSTALLABLE_ROLE_IDS: tuple[str, ...] = tuple(r for r in SURFACED_ROLE_IDS if r not in DEFAULT_ROLE_IDS)
 
@@ -87,23 +86,13 @@ def _opencode_config_home() -> Path:
     return base / "opencode"
 
 
-def _lemoncode_config_home() -> Path:
-    override = os.environ.get("LEMONCODE_CONFIG_HOME")
-    if override:
-        return Path(override).expanduser()
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
-    return base / "lemoncode"
-
-
 def _agent_dir(host: str, workspace: Path | None) -> Path:
     if workspace is not None:
         if host == "claude":
             return workspace / ".claude" / "agents"
         if host == "codex":
             return workspace / ".codex" / "agents"
-        if host in ("opencode", "lemoncode"):
-            # The LemonCode fork kept opencode's workspace dir name.
+        if host in ("opencode",):
             return workspace / ".opencode" / "agents"
         raise click.ClickException(f"unsupported agent host: {host}")
     if host == "claude":
@@ -112,8 +101,6 @@ def _agent_dir(host: str, workspace: Path | None) -> Path:
         return _codex_home() / "agents"
     if host == "opencode":
         return _opencode_config_home() / "agents"
-    if host == "lemoncode":
-        return _lemoncode_config_home() / "agents"
     raise click.ClickException(f"unsupported agent host: {host}")
 
 
@@ -123,7 +110,7 @@ def _agent_file(host: str, workspace: Path | None, role_id: str) -> Path:
         return agent_dir / f"lemoncrow.{role_id}.toml"
     if host == "claude" and workspace is None:
         return agent_dir / f"{role_id}.md"  # global staging uses bare filenames
-    return agent_dir / f"lemoncrow.{role_id}.md"  # claude workspace, opencode/lemoncode (both scopes)
+    return agent_dir / f"lemoncrow.{role_id}.md"  # claude workspace, opencode (both scopes)
 
 
 def _skill_dir(host: str, workspace: Path | None) -> Path:
@@ -273,10 +260,7 @@ def _apply_agent_role_set(host: str, workspace: Path | None, role_ids: tuple[str
             )
         elif host == "opencode":
             write_workspace_opencode_agents(workspace, repo_root=repo_root, role_ids=all_ids)
-        elif host == "lemoncode":
-            write_workspace_lemoncode_agents(workspace, repo_root=repo_root, role_ids=all_ids)
-        else:
-            raise click.ClickException(f"unsupported agent host: {host}")
+        raise click.ClickException(f"unsupported agent host: {host}")
         return
     # Global scope: re-invoke the full install script so plugin/marketplace
     # registration stays consistent (it recomputes the staged bundle from
@@ -342,7 +326,7 @@ def reapply_installed_agents(repo_root: Path | None = None) -> int:
     """
     root = repo_root if repo_root is not None else _repo_root()
     applied = 0
-    for host in ("claude", "codex", "opencode", "lemoncode"):
+    for host in ("claude", "codex", "opencode"):
         try:
             roles = _installed_role_ids(host, None)
             # `code` is the always-installed default role, never in the
