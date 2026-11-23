@@ -92,6 +92,25 @@ describe("ReviewXRayScreen", () => {
     expect(screen.getByTestId("where")).toHaveTextContent("/r/shop/one/retry");
   });
 
+  const arrow = (from: string, to: string) => screen.getAllByTestId("xray-edge").find((item) => (item.getAttribute("data-edge-key") ?? "").endsWith(`:${from}\u0000${to}`))!;
+
+  it("opens the recorded run behind a traced arrow on the checks of the part it reached", async () => {
+    const keyPart = { ...part, target_id: "t-key", path: "src/payments/idempotency.py", symbol: "idempotency_key", label: "idempotency_key" } as ReviewTarget;
+    show({ targets: [part, keyPart] }, "/r/shop/xray");
+    await screen.findByTestId("xray");
+    await userEvent.click(arrow("retry", "key"));
+    await userEvent.click(within(screen.getByTestId("xray-edge-detail")).getByRole("button", { name: "See the recorded run" }));
+    expect(screen.getByTestId("where")).toHaveTextContent("/r/shop/one/idempotency_key");
+  });
+
+  it("opens the Brief's recorded runs when the traced file has no part", async () => {
+    show({}, "/r/shop/xray");
+    await screen.findByTestId("xray");
+    await userEvent.click(arrow("retry", "key"));
+    await userEvent.click(within(screen.getByTestId("xray-edge-detail")).getByTestId("xray-detail-evidence"));
+    expect(screen.getByTestId("where")).toHaveTextContent("/r/shop/brief");
+  });
+
   it("lists only the behavior changes on the walked files, and never reads silence as safety", async () => {
     const { unmount } = show({ behavior: behavior([retry.path]) });
     const onPath = await screen.findByTestId("xray-behavior");

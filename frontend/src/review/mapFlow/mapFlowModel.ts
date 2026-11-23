@@ -98,6 +98,23 @@ export function lensEdges(payload: ReviewMapPayload, lens: MapLens): ReviewMapEd
   return payload.graph.edges.filter((e) => kinds.includes(e.kind));
 }
 /** The data path ran on this Snapshot: its report holds flows, or says none were found in what it covered. */
+/**
+ * The current code index is still building its link graph (`context.readiness.graph.state`, review_map.py), so the Map's
+ * surrounding connections may be missing. Only "building" counts: "degraded" has symbols and says so in its own note.
+ */
+export function relationshipsIndexing(payload: Pick<ReviewMapPayload, "context">): boolean {
+  return payload.context.source === "current_index" && payload.context.readiness?.graph?.state === "building";
+}
+
+/** How many times the Map reads itself again while the index builds: about a minute in all, then it stops and offers Check again. */
+export const INDEX_REFRESH_LIMIT = 14;
+
+/** The wait before refresh `attempt` (1-based): 0.5 s doubling to one read every 5 s; null past the limit, so polling ends. */
+export function indexRefreshDelay(attempt: number): number | null {
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > INDEX_REFRESH_LIMIT) return null;
+  return Math.min(5000, 500 * 2 ** (attempt - 1));
+}
+
 export function dataPathAvailable(payload: ReviewMapPayload): boolean {
   const state = payload.data_path?.state;
   return state === "ran" || state === "partial";

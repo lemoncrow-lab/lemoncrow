@@ -208,3 +208,12 @@ describe("a server that keeps no personal settings", () => {
     expect((await screen.findByTestId("settings-unavailable")).textContent).toContain("doesn't keep personal settings");
   });
 });
+
+describe("Settings › More settings", () => {
+  it("Send feedback opens the feedback dialog", async () => {
+    show("#more");
+    fireEvent.click(await screen.findByTestId("settings-send-feedback"));
+    const dialog = await screen.findByTestId("send-feedback-dialog");
+    expect(within(dialog).getByRole("textbox", { name: "Feedback" })).toBeInTheDocument();
+  });
+});

@@ -23,6 +23,7 @@ import { modelLine, readRunOn, runOnOptions } from "./aiModel";
 import { AiBudgetField } from "./AiBudgetField";
 import { SettingsRow } from "./settingsShell";
 import { SettingsPolicy } from "./SettingsPolicy";
+import { SendFeedbackDialog } from "../feedback/SendFeedbackDialog";
 import { applyThemeChoice, patchUserSettings, useUserSettings } from "./userSettings";
 import { getReviewCodeFamily, setReviewCodeFamily, type ReviewCodeFamily } from "../reviewCodeTheme";
 
@@ -100,6 +101,7 @@ export function ReviewSettingsScreen() {
   const [captureError, setCaptureError] = useState("");
   const [codeFamily, setCodeFamily] = useState<ReviewCodeFamily>(getReviewCodeFamily);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const ai = useAiHelp();
   const heading = useRef<HTMLHeadingElement>(null);
   const bindingsRef = useRef<KeyBindings>(bindings);
@@ -296,6 +298,7 @@ export function ReviewSettingsScreen() {
 
             <Row id="more" title="More settings">
               <p className="text-meta text-muted-foreground">Nothing else to set yet.</p>
+              <Button variant="outline" onClick={() => setFeedbackOpen(true)} data-testid="settings-send-feedback">Send feedback</Button>
             </Row>
           </section>
 
@@ -303,6 +306,7 @@ export function ReviewSettingsScreen() {
         </div>
       </div>
       <FlowShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} legend={focusLegend({ aiAsk: false, bindings })} />
+      <SendFeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </div>
   );
 }

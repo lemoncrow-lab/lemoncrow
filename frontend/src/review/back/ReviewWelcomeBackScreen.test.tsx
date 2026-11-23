@@ -22,6 +22,8 @@ const api = vi.hoisted(() => ({
 vi.mock("../reviewApi", async (importOriginal) => ({
   ...api, sourceCompareHref: (await importOriginal<typeof import("../reviewApi")>()).sourceCompareHref,
 }));
+const frontier = vi.hoisted(() => ({ fetchFrontierNotes: vi.fn(async (_id: string): Promise<string[]> => []) }));
+vi.mock("./frontierApi", () => frontier);
 vi.mock("@pierre/diffs", () => import("../focus/pierreTestMock").then((m) => m.pierreCore));
 vi.mock("@pierre/diffs/react", () => import("../focus/pierreTestMock").then((m) => m.pierreReact));
 
@@ -237,5 +239,81 @@ describe("P2-6 Welcome back, real API-driven decisions", () => {
       expect((send as HTMLButtonElement).disabled).toBe(true);
       expect(screen.getByRole("button", { name: "Open Wrap up" })).toBeTruthy();
     });
+  });
+});
+
+describe("Welcome back: what happened to your earlier answers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.fetchRevisionComparison.mockResolvedValue(revision);
+    api.fetchReviewOutcome.mockResolvedValue({ current: null });
+    api.fetchReviewVerification.mockImplementation(async (_id: string, snapshot: string) => ({ snapshot_id: snapshot, checks: [] }));
+    frontier.fetchFrontierNotes.mockResolvedValue([]);
+  });
+  afterEach(() => cleanup());
+  const kept = (id: string) => ({ ...target, target_id: id, unit_key: id, symbol: id, state: "reviewed", reviewed_revision_id: "rev1" }) as ReviewTarget;
+  const delta = (extra: Record<string, unknown> = {}) => ({ since_snapshot: 0, added: [], changed: [], removed: 0, stale_evidence: [], reopened_decisions: [], comments: { carried: 0, resolved: 0 }, ...extra });
+  const discard = (index: number) => ({ unit_key: `u${index}`, kind: "symbol", state: index % 2 ? "needs_changes" : "reviewed", label: `pay.py · f${index}`, reason: "The function was deleted." });
+  const working = (extra: Partial<ReviewOverview> = {}) => ({ ...overview, session: { ...overview.session, range_mode: "working_tree" }, ...extra }) as ReviewOverview;
+
+  it("says what was kept and removed since the last revision, with the removed parts named", async () => {
+    mount({ targets: [target, kept("a"), kept("b"), { ...kept("c"), reviewed_revision_id: "rev2" }], delta: delta({ removed: 2, removed_parts: ["old.py · gone", "old.py · other"] }) as never });
+    const card = await screen.findByTestId("back-carried");
+    expect(within(card).getByRole("heading", { name: "Since Revision 1" })).toBeTruthy();
+    // "c" was answered on this revision, so it is not carried over.
+    expect(within(card).getByTestId("back-carried-counts")).toHaveTextContent(/^Kept 2 · Removed 2$/);
+    expect(within(card).getByText("old.py · gone")).toBeTruthy();
+    expect(within(card).getByText("old.py · other")).toBeTruthy();
+    expect(within(card).queryByTestId("back-rebased")).toBeNull();
+  });
+
+  it("hides a zero count, counts the rest past 25 removed names, and says when only the base moved", async () => {
+    const names = Array.from({ length: 25 }, (_, index) => `old.py · f${index}`);
+    mount({ overview: { ...overview, refreshed: { rebased: 3 } } as ReviewOverview, delta: delta({ removed: 30, removed_parts: names }) as never });
+    const card = await screen.findByTestId("back-carried");
+    expect(within(card).getByTestId("back-carried-counts")).toHaveTextContent(/^Removed 30$/);
+    expect(within(card).getByTestId("back-rebased")).toHaveTextContent("3 kept because only the base moved.");
+    expect(within(card).getByText("and 5 more")).toBeTruthy();
+  });
+
+  it("shows no card with nothing kept, removed or moved", async () => {
+    mount({ delta: delta() as never });
+    await screen.findByText("Keep the permission check");
+    expect(screen.queryByTestId("back-carried")).toBeNull();
+    expect(screen.queryByTestId("back-discarded")).toBeNull();
+    // A committed range has no moving base, so the frontier is never asked.
+    expect(frontier.fetchFrontierNotes).not.toHaveBeenCalled();
+  });
+
+  it("lists past answers that no longer apply, with the server's reason, bounded at 25", async () => {
+    mount({ overview: { ...overview, discarded: Array.from({ length: 25 }, (_, index) => discard(index)) } as ReviewOverview });
+    const section = await screen.findByTestId("back-discarded");
+    expect(within(section).getByRole("heading", { name: "Past answers no longer apply · 25" })).toBeTruthy();
+    const rows = within(section).getAllByTestId("back-discarded-row");
+    expect(rows).toHaveLength(25);
+    expect(rows[0]).toHaveTextContent("pay.py · f0 · Looks good · The function was deleted.");
+    expect(rows[1]).toHaveTextContent("pay.py · f1 · Needs a change · The function was deleted.");
+    expect(within(section).queryByText(/more$/)).toBeNull();
+    cleanup();
+    mount({ overview: { ...overview, discarded: Array.from({ length: 26 }, (_, index) => discard(index)) } as ReviewOverview });
+    const longer = await screen.findByTestId("back-discarded");
+    expect(within(longer).getByRole("heading", { name: "Past answers no longer apply · 26" })).toBeTruthy();
+    expect(within(longer).getAllByTestId("back-discarded-row")).toHaveLength(25);
+    expect(within(longer).getByText("and 1 more")).toBeTruthy();
+  });
+
+  it("names the base movement on a working-tree review only when the server has a note", async () => {
+    frontier.fetchFrontierNotes.mockResolvedValue(["main moved 3 commits since this review started."]);
+    mount({ overview: working() });
+    const note = await screen.findByTestId("back-base-movement");
+    expect(note).toHaveTextContent("Base movement · main moved 3 commits since this review started.");
+    expect(frontier.fetchFrontierNotes).toHaveBeenCalledWith("r1");
+    cleanup();
+    frontier.fetchFrontierNotes.mockResolvedValue([]);
+    mount({ overview: working() });
+    await screen.findByText("Keep the permission check");
+    await waitFor(() => expect(frontier.fetchFrontierNotes).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("back-base-movement")).toBeNull();
+    expect(screen.queryByTestId("back-carried")).toBeNull();
   });
 });

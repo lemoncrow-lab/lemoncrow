@@ -518,6 +518,11 @@ def load_bot_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullReq
     )
 
 
+def review_marker(operation_id: str) -> str:
+    """The hidden line a posted review body ends with, by which a retry of *operation_id* adopts it."""
+    return _MARKER.format(operation_id=operation_id)
+
+
 def ensure_current_head(plan: GitHubReviewPlan, state: PullRequestState) -> None:
     if state.head_sha and state.head_sha != plan.commit_id:
         raise GitHubCliError(
@@ -716,4 +721,5 @@ __all__ = [
     "load_bot_pull_request_state",
     "load_pull_request_state",
     "publish_plan",
+    "review_marker",
 ]

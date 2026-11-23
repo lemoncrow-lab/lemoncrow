@@ -2588,6 +2588,20 @@ def test_a_local_check_publishes_its_result_to_the_exact_working_tree_snapshot(t
     assert published["status"] == "PASS"
     row = _recorded_checks(repo_root, published["review_id"], published["revision_id"])["unit"]
     assert (row["status"], row["state"]) == ("PASS", "current")
+    # The check's own record, which `lc review finding N fixed --run` cites as the fix's evidence.
+    from lemoncrow_client.config import load_config
+
+    from lemoncrow.pro.capabilities.review.hosted import server_review_request
+
+    evidence = server_review_request(
+        load_config(cwd=repo_root), "GET", f"/api/reviews/{published['review_id']}/evidence"
+    )
+    [cited] = [row for row in evidence["evidence"] if row["id"] == published["evidence_id"]]
+    assert (cited["revision_id"], cited["kind"], cited["verification_status"]) == (
+        published["revision_id"],
+        "verification",
+        "PASS",
+    )
 
 
 def test_a_failing_local_check_is_recorded_and_fails_the_hook(tmp_path: Path) -> None:

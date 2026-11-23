@@ -9,6 +9,10 @@ walks its ancestry for the same agent-session evidence the CLI guard uses,
 plus the agent executables themselves (an agent's shell can clear its own
 environment but stays under the agent binary).
 
+One write from an agent passes: its own decision on an AI finding, recorded as
+the agent's (:func:`is_attributed_agent_decision`). That claims no human
+judgment, so it is not what this guard stops.
+
 This raises the bar; it is not a security boundary. A same-user process that
 detaches from the agent's tree, or writes the Review store directly, is not
 seen. The paired browser Reader is not checked here: it has its own
@@ -17,6 +21,7 @@ same-origin capability.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -93,6 +98,52 @@ def is_judgment_request(method: str, path: str) -> bool:
     if verb == "DELETE":
         return bool(_JUDGMENT_DELETE.match(path))
     return False
+
+
+_AGENT_DECISION_PATH = re.compile(r"^/api/annotations/[^/]+$")
+#: Everything `lc review finding N fixed|dismissed|open` sends from an agent's session.
+_AGENT_DECISION_FIELDS = frozenset(
+    {
+        "finding_disposition",
+        "finding_disposition_reason",
+        "finding_disposition_evidence",
+        "expected_revision_id",
+        "actor",
+        "agent_host",
+    }
+)
+#: Confirming a finding (``confirmed_by_reviewer``) stays the reviewer's call.
+_AGENT_DISPOSITIONS = frozenset({"fixed", "dismissed", "open"})
+
+
+def may_be_agent_decision(method: str, path: str) -> bool:
+    """Whether this write could be an agent's own finding decision, so its body is worth reading."""
+
+    return method.upper() == "PATCH" and bool(_AGENT_DECISION_PATH.match(path))
+
+
+def is_attributed_agent_decision(method: str, path: str, body: bytes, host: str) -> bool:
+    """Whether this write is the calling agent's own decision on one finding, recorded as that agent's.
+
+    ``lc review finding`` run in an agent's session sends ``actor: agent`` and the agent's host; the Review
+    keeps that version as the agent's (``changed_by_actor = agent``) and the Reader says "Fixed by Claude".
+    Only the decision fields qualify, never confirming a finding, and only when the host the body names is
+    the one found in the caller's ancestry.
+    """
+
+    if not host or not may_be_agent_decision(method, path):
+        return False
+    try:
+        value = json.loads(body)
+    except ValueError:
+        return False
+    return (
+        isinstance(value, dict)
+        and value.get("actor") == "agent"
+        and value.get("agent_host") == host
+        and value.get("finding_disposition") in _AGENT_DISPOSITIONS
+        and set(value) <= _AGENT_DECISION_FIELDS
+    )
 
 
 @dataclass(frozen=True)
@@ -328,6 +379,8 @@ __all__ = [
     "ProcessRecord",
     "agent_host_in_ancestry",
     "caller_agent_host",
+    "is_attributed_agent_decision",
     "is_judgment_request",
+    "may_be_agent_decision",
     "peer_agent_host",
 ]

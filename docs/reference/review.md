@@ -216,38 +216,114 @@ each rule came from, and `lc review config --dry-run --pr 123` shows which rules
 would apply to that pull request. See
 [Importing review rules](../setup/importing-review-rules.md).
 
-### Claude Code's own review
+### Claude Code's own review of a pull request
 
-With the LemonCrow plugin installed, `/code-review` in Claude Code lands in
-this branch's Review with no command to type. In the foreground the review
-ends with a findings call (`ReportFindings`). In the background (`@code-review`)
-it ends with the same findings as a JSON block, which the hook reads when the
-subagent stops. Either way the hook prints this branch Review's URL at once and
-hands the report to a detached worker. The worker captures the change as a bare
-`lc review` would, reusing the Snapshot draft the edit hooks keep ready, and
-anchors each finding to its line on that Snapshot:
+With the LemonCrow plugin installed, the review runs by itself when the agent
+opens a pull request. A successful `gh pr create` (its output names the new
+pull request's URL) or a GitHub MCP `create_pull_request` call makes the hook
+ask Claude to run its own `code-review` skill on that pull request. A failed
+create (for example "a pull request already exists") never triggers, and each
+head commit is reviewed once.
+
+lc review then posts the findings on the pull request as one review from your
+`gh` login, numbered the way the chat numbers them. Each finding on a changed
+line gets its own comment; the review lists every finding and where it stands,
+and quotes any finding GitHub cannot place on a line. The chat shows:
 
 ```
-lc review: 3 findings from Claude code review → http://127.0.0.1:7420/r/…
+lc review: reviewing PR #12…
+lc review: 3 problems found on PR #12. Claude is fixing them; details are on the PR.
+Also in lc review: http://127.0.0.1:7420/r/…
 ```
 
-The hook never waits for the capture; it returns in under a second. The
-findings appear at the URL when the worker finishes: a couple of seconds for a
-working change, about 30 s for a branch 956 files ahead of its remote copy.
-When the branch has no Review yet, the line says a new one is being captured,
-and `lc review status` shows its link.
+The findings are saved on the pull request's own Review too, the one
+`lc review --pr N` uses: a Snapshot of `merge-base(base, head)...head`, not
+your working tree. That link is optional, for detail. It is a local address
+only your machine opens, so it never goes into anything posted to GitHub.
+
+A foreground review ends with a findings call (`ReportFindings`); a forked one
+ends with the same findings as a JSON block, and the line then lists them
+(`1. Title (file:line)`), since its own output never reached the chat. The hook
+never waits: a detached worker posts the review within seconds, then saves the
+Review. A `/code-review` of no pull request stays plain Claude: lc review saves
+and numbers nothing.
+
+#### Fixing the findings
+
+The agent fixes every finding it agrees with without waiting for you. For each
+one it fixes the code, commits, pushes to the pull request, then records the
+fix in one step:
+
+```
+lc review finding 1 2 fixed --run "pytest -q"
+```
+
+`--run` captures the pull request's new head on its Review, runs the command in
+the checkout as the `tests` check, the same record `lc review --check tests`
+writes, and marks the findings fixed with that check as their evidence only if
+it passes. The fix must be committed, and pushed when this clone tracks the
+branch on `origin`; otherwise it says so and runs nothing. A failing run marks
+nothing and prints the end of its output. A finding the fix moved off its line
+still reads Fixed, not Needs revalidation.
+
+Each decision is answered on the pull request as well: the finding's comment
+gets a reply ("Claude fixed this in a34badf; tests pass.", "Skipped, with the
+author's OK: not a real problem.") and its thread is resolved, or unresolved
+when the finding is opened again, and the review's list shows the new status.
+When GitHub cannot be updated, the decision is still recorded and the line says
+`PR #12 was not updated: <why>`.
+
+The agent asks you before it skips a finding, in one line:
+
+```
+Skip 3? The tier is checked by the caller. Reply "skip 3" or "fix 3".
+```
+
+| You say | The agent runs |
+| --- | --- |
+| `skip 3` | `lc review finding 3 dismissed --reason incorrect` |
+| `fix 3` | fixes it, then `lc review finding 3 fixed --run "<test command>"` |
+| `why 2` | `lc review finding 2`, then explains it |
+
+A decision the agent records is the agent's, not yours: run from a coding
+agent's session, `lc review finding` sends `actor: agent` and the agent's host,
+and the Reader shows "Fixed by Claude" or "Dismissed by Claude". A decision you
+make in the Reader (or with `lc review finding` from your own shell) shows
+"Dismissed by you". No flag lets an agent's session record a decision as yours.
+The local server lets an agent's process write only that: a fixed, dismissed or
+open decision on a finding, named as the agent's. Confirming a finding, a
+`--note` reply (your own words, as your comment), marks and verdicts stay yours.
+
+`lc review finding` with no number lists the findings and what was decided.
+A skipped finding needs `--reason incorrect`, `accepted_risk`, `duplicate`
+or `not_applicable`. A finding is marked fixed only with a passing check on the
+Review's latest Snapshot: `--run` records one, `--evidence ID` names one, else
+every passing check on that Snapshot counts. `--run` needs only the installed
+`lc`: it captures the Snapshot itself. A finding that is not on a line of the
+change stays a comment on the Review and takes no decision. The numbers belong
+to the last pull request review saved on the current branch.
+
+Codex has no code-review skill, so on Codex the hook asks it to review the pull
+request's diff and hand its findings to
+`lemoncrow review report-findings --host codex --pr <url> <file>` (a JSON array
+of findings, `[]` when clean). That command posts them on the pull request and
+saves them on its Review exactly as above, prints the same numbered line, and
+Codex fixes the findings it agrees with the same way. Without `--pr` (and no
+pull request the session just opened) it refuses.
 
 The report is kept as one summary comment, listing severity, place and
 outcome. Each finding becomes an AI finding on its line, or a comment on the
-Change when its file is not part of the change. A review with no findings
-still prints its URL. A `--fix` run reports again with outcomes: that adds a
-second summary and never opens a finding twice. Only you mark a finding fixed
-or dismissed; the agent's own "fixed" stays a claim in its summary. A finding
-reported already fixed is not opened.
+Change when its file is not part of the change. A `--fix` run reports again
+with outcomes: that adds a second summary and never opens a finding twice. The
+agent's own "fixed" stays a claim in its summary; a finding is decided only
+through `lc review finding` (a fix with a passing check, a skip with your
+answer), or in the Reader. A finding reported already fixed is not opened.
 
 This needs the local server: with a hosted configuration, outside a git
 checkout, or when the server is unreachable, the hook prints nothing and never
-blocks the session.
+blocks the session. Posting needs `gh` signed in; without it the findings are
+still saved and numbered, and `lc review finding` says the pull request was not
+updated.
 
 ## The browser workspace
 

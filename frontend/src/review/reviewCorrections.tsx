@@ -7,6 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { useFlowPaletteReviewActions } from "./palette/FlowPalette";
 import type { ReviewPaletteAction } from "./reviewActionsModel";
 import ReviewFixSheet from "./ReviewFixSheet";
 import ReviewSplitSheet from "./ReviewSplitSheet";
@@ -32,6 +33,23 @@ export interface ReviewCorrectionsContextValue {
 const ReviewCorrectionsContext = createContext<ReviewCorrectionsContextValue | null>(null);
 
 export const ReviewCorrectionsProvider = ReviewCorrectionsContext.Provider;
+
+/**
+ * Where `useReviewCorrections` lands in the Reader: the cards' context, the catalog in the ⌘K palette under
+ * "In this review", and the preview sheet Fix or a palette entry opens.
+ */
+export function ReviewCorrectionsHost({ corrections, children }: {
+  corrections: Pick<ReturnType<typeof useReviewCorrections>, "context" | "palette" | "sheet">;
+  children: ReactNode;
+}) {
+  useFlowPaletteReviewActions(corrections.palette);
+  return (
+    <ReviewCorrectionsContext.Provider value={corrections.context}>
+      {children}
+      {corrections.sheet}
+    </ReviewCorrectionsContext.Provider>
+  );
+}
 
 export function useReviewCorrectionsContext(): ReviewCorrectionsContextValue | null {
   return useContext(ReviewCorrectionsContext);

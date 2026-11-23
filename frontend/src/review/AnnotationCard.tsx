@@ -44,6 +44,7 @@ import {
   annotationProducerTitle,
   anchorAccent,
   annotationSource,
+  findingDecidedBy,
   isHumanJudgment,
   locationLabel,
   repliesFor,
@@ -318,6 +319,10 @@ function Comment({
   const severity = annotationSeverity(comment);
   const aiFinding = source === "ai_review";
   const findingDisposition = comment.finding_disposition || (comment.anchored ? "open" : "superseded_stale");
+  // "Fixed by Claude" or "Dismissed by you": a decision the coding agent recorded is never shown as yours.
+  const decidedBy = ["confirmed_by_reviewer", "dismissed", "fixed"].includes(findingDisposition)
+    ? findingDecidedBy(comment)
+    : "";
   // Which controlled action addressed this finding, if any. Fix routes through
   // that preview (exact author -> preferred agent -> copied prompt) when the
   // reader has a writable current Snapshot; the action never sets a disposition.
@@ -472,12 +477,13 @@ function Comment({
       )}
       {aiFinding && (
         <div className="review-thread-actions" aria-label="AI finding actions">
-          <span className="mr-1 text-caption text-muted-foreground">
+          <span className="mr-1 text-caption text-muted-foreground" data-testid="finding-disposition">
             {findingDisposition === "confirmed_by_reviewer" ? "Confirmed"
               : findingDisposition === "dismissed" ? "Dismissed"
               : findingDisposition === "fixed" ? "Fixed"
               : findingDisposition === "superseded_stale" ? "Needs revalidation"
               : "Open"}
+            {decidedBy && ` by ${decidedBy}`}
           </span>
           {findingDisposition !== "dismissed" && findingDisposition !== "fixed" && findingDisposition !== "superseded_stale" && (
             <>

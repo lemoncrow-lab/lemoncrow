@@ -19,6 +19,7 @@ recovery.py
 review.py
 review_base.py
 review_engine.py
+review_findings.py
 review_session.py
 review_terminal.py
 review_verbs.py

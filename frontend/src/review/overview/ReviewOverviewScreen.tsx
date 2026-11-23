@@ -13,7 +13,7 @@ import { FLOW_RAIL_CLASS, FlowShortcutsDialog, FlowTopBar, repoNameOf } from "..
 import { cameFromReview, isColdLoad } from "../reviewBootLocation";
 import { skipsOverview, startView } from "../settings/settingsModel";
 import { useUserSettings } from "../settings/userSettings";
-import type { ReviewFlowRoute } from "../reviewRoutes";
+import { buildReviewFlowPath, type ReviewFlowRoute } from "../reviewRoutes";
 import { usePartProofRecord } from "../partProof";
 import { queueLine, reviewQueue } from "../queue";
 import { hasProofFrom } from "../sinceReview";
@@ -22,7 +22,9 @@ import { usePatchEvidence } from "../quickCheck/patchEvidence";
 import { useReviewFlowNavigation } from "../useReviewFlowNavigation";
 import { useFlowPaletteScreen } from "../palette/FlowPalette";
 import { partEntries, reviewPlace } from "../palette/partEntries";
-import type { Annotation, ReviewOverview, ReviewProjection, ReviewTarget } from "../types";
+import type { Annotation, ReviewLandingReadiness, ReviewOverview, ReviewProjection, ReviewTarget } from "../types";
+import { BRIEF_EVIDENCE_HASH, findingCounts, mergeReadinessLine, requiredCheckRows } from "./blockersModel";
+import { FindingCountLine, MergeReadinessLine, RequiredCheckRow } from "./ReviewBlockers";
 import {
   getDefaultView,
   getEvidenceOpen,
@@ -103,6 +105,8 @@ export interface ReviewOverviewScreenProps {
   xrayAvailable?: boolean;
   /** "Confirm all N quick checks"; absent where a person cannot record answers here (read-only, attached to hosted). */
   quickConfirm?: QuickConfirmActions;
+  /** The server's merge readiness for this revision; null until it loads, and on a historical revision. */
+  readiness?: ReviewLandingReadiness | null;
 }
 
 function Rail({ children }: { children: React.ReactNode }) {
@@ -209,6 +213,11 @@ export function ReviewOverviewScreen(props: ReviewOverviewScreenProps) {
   const xrayAvailable = props.xrayAvailable === true && ready;
   const openBrief = useCallback(() => open({ kind: "brief" }), [open]);
   const openXRay = useCallback(() => open({ kind: "xray", at: "" }), [open]);
+  // Blockers first: a failing required check names no part, so it has its own rows; its evidence is on the Brief.
+  const requiredChecks = useMemo(() => requiredCheckRows(projection), [projection]);
+  const findings = useMemo(() => findingCounts(projection?.triage), [projection]);
+  const readinessLine = mergeReadinessLine(props.readiness);
+  const inspectEvidence = briefAvailable ? () => navigate(`${buildReviewFlowPath(reviewRef, { kind: "brief" })}${BRIEF_EVIDENCE_HASH}`) : undefined;
 
   // Settings › Reading: until the reviewer picks a view here, Start follows the saved default view, and a change over
   // 30 parts opens in All files when that setting is on. The whole parts list must be loaded to count them.
@@ -378,6 +387,12 @@ export function ReviewOverviewScreen(props: ReviewOverviewScreenProps) {
                   )}
                 </p>
               ) : null}
+              {findings.length > 0 || readinessLine ? (
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1" data-testid="overview-status">
+                  <FindingCountLine counts={findings} testId="overview-findings" />
+                  <MergeReadinessLine line={readinessLine} testId="overview-merge-readiness" />
+                </div>
+              ) : null}
             </div>
 
             <PolicyEditBanner files={policyFiles} gate={policyGate} reviewId={overview.session.id} />
@@ -392,6 +407,24 @@ export function ReviewOverviewScreen(props: ReviewOverviewScreenProps) {
 
             {/* One column at every width: what needs a decision comes first, quick checks and evidence below it. */}
             <div className="flex flex-col gap-4">
+            {requiredChecks.length > 0 ? (
+              <section aria-label="Required checks" data-testid="overview-required-checks">
+                <Hunk>
+                  <ul>
+                    {requiredChecks.map((row) => (
+                      <li key={row.id} className="border-b border-border last:border-b-0">
+                        <Rail>
+                          <div className="px-3 py-2">
+                            <RequiredCheckRow row={row} testId="overview-required-check" onInspectEvidence={inspectEvidence} />
+                          </div>
+                        </Rail>
+                      </li>
+                    ))}
+                  </ul>
+                </Hunk>
+              </section>
+            ) : null}
+
             {partial ? (
               <section aria-label="Where to look"><Skeleton className="h-24 w-full" /></section>
             ) : null}

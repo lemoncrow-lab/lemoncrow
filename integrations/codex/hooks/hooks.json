@@ -59,6 +59,14 @@
             "command": "LEMONCROW_AGENT=codex PYTHONPATH=\"__LEMONCROW_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__LEMONCROW_PYTHON__\" \"${PLUGIN_ROOT}/hooks/savings_reporter.py\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "LEMONCROW_AGENT=codex PYTHONPATH=\"__LEMONCROW_REPO_SRC__${PYTHONPATH:+:${PYTHONPATH}}\" \"__LEMONCROW_PYTHON__\" \"${PLUGIN_ROOT}/hooks/review_pr_opened.py\""
+          }
+        ]
       }
     ],
     "SubagentStart": [

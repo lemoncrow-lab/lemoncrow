@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FlowPaletteProvider, useFlowPaletteScreen } from "./FlowPalette";
+import { FlowPaletteProvider, useFlowPaletteExtras, useFlowPaletteReviewActions, useFlowPaletteScreen } from "./FlowPalette";
 import { queueRow } from "../home/homeFixtures";
 import type { PaletteContext } from "./paletteModel";
 
@@ -51,6 +51,28 @@ describe("the palette's Snooze this review", () => {
   });
 });
 
+describe("entries a mounted control adds", () => {
+  function Extra({ run }: { run: () => void }) {
+    useFlowPaletteExtras([{ id: "notes", label: "Notes", sub: "2 open", run }]);
+    return null;
+  }
+
+  it("list under In this review while the control is mounted, and go with it", async () => {
+    const run = vi.fn();
+    const user = userEvent.setup();
+    const view = render(<MemoryRouter><FlowPaletteProvider><Screen context={part} /><Extra run={run} /></FlowPaletteProvider></MemoryRouter>);
+    await user.keyboard("{Control>}k{/Control}");
+    const group = await screen.findByRole("group", { name: "In this review" });
+    expect(group).toHaveTextContent("Notes");
+    await user.click(screen.getByRole("option", { name: /Notes/ }));
+    await waitFor(() => expect(run).toHaveBeenCalledOnce());
+    view.rerender(<MemoryRouter><FlowPaletteProvider><Screen context={part} /></FlowPaletteProvider></MemoryRouter>);
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("combobox");
+    expect(screen.queryByRole("option", { name: /Notes/ })).toBeNull();
+  });
+});
+
 describe("FlowPaletteProvider", () => {
   it("opens on Ctrl+K from the keymap with the input focused, and closes on the second press", async () => {
     const user = userEvent.setup();
@@ -61,6 +83,29 @@ describe("FlowPaletteProvider", () => {
     expect(box).toHaveAttribute("placeholder", "Type a function name, a repo, or an action");
     await user.keyboard("{Control>}k{/Control}");
     await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+  });
+
+  it("opens on / on a review screen, without typing the slash into the search", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.keyboard("/");
+    const box = await screen.findByRole("combobox", { name: "Search actions, parts, reviews and settings" });
+    expect(box).toHaveFocus();
+    expect(box).toHaveValue("");
+    // A second / is typed into the open search; it does not close the palette.
+    await user.keyboard("/");
+    expect(box).toHaveValue("/");
+  });
+
+  it("Send feedback opens the feedback dialog", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.keyboard("{Control>}k{/Control}");
+    await user.type(await screen.findByRole("combobox"), "Send feedback");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByTestId("send-feedback-dialog")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Feedback" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 
   it("does nothing on a page no flow screen registered (Classic)", async () => {
@@ -118,6 +163,32 @@ describe("FlowPaletteProvider", () => {
     await user.keyboard("{Control>}k{/Control}");
     expect((await screen.findAllByRole("option"))[0]).toHaveTextContent(/Looks good\s*Y/);
     vi.restoreAllMocks();
+  });
+
+  it("lists the Reader's own Review actions under In this review on a part's screen too; a disabled one says why and does not run", async () => {
+    const fixAll = vi.fn();
+    const fixCi = vi.fn();
+    function Reader() {
+      useFlowPaletteReviewActions([
+        { id: "correction-fix_all", label: "Fix all open findings (2)…", run: fixAll },
+        { id: "correction-fix_ci_failure", label: "Fix CI failure…", detail: "no failing check on this revision", disabled: true, run: fixCi },
+      ]);
+      return null;
+    }
+    const user = userEvent.setup();
+    mount(<><Reader /><Screen context={part} /></>);
+    await user.keyboard("{Control>}k{/Control}");
+    const group = await screen.findByRole("group", { name: "In this review" });
+    const ci = screen.getAllByRole("option").find((option) => option.getAttribute("data-pal-item") === "Fix CI failure…")!;
+    expect(group).toContainElement(ci);
+    expect(ci).toHaveAttribute("aria-disabled", "true");
+    expect(ci).toHaveTextContent("Fix CI failure… · no failing check on this revision");
+    await user.click(ci);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fixCi).not.toHaveBeenCalled();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("option").find((option) => option.getAttribute("data-pal-item") === "Fix all open findings (2)…")!);
+    await waitFor(() => expect(fixAll).toHaveBeenCalledTimes(1));
   });
 
   it("arrow keys move the highlight", async () => {

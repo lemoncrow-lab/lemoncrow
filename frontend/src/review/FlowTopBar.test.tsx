@@ -1,9 +1,18 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { FlowReviewToolsProvider, type FlowReviewTools } from "./flowReviewTools";
 import { FlowShortcutsDialog, FlowTopBar, repoNameOf, type FlowTopBarProps } from "./FlowTopBar";
 import type { Counter } from "./focus/focusModel";
+import { note, target } from "./notes/notesFixtures";
+import { FlowPaletteProvider, useFlowPaletteScreen } from "./palette/FlowPalette";
+
+vi.mock("./home/homeApi", () => {
+  const source = { load: vi.fn(async () => ({ rows: [], teamsSupported: false, truncated: false, queueSupported: false })), terminal: true };
+  return { useHomeSource: () => source };
+});
 
 const COUNTER: Counter = {
   judged: 1, total: 3, later: 1, text: "1 of 3 decisions", label: "1 of 3 decisions judged · 1 left for later",
@@ -78,7 +87,7 @@ describe("the shared top bar", () => {
     expect(here).toHaveTextContent("A good");
     expect(here).not.toHaveTextContent("? all shortcuts");
     const groups = screen.getAllByTestId("shortcuts-group");
-    expect(groups.length).toBe(3);
+    expect(groups.length).toBe(5);
     expect(groups.map((group) => group.textContent).join(" ")).toMatch(/search and commands/);
   });
 
@@ -135,11 +144,105 @@ describe("the shared top bar", () => {
     expect(screen.getByText("Revision 1").className).toContain("text-muted-foreground");
   });
 
+  it("goes back where the reader came from when the address names it, and says Code for Code", () => {
+    const onClick = vi.fn();
+    render(
+      <MemoryRouter initialEntries={[`/r/shop-7?from=${encodeURIComponent("/code?repo=shop&file=a.py")}`]}>
+        <FlowTopBar repo="shop" documentTitle="Overview" title="T" revisionNumber={0} back={{ text: "Reviews", onClick }} onShortcuts={vi.fn()} />
+        <Where />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Code, go back" }));
+    expect(onClick).not.toHaveBeenCalled();
+    expect(screen.getByTestId("where").textContent).toBe("/code");
+    cleanup();
+    render(
+      <MemoryRouter initialEntries={[`/r/shop-7?from=${encodeURIComponent("/reviews")}`]}>
+        <FlowTopBar repo="shop" documentTitle="Overview" title="T" revisionNumber={0} back={{ text: "Reviews", onClick }} onShortcuts={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Back, go back" })).toBeInTheDocument();
+    cleanup();
+    // An address outside this app is never a way back.
+    render(
+      <MemoryRouter initialEntries={[`/r/shop-7?from=${encodeURIComponent("//evil.example")}`]}>
+        <FlowTopBar repo="shop" documentTitle="Overview" title="T" revisionNumber={0} back={{ text: "Reviews", onClick }} onShortcuts={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reviews, go back" }));
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it("announces the Q key on Ask only where Q is bound", () => {
     bar({ onAsk: vi.fn(), askKey: true });
     expect(screen.getByRole("button", { name: "Ask about the change" }).getAttribute("aria-keyshortcuts")).toBe("Q");
     cleanup();
     bar({ onAsk: vi.fn() });
     expect(screen.getByRole("button", { name: "Ask about the change" }).hasAttribute("aria-keyshortcuts")).toBe(false);
+  });
+});
+
+describe("the top bar inside the Reader", () => {
+  function tools(extra: Partial<FlowReviewTools> = {}): FlowReviewTools {
+    return {
+      reviewId: "api-1", reviewRef: "shop-7", revisionId: "s1", revisionNumber: 1, historical: false, readOnly: false, busy: false,
+      annotations: [note("c1"), note("c2"), note("c3", { state: "resolved" })], targets: [target("a", { unit_key: "u-a", path: "src/a.py" })],
+      revisionHistory: null, setState: vi.fn(), setDisposition: vi.fn(), createNote: vi.fn(), hosted: null,
+      ...extra,
+    };
+  }
+  function Registered() {
+    useFlowPaletteScreen({ context: { screen: "overview", actions: {} }, reviewRef: "shop-7" });
+    return null;
+  }
+  function readerBar(value: FlowReviewTools) {
+    render(
+      <MemoryRouter initialEntries={["/r/shop-7"]}>
+        <FlowPaletteProvider>
+          <FlowReviewToolsProvider value={value}>
+            <Registered />
+            <FlowTopBar repo="shop" documentTitle="Overview" title="T" revisionNumber={1} back={{ text: "Reviews", onClick: vi.fn() }} onShortcuts={vi.fn()} />
+          </FlowReviewToolsProvider>
+        </FlowPaletteProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("makes the revision chip a menu and shows Notes with its open count, opening the list", async () => {
+    const user = userEvent.setup();
+    readerBar(tools());
+    expect(screen.getByRole("button", { name: "Revision 2, revision history" })).toHaveAttribute("aria-haspopup", "dialog");
+    expect(screen.getByText("Revision 2").className).toContain("text-p2");
+    await user.click(screen.getByRole("button", { name: "Notes · 2 open" }));
+    expect(await screen.findByTestId("notes-sheet")).toBeInTheDocument();
+    expect(screen.getAllByTestId("notes-row")).toHaveLength(2);
+  });
+
+  it("offers Notes in ⌘K under In this review", async () => {
+    const user = userEvent.setup();
+    readerBar(tools());
+    await user.keyboard("{Control>}k{/Control}");
+    const option = await screen.findByRole("option", { name: /Notes/ });
+    expect(option).toHaveTextContent("2 open");
+    await user.click(option);
+    expect(await screen.findByTestId("notes-sheet")).toBeInTheDocument();
+  });
+
+  it("shows the hosted queue chip only on a hosted review", () => {
+    readerBar(tools());
+    expect(screen.queryByTestId("hosted-queue-chip")).toBeNull();
+    cleanup();
+    readerBar(tools({ hosted: {
+      info: { reference: "acme/shop#12", origin: "", url: "", local_review_id: "local-1" },
+      status: { attached: true, review_id: "api-1", counts: { pending: 1, conflict: 2, applied: 0, discarded: 0 } },
+      error: "", onStatus: vi.fn(), onDetached: vi.fn(),
+    } }));
+    expect(screen.getByRole("button", { name: "Hosted acme/shop#12 · 1 queued · 2 conflicts" })).toBeInTheDocument();
+  });
+
+  it("draws the plain chip and no Notes outside the Reader", () => {
+    bar();
+    expect(screen.queryByRole("button", { name: /revision history/ })).toBeNull();
+    expect(screen.queryByTestId("flow-top-bar-notes")).toBeNull();
   });
 });

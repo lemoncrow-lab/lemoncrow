@@ -560,6 +560,23 @@ _MAX_REPORTED_FINDINGS = 64
 _MAX_FINDING_TEXT = 8000
 
 
+_TITLE_LIMIT = 120
+_FIRST_SENTENCE = re.compile(r"(.+?[.!?])(?=\s|$)")
+
+
+def _summary_title(summary: str) -> str:
+    """A title for a finding reported without one: its first sentence, else its first words and an ellipsis."""
+
+    line = summary.splitlines()[0].strip()
+    sentence = _FIRST_SENTENCE.match(line)
+    if sentence and 15 <= len(sentence.group(1)) <= _TITLE_LIMIT:
+        return sentence.group(1)
+    if len(line) <= _TITLE_LIMIT:
+        return line
+    cut = line[: _TITLE_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return f"{cut}…"
+
+
 def _reported_finding(item: dict[str, Any]) -> dict[str, Any] | None:
     """One host-reported finding in the ingestor's location shape, redacted and bounded."""
 
@@ -594,11 +611,32 @@ def _reported_finding(item: dict[str, Any]) -> dict[str, Any] | None:
         "path": path,
         "line": line,
         "end_line": line,
-        "title": text("short_summary", 120) or summary.splitlines()[0][:120],
+        "title": text("short_summary", _TITLE_LIMIT) or _summary_title(summary),
         "body": body,
         "severity": text("severity", 40),
         "outcome": text("outcome", 40),
     }
+
+
+def reported_findings_rows(raw: list[Any]) -> list[dict[str, Any]]:
+    """A report's findings as the ledger keeps them, in report order: the order the chat numbers them in."""
+
+    return [
+        finding
+        for item in raw[:_MAX_REPORTED_FINDINGS]
+        if isinstance(item, dict) and (finding := _reported_finding(item)) is not None
+    ]
+
+
+def reported_source_id(payload: dict[str, Any]) -> str:
+    """The identity one reported review is deduped by: its tool call id, else its findings' digest."""
+
+    tool_input = payload.get("tool_input")
+    raw = tool_input.get("findings") if isinstance(tool_input, dict) else None
+    return (
+        str(payload.get("tool_use_id") or "")
+        or hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
+    )
 
 
 def _reported_message(host: str, findings: list[dict[str, Any]]) -> str:
@@ -644,15 +682,8 @@ def capture_reported_findings(
     raw = tool_input.get("findings") if isinstance(tool_input, dict) else None
     if not sid or not isinstance(raw, list):
         return 0
-    findings = [
-        finding
-        for item in raw[:_MAX_REPORTED_FINDINGS]
-        if isinstance(item, dict) and (finding := _reported_finding(item)) is not None
-    ]
-    source_id = (
-        str(payload.get("tool_use_id") or "")
-        or hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
-    )
+    findings = reported_findings_rows(raw)
+    source_id = reported_source_id(payload)
     identity = hashlib.sha256(f"{host}\0{sid}\0reported\0{source_id}".encode()).hexdigest()
     root_path = Path(root).expanduser().resolve()
     run_file = session_dir(root_path, host, sid) / "run.json"

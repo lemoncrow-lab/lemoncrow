@@ -394,6 +394,28 @@ describe("AnnotationCard", () => {
     expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
   });
 
+  it.each([
+    // A fix the agent recorded after it moved the finding's line: still Fixed, and by Claude.
+    [{ finding_disposition: "fixed", finding_disposition_actor: "agent", finding_disposition_agent_host: "claude", anchored: false, state: "orphaned" }, "Fixed by Claude"],
+    [{ finding_disposition: "dismissed", finding_disposition_reason: "accepted_risk", finding_disposition_actor: "agent", finding_disposition_agent_host: "codex" }, "Dismissed by Codex"],
+    [{ finding_disposition: "dismissed", finding_disposition_reason: "incorrect", finding_disposition_actor: "human" }, "Dismissed by you"],
+    [{ finding_disposition: "confirmed_by_reviewer", finding_disposition_actor: "agent", finding_disposition_agent_host: "" }, "Confirmed by the agent"],
+    // A decision made before actors were recorded names nobody.
+    [{ finding_disposition: "fixed", finding_disposition_actor: "" }, "Fixed"],
+    [{ finding_disposition: "open", finding_disposition_actor: "agent", finding_disposition_agent_host: "claude" }, "Open"],
+  ] as const)("says who decided an AI finding (%o)", (decision, label) => {
+    mount([
+      annotation({
+        source: "ai_review",
+        created_by: "claude",
+        created_by_actor: "agent",
+        agent_host: "claude",
+        ...(decision as Partial<Annotation>),
+      }),
+    ]);
+    expect(screen.getByTestId("finding-disposition").textContent).toBe(label);
+  });
+
   it("does not show anchor provenance when the file is unchanged", () => {
     mount([annotation()]);
     expect(screen.queryByText(/file unchanged since the comment/)).toBeNull();

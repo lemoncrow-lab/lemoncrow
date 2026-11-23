@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 
 import { AgentActionList, AgentApprovalPanel } from "./AgentActions";
 import type { AgentApproval } from "./agentApprovalsApi";
+import { ReviewStateLine, type ReviewStateLineProps } from "./ReviewStateLine";
 
 const approvalsApi = vi.hoisted(() => ({
   fetchAgentApprovals: vi.fn(),
@@ -135,5 +136,50 @@ describe("AgentApprovalPanel", () => {
     expect(rows[1].textContent).toContain("Expired");
     expect(screen.queryByRole("button", { name: "Approve once" })).toBeNull();
     expect(screen.getByTestId("agent-approval-panel").textContent).toContain("Agent action approvals");
+  });
+});
+
+describe("the Reader's state line names waiting agent requests", () => {
+  function lineProps(overrides: Partial<ReviewStateLineProps> = {}): ReviewStateLineProps {
+    return {
+      reviewId: "review-1", reviewRef: "review-1", forcedReadOnly: false, busy: false, accessLost: "", revisionAdvanced: false,
+      runningDraft: false, historical: false, revisionNumber: 1, latestRevisionNumber: 1, status: "open", contextFailures: [],
+      sourceMoved: null, onWrite: vi.fn(async () => {}), onOpenNewer: vi.fn(), onRetryContext: vi.fn(),
+      onSnapshotNow: vi.fn(async () => ""), onDismissSource: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it("counts the pending requests and opens the approval panel on them", async () => {
+    approvalsApi.fetchAgentApprovals.mockResolvedValue(
+      listing([approval(), approval({ id: "apr_2", action: "rm -rf build" }), approval({ id: "apr_3", status: "approved" })]),
+    );
+    render(<ReviewStateLine {...lineProps()} />);
+    const line = await screen.findByTestId("review-state-line");
+    expect(line).toHaveTextContent("2 agent requests wait for you");
+    expect(approvalsApi.fetchAgentApprovals).toHaveBeenCalledWith("review-1");
+    await userEvent.click(within(line).getByRole("button", { name: "Approve or deny" }));
+    const sheet = await screen.findByRole("dialog", { name: "Agent requests" });
+    expect(within(sheet).getAllByRole("button", { name: "Approve once" })).toHaveLength(2);
+    expect(within(sheet).getByText("rm -rf build")).toBeTruthy();
+  });
+
+  it("shows no row when nothing waits", async () => {
+    approvalsApi.fetchAgentApprovals.mockResolvedValue(listing([approval({ status: "denied" })]));
+    render(<ReviewStateLine {...lineProps()} />);
+    await waitFor(() => expect(approvalsApi.fetchAgentApprovals).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByTestId("review-state-line")).toBeNull();
+  });
+
+  it("lets a host that made the Review read-only see the requests but not decide them", async () => {
+    approvalsApi.fetchAgentApprovals.mockResolvedValue(listing([approval()]));
+    render(<ReviewStateLine {...lineProps({ forcedReadOnly: true })} />);
+    const line = await screen.findByTestId("review-state-line");
+    expect(line).toHaveTextContent("1 agent request waits for you");
+    await userEvent.click(within(line).getByRole("button", { name: "Approve or deny" }));
+    const sheet = await screen.findByRole("dialog", { name: "Agent requests" });
+    expect(within(sheet).getByTestId("agent-approval")).toBeTruthy();
+    expect(within(sheet).queryByRole("button", { name: "Approve once" })).toBeNull();
   });
 });

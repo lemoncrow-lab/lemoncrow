@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchReviewProjectContext } from "../reviewApi";
 import type { ReviewBehaviorSummary, ReviewOverview, ReviewProjection, ReviewProjectionDecision, ReviewTarget } from "../types";
@@ -208,5 +208,137 @@ describe("ReviewBriefScreen", () => {
     expect(screen.getByTestId("brief-unavailable")).toHaveTextContent("No Brief is available");
     expect(screen.queryByTestId("brief-open-xray")).toBeNull();
     expect(reviewFirstParts(targets).map((row) => row.target_id)).toEqual(["t-a", "t-b"]);
+  });
+});
+
+describe("ReviewBriefScreen: blockers and evidence", () => {
+  const failing = { id: "check:required:tests", reason: "", title: "Required check failing: tests", detail: "pytest exited 1", item_ids: [], target_ids: [], actions: [], tier: 0 };
+  const checks = [
+    { name: "ruff", status: "PASS", detail: "", source: "none" },
+    { name: "e2e", status: "NOT_RUN", detail: "", source: "agent" },
+    { name: "pytest", status: "FAIL", detail: "2 failed", source: "session:abc" },
+  ] as ReviewBriefScreenProps["checks"];
+  const claims = [
+    { id: "c1", statement: "Expired tokens are rejected", source: "author", target_ids: ["t-a"], limitations: [], evidence: [], summary: "contradictory", summary_text: "A check contradicts it", result_line: "pytest: FAIL" },
+    { id: "c2", statement: "Guests keep their cart", source: "author", target_ids: [], limitations: [], evidence: [], summary: "none", summary_text: "Nothing shows it", result_line: "" },
+  ];
+  const rich = () => projection({
+    actions: [failing, { ...failing, id: "decision:x", title: "Decide x" }],
+    claims,
+    evaluation_timeline: { snapshots: [{ revision_id: "rev-1", snapshot_number: 2, comparable_results: [{ scenario: "login", from: "PASS", to: "FAIL", change: "regression" }] }] },
+    ai_review: { status: "ready", findings: 2, budget: { calls_used: 1, max_calls: 4 } },
+  } as unknown as Partial<ReviewProjection>);
+  // jsdom draws no layout: test/setup.ts stubs scrollIntoView, and this spies on it.
+  const original = Element.prototype.scrollIntoView;
+  let scroll = vi.fn();
+  beforeEach(() => { scroll = vi.fn(); Element.prototype.scrollIntoView = scroll; });
+  afterEach(() => { Element.prototype.scrollIntoView = original; });
+
+  it("shows a failing required check first, and Inspect evidence lands on the Evidence card", async () => {
+    show({ projection: rich(), checks });
+    const rows = within(screen.getByTestId("brief-blockers")).getAllByTestId("brief-required-check");
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row).toHaveTextContent("Required check failing: tests");
+    expect(row).toHaveTextContent("pytest exited 1");
+    await userEvent.click(within(row).getByRole("button", { name: "Inspect evidence" }));
+    expect(scroll).toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByTestId("brief-evidence"));
+  });
+
+  it("lists each check with its result, detail and source, each claim with its evidence, the regressions and the AI status", async () => {
+    show({ projection: rich(), checks });
+    const card = screen.getByTestId("brief-evidence");
+    expect(card).toHaveTextContent("1 failed");
+    const rows = within(card).getAllByTestId("brief-evidence-check");
+    expect(rows.map((row) => row.textContent)).toEqual(["Failpytest· the agent session2 failed", "Passruff", "Did not rune2e· the agent"]);
+    const claimRows = within(card).getAllByTestId("brief-evidence-claim");
+    expect(claimRows[0]).toHaveTextContent("Expired tokens are rejectedA check contradicts itpytest: FAIL");
+    expect(claimRows[1]).toHaveTextContent("Guests keep their cartNothing shows it");
+    await userEvent.click(within(claimRows[0]).getByRole("button", { name: "Expired tokens are rejected" }));
+    expect(screen.getByTestId("where")).toHaveTextContent("/r/shop/one/alpha");
+    cleanup();
+    show({ projection: rich(), checks });
+    expect(screen.getByTestId("brief-regressions")).toHaveTextContent("Regression · login · PASS → FAIL · Revision 3");
+    expect(screen.getByTestId("brief-ai-review")).toHaveTextContent("AI review · complete · 2 findings · not a test result");
+    expect(within(screen.getByTestId("brief-evidence")).queryByRole("button", { name: /Run|Cancel|Synthesis/ })).toBeNull();
+  });
+
+  it("opened at #evidence, scrolls to the Evidence card", () => {
+    render(
+      <MemoryRouter initialEntries={["/r/shop/brief#evidence"]}>
+        <ReviewBriefScreen reviewRef="shop" apiReviewId="r1" overview={overview} targets={targets} projection={rich()} checks={checks} />
+      </MemoryRouter>,
+    );
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("draws no blocker, evidence, priority, statement, dependency or architecture box without data", async () => {
+    const loadArchitecture = vi.fn(async () => ({ summary: { material: false, changed_components: 0, important_concerns: [] } }) as never);
+    show({ loadArchitecture, dependencies: { supported: false, changes: [], degraded: [], lockfiles: [] } as never, xrayAvailable: true });
+    await waitFor(() => expect(loadArchitecture).toHaveBeenCalled());
+    for (const id of ["brief-blockers", "brief-evidence", "brief-priority", "brief-statements", "brief-dependencies", "brief-architecture", "brief-check-command", "brief-ai-review"]) {
+      expect(screen.queryByTestId(id), id).toBeNull();
+    }
+    // No architecture line: the plain X-Ray button stays.
+    expect(screen.getByTestId("brief-open-xray")).toBeInTheDocument();
+    cleanup();
+    show({ projection: projection({ triage: { priority: "high", criticality: "critical", severity_summary: { p0: 1 }, explanation: [], computed: false } } as unknown as Partial<ReviewProjection>) });
+    expect(screen.queryByTestId("brief-priority")).toBeNull();
+  });
+});
+
+describe("ReviewBriefScreen: what changed", () => {
+  it("leads with the priority line and each field's reason", async () => {
+    const triage = { priority: "high", criticality: "critical", severity_summary: { p0: 2, p1: 1, p2: 0 }, computed: true, explanation: [{ field: "criticality", value: "critical", reason: "Changes the auth boundary", origin: "engine" }] };
+    show({ projection: projection({ triage } as unknown as Partial<ReviewProjection>) });
+    const line = screen.getByTestId("brief-priority");
+    expect(line.querySelector("summary")).toHaveTextContent("Priority High · Critical · 2 P0 · 1 P1");
+    expect(screen.getByTestId("brief-priority-reasons")).toHaveTextContent("Criticality · Changes the auth boundary");
+    // The size line still sits right under the title.
+    expect(screen.getByTestId("brief-title").nextElementSibling).toBe(screen.getByTestId("brief-size"));
+  });
+
+  it("says how to check what was not checked", () => {
+    show({ projection: projection({ summary: { paragraphs: [], facts: [{ kind: "unchecked", text: "Not checked: sign-in tests", command: "uv run pytest tests/auth" }] } } as unknown as Partial<ReviewProjection>) });
+    expect(screen.getByTestId("brief-change-facts")).toHaveTextContent("Not checked: sign-in tests · run uv run pytest tests/auth");
+    expect(screen.getByTestId("brief-check-command")).toHaveTextContent("uv run pytest tests/auth");
+  });
+
+  it("lists the change statements with where they come from, and not the facts again", () => {
+    const statements = [
+      { text: "Sign-in rejects expired tokens", origin: "inferred", target_ids: [], claim_ids: [] },
+      { text: "Tests were not run", origin: "observed", target_ids: [], claim_ids: [] },
+    ];
+    show({ projection: projection({ summary: { paragraphs: [], facts: [{ kind: "unchecked", text: "Tests were not run" }], statements } } as unknown as Partial<ReviewProjection>) });
+    const block = screen.getByTestId("brief-statements");
+    expect(screen.getByTestId("brief-statements-origin")).toHaveTextContent("AI summary · intent inferred");
+    expect(block).toHaveTextContent("Sign-in rejects expired tokens");
+    expect(block).not.toHaveTextContent("Tests were not run");
+    cleanup();
+    show({ projection: projection({ summary: { paragraphs: [], facts: [], statements: [{ text: "Guests keep their cart", origin: "author", target_ids: [], claim_ids: [] }] } } as unknown as Partial<ReviewProjection>) });
+    expect(screen.getByTestId("brief-statements-origin")).toHaveTextContent("From author context");
+  });
+
+  it("shows the package changes the Reader loaded", () => {
+    const dependencies = {
+      supported: true, changes: [], degraded: [], lockfiles: [{ path: "uv.lock" }],
+      summary: { semantic_changes: 3, direct_changes: 1, transitive_changes: 2 }, supply_chain: { sboms: [], provenance: [], vulnerability_scans: [] },
+    };
+    show({ dependencies: dependencies as never });
+    const section = screen.getByTestId("brief-dependencies");
+    expect(section).toHaveTextContent("Dependencies · 3");
+    expect(within(section).getByTestId("dependency-review")).toHaveTextContent("3 package changes · 1 direct · 2 transitive");
+  });
+
+  it("says the architecture moved, with its top concerns, and opens the X-Ray from that line", async () => {
+    const loadArchitecture = vi.fn(async () => ({ summary: { material: true, changed_components: 2, important_concerns: ["auth now calls billing", "new cycle: cart ↔ orders"] } }) as never);
+    show({ loadArchitecture, xrayAvailable: true });
+    const line = await screen.findByTestId("brief-architecture");
+    expect(line).toHaveTextContent("Architecture moved");
+    expect(line).toHaveTextContent("auth now calls billing · new cycle: cart ↔ orders");
+    expect(screen.getAllByTestId("brief-open-xray")).toHaveLength(1);
+    await userEvent.click(within(line).getByTestId("brief-open-xray"));
+    expect(screen.getByTestId("where")).toHaveTextContent("/r/shop/xray");
   });
 });

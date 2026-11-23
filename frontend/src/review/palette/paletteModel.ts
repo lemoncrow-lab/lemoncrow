@@ -18,6 +18,8 @@ export interface PaletteItem {
   sub?: string;
   /** The key that does the same (hidden on a phone). */
   hint?: string;
+  /** Listed so the person sees it exists, with `sub` saying why it cannot run here; choosing it does nothing. */
+  disabled?: boolean;
   run: () => void;
 }
 
@@ -191,17 +193,22 @@ export interface PaletteRepo { name: string; waiting: number }
 export interface PalettePart { id: string; name: string; file: string; state: string; path: string }
 export interface RecentPlace { label: string; sub: string; path: string }
 
+/** A Review-wide action the Reader offers on every screen (Fix all open findings, Request split…), from the server's catalog. */
+export interface PaletteReviewAction { id: string; label: string; detail?: string; shortcut?: string; disabled?: boolean; run: () => void }
+
 export interface PaletteData {
   reviews: readonly PaletteReview[];
   repos: readonly PaletteRepo[];
   recent: readonly RecentPlace[];
   parts: readonly PalettePart[];
+  reviewActions?: readonly PaletteReviewAction[];
 }
 
 export interface PaletteNav {
   go: (path: string) => void;
   openRepo: (name: string) => void;
   openShortcuts?: () => void;
+  openFeedback?: () => void;
   /** A phone has no keyboard, so the Keyboard settings row is left out. */
   phone?: boolean;
 }
@@ -237,12 +244,16 @@ export function allItems(ctx: PaletteContext, data: PaletteData, nav: PaletteNav
     for (const entry of settingsItems(nav.phone)) out.push({ id: `settings:${entry.label}`, group: "Settings", label: entry.label, run: () => nav.go(entry.path) });
     return out;
   }
+  for (const action of data.reviewActions ?? []) {
+    out.push({ id: `review-action:${action.id}`, group: "In this review", label: action.label, sub: action.detail, hint: action.shortcut, disabled: action.disabled, run: action.run });
+  }
   if (showRecent) for (const place of data.recent) out.push({ id: `recent:${place.path}`, group: "Recent", label: place.label, sub: place.sub, run: () => nav.go(place.path) });
   for (const part of data.parts) out.push({ id: `part:${part.id}`, group: "Parts in this review", label: part.name, sub: `${part.file} · ${part.state}`, run: () => nav.go(part.path) });
   for (const review of data.reviews) out.push({ id: `review:${review.id}`, group: "Reviews", label: review.label, sub: review.sub, run: () => nav.go(review.path) });
   for (const repo of data.repos) out.push({ id: `repo:${repo.name}`, group: "Repos", label: repo.name, sub: `${repo.waiting} waiting`, run: () => nav.openRepo(repo.name) });
   for (const entry of settingsItems(nav.phone)) out.push({ id: `settings:${entry.label}`, group: "Settings", label: entry.label, run: () => nav.go(entry.path) });
   if (nav.openShortcuts) out.push({ id: "help", group: "Help", label: "Keyboard shortcuts", hint: "?", run: nav.openShortcuts });
+  if (nav.openFeedback) out.push({ id: "feedback", group: "Help", label: "Send feedback", run: nav.openFeedback });
   return out;
 }
 

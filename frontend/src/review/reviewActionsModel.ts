@@ -104,11 +104,13 @@ export function correctionPaletteActions(
       label: PALETTE_LABELS[item.kind](item.subject_ids.length),
       detail: !item.available
         ? unavailableDetail(item)
-        : ambiguous
-          ? `${item.subject_ids.length} suggestions: apply one from its card`
-          : item.code_changing
-            ? "Preview the route and handoff first; the result comes back as a new revision"
-            : undefined,
+        : options.busy
+          ? "Available on the current, writable revision"
+          : ambiguous
+            ? `${item.subject_ids.length} suggestions: apply one from its card`
+            : item.code_changing
+              ? "Preview the route and handoff first; the result comes back as a new revision"
+              : undefined,
       disabled: !item.available || ambiguous || Boolean(options.busy),
       managesFocus: true,
       run: () => open(item.kind, singleSubject ? item.subject_ids.slice(0, 1) : [...item.subject_ids]),

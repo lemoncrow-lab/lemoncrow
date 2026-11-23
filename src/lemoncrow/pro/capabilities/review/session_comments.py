@@ -29,6 +29,12 @@ from lemoncrow.pro.capabilities.review.session_models import Annotation, Annotat
 from lemoncrow.pro.capabilities.review.store import ReviewStore, utc_now
 
 
+def reported_annotation_id(review_id: str, host: str, sid: str, key: str) -> str:
+    """The AI finding a host-reported finding becomes: one per Review, session and finding key."""
+
+    return "ann-" + hashlib.sha256(f"{review_id}\0{host}\0{sid}\0reported\0{key}".encode()).hexdigest()[:32]
+
+
 def _identity(host: str, sid: str, payload: dict[str, Any]) -> str:
     return str(
         payload.get("visible_turn_id")
@@ -608,10 +614,10 @@ class SessionCommentIngestor:
                         continue
                     title = str(finding.get("title") or "")
                     key = str(finding.get("key") or "") if reported else ""
-                    finding_id = "ann-" + (
-                        hashlib.sha256(f"{session.id}\0{host}\0{sid}\0reported\0{key}".encode()).hexdigest()[:32]
+                    finding_id = (
+                        reported_annotation_id(session.id, host, sid, key)
                         if key
-                        else hashlib.sha256(f"{base.id}\0{role}\0{number}".encode()).hexdigest()[:32]
+                        else "ann-" + hashlib.sha256(f"{base.id}\0{role}\0{number}".encode()).hexdigest()[:32]
                     )
                     if self.store.get_annotation(finding_id) or (reported and finding.get("outcome") == "fixed"):
                         # A re-report (``--fix`` outcomes) never duplicates its finding

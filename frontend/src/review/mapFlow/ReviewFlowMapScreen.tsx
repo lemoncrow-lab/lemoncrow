@@ -3,7 +3,7 @@
  * it renders the stored architecture comparison as returned by the server.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, GitBranch, List, Map as MapIcon, Maximize2, Network, RotateCcw } from "lucide-react";
+import { ArrowRight, GitBranch, List, Loader2, Map as MapIcon, Maximize2, Network, RotateCcw } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { fetchHistoricalReviewMap } from "../reviewApi";
 import { isColdLoad } from "../reviewBootLocation";
@@ -24,7 +24,7 @@ import { useCompactReviewLayout } from "../reviewLayout";
 import type { ReviewMapPayload, ReviewOverview, ReviewTarget } from "../types";
 import {
   MAP_LANE_TITLES, buildFlowLayout, compactFlowLayout, dataPathAvailable, dataPathRunFailure, dataPathUnavailableText, edgePath, exampleMap,
-  footerText, mapRowLabel, mapStateSymbol, mapStateText, nodeBasisText, provenanceCounts, relatedTarget, summaryLine,
+  footerText, indexRefreshDelay, mapRowLabel, mapStateSymbol, mapStateText, nodeBasisText, provenanceCounts, relatedTarget, relationshipsIndexing, summaryLine,
   type MapNodeLayout, type MapState, type MapStep,
 } from "./mapFlowModel";
 import { fetchDataPathGate, postDataPathRun, type DataPathGate } from "./dataPathApi";
@@ -174,6 +174,35 @@ export function ReviewFlowMapScreen({ reviewRef, apiReviewId, overview, targets,
     return () => { live = false; };
   }, [askGate, apiReviewId, revisionId]);
   const runGate = gate?.revision === revisionId ? gate.gate : null;
+  // Surrounding links may still be indexing when the Map opens (`context.readiness.graph`): the note says so, and the Map
+  // reads itself again with backoff until the index is ready. `indexRefreshDelay` bounds the rounds, so polling always
+  // stops; Check again then starts one more bounded round. Each settled read moves `tick`, failed reads included.
+  const indexAttempts = useRef(0);
+  const [indexPoll, setIndexPoll] = useState({ revision: "", tick: 0, stopped: false });
+  const indexing = !example && !comparing && loaded !== null && relationshipsIndexing(loaded);
+  const indexStopped = indexPoll.revision === revisionId && indexPoll.stopped;
+  const loadedProjection = useRef(loaded?.projection);
+  loadedProjection.current = loaded?.projection;
+  useEffect(() => {
+    if (!indexing) { indexAttempts.current = 0; return; }
+    if (indexStopped) return;
+    const delay = indexRefreshDelay(indexAttempts.current + 1);
+    if (delay === null) { setIndexPoll({ revision: revisionId, tick: 0, stopped: true }); return; }
+    indexAttempts.current += 1;
+    let live = true;
+    const revisionNumber = overview.revision.revision_number;
+    const timer = window.setTimeout(() => {
+      // The same read the screen holds: a comparison stays a comparison, the plain map stays plain.
+      const again = loadedProjection.current === "architecture_delta"
+        ? fetchHistoricalReviewMap(apiReviewId, revisionNumber, "architecture", "", "architecture_delta")
+        : fetchHistoricalReviewMap(apiReviewId, revisionNumber);
+      again.then((next) => { if (live && next.revision_id === revisionId) setResult({ revision: revisionId, payload: next, error: "" }); })
+        .catch(() => undefined) // A background read is best effort: the map on screen stays.
+        .finally(() => { if (live) setIndexPoll((current) => ({ revision: revisionId, tick: current.tick + 1, stopped: false })); });
+    }, delay);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [indexing, indexStopped, indexPoll.tick, apiReviewId, revisionId, overview.revision.revision_number]);
+  const checkIndexAgain = () => { indexAttempts.current = 0; setIndexPoll({ revision: revisionId, tick: 0, stopped: false }); };
   // The default route lens is data-path; with no data-path facts the screen shows the Dependencies lens instead.
   const effectiveLens: MapLens = lens === "data-path" && !dataPathOk ? "dependencies" : lens;
   // A large change (SPEC 4.15) lists modules, not files; the count is the complete parts list, never a startup slice.
@@ -351,6 +380,11 @@ export function ReviewFlowMapScreen({ reviewRef, apiReviewId, overview, targets,
           </div>
         </div>
         {dataNote && <p className="break-words text-label text-muted-foreground" data-testid="map-provenance-note">{dataNote}</p>}
+        {indexing && <p className="flex flex-wrap items-center gap-2 text-label text-muted-foreground" data-testid="map-indexing-note" data-stopped={indexStopped ? "true" : undefined}>
+          {!indexStopped && <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden="true"/>}
+          <span>Still indexing the surrounding code, so some connections may be missing.{indexStopped ? "" : " Checking again…"}</span>
+          {indexStopped && <Button variant="outline" size="xs" onClick={checkIndexAgain}>Check again</Button>}
+        </p>}
         {report && !dataPathOk && <DataPathRunStrip report={report} canRun={canRun} gate={runGate} run={run} onRun={runDataPath}/>}
         {!payload && !result.error && <div className="rounded-xl border border-border bg-card p-10 text-center text-label text-muted-foreground">Loading the captured code map…</div>}
         {!payload && result.error && <div className="rounded-xl border border-border bg-card p-6">

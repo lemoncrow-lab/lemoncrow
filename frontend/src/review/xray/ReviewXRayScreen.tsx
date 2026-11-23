@@ -156,6 +156,13 @@ export default function ReviewXRayScreen(props: ReviewXRayScreenProps) {
     else goTo({ kind: "map", lens: "dependencies", view: "changes" });
   }, [targets, goTo]);
   const openAnchor = useCallback((anchor: XRayAnchor) => openSource(anchorSelection(anchor, apiReviewId, revisionId)), [openSource, apiReviewId, revisionId]);
+  const openEvidence = useCallback((selection: ReviewMapSelection) => {
+    // A traced arrow's recorded run sits with the checks of the part it reached: that part's card shows its proof and test.
+    // A file the change did not touch has no part, and the Brief lists every recorded before and after run.
+    const target = partForSelection(targets, selection);
+    if (target) goTo({ kind: "one", part: partSlug(target, targets) });
+    else goTo({ kind: "brief" });
+  }, [targets, goTo]);
 
   const behaviorRow = (target: ReviewBehaviorTarget) => (
     <BehaviorRow
@@ -261,7 +268,7 @@ export default function ReviewXRayScreen(props: ReviewXRayScreenProps) {
               onPlaceChange={keepPlace}
             />
           ) : fallback ? (
-            <FileXRay {...props} goTo={goTo} back={back} inSession={inSession} openSource={openSource} renderBehavior={renderBehavior} />
+            <FileXRay {...props} goTo={goTo} back={back} inSession={inSession} openSource={openSource} openEvidence={openEvidence} renderBehavior={renderBehavior} />
           ) : (
             <div role="status" className="mx-auto flex max-w-3xl flex-col items-start gap-2 px-4 py-6 text-label text-muted-foreground" data-testid="xray-graph-note">
               <span>{graphRead.phase === "pending" ? "Drawing the X-Ray…" : "Opening the X-Ray…"}</span>
@@ -283,11 +290,12 @@ interface FileXRayProps extends ReviewXRayScreenProps {
   back(): void;
   inSession: boolean;
   openSource(selection: ReviewMapSelection): void;
+  openEvidence(selection: ReviewMapSelection): void;
   renderBehavior(paths: string[], scope: "file" | "arrow"): React.ReactNode;
 }
 
 /** The file picture on the revision's stored Map: the fallback where the server draws no X-Ray graph. */
-function FileXRay({ at, load, loading, behavior, targets, goTo, back, inSession, openSource, renderBehavior }: FileXRayProps) {
+function FileXRay({ at, load, loading, behavior, targets, goTo, back, inSession, openSource, openEvidence, renderBehavior }: FileXRayProps) {
   const [read, setRead] = useState<Read>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -335,6 +343,7 @@ function FileXRay({ at, load, loading, behavior, targets, goTo, back, inSession,
         onRootChange={(rootId) => move({ ...location, rootId }, false)}
         onRebuild={() => move({ ...location, snapshot: graphSnapshot(graph) }, true)}
         onOpenSource={openSource}
+        onOpenEvidence={openEvidence}
         onOpenDataPath={() => goTo({ kind: "map", lens: "data-path", view: "changes" })}
         renderBehavior={renderBehavior}
         behaviorCount={behaviorCount}

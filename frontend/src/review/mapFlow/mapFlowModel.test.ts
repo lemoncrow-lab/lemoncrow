@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewDataPathReport, ReviewMapEdge, ReviewMapNode, ReviewMapPayload, ReviewTarget } from "../types";
 import {
-  DATA_PATH_UNAVAILABLE, dataPathRunFailure, dataPathUnavailableText,
+  DATA_PATH_UNAVAILABLE, INDEX_REFRESH_LIMIT, dataPathRunFailure, dataPathUnavailableText, indexRefreshDelay, relationshipsIndexing,
   buildFlowLayout, compactFlowLayout, dataPathAvailable, edgeBasis, edgePath, exampleMap, footerText, graphComparable, lensEdges, mapRowLabel, mapStateSymbol,
   provenanceCounts, relatedTarget, statusOf, summaryLine, survivesView,
 } from "./mapFlowModel";
@@ -243,5 +243,25 @@ describe("statusOf on the plain change map", () => {
   });
   it("keeps the comparison's answer when there is one", () => {
     expect(statusOf(node({ status: "changed", exactness: "snapshot", delta_status: "unchanged" }))).toBe("unchanged");
+  });
+});
+
+describe("the Map's index refresh", () => {
+  const context = (source: string, state?: string) => ({ context: { source, exact_for_snapshot: false as const, snapshot_head_matches_checkout: false, index: {}, note: "", readiness: state ? { graph: { state } } : undefined } });
+  it("counts only a current index whose link graph is building", () => {
+    expect(relationshipsIndexing(context("current_index", "building"))).toBe(true);
+    expect(relationshipsIndexing(context("current_index", "ready"))).toBe(false);
+    expect(relationshipsIndexing(context("current_index", "degraded"))).toBe(false);
+    expect(relationshipsIndexing(context("current_index"))).toBe(false);
+    expect(relationshipsIndexing(context("unavailable", "building"))).toBe(false);
+  });
+  it("backs off to 5 s and ends at the limit", () => {
+    expect(INDEX_REFRESH_LIMIT).toBe(14);
+    expect([1, 2, 3, 4, 5, 6].map(indexRefreshDelay)).toEqual([500, 1000, 2000, 4000, 5000, 5000]);
+    expect(indexRefreshDelay(INDEX_REFRESH_LIMIT)).toBe(5000);
+    expect(indexRefreshDelay(INDEX_REFRESH_LIMIT + 1)).toBeNull();
+    expect(indexRefreshDelay(1000)).toBeNull();
+    expect(indexRefreshDelay(0)).toBeNull();
+    expect(indexRefreshDelay(1.5)).toBeNull();
   });
 });

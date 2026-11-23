@@ -1,18 +1,24 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { ArrowLeft, Ellipsis, Search, Settings2, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { ArrowLeft, Ellipsis, MessageSquareText, Search, Settings2, Sparkles } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, isDialogOpen } from "../components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
+import { returnPathFrom } from "../lib/codeLinks";
 import { useAiGate } from "./aiBudget";
+import { useFlowReviewTools } from "./flowReviewTools";
+import { HostedQueueChip } from "./HostedQueueChip";
+import { NotesSheet } from "./notes/NotesSheet";
+import { notesButtonText, notesCounts } from "./notes/notesModel";
+import { SnapshotMenu } from "./snapshots/SnapshotMenu";
 import { useFlowDocumentTitle } from "./flowDocumentTitle";
 import { allShortcuts, classifyFocus, flowAction, type KeyBindings } from "./flowKeymap";
 import type { Counter, CounterBar, Pip } from "./focus/focusModel";
 import type { ReadingView } from "./overview/defaultView";
 import { repoFolderName } from "./ReviewIdentityBar";
-import { usePaletteOpener } from "./palette/FlowPalette";
+import { useFlowPaletteExtras, usePaletteOpener } from "./palette/FlowPalette";
 import { revisionName } from "./revisionLabel";
 import type { ReviewOverview } from "./types";
 
@@ -22,7 +28,13 @@ import type { ReviewOverview } from "./types";
  * quick checks' own small "quick checks n/N" (from the
  * complete parts list only: pass `counter` null while the list is a startup slice; Welcome back and Approved pass the
  * same counter, review-0.3), or a plain `status` text such as "Sent · Revision 1" on Done. Right: Shortcuts, Ask (only when `onAsk` is given, i.e. AI Ask is on), a phone "…" menu on
- * view-switch screens (`moreItems`), the settings gear and, on a phone only, "Search and commands" (the palette has no key there, SPEC 4.12 PAL-4). No other buttons, no lemon.
+ * view-switch screens (`moreItems`), the settings gear and, on a phone only, "Search and commands" (the palette has no key there, SPEC 4.12 PAL-4). No lemon.
+ *
+ * Inside the Reader (`FlowReviewToolsProvider`) the revision chip opens the revision menu, "Notes · N open" (and ⌘K "Notes")
+ * opens the review-wide list of comments and findings, and a review attached to hosted shows its queue chip. Outside it
+ * the chip is plain and neither control is drawn.
+ *
+ * Back follows the address's return path (`?from=`, set by Code) when there is one: "Code" then leads back there.
  *
  * A screen passes: `back` (visible text; the aria-label is "<text>, go back"), `view` on Overview, One at a time,
  * Quick check and All files, and on Map, Brief, X-Ray and Wrap up with no side pressed (`useReadingViewSwitch`,
@@ -108,22 +120,33 @@ export function FlowTopBar(props: FlowTopBarProps) {
   const openPalette = usePaletteOpener();
   const ai = useAiGate();
   const { counter } = props;
+  const tools = useFlowReviewTools();
+  const location = useLocation();
   useFlowDocumentTitle(props.documentTitle, props.repo);
+  // The reader arrived from another page that named itself as the way back (Code's "Open review"): Back returns there.
+  const returnTo = returnPathFrom(new URLSearchParams(location.search));
+  const back = returnTo ? { text: returnTo.startsWith("/code") ? "Code" : "Back", onClick: () => navigate(returnTo) } : props.back;
+  const annotations = tools?.annotations;
+  const openNotes = useMemo(() => (annotations ? notesCounts(annotations).open : 0), [annotations]);
+  const notesText = notesButtonText(openNotes);
+  useFlowPaletteExtras(tools ? [{ id: "notes", label: "Notes", sub: openNotes > 0 ? `${openNotes} open` : "Comments and findings", run: () => tools.setNotesOpen(true) }] : []);
   return (
     <header className="sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-1 border-b border-border bg-background px-2 sm:gap-2 sm:px-3" data-testid="flow-top-bar">
       {/* flex-auto, not flex-1: the left group keeps its content width before the action group grows, so the view switch never runs under the counter. */}
       <div className="flex min-w-0 flex-auto items-center gap-2">
         {/* Phone: the arrow alone (its name stays "<text>, go back"), so the counter and the actions never overlap. */}
-        <Button variant="ghost" size="sm" className="shrink-0 max-sm:px-2" aria-label={`${props.back.text}, go back`} onClick={props.back.onClick}>
+        <Button variant="ghost" size="sm" className="shrink-0 max-sm:px-2" aria-label={`${back.text}, go back`} onClick={back.onClick}>
           <ArrowLeft size={16} aria-hidden="true" />
-          <span className="max-sm:hidden">{props.back.text}</span>
+          <span className="max-sm:hidden">{back.text}</span>
         </Button>
         {props.repo ? <>
           <span className="hidden max-w-[10rem] shrink-0 truncate font-semibold sm:inline" title={props.repo} data-testid="flow-top-bar-repo">{props.repo}</span>
           <span className="hidden shrink-0 text-muted-foreground sm:inline" aria-hidden="true">·</span>
         </> : null}
         <span className="min-w-0 truncate text-label text-foreground max-sm:sr-only" title={props.title} data-testid="flow-top-bar-title">{props.title}</span>
-        <span className="shrink-0 max-sm:hidden"><Badge tone={props.revisionNumber >= 1 ? "info" : "neutral"}>{revisionName(props.revisionNumber)}</Badge></span>
+        <span className="shrink-0 max-sm:hidden">
+          {tools ? <SnapshotMenu tools={tools} revisionNumber={props.revisionNumber} /> : <Badge tone={props.revisionNumber >= 1 ? "info" : "neutral"}>{revisionName(props.revisionNumber)}</Badge>}
+        </span>
         {props.view ? (
           <div role="group" aria-label="Reading view" className="ml-2 hidden shrink-0 items-center rounded-md border border-border p-0.5 md:inline-flex">
             {(["one", "all"] as const).map((value) => (
@@ -145,6 +168,13 @@ export function FlowTopBar(props: FlowTopBarProps) {
         {counter?.quick ? <span className="hidden whitespace-nowrap text-tag text-muted-foreground min-[1600px]:inline" data-testid="flow-top-bar-quick">{counter.quick.text}</span> : null}
       </div>
       <div className="flex shrink-0 items-center justify-end sm:gap-1">
+        {tools?.hosted ? <HostedQueueChip reviewId={tools.reviewId} hosted={tools.hosted} /> : null}
+        {tools ? (
+          <Button variant="ghost" size="sm" className="max-sm:px-2" aria-haspopup="dialog" aria-label={notesText} data-testid="flow-top-bar-notes" onClick={() => tools.setNotesOpen(true)}>
+            <MessageSquareText size={16} aria-hidden="true" />
+            <span className="max-md:hidden">{notesText}</span>
+          </Button>
+        ) : null}
         {openPalette ? (
           <Button variant="ghost" size="icon" className="min-w-11 sm:hidden" aria-label="Search and commands" aria-haspopup="dialog" onClick={() => openPalette()}>
             <Search size={16} aria-hidden="true" />
@@ -174,6 +204,7 @@ export function FlowTopBar(props: FlowTopBarProps) {
         ) : null}
         <Button variant="ghost" size="icon" aria-label="Review settings" onClick={() => navigate("/settings/review")}><Settings2 size={16} aria-hidden="true" /></Button>
       </div>
+      {tools ? <NotesSheet tools={tools} open={tools.notesOpen} onOpenChange={tools.setNotesOpen} /> : null}
     </header>
   );
 }

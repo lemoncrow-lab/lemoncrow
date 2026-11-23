@@ -1,11 +1,12 @@
 /**
- * The Brief (`/r/<review>/brief`): the decision-first summary of one revision. What changed and how risky it reads, the
- * parts to read first, the decisions only a person can settle, the behavior observed before and after, and what nothing
- * has verified. Every line but the labeled Project history comes from the Review's plan for this revision; nothing here
- * calls a model on load.
+ * The Brief (`/r/<review>/brief`): the decision-first summary of one revision. What blocks it and what was checked,
+ * what changed and how risky it reads, the parts to read first, the decisions only a person can settle, the behavior
+ * observed before and after, and what nothing has verified. Every line but the labeled Project history comes from the
+ * Review's plan for this revision and data the Reader already loaded; nothing here calls a model on load.
  */
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { ChevronRight, ScanSearch } from "lucide-react";
+import { useLocation } from "react-router-dom";
 
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -15,16 +16,22 @@ import { blindSpotsModel } from "../blindSpots/blindSpotsModel";
 import { FLOW_RAIL_CLASS, FlowShortcutsDialog, FlowTopBar, repoNameOf, useShortcutsKey } from "../FlowTopBar";
 import { counterFor } from "../focus/focusModel";
 import { investigationContext, type InvestigationInput } from "../investigation/investigationContext";
+import { BRIEF_EVIDENCE_HASH, requiredCheckRows } from "../overview/blockersModel";
 import { Label } from "../overview/OverviewParts";
 import { partName, partSlug, plural } from "../overview/overviewModel";
+import { RequiredCheckRow } from "../overview/ReviewBlockers";
 import { useFlowPaletteScreen } from "../palette/FlowPalette";
 import { partEntries, reviewPlace } from "../palette/partEntries";
 import ProjectHistory from "../ProjectHistory";
+import { DependencyReviewSummary, dependencyReviewRelevant } from "../ReviewFileSemantics";
 import { revisionName } from "../revisionLabel";
-import type { EvidenceRow, ReviewDecisionEventInput, ReviewOverview, ReviewProjection, ReviewProjectionDecision, ReviewTarget } from "../types";
+import type { EvidenceRow, ReviewArchitectureDelta, ReviewDecisionEventInput, ReviewDependencyProjection, ReviewOverview, ReviewProjection, ReviewProjectionDecision, ReviewTarget } from "../types";
 import { useReadingViewSwitch, useReviewFlowNavigation } from "../useReviewFlowNavigation";
 import BehaviorChanges, { type BehaviorHandlers } from "./BehaviorChanges";
 import { DecisionCard } from "./BriefDecisionCard";
+import BriefEvidence, { hasBriefEvidence } from "./BriefEvidence";
+import { aiReviewLine, architectureMoved, changeStatements, orderedChecks, orderedClaims, priorityLine, regressionLines } from "./briefModel";
+import BriefPriority from "./BriefPriority";
 import BriefSignals from "./BriefSignals";
 import BriefWorkspaceImpact, { workspaceImpactOf } from "./BriefWorkspaceImpact";
 import "../blindSpots/blindSpots.css";
@@ -44,6 +51,10 @@ export interface ReviewBriefScreenProps extends BehaviorHandlers {
   onDecision?: (key: string, input: ReviewDecisionEventInput) => Promise<void>;
   /** The change has a Map to walk, so the X-Ray is offered. */
   xrayAvailable?: boolean;
+  /** The package-level dependency review of this revision; null while it loads or where there is none. */
+  dependencies?: ReviewDependencyProjection | null;
+  /** The Reader's cached architecture read for this revision; absent for a tiny mechanical change. */
+  loadArchitecture?: () => Promise<ReviewArchitectureDelta | null>;
   onAsk?: (target: ReviewTarget) => void;
   onAskChange?: () => void;
   askPanel?: ReactNode;
@@ -51,10 +62,12 @@ export interface ReviewBriefScreenProps extends BehaviorHandlers {
 
 /** How many review-first parts the first screen names; the rest are one click away in All files. */
 const ATTENTION_LIMIT = 5;
+/** Package changes the Dependencies section lists; the rest are in the lockfile views. */
+const DEPENDENCY_LIMIT = 5;
 
-function Section({ title, testId, action, children }: { title: string; testId: string; action?: ReactNode; children: ReactNode }) {
+function Section({ title, testId, action, anchorRef, children }: { title: string; testId: string; action?: ReactNode; anchorRef?: Ref<HTMLElement>; children: ReactNode }) {
   return (
-    <section aria-label={title} className="rounded-lg border border-border bg-card" data-testid={testId}>
+    <section ref={anchorRef} tabIndex={anchorRef ? -1 : undefined} aria-label={title} className="rounded-lg border border-border bg-card focus:outline-none" data-testid={testId}>
       <div className="flex min-h-9 items-center justify-between gap-2 px-3 py-2">
         <Label>{title}</Label>
         {action}
@@ -145,6 +158,48 @@ export default function ReviewBriefScreen(props: ReviewBriefScreenProps) {
   const counts = summary?.headline?.counts
     || [plural(files, "file"), plural(targets.length, "part"), added + removed > 0 ? `+${added} −${removed}` : ""].filter(Boolean).join(" · ");
   const workspaceImpact = workspaceImpactOf(projection?.workspace_impact);
+  // The not-checked fact the Risk line already says keeps its command: how to check it is still worth a line.
+  const hiddenCommand = (summary?.facts ?? []).find((fact) => fact.kind === "unchecked" && fact.command && !facts.includes(fact))?.command ?? "";
+  const statements = useMemo(
+    () => changeStatements(summary?.statements, new Set([title, ...(summary?.facts ?? []).map((fact) => fact.text)])),
+    [summary, title],
+  );
+  const priority = useMemo(() => priorityLine(projection?.triage), [projection]);
+  const requiredChecks = useMemo(() => requiredCheckRows(projection), [projection]);
+  const known = useMemo(() => new Set(targets.map((target) => target.target_id)), [targets]);
+  const evidence = useMemo(() => ({
+    checks: orderedChecks(checks),
+    claims: orderedClaims(projection?.claims),
+    regressions: regressionLines(projection?.evaluation_timeline),
+    ai: aiReviewLine(projection?.ai_review),
+  }), [checks, projection]);
+  const showEvidence = hasBriefEvidence(evidence);
+  const failedChecks = evidence.checks.filter((row) => row.status === "FAIL").length;
+  const dependencies = dependencyReviewRelevant(props.dependencies) ? props.dependencies : null;
+
+  // The architecture read is the Reader's cached one for this revision; a failed read draws no line.
+  const loadArchitecture = props.loadArchitecture;
+  const [architecture, setArchitecture] = useState<{ from: () => Promise<ReviewArchitectureDelta | null>; delta: ReviewArchitectureDelta | null } | null>(null);
+  useEffect(() => {
+    if (!loadArchitecture) return;
+    let live = true;
+    loadArchitecture().then((delta) => { if (live) setArchitecture({ from: loadArchitecture, delta }); }, () => undefined);
+    return () => { live = false; };
+  }, [loadArchitecture]);
+  const moved = architecture && architecture.from === loadArchitecture ? architectureMoved(architecture.delta) : null;
+
+  const evidenceRef = useRef<HTMLElement>(null);
+  const inspectEvidence = useCallback(() => {
+    const node = evidenceRef.current;
+    node?.scrollIntoView?.({ block: "start" });
+    node?.focus({ preventScroll: true });
+  }, []);
+  const location = useLocation();
+  const projectionLoaded = projection !== null;
+  useEffect(() => {
+    if (location.hash === BRIEF_EVIDENCE_HASH && projectionLoaded) inspectEvidence();
+  }, [inspectEvidence, location.hash, projectionLoaded]);
+  const openXRay = () => goTo({ kind: "xray", at: "" });
 
   return (
     <>
@@ -177,18 +232,63 @@ export default function ReviewBriefScreen(props: ReviewBriefScreenProps) {
                 </Label>
                 <h1 className="text-title font-semibold text-foreground" data-testid="brief-title">{title || "Review this change"}</h1>
                 <p className="text-meta text-muted-foreground" data-testid="brief-size">{counts}</p>
+                {priority ? <BriefPriority line={priority} /> : null}
                 {summary?.risk ? <BriefSignals risk={summary.risk} targets={targets} onOpenTarget={openTarget} /> : null}
-                {facts.length > 0 ? (
+                {statements ? (
+                  <div className="flex flex-col gap-0.5" data-testid="brief-statements">
+                    {statements.label ? <span className="text-meta text-muted-foreground" data-testid="brief-statements-origin">{statements.label}</span> : null}
+                    <ul className="flex flex-col gap-0.5 text-caption text-foreground">
+                      {statements.texts.map((text) => <li key={text}>{text}</li>)}
+                    </ul>
+                  </div>
+                ) : null}
+                {facts.length > 0 || hiddenCommand ? (
                   <ul className="flex flex-col gap-0.5 text-caption" data-testid="brief-change-facts">
-                    {facts.map((fact) => <li key={fact.text} className={fact.kind === "unchecked" ? "text-p1" : "text-foreground"}>{fact.text}</li>)}
+                    {facts.map((fact) => (
+                      <li key={fact.text} className={fact.kind === "unchecked" ? "text-p1" : "text-foreground"}>
+                        {fact.text}
+                        {fact.command ? <>{" · run "}<code className="rounded-sm bg-muted/70 px-1 font-mono text-subtle" data-testid="brief-check-command">{fact.command}</code></> : null}
+                      </li>
+                    ))}
+                    {hiddenCommand ? (
+                      <li className="text-p1">{"To check it, run "}<code className="rounded-sm bg-muted/70 px-1 font-mono text-subtle" data-testid="brief-check-command">{hiddenCommand}</code></li>
+                    ) : null}
                   </ul>
                 ) : null}
-                {props.xrayAvailable ? (
-                  <Button variant="outline" size="sm" className="self-start" data-testid="brief-open-xray" onClick={() => goTo({ kind: "xray", at: "" })}>
+                {moved ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption" data-testid="brief-architecture">
+                    <span className="font-medium text-foreground">Architecture moved</span>
+                    {moved.length > 0 ? <span className="min-w-0 text-muted-foreground">{moved.join(" · ")}</span> : null}
+                    {props.xrayAvailable ? (
+                      <Button variant="outline" size="compact" data-testid="brief-open-xray" onClick={openXRay}>
+                        <ScanSearch size={14} aria-hidden="true" /> X-Ray
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="compact" data-testid="brief-open-map" onClick={() => goTo({ kind: "map", lens: "data-path", view: "changes" })}>Map</Button>
+                    )}
+                  </div>
+                ) : props.xrayAvailable ? (
+                  <Button variant="outline" size="sm" className="self-start" data-testid="brief-open-xray" onClick={openXRay}>
                     <ScanSearch size={16} aria-hidden="true" /> X-Ray
                   </Button>
                 ) : null}
               </div>
+
+              {requiredChecks.length > 0 ? (
+                <Section title={`Blockers · ${requiredChecks.length}`} testId="brief-blockers">
+                  {requiredChecks.map((row) => (
+                    <div key={row.id} className="rounded-md border border-p0-line px-2.5 py-2">
+                      <RequiredCheckRow row={row} testId="brief-required-check" onInspectEvidence={showEvidence ? inspectEvidence : undefined} />
+                    </div>
+                  ))}
+                </Section>
+              ) : null}
+
+              {showEvidence ? (
+                <Section title="Evidence" testId="brief-evidence" anchorRef={evidenceRef} action={failedChecks > 0 ? <Badge tone="p0">{`${failedChecks} failed`}</Badge> : undefined}>
+                  <BriefEvidence {...evidence} known={known} onOpenTarget={openTarget} />
+                </Section>
+              ) : null}
 
               {attention.length > 0 ? (
                 <Section title={`Read first · ${plural(attention.length, "part")}`} testId="brief-attention">
@@ -261,6 +361,12 @@ export default function ReviewBriefScreen(props: ReviewBriefScreenProps) {
                   </p>
                 ) : null}
               </Section>
+
+              {dependencies ? (
+                <Section title={dependencies.summary.semantic_changes > 0 ? `Dependencies · ${dependencies.summary.semantic_changes}` : "Dependencies"} testId="brief-dependencies">
+                  <DependencyReviewSummary review={dependencies} limit={DEPENDENCY_LIMIT} onOpenTarget={openTarget} />
+                </Section>
+              ) : null}
 
               <Section title={blindSpots.counts.known > 0 ? `Blind spots · ${plural(blindSpots.counts.known, "area")} to check` : "Blind spots"} testId="brief-blind-spots">
                 <BlindSpots

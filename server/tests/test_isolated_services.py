@@ -235,6 +235,23 @@ def test_a_forwarded_request_carries_the_principal_and_never_the_credentials(tmp
     asyncio.run(exercise())
 
 
+def test_a_body_the_agent_guard_read_is_forwarded_intact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow_server_core import local_app
+
+    monkeypatch.setattr(local_app, "peer_agent_host", lambda _transport: "claude")
+    body = json.dumps({"finding_disposition": "fixed", "actor": "agent", "agent_host": "claude"})
+
+    async def exercise() -> None:
+        services = _echo_services()
+        async with _core(tmp_path, services) as (url, _state, auth), ClientSession() as client:
+            await _ready(services)
+            answered = await client.patch(f"{url}/api/annotations/ann-1", headers=auth, data=body)
+            assert answered.status == 200, await answered.text()
+            assert (await answered.json())["body"] == body
+
+    asyncio.run(exercise())
+
+
 def test_a_streamed_response_arrives_chunk_by_chunk_and_a_client_that_leaves_is_felt_upstream(
     tmp_path: Path,
 ) -> None:

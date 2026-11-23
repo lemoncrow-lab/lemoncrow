@@ -6,6 +6,16 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-23
+
+### Added
+
+- **Automatic review of an agent's pull request.** When Claude Code opens a pull request, lc review starts a review in the chat, posts the findings on the pull request as one numbered review, and answers each decision on its own comment: "fixed in <commit>; tests pass" or "skipped, with the author's OK", then resolves the thread. The agent fixes the findings it agrees with and asks before skipping one; its decisions are recorded as the agent's, never the author's. `lc review finding N fixed --run "<tests>"` marks a finding fixed only if the tests pass on the pull request's head. A code review without a pull request stays in the chat.
+
+### Improved
+
+- **Review Reader.** A top bar with a revision menu, a Notes list and a Back to Code link; one state line that says why a Review is read-only; Fix opens its sheet; corrections in the command palette; Classic parity on Welcome back, Map, X-Ray, keys and Home; and blockers, evidence, priority, dependencies and merge readiness restored from the Classic Brief.
+
 ## [0.8.3] - 2026-11-23
 
 ### Removed

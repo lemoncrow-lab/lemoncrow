@@ -110,12 +110,22 @@
         ]
       },
       {
-        "matcher": "ReportFindings",
+        "matcher": "ReportFindings|Skill",
         "hooks": [
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/review_findings.py\"",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|mcp__.*__bash|mcp__.*__create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/review_pr_opened.py\"",
+            "timeout": 10
           }
         ]
       },

@@ -25,9 +25,11 @@ from .local_browser_auth import LOCAL_BROWSER_SESSION_HEADER
 from .service_process import ServiceEndpoint, ServiceProcess
 from .service_protocol import HEADER_PRINCIPAL, HEADER_SERVICE_TOKEN, PRINCIPAL_KEY, encode_principal
 
-__all__ = ["LocalServices", "ServiceUpstream"]
+__all__ = ["READ_BODY_KEY", "LocalServices", "ServiceUpstream"]
 
 _LOG: Final[logging.Logger] = logging.getLogger("lemoncrow.server.services")
+#: A core handler that read a request's body before forwarding it leaves the bytes here: the stream is spent.
+READ_BODY_KEY: Final[web.RequestKey[bytes]] = web.RequestKey("lemoncrow_read_body", bytes)
 
 _HOP_HEADERS: Final[frozenset[str]] = frozenset(
     {
@@ -140,7 +142,10 @@ class ServiceUpstream:
 
     async def _exchange(self, request: web.Request, endpoint: ServiceEndpoint) -> web.StreamResponse:
         url = endpoint.url + request.rel_url.raw_path_qs
-        data = request.content.iter_chunked(64 * 1024) if request.body_exists else None
+        read = request.get(READ_BODY_KEY)
+        data: Any = (
+            read if read is not None else request.content.iter_chunked(64 * 1024) if request.body_exists else None
+        )
         try:
             upstream = await self._client().request(
                 request.method,

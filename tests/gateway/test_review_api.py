@@ -8147,6 +8147,138 @@ def test_ai_finding_fixed_requires_current_snapshot_evidence(workspace: Workspac
     assert row["finding_disposition_evidence"] == [evidence.id]
 
 
+def _session_finding(workspace: Workspace, source_id: str, *, agent_host: str = "") -> Annotation:
+    """An AI finding on the changed line of ``src/session.py`` (line 11, ``return {"status": "invalid"}``)."""
+
+    revision = workspace.store.latest_revision(workspace.review_id)
+    assert revision is not None
+    targets = workspace.get(f"/api/reviews/{workspace.review_id}/targets").json()["targets"]
+    target = next(row for row in targets if row["path"] == "src/session.py")
+    return workspace.store.add_annotation(
+        Annotation(
+            id="",
+            review_id=workspace.review_id,
+            revision_id=revision.id,
+            anchor=AnnotationAnchor(
+                path="src/session.py", side="new", start_line=11, end_line=11, unit_key=target["unit_key"]
+            ),
+            body="A missing record is reported as invalid, not expired.",
+            title="Wrong status",
+            created_by=agent_host or "LemonCrow AI Review",
+            created_by_actor="agent",
+            source="ai_review",
+            source_id=source_id,
+            agent_host=agent_host,
+            finding_disposition="open",
+        )
+    )
+
+
+def _listed(workspace: Workspace, annotation_id: str) -> dict[str, Any]:
+    rows = workspace.get(f"/api/reviews/{workspace.review_id}/annotations").json()["annotations"]
+    return next(row for row in rows if row["id"] == annotation_id)
+
+
+def test_a_finding_decision_says_whether_the_reviewer_or_the_agent_made_it(workspace: Workspace) -> None:
+    finding = _session_finding(workspace, "finding-actor-1", agent_host="codex")
+    url = f"/api/annotations/{finding.id}"
+
+    # No actor is the reviewer, as before.
+    by_reviewer = workspace.patch(
+        url, json={"finding_disposition": "dismissed", "finding_disposition_reason": "incorrect"}
+    )
+    assert by_reviewer.status_code == 200, by_reviewer.text
+    row = by_reviewer.json()["annotation"]
+    assert (row["finding_disposition_actor"], row["finding_disposition_agent_host"]) == ("human", "")
+    assert workspace.store.list_annotation_versions(finding.id)[-1].changed_by_actor == "human"
+
+    by_agent = workspace.patch(
+        url, json={"finding_disposition": "confirmed_by_reviewer", "actor": "agent", "agent_host": "claude"}
+    )
+    assert by_agent.status_code == 200, by_agent.text
+    row = by_agent.json()["annotation"]
+    assert (row["finding_disposition_actor"], row["finding_disposition_agent_host"]) == ("agent", "claude")
+    latest = workspace.store.list_annotation_versions(finding.id)[-1]
+    assert (latest.change_kind, latest.changed_by, latest.changed_by_actor) == (
+        "finding_disposition",
+        "claude",
+        "agent",
+    )
+    listed = _listed(workspace, finding.id)
+    assert (listed["finding_disposition_actor"], listed["finding_disposition_agent_host"]) == ("agent", "claude")
+
+    # An agent that names no host is the finding's own agent.
+    unnamed = workspace.patch(
+        url, json={"finding_disposition": "dismissed", "finding_disposition_reason": "duplicate", "actor": "agent"}
+    )
+    assert unnamed.status_code == 200, unnamed.text
+    assert unnamed.json()["annotation"]["finding_disposition_agent_host"] == "codex"
+    assert workspace.store.list_annotation_versions(finding.id)[-1].changed_by == "agent"
+    # Open again: nobody decided.
+    reopened = workspace.patch(url, json={"finding_disposition": "open", "actor": "agent", "agent_host": "claude"})
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["annotation"]["finding_disposition_actor"] == ""
+
+    for refused in (
+        {"actor": "mixed"},
+        {"actor": "Agent"},
+        {"agent_host": "claude"},
+        {"actor": "human", "agent_host": "claude"},
+        {"actor": "agent", "agent_host": "Claude Code"},
+    ):
+        response = workspace.patch(url, json={"finding_disposition": "confirmed_by_reviewer", **refused})
+        assert response.status_code == 422, refused
+    stored = workspace.store.get_annotation(finding.id)
+    assert stored is not None and stored.finding_disposition == "open"
+
+
+def test_a_finding_the_fix_moved_off_its_line_is_still_fixed_not_needs_revalidation(workspace: Workspace) -> None:
+    finding = _session_finding(workspace, "finding-orphaned-fix", agent_host="claude")
+    # The fix rewrites the finding's lines; Snapshot 2 no longer has them.
+    _write(
+        workspace.repo_root,
+        "src/session.py",
+        _CHANGED_SOURCE.replace(
+            '        if record is None:\n            return {"status": "invalid"}\n',
+            "        if not record:\n            raise LookupError(user)\n",
+        ),
+    )
+    refreshed = workspace.post(f"/api/reviews/{workspace.review_id}/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    second = workspace.store.latest_revision(workspace.review_id)
+    assert second is not None and second.id != finding.revision_id
+    workspace.store.publish_snapshot(workspace.review_id, second.id)
+    before = _listed(workspace, finding.id)
+    assert before["state"] in {"orphaned", "obsolete"}, before
+    assert before["finding_disposition"] == "superseded_stale"
+
+    evidence = workspace.store.add_evidence(
+        ReviewEvidence(
+            id="",
+            review_id=workspace.review_id,
+            revision_id=second.id,
+            kind="verification",
+            title="tests",
+            source="check",
+            verification_status="PASS",
+            detail="pytest -q exited 0",
+        )
+    )
+    fixed = workspace.patch(
+        f"/api/annotations/{finding.id}",
+        json={
+            "finding_disposition": "fixed",
+            "finding_disposition_evidence": [evidence.id],
+            "actor": "agent",
+            "agent_host": "claude",
+        },
+    )
+    assert fixed.status_code == 200, fixed.text
+    after = _listed(workspace, finding.id)
+    assert (after["finding_disposition"], after["finding_disposition_actor"]) == ("fixed", "agent")
+    assert after["finding_disposition_agent_host"] == "claude"
+
+
 def test_bulk_review_undo_uses_exact_server_events_and_preserves_newer_judgments(workspace: Workspace) -> None:
     _write(workspace.repo_root, "notes-a.txt", "first ordinary note\n")
     _write(workspace.repo_root, "notes-b.txt", "second ordinary note\n")

@@ -636,3 +636,49 @@ describe("Overview: Walkthrough", () => {
     expect(where()).toBe("/r/shop/walkthrough");
   });
 });
+
+describe("Overview: blockers on the first screen", () => {
+  const failing = { id: "check:required:tests", reason: "", title: "Required check failing: tests", detail: "pytest exited 1", item_ids: [], target_ids: [], actions: [], tier: 0 };
+  const withBlockers = {
+    ...projection,
+    actions: [failing, { ...failing, id: "decision:x", title: "Decide x" }, { ...failing, id: "part", title: "On a part", target_ids: ["can_view_order"] }],
+    triage: { dependency_changes: 0, severity_summary: { p0: 2, p1: 1, p2: 0 } },
+  } as unknown as ReviewProjection;
+  const readiness = (ready: boolean, blocker_count: number, state = "fail") => ({
+    ready, blocker_count, conditions: [{ id: "tests", label: "tests", state, category: "verification" }],
+  }) as unknown as ReviewOverviewScreenProps["readiness"];
+
+  it("lists a failing required check, and Inspect evidence opens the Brief's Evidence", () => {
+    show({ projection: withBlockers, briefAvailable: true });
+    const rows = within(screen.getByTestId("overview-required-checks")).getAllByTestId("overview-required-check");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Required check failing: tests");
+    expect(rows[0]).toHaveTextContent("pytest exited 1");
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Inspect evidence" }));
+    expect(where()).toBe("/r/shop/brief#evidence");
+    cleanup();
+    // No Brief to land on: the row stays, the button does not.
+    show({ projection: withBlockers });
+    expect(within(screen.getByTestId("overview-required-check")).queryByRole("button", { name: "Inspect evidence" })).toBeNull();
+  });
+
+  it("counts the findings and says whether it can merge", () => {
+    show({ projection: withBlockers, readiness: readiness(false, 2) });
+    expect(screen.getByTestId("overview-findings")).toHaveTextContent("Findings2 P0 · 1 P1");
+    expect(screen.getByTestId("overview-merge-readiness")).toHaveTextContent("Merge readinessChecks failed · 2 merge blockers");
+    cleanup();
+    show({ readiness: readiness(false, 1, "pending") });
+    expect(screen.getByTestId("overview-merge-readiness")).toHaveTextContent("Checks not run · 1 merge blocker");
+    cleanup();
+    show({ readiness: readiness(true, 0, "pass") });
+    expect(screen.getByTestId("overview-merge-readiness")).toHaveTextContent("Ready");
+  });
+
+  it("draws no blocker box, finding count or readiness line without data", () => {
+    show();
+    for (const id of ["overview-required-checks", "overview-findings", "overview-merge-readiness", "overview-status"]) expect(screen.queryByTestId(id), id).toBeNull();
+    cleanup();
+    show({ projection: { ...projection, triage: { dependency_changes: 0, severity_summary: { p0: 0, p1: 0, p2: 0 } } } as unknown as ReviewProjection, readiness: null });
+    expect(screen.queryByTestId("overview-status")).toBeNull();
+  });
+});

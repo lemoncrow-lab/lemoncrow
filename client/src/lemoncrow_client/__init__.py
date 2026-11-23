@@ -17,4 +17,4 @@ from typing import Final
 __all__ = ["CLIENT_NAME", "CLIENT_VERSION"]
 
 CLIENT_NAME: Final[str] = "lemoncrow-client"
-CLIENT_VERSION: Final[str] = "0.8.3"
+CLIENT_VERSION: Final[str] = "0.8.4"

@@ -35,7 +35,9 @@ import { countBlockedReason } from "../reviewFrictionCounts";
 import { SecondStrip } from "../second/SecondStrip";
 import { useSecondReviewer } from "../second/useSecondReviewer";
 import { RetractedRecordCard } from "../record/RetractedRecordCard";
-import type { Annotation, FeedbackExport, FeedbackPresentation, GitHubPublishPreview, ReviewClosure, ReviewOutcome, ReviewOutcomeKind, ReviewOverview, ReviewTarget } from "../types";
+import type { Annotation, FeedbackExport, FeedbackPresentation, GitHubPublishPreview, ReviewClosure, ReviewLandingReadiness, ReviewOutcome, ReviewOutcomeKind, ReviewOverview, ReviewTarget } from "../types";
+import { mergeReadinessLine } from "../overview/blockersModel";
+import { MergeReadinessLine } from "../overview/ReviewBlockers";
 import {
   githubEventFor, readWrapImportance, writeWrapImportance, wrapAnswers, wrapBackendOutcome, wrapBlockers, wrapChoiceLabel,
   wrapMismatch, wrapNoteAnchor, wrapNotesFor, wrapPartStatus, wrapSummaryLine,
@@ -79,6 +81,8 @@ export interface ReviewWrapScreenProps {
   onFeedbackPrepared?(prepared: FeedbackExport): void;
   onDownloadRecord?: () => Promise<string>;
   record?: FinishRecordFacts;
+  /** The server's merge readiness for this revision; null until it loads, and on a historical revision. */
+  readiness?: ReviewLandingReadiness | null;
   /** The screen Wrap up was opened from (SPEC 3.3): the back control reads "All files" after All files, else "Overview". */
   openedFrom?: "overview" | "all";
   /** "Ask about the change" (the top bar); absent when AI Ask is off. */
@@ -129,6 +133,7 @@ export function ReviewWrapScreen(props: ReviewWrapScreenProps) {
   const localSeen = coverageBlocks.filter((block) => Boolean(seen.ledger.rows[block.key])).length;
   const coverageRows = useMemo(() => coverageRecordRows(targets, seen.ledger), [targets, seen.ledger]);
   const answers = useMemo(() => wrapAnswers(targets), [targets]);
+  const readinessLine = mergeReadinessLine(props.readiness);
   // Home offers "Ready to wrap up" only once every part is answered; opening Wrap up early keeps the place you had.
   useSaveResume(apiReviewId, WRAP_RESUME, complete && !readOnly && answers.unanswered.length === 0 && answers.unconfirmedQuick.length === 0);
   // The note set is what the server would send now: the annotation IDs of its own preview, never a client-built list.
@@ -506,6 +511,7 @@ export function ReviewWrapScreen(props: ReviewWrapScreenProps) {
             <h1 ref={headingRef} tabIndex={-1} className="mt-2 text-title font-semibold focus:outline-none">Wrap up</h1>
             <p className="mt-2 text-label text-muted-foreground">{recorded ? "Your verdict was recorded. Check delivery status before assuming the notes were received." : answers.good + answers.needsChange > 0 ? "Here is what you decided. Nothing has been sent yet." : "Nothing decided yet. Nothing has been sent."}</p>
             {wrapSummaryLine(answers) && <p className="mt-1 text-meta text-muted-foreground" data-testid="wrap-summary">{wrapSummaryLine(answers)}</p>}
+            {readinessLine ? <div className="mt-1"><MergeReadinessLine line={readinessLine} testId="wrap-merge-readiness" /></div> : null}
           </div>
 
           <RetractedRecordCard reviewId={apiReviewId} revisionId={revisionId} revisionNumber={overview.revision.revision_number} repo={repoNameOf(overview)} />

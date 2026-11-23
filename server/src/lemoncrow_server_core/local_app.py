@@ -54,7 +54,13 @@ from .index.localfs import LocalFsGrant, LocalFsSource
 from .index.manifest import chunk_manifest, manifest_root
 from .index.query import IndexQuery
 from .limits import CancellationRegistry, ConcurrencyGate
-from .local_agent_guard import is_approval_decision, is_judgment_request, peer_agent_host
+from .local_agent_guard import (
+    is_approval_decision,
+    is_attributed_agent_decision,
+    is_judgment_request,
+    may_be_agent_decision,
+    peer_agent_host,
+)
 from .local_browser_auth import (
     LOCAL_BROWSER_CLAIM_PATH,
     LOCAL_BROWSER_PAIR_PATH,
@@ -89,7 +95,7 @@ from .service_protocol import (
     jsonable,
     token_matches,
 )
-from .service_proxy import LocalServices
+from .service_proxy import READ_BODY_KEY, LocalServices
 from .sessions import Session, SessionAccess, SessionRegistry
 from .workspace import ViewMaterializer
 
@@ -708,6 +714,12 @@ class LocalServerApp(CoreServerRoutes):
             # there. Upgrade: an OS peer-credential lookup.
             _LOG.debug("review judgment caller unresolved; allowing %s %s", request.method, request.path)
         elif host:
+            if may_be_agent_decision(request.method, request.path):
+                body = await request.read()
+                # Read once here; a proxied route forwards these bytes, the stream being spent.
+                request[READ_BODY_KEY] = body
+                if is_attributed_agent_decision(request.method, request.path, body, host):
+                    return
             raise ServerError(
                 ErrorCode.FORBIDDEN,
                 "this records human review judgment and cannot come from a coding-agent process "

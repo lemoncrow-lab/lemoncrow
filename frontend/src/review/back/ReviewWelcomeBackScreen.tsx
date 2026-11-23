@@ -19,8 +19,11 @@ import { useOnline } from "../useOnline";
 import { guardedQueueSend } from "../done/guardedSend";
 import { SignedRecordLine } from "../record/SignedRecordLine";
 import { readWrapImportance, wrapAnswers, wrapBlockers, wrapNotesFor, writeWrapImportance, type NoteImportance } from "../wrap/wrapModel";
-import type { Annotation, FeedbackExport, FeedbackPresentation, ReviewFlowSend, ReviewOutcome, ReviewOutcomeKind, ReviewOverview, ReviewRevisionComparison, ReviewTarget, ReviewVerificationProjection, RevisionInfo } from "../types";
-import { answeredHeadline, backCounter, confirmedAnswer, pairedChecks, passOnBothChecks, returnedParts } from "./welcomeBackModel";
+import type { Annotation, FeedbackExport, FeedbackPresentation, ReviewFlowSend, ReviewOutcome, ReviewOutcomeKind, ReviewOverview, ReviewRevisionComparison, ReviewSnapshotDelta, ReviewTarget, ReviewVerificationProjection, RevisionInfo } from "../types";
+import { BACK_LIST_LIMIT, answerWord, answeredHeadline, backCounter, carriedOver, confirmedAnswer, moreText, pairedChecks, passOnBothChecks, returnedParts } from "./welcomeBackModel";
+import { fetchFrontierNotes } from "./frontierApi";
+import { isMutableReview } from "../ReviewBaseIdentity";
+import { revisionName } from "../revisionLabel";
 import { SinceRevisionDiff } from "./SinceRevisionDiff";
 import { agentName, partName, plural } from "../overview/overviewModel";
 
@@ -48,6 +51,8 @@ interface Props {
   /** "Ask about the change" (the top bar); absent when AI Ask is off. */
   onAskChange?: () => void;
   askPanel?: React.ReactNode;
+  /** The projection's movement since this reviewer's last judged Snapshot (Kept and Removed); absent on the first. */
+  delta?: ReviewSnapshotDelta | null;
 }
 
 /** The Compare reader's source spec for a stored revision: its own `rr/` ref, else `rr/<id>`. */
@@ -65,7 +70,7 @@ type Loaded = {
 
 export function ReviewWelcomeBackScreen({
   reviewRef, apiReviewId, revision, overview, targets, readOnly, onDownloadRecord, onMark, onKeepOpen, canCompare = false,
-  annotations = [], complete = true, handoff, onQueue, onAskChange, askPanel,
+  annotations = [], complete = true, handoff, onQueue, onAskChange, askPanel, delta = null,
 }: Props) {
   const ai = useAiGate();
   const bindings = useFlowBindings();
@@ -116,6 +121,20 @@ export function ReviewWelcomeBackScreen({
     }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [apiReviewId, revision, revisionId, current]);
+
+  // How the base moved under a working-tree or staged review, in the server's words; shown only when it says something.
+  const frontierKey = `${apiReviewId}:${revisionId}`;
+  const askFrontier = current && !overview.historical && isMutableReview(overview.session.range_mode ?? "");
+  const [frontier, setFrontier] = useState<{ key: string; notes: string[] }>({ key: "", notes: [] });
+  useEffect(() => {
+    if (!askFrontier) return;
+    let live = true;
+    void fetchFrontierNotes(apiReviewId).then((notes) => { if (live) setFrontier({ key: frontierKey, notes }); });
+    return () => { live = false; };
+  }, [askFrontier, apiReviewId, frontierKey]);
+  const baseNotes = askFrontier && frontier.key === frontierKey ? frontier.notes : [];
+  const carried = useMemo(() => carriedOver(delta, targets, revisionId, overview.refreshed?.rebased ?? 0), [delta, targets, revisionId, overview.refreshed?.rebased]);
+  const discarded = overview.discarded ?? [];
 
   // Focus the heading when arriving from another screen, once; a cold load leaves focus where the browser put it.
   useEffect(() => { focusedRef.current = false; }, [revision]);
@@ -364,6 +383,32 @@ export function ReviewWelcomeBackScreen({
           </section> : <div className="rounded-lg border border-p2-line bg-p2-bg p-3 text-label" role="note" data-testid="back-banner">
             Your Revision {revision - 1} record stays on Revision {revision - 1}. Revision {revision} needs its own signed record.
           </div>}
+          {(carried || baseNotes.length > 0) && <section className="rounded-lg border border-border bg-card p-4" aria-label="Your earlier answers" data-testid="back-carried">
+            <h2 className="text-heading font-semibold">Since {carried ? revisionName(carried.since) : `Revision ${revision - 1}`}</h2>
+            {carried && <>
+              <p className="mt-1 text-label" data-testid="back-carried-counts">{[carried.kept > 0 ? `Kept ${carried.kept}` : "", carried.removed > 0 ? `Removed ${carried.removed}` : ""].filter(Boolean).join(" · ")}</p>
+              {carried.kept > 0 && <p className="mt-1 text-meta text-muted-foreground">{plural(carried.kept, "part")} you said looks good did not change, so the answer still applies.</p>}
+              {carried.rebased > 0 && <p className="mt-1 text-meta text-muted-foreground" data-testid="back-rebased">{carried.rebased} kept because only the base moved.</p>}
+              {carried.removed > 0 && <div className="mt-2" data-testid="back-removed">
+                <p className="text-meta text-muted-foreground">{plural(carried.removed, "part")} left the change, with any answer you gave {carried.removed === 1 ? "it" : "them"}.</p>
+                {carried.removedParts.length > 0 && <ul className="mt-1 space-y-0.5">
+                  {carried.removedParts.map((name) => <li key={name} className="break-all font-mono text-meta text-muted-foreground">{name}</li>)}
+                  {moreText(carried.removed, carried.removedParts.length) && <li className="text-meta text-muted-foreground">{moreText(carried.removed, carried.removedParts.length)}</li>}
+                </ul>}
+              </div>}
+            </>}
+            {baseNotes.length > 0 && <p className="mt-2 text-meta text-muted-foreground" role="note" data-testid="back-base-movement"><span className="font-medium text-foreground">Base movement</span> · {baseNotes.join(" · ")}</p>}
+          </section>}
+          {discarded.length > 0 && <section className="rounded-lg border border-p1-line bg-p1-bg p-4" aria-label="Past answers no longer apply" data-testid="back-discarded">
+            <h2 className="text-heading font-semibold">Past answers no longer apply · {discarded.length}</h2>
+            <ul className="mt-2 space-y-1.5">
+              {discarded.slice(0, BACK_LIST_LIMIT).map((item) => <li key={item.unit_key} className="text-meta" data-testid="back-discarded-row">
+                <span className="break-all font-mono">{item.label}</span>
+                <span className="text-muted-foreground">{[answerWord(item.state), item.reason].filter(Boolean).map((text) => ` · ${text}`).join("")}</span>
+              </li>)}
+              {moreText(discarded.length, BACK_LIST_LIMIT) && <li className="text-meta text-muted-foreground">{moreText(discarded.length, BACK_LIST_LIMIT)}</li>}
+            </ul>
+          </section>}
           {loading && <p role="status" className="text-label">Loading revision comparison and previous notes…</p>}
           {error && <p role="alert" className="rounded-lg border border-p1-line bg-p1-bg p-3 text-label">{error}</p>}
           {data && <>

@@ -1,5 +1,52 @@
 import { counterFor, type Counter } from "../focus/focusModel";
-import type { Annotation, ReviewRevisionComparison, ReviewTarget, ReviewVerificationProjection } from "../types";
+import type { Annotation, MarkState, ReviewRevisionComparison, ReviewSnapshotDelta, ReviewTarget, ReviewVerificationProjection } from "../types";
+
+/** The most rows a Welcome back list names; the rest are counted ("and N more"). */
+export const BACK_LIST_LIMIT = 25;
+
+export interface CarriedOver {
+  /** Zero-based stored revision the delta runs from. */
+  since: number;
+  /** Parts answered Looks good on an earlier revision whose answer still stands here. */
+  kept: number;
+  /** Answers kept because only the base moved under them (the refresh's `rebased`). */
+  rebased: number;
+  /** Parts that left the change; `removedParts` names at most 25 of them. */
+  removed: number;
+  removedParts: string[];
+}
+
+/**
+ * What the new revision did to this reviewer's earlier answers, from the projection's Snapshot delta (the Classic
+ * re-review ledger's Kept and Removed rows). Null when there is no delta or nothing was kept or removed.
+ */
+export function carriedOver(
+  delta: ReviewSnapshotDelta | null | undefined,
+  targets: readonly ReviewTarget[],
+  revisionId: string,
+  rebased = 0,
+): CarriedOver | null {
+  if (!delta) return null;
+  const added = new Set(delta.added);
+  const kept = targets.filter((target) => target.state === "reviewed" && !added.has(target.target_id)
+    && target.reviewed_revision_id !== "" && target.reviewed_revision_id !== revisionId).length;
+  const removed = Math.max(0, delta.removed);
+  const removedParts = (delta.removed_parts ?? []).slice(0, BACK_LIST_LIMIT);
+  if (kept + removed + rebased === 0) return null;
+  return { since: delta.since_snapshot, kept, rebased: Math.max(0, rebased), removed, removedParts };
+}
+
+/** A discarded answer as the reviewer gave it; "" for a state that is not an answer. */
+export function answerWord(state: MarkState): string {
+  if (state === "reviewed") return "Looks good";
+  if (state === "needs_changes") return "Needs a change";
+  return "";
+}
+
+/** "and N more" past the list limit, else "". */
+export function moreText(total: number, shown: number): string {
+  return total > shown ? `and ${total - shown} more` : "";
+}
 
 export interface ReturnedPart {
   target: ReviewTarget;

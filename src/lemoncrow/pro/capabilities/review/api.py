@@ -1553,6 +1553,33 @@ def _annotation_payload(annotation: Annotation) -> dict[str, Any]:
     }
 
 
+#: An agent host as a decision names it (``claude``, ``codex``): the same shape ``report-findings --host`` takes.
+_AGENT_HOST = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+def _finding_decider(annotation: Annotation, decided: Any | None) -> dict[str, str]:
+    """Who made an AI finding's current decision, from *decided*, its latest ``finding_disposition`` version.
+
+    ``finding_disposition_actor`` is ``human`` or ``agent``; empty when the finding is undecided, when that
+    version no longer holds the finding's disposition, or when it predates recorded actors. An agent's
+    decision names the host that made it (``changed_by``), else the host that produced the finding.
+    """
+
+    actor, host = "", ""
+    current = annotation.finding_disposition
+    if (
+        decided is not None
+        and current not in ("", "open")
+        and decided.finding_disposition == current
+        and decided.changed_by_actor in ("human", "agent")
+    ):
+        actor = str(decided.changed_by_actor)
+        if actor == "agent":
+            by = str(decided.changed_by or "")
+            host = by if by != "agent" and _AGENT_HOST.fullmatch(by) else annotation.agent_host
+    return {"finding_disposition_actor": actor, "finding_disposition_agent_host": host}
+
+
 def _activity_payload(event: Any) -> dict[str, Any]:
     try:
         detail = json.loads(event.detail_json) if event.detail_json else {}
@@ -3031,10 +3058,13 @@ def register_review_api(
         resolved = by_id.get(annotation.resolved_revision_id) if annotation.resolved_revision_id else None
 
         addressed_revision: ReviewRevision | None = None
+        decided: Any | None = None
         for version in store.list_annotation_versions(annotation.id) if versions is None else versions:
             candidate = by_id.get(version.revision_id)
             if candidate is None or candidate.revision_number > target.revision_number:
                 continue
+            if version.change_kind == "finding_disposition":
+                decided = version
             # Track actual author-response transitions, not every semantic
             # version that happens to carry the current author_response field.
             # A human resolve preserves "addressed" but must not claim the agent
@@ -3045,6 +3075,7 @@ def register_review_api(
                 addressed_revision = None
 
         payload = _annotation_payload(annotation)
+        payload.update(_finding_decider(annotation, decided))
         payload.update(
             {
                 "origin_revision_number": (_display_revision_number(origin) if origin is not None else None),
@@ -17995,6 +18026,19 @@ def register_review_api(
         if "state" in body or "finding_disposition" in body:
             _require_expected_revision(body, revision, action="changing this comment state")
         _require_saved_snapshot(revision)
+        # Who made this change: the reviewer, unless the caller says a coding agent did (`lc review finding`
+        # run in an agent's session). A missing or empty actor is the human's; nothing else is accepted.
+        raw_actor = body.get("actor")
+        if raw_actor not in (None, "", "human", "agent"):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="actor is human or agent")
+        actor: Literal["human", "agent"] = "agent" if raw_actor == "agent" else "human"
+        agent_host = str(body.get("agent_host") or "").strip()
+        if agent_host and (actor != "agent" or not _AGENT_HOST.fullmatch(agent_host)):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="agent_host goes with actor agent and names its host in lowercase, such as claude",
+            )
+        changed_by = (agent_host or "agent") if actor == "agent" else session.reviewer_id
         fields: dict[str, object] = {}
         if "body" in body:
             text = str(body.get("body") or "")
@@ -18100,8 +18144,8 @@ def register_review_api(
                         annotation_id,
                         AnnotationHistoryContext(
                             revision_id=revision.id,
-                            changed_by=session.reviewer_id,
-                            changed_by_actor="human",
+                            changed_by=changed_by,
+                            changed_by_actor=actor,
                             change_kind=("finding_disposition" if "finding_disposition" in fields else None),
                         ),
                         **fields,
@@ -18111,8 +18155,8 @@ def register_review_api(
                     annotation_id,
                     AnnotationHistoryContext(
                         revision_id=revision.id,
-                        changed_by=session.reviewer_id,
-                        changed_by_actor="human",
+                        changed_by=changed_by,
+                        changed_by_actor=actor,
                     ),
                     **fields,
                 )
@@ -18125,6 +18169,10 @@ def register_review_api(
             await asyncio.to_thread(_refresh_thread_summary, session, updated.id)
         await _enforce_armed_landing(session)
         payload = _annotation_payload(updated)
+        decisions = [
+            item for item in store.list_annotation_versions(updated.id) if item.change_kind == "finding_disposition"
+        ]
+        payload.update(_finding_decider(updated, decisions[-1] if decisions else None))
         _with_finding_severity(session, revision, (updated,), (payload,))
         return {"annotation": payload}
 

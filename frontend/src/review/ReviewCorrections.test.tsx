@@ -4,13 +4,15 @@
  * states, and expert actions reachable from the palette and the More menu.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 
 import AnnotationCard from "./AnnotationCard";
 import ReviewFixSheet from "./ReviewFixSheet";
-import { ReviewCorrectionsProvider, type ReviewCorrectionsContextValue } from "./reviewCorrections";
+import { FlowPaletteProvider, useFlowPaletteScreen } from "./palette/FlowPalette";
+import { ReviewCorrectionsHost, ReviewCorrectionsProvider, useReviewCorrections, type ReviewCorrectionsContextValue } from "./reviewCorrections";
 import { actionProvenance, correctionPaletteActions, latestActionBySubject } from "./reviewActionsModel";
 import type { ReviewActionAvailability, ReviewActionPreview, ReviewActionRecord, ReviewActionStatus } from "./reviewActionsApi";
 import type { Annotation } from "./types";
@@ -22,6 +24,10 @@ const actionsApi = vi.hoisted(() => ({
   cancelReviewAction: vi.fn(),
 }));
 vi.mock("./reviewActionsApi", () => actionsApi);
+vi.mock("./home/homeApi", () => {
+  const source = { load: vi.fn(async () => ({ rows: [], teamsSupported: false, truncated: false, queueSupported: false })), snooze: vi.fn(), terminal: true };
+  return { useHomeSource: () => source };
+});
 
 const EXACT = {
   tier: "exact_session" as const,
@@ -348,5 +354,75 @@ describe("expert correction actions", () => {
     entries[0].run();
     expect(open).toHaveBeenCalledWith("revert", ["outcome:deployment:production"]);
     expect(correctionPaletteActions(CATALOG, open).some((item) => /Revert|Fix forward/.test(item.label))).toBe(false);
+  });
+});
+
+describe("the Reader's corrections host", () => {
+  const LISTING = { revision_id: "rrv-1", actions: [], catalog: CATALOG, fix_all_limit: 20 };
+
+  // The Reader's own wiring: one useReviewCorrections, landed by ReviewCorrectionsHost around the flow screens.
+  function Reader({ readOnly = false, children }: { readOnly?: boolean; children: ReactNode }) {
+    const corrections = useReviewCorrections({ reviewId: "review-1", revisionId: "rrv-1", enabled: true, readOnly });
+    return <ReviewCorrectionsHost corrections={corrections}>{children}</ReviewCorrectionsHost>;
+  }
+
+  function FlowScreen() {
+    useFlowPaletteScreen({ context: { screen: "overview", actions: {} } });
+    return <p>Overview</p>;
+  }
+
+  async function openPalette(readOnly = false) {
+    const user = userEvent.setup();
+    render(<MemoryRouter><FlowPaletteProvider><Reader readOnly={readOnly}><FlowScreen /></Reader></FlowPaletteProvider></MemoryRouter>);
+    await waitFor(() => expect(actionsApi.fetchReviewActions).toHaveBeenCalledWith("review-1"));
+    await act(async () => { await Promise.resolve(); });
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByTestId("flow-palette");
+    const option = (label: string) => within(palette).getAllByRole("option").find((item) => item.getAttribute("data-pal-item") === label);
+    return { user, palette, option };
+  }
+
+  it("Fix on a finding card opens the preview sheet, which asks before anything is sent", async () => {
+    actionsApi.fetchReviewActions.mockResolvedValue(LISTING);
+    actionsApi.previewReviewAction.mockResolvedValue(previewOf({ kind: "fix", label: "Fix" }));
+    const comments = [finding()];
+    render(
+      <Reader>
+        <AnnotationCard comments={comments} all={comments} label="Comment" composing={false} busy={false} onSubmit={vi.fn()} onCancel={vi.fn()} onResolve={vi.fn()} onReopen={vi.fn()} onFindingDisposition={vi.fn()} />
+      </Reader>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Fix" }));
+    expect(await screen.findByRole("dialog", { name: "Fix" })).toBeInTheDocument();
+    expect(actionsApi.previewReviewAction).toHaveBeenCalledWith("review-1", "rrv-1", expect.objectContaining({ kind: "fix", subject_ids: ["ann-ai"] }));
+    expect(await screen.findByRole("button", { name: "Send to Claude s-claude" })).toBeInTheDocument();
+    expect(actionsApi.startReviewAction).not.toHaveBeenCalled();
+  });
+
+  it("the ⌘K palette lists the correction actions; an unavailable one says why and does nothing, an available one opens its sheet", async () => {
+    actionsApi.fetchReviewActions.mockResolvedValue(LISTING);
+    actionsApi.previewReviewAction.mockResolvedValue(previewOf());
+    const { user, palette, option } = await openPalette();
+    expect(within(palette).getByRole("group", { name: "In this review" })).toBeInTheDocument();
+    for (const label of ["Fix all open findings (2)…", "Fix CI failure…", "Resolve merge conflicts…", "Request split…"]) expect(option(label)).toBeTruthy();
+    const ci = option("Fix CI failure…")!;
+    expect(ci).toHaveAttribute("aria-disabled", "true");
+    expect(ci).toHaveTextContent("no failing check on this revision");
+    await user.click(ci);
+    expect(screen.getByTestId("flow-palette")).toBeInTheDocument();
+    expect(actionsApi.previewReviewAction).not.toHaveBeenCalled();
+    await user.click(option("Fix all open findings (2)…")!);
+    expect(await screen.findByRole("dialog", { name: "Fix all" })).toBeInTheDocument();
+    expect(actionsApi.previewReviewAction).toHaveBeenCalledWith("review-1", "rrv-1", expect.objectContaining({ kind: "fix_all", subject_ids: ["ann-a", "ann-b"] }));
+  });
+
+  it("a read-only revision keeps the actions listed but off, and says where they work", async () => {
+    actionsApi.fetchReviewActions.mockResolvedValue(LISTING);
+    const { user, option } = await openPalette(true);
+    const fixAll = option("Fix all open findings (2)…")!;
+    expect(fixAll).toHaveAttribute("aria-disabled", "true");
+    expect(fixAll).toHaveTextContent("Available on the current, writable revision");
+    expect(option("Request split…")).toHaveAttribute("aria-disabled", "true");
+    await user.click(fixAll);
+    expect(actionsApi.previewReviewAction).not.toHaveBeenCalled();
   });
 });

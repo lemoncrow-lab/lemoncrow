@@ -2876,6 +2876,10 @@ export interface Annotation {
   finding_disposition_revision_id?: string;
   finding_disposition_reviewer_id?: string;
   finding_disposition_evidence?: string[];
+  /** Who made the current decision: "human", "agent" (a coding agent's `lc review finding`), or "" when unknown. */
+  finding_disposition_actor?: "human" | "agent" | "";
+  /** The agent host that decided (`claude`, `codex`), when an agent did. */
+  finding_disposition_agent_host?: string;
   author_response?: "none" | "addressed";
   author_response_source_id?: string;
   author_response_at?: string;

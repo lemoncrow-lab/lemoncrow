@@ -629,8 +629,13 @@ def _capture(
     title: str = "",
     delta_cursor: DeltaCursor | None = None,
     with_workspace: bool = False,
+    source_ref: str = "",
 ) -> tuple[dict[str, object], str]:
-    """``with_workspace``: a person asked for this Review, so the server may scan the repositories around it."""
+    """``with_workspace``: a person asked for this Review, so the server may scan the repositories around it.
+
+    ``source_ref`` names the durable Review explicitly (a pull request's ``github:owner/repo#N``); default: the
+    range's own.
+    """
 
     config.review_state_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="capture-", dir=config.review_state_dir) as temporary:
@@ -761,7 +766,7 @@ def _capture(
             response = dict(
                 remote.capture_from_views(
                     repo_id=repo_id,
-                    source_ref=rng.source_ref(config.repo_root),
+                    source_ref=source_ref or rng.source_ref(config.repo_root),
                     title=title or rng.title,
                     base_view_id=str(base_opened.get("view_id") or ""),
                     base_view_revision=int(base_opened.get("view_revision") or 0),
@@ -842,6 +847,7 @@ def _help_text() -> str:
         "  lc review approve          Same as send --verdict approve",
         "  lc review undo             Take back the send that is still inside its undo window",
         "  lc review verify RECORD    Check a signed record, a file or a link. Exit 0 valid, 1 not valid, 2 unsigned, 3 key not allowed, 4 code changed, 5 retracted",
+        "  lc review finding [N] [confirmed|dismissed|fixed|open]   The last code review's numbered findings, and your answer",
         "  lc review --mark PATH      Record PATH's parts as reviewed (a person; refused in an agent)",
         "  lc review --comment TEXT --on PATH:L10   Comment on a line (a person; refused in an agent)",
         "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
@@ -991,6 +997,10 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         return 0
     if arguments and arguments[0] == "status":
         return _status_main(arguments[1:], sink)
+    if arguments and arguments[0] == "finding":
+        from .review_findings import finding_main
+
+        return finding_main(arguments[1:], sink=sink)
     from .review_verbs import VERBS, verbs_main
 
     if arguments and arguments[0] in VERBS:

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiohttp import ClientSession
+from lemoncrow_server_core import local_app
 from lemoncrow_server_core.bootstrap import build_local_server
 from lemoncrow_server_core.config import LocalServerConfig
 from lemoncrow_server_core.local_agent_guard import (
@@ -24,9 +25,80 @@ from lemoncrow_server_core.local_agent_guard import (
     ProcessRecord,
     agent_host_in_ancestry,
     caller_agent_host,
+    is_attributed_agent_decision,
     is_judgment_request,
     peer_agent_host,
 )
+
+DECISION = {
+    "finding_disposition": "fixed",
+    "finding_disposition_reason": "",
+    "finding_disposition_evidence": ["ev-1"],
+    "expected_revision_id": "rv-9",
+    "actor": "agent",
+    "agent_host": "claude",
+}
+
+
+def test_only_an_agents_own_attributed_finding_decision_passes() -> None:
+    def passes(body: object, *, host: str = "claude", method: str = "PATCH", path: str = "/api/annotations/a") -> bool:
+        return is_attributed_agent_decision(method, path, json.dumps(body).encode(), host)
+
+    assert passes(DECISION)
+    assert passes({**DECISION, "finding_disposition": "dismissed", "finding_disposition_reason": "incorrect"})
+    assert passes({**DECISION, "finding_disposition": "open"})
+    # Confirming is the reviewer's call; a decision not named as the agent's, or named as another agent's,
+    # claims the reviewer's judgment.
+    assert not passes({**DECISION, "finding_disposition": "confirmed_by_reviewer"})
+    assert not passes({key: value for key, value in DECISION.items() if key != "actor"})
+    assert not passes({**DECISION, "actor": "human"})
+    assert not passes(DECISION, host="codex")
+    assert not passes(DECISION, host="")
+    assert not passes(DECISION, host=UNIDENTIFIED_CALLER)
+    # Only the decision: no body edit, no comment state, on one annotation, by PATCH.
+    assert not passes({**DECISION, "body": "rewritten"})
+    assert not passes({**DECISION, "state": "resolved"})
+    assert not passes(DECISION, method="POST", path="/api/reviews/rv-1/annotations")
+    assert not passes(DECISION, path="/api/annotations/a/extra")
+    assert not passes([DECISION])
+    assert not is_attributed_agent_decision("PATCH", "/api/annotations/a", b"not json", "claude")
+
+
+def test_an_agents_attributed_decision_reaches_the_review_api_with_its_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asyncio.run(_exercise_decision(tmp_path, monkeypatch))
+
+
+async def _exercise_decision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    token_file = tmp_path / "token"
+    server, _state = build_local_server(
+        LocalServerConfig(listen_port=0, state_root=tmp_path / "state", token_file=token_file, allow_local_fs=False)
+    )
+    token = token_file.read_text(encoding="utf-8").strip()
+    url = await server.start()
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with ClientSession() as client:
+
+            async def patch(body: dict[str, object], host: str) -> tuple[int, str]:
+                monkeypatch.setattr(local_app, "peer_agent_host", lambda _transport: host)
+                answer = await client.patch(f"{url}/api/annotations/ann-missing", json=body, headers=headers)
+                return answer.status, await answer.text()
+
+            person = await patch(DECISION, "")
+            agent = await patch(DECISION, "claude")
+            # Past the guard, the Review API answers the agent exactly as it answers a person.
+            assert agent[0] != 403 and agent == person, (agent, person)
+            for refused in (
+                {**DECISION, "finding_disposition": "confirmed_by_reviewer"},
+                {key: value for key, value in DECISION.items() if key not in {"actor", "agent_host"}},
+                {**DECISION, "agent_host": "codex"},
+            ):
+                status, text = await patch(refused, "claude")
+                assert status == 403 and "coding-agent process (claude)" in text, refused
+    finally:
+        await server.stop()
 
 
 @pytest.mark.parametrize(

@@ -282,3 +282,89 @@ describe("the Map does not wait for the comparison", () => {
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("view=changes"));
   });
 });
+
+describe("the Map while the code index still builds", () => {
+  const withGraph = (state: string) => {
+    const base = payload.current as ReviewMapPayload;
+    return { ...base, context: { ...base.context, readiness: { graph: { state } } } } as ReviewMapPayload;
+  };
+  const calls = () => vi.mocked(fetchHistoricalReviewMap).mock.calls.length;
+  const flush = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const mount = async () => {
+    render(
+      <MemoryRouter initialEntries={["/r/shop/map"]}>
+        <ReviewFlowMapScreen reviewRef="shop" apiReviewId="review-1" overview={OVERVIEW} targets={SMALL} lens="dependencies" view="changes" />
+      </MemoryRouter>,
+    );
+    await flush(0);
+  };
+  const DELAYS = [500, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    payload.current = withGraph("building");
+    vi.mocked(fetchHistoricalReviewMap).mockClear();
+  });
+  afterEach(() => { vi.useRealTimers(); vi.mocked(fetchHistoricalReviewMap).mockReset().mockImplementation(async () => payload.current as ReviewMapPayload); });
+
+  it("says so, reads again with backoff 14 times, then stops and offers Check again", async () => {
+    await mount();
+    expect(screen.getByTestId("map-indexing-note")).toHaveTextContent("Still indexing the surrounding code, so some connections may be missing. Checking again…");
+    const start = calls();
+    for (const [index, delay] of DELAYS.entries()) {
+      await flush(delay - 1);
+      expect(calls(), `refresh ${index + 1} waits ${delay} ms`).toBe(start + index);
+      await flush(1);
+      expect(calls(), `refresh ${index + 1}`).toBe(start + index + 1);
+    }
+    // The same comparison read the screen holds.
+    expect(fetchHistoricalReviewMap).toHaveBeenLastCalledWith("review-1", 1, "architecture", "", "architecture_delta");
+    // Past the bound: no 15th read, however long the screen stays open.
+    await flush(10 * 60_000);
+    expect(calls()).toBe(start + DELAYS.length);
+    const note = screen.getByTestId("map-indexing-note");
+    expect(note).toHaveAttribute("data-stopped", "true");
+    expect(note).not.toHaveTextContent("Checking again");
+    // Check again starts one more bounded round from the first wait.
+    fireEvent.click(within(note).getByRole("button", { name: "Check again" }));
+    await flush(500);
+    expect(calls()).toBe(start + DELAYS.length + 1);
+    expect(screen.getByTestId("map-indexing-note")).toHaveTextContent("Checking again…");
+  });
+
+  it("keeps polling through failed reads, still bounded", async () => {
+    await mount();
+    const start = calls();
+    vi.mocked(fetchHistoricalReviewMap).mockImplementation(async () => { throw new Error("offline"); });
+    // One read settles per act scope, so the screen schedules the next wait after it.
+    for (const delay of DELAYS) await flush(delay);
+    expect(calls()).toBe(start + DELAYS.length);
+    await flush(10 * 60_000);
+    expect(calls()).toBe(start + DELAYS.length);
+    expect(screen.queryByText(/could not load/)).toBeNull();
+    expect(screen.getByTestId("map-indexing-note")).toHaveAttribute("data-stopped", "true");
+  });
+
+  it("stops and drops the note once the index is ready", async () => {
+    await mount();
+    const start = calls();
+    payload.current = withGraph("ready");
+    await flush(500);
+    expect(calls()).toBe(start + 1);
+    expect(screen.queryByTestId("map-indexing-note")).toBeNull();
+    await flush(10 * 60_000);
+    expect(calls()).toBe(start + 1);
+  });
+
+  it("shows no note and never polls when the graph is ready or degraded", async () => {
+    for (const state of ["ready", "degraded"]) {
+      payload.current = withGraph(state);
+      vi.mocked(fetchHistoricalReviewMap).mockClear();
+      await mount();
+      const start = calls();
+      expect(screen.queryByTestId("map-indexing-note")).toBeNull();
+      await flush(60_000);
+      expect(calls(), state).toBe(start);
+      cleanup();
+    }
+  });
+});

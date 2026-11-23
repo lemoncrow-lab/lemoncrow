@@ -14,7 +14,7 @@ import pytest
 
 from lemoncrow.core.capabilities.session_comment_capture import capture_reported_findings, message_edit_scopes
 from lemoncrow.core.foundation.paths import session_dir
-from lemoncrow.pro.capabilities.review import hosted, reported_findings
+from lemoncrow.pro.capabilities.review import hosted, pr_trigger, reported_findings
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.session_comments import SessionCommentIngestor
@@ -60,6 +60,44 @@ def _report(repo: Path, *findings: dict[str, Any], tool_use_id: str = "toolu_1")
         "tool_use_id": tool_use_id,
         "tool_input": {"findings": list(findings)},
     }
+
+
+PR_URL = "https://github.com/acme/shop/pull/12"
+
+
+def _pull(repo: Path, head: str = "0" * 40) -> pr_trigger.PendingPullRequest:
+    """The pull request this session just opened, as ``claim_pull_request`` hands it to a report."""
+    return pr_trigger.PendingPullRequest(
+        host="claude",
+        session_id=SID,
+        url=PR_URL,
+        slug="acme/shop",
+        number=12,
+        github_host="github.com",
+        repo_root=str(repo),
+        base_ref="main",
+        head_sha=head,
+        title="Fix price",
+        created_at="2026-11-23T00:00:00+00:00",
+    )
+
+
+def test_a_finding_reported_without_a_short_summary_is_titled_by_its_first_sentence() -> None:
+    from lemoncrow.core.capabilities.session_comment_capture import reported_findings_rows
+
+    words = "Windows are cut at raw code-point offsets, so a snippet can start or end in the middle of a grapheme"
+    rows = reported_findings_rows(
+        [
+            {"summary": "The last full window is always dropped. `range(0, n - size)` leaves out its stop value."},
+            {"summary": f"{words} cluster and render as mojibake in every caller that slices it again"},
+            {"summary": "Whole text", "short_summary": "Given title"},
+        ]
+    )
+    titles = [row["title"] for row in rows]
+    assert titles[0] == "The last full window is always dropped."
+    # No sentence fits: whole words up to the limit, marked as cut.
+    assert titles[1] == f"{words} cluster and…"
+    assert titles[2] == "Given title"
 
 
 def test_findings_open_on_the_snapshot_they_name_without_another_capture(tmp_path: Path) -> None:
@@ -142,7 +180,7 @@ def test_a_finding_outside_the_change_stays_a_discussion_comment(tmp_path: Path)
     assert any(comment.title == "Elsewhere" and comment.revision_id == revision.id for comment in comments)
 
 
-def test_the_hook_path_captures_publishes_records_then_imports_before_naming_the_url(
+def test_the_worker_posts_captures_publishes_records_then_imports_before_naming_the_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo, root, store, session, revision = _change(tmp_path)
@@ -162,52 +200,44 @@ def test_the_hook_path_captures_publishes_records_then_imports_before_naming_the
             SessionCommentIngestor(store, root).sync(session)
         return {}
 
-    monkeypatch.setattr(hosted, "active_local_review_base", lambda *_args, **_kwargs: ("", ""))
+    def post(*_args: Any, **_kwargs: Any) -> Any:
+        calls.append(("post",))
+        return {"review_id": 77, "url": "", "marker": "", "error": ""}, {}
+
+    # The pull request's range is this checkout's working tree here: the Snapshot _change already took.
+    monkeypatch.setattr(
+        reported_findings, "pull_request_range", lambda repo, _pull: (resolve_rev_range(repo, working_tree=True), "")
+    )
+    monkeypatch.setattr(reported_findings, "post_pull_request_review", post)
     monkeypatch.setattr(hosted, "capture_server_review", capture)
     monkeypatch.setattr(hosted, "server_review_request", request)
+    report = {**_report(repo, PRICE), "pull_request": _pull(repo).to_wire()}
     hosted_config = SimpleNamespace(hosted=True)
     assert (
         reported_findings.record_reported_findings(
-            _report(repo, PRICE), host="claude", store_root=root, config=hosted_config  # type: ignore[arg-type]
+            report,
+            host="claude",
+            store_root=root,
+            config=hosted_config,  # type: ignore[arg-type]
         )
         is None
     )
     assert not calls
     result = reported_findings.record_reported_findings(
-        _report(repo, PRICE), host="claude", store_root=root, config=SimpleNamespace(hosted=False)  # type: ignore[arg-type]
+        report,
+        host="claude",
+        store_root=root,
+        config=SimpleNamespace(hosted=False),  # type: ignore[arg-type]
     )
     assert result is not None and result.revision_id == revision.id
     assert calls == [
+        ("post",),
         ("capture", "working_tree", True, False),
         ("POST", f"/api/reviews/{session.id}/revisions/0/publish"),
         ("GET", f"/api/reviews/{session.id}/annotations"),
     ]
     assert len(store.list_annotations(session.id)) == 1
     assert result.url == "http://127.0.0.1:1/r/token"
-
-
-def test_a_committed_change_is_captured_against_the_branch_review_like_a_bare_lc_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo, root, _store, _session, _revision = _change(tmp_path)
-    git = pygit2.Repository(str(repo))
-    frozen = str(git.head.target)
-    git.index.add_all()
-    git.index.write()
-    signature = pygit2.Signature("Tester", "tester@example.invalid")
-    git.create_commit("HEAD", signature, signature, "fix", git.index.write_tree(), [git.head.target])
-    ranges: list[Any] = []
-
-    def capture(_config: Any, _repo: Path, rng: Any, **_kwargs: Any) -> Any:
-        ranges.append(rng)
-        return SimpleNamespace(review_id="r", canonical_url="u", response={"revision": {}})
-
-    monkeypatch.setattr(hosted, "active_local_review_base", lambda *_args, **_kwargs: ("r", frozen))
-    monkeypatch.setattr(hosted, "capture_server_review", capture)
-    config = SimpleNamespace(hosted=False)
-    reported_findings.record_reported_findings(_report(repo), host="claude", store_root=root, config=config)  # type: ignore[arg-type]
-    [rng] = ranges
-    assert (rng.mode, rng.base_sha) == ("working_tree", frozen)
 
 
 def _hook() -> Any:
@@ -218,15 +248,18 @@ def _hook() -> Any:
     return module
 
 
-def _fire_and_forget(monkeypatch: pytest.MonkeyPatch, url: str | None) -> list[tuple[dict[str, Any], str, Path]]:
-    """The hook's two moves, recorded: name the URL, detach the worker. Capturing here fails the test."""
+def _fire_and_forget(
+    monkeypatch: pytest.MonkeyPatch, url: str | None, *, pull: Any = None
+) -> list[tuple[dict[str, Any], str, Path]]:
+    """The hook's moves, recorded: claim *pull*, name the URL, detach the worker. Capturing here fails the test."""
     spawned: list[tuple[dict[str, Any], str, Path]] = []
 
     def capture(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("the hook captured inline instead of detaching the worker")
 
+    monkeypatch.setattr(pr_trigger, "claim_pull_request", lambda *_args, **_kwargs: pull)
     monkeypatch.setattr(reported_findings, "record_reported_findings", capture)
-    monkeypatch.setattr(reported_findings, "branch_review_url", lambda *_args, **_kwargs: url)
+    monkeypatch.setattr(reported_findings, "pull_request_review_url", lambda *_args, **_kwargs: url)
     monkeypatch.setattr(
         reported_findings,
         "spawn_reported_findings",
@@ -239,7 +272,7 @@ def test_the_hook_is_wired_prints_the_review_url_and_fails_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     groups = json.loads((HOOKS / "hooks.json").read_text())["hooks"]["PostToolUse"]
-    [wired] = [group for group in groups if group.get("matcher") == "ReportFindings"]
+    [wired] = [group for group in groups if group.get("matcher") == "ReportFindings|Skill"]
     assert "hooks/review_findings.py" in wired["hooks"][0]["command"]
 
     assert wired["hooks"][0]["timeout"] <= 30
@@ -254,27 +287,36 @@ def test_the_hook_is_wired_prints_the_review_url_and_fails_open(
         assert hook.main() == 0
         return capsys.readouterr().out
 
-    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t")
-    assert run({"tool_name": "Bash", "tool_input": {"command": "ls"}}) == ""
+    pull = _pull(tmp_path)
     clean = {"tool_name": "ReportFindings", "tool_input": {"findings": []}, "cwd": str(tmp_path)}
-    message = json.loads(run(clean))["systemMessage"]
-    assert message == "lc review: 0 findings from Claude code review → http://127.0.0.1:1/r/t"
-    assert [(host, root) for _payload, host, root in spawned] == [("claude", tmp_path / "root")]
+    # A code review of no pull request is left as Claude reported it: nothing saved, nothing printed.
+    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t")
+    assert run(clean) == "" and spawned == []
 
-    # No branch Review yet: the worker still runs, and the line says where the link will be.
-    spawned = _fire_and_forget(monkeypatch, "")
-    message = json.loads(run(clean))["systemMessage"]
-    assert message.endswith("→ capturing a new Review; `lc review status` shows its link")
+    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t", pull=pull)
+    assert run({"tool_name": "Bash", "tool_input": {"command": "ls"}}) == ""
+    output = json.loads(run(clean))
+    assert (
+        output["systemMessage"] == "lc review: no problems found on PR #12.\nAlso in lc review: http://127.0.0.1:1/r/t"
+    )
+    assert output["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert output["hookSpecificOutput"]["additionalContext"].endswith("no findings. Nothing to do.")
+    assert [(host, root) for _payload, host, root in spawned] == [("claude", tmp_path / "root")]
+    assert spawned[0][0]["pull_request"]["number"] == 12
+
+    # The pull request's Review is still opening: the worker still runs; the line has no link yet.
+    spawned = _fire_and_forget(monkeypatch, "", pull=pull)
+    assert json.loads(run(clean))["systemMessage"] == "lc review: no problems found on PR #12."
     assert len(spawned) == 1
 
     # Hosted or not a checkout: nothing is detached and nothing is printed.
-    spawned = _fire_and_forget(monkeypatch, None)
+    spawned = _fire_and_forget(monkeypatch, None, pull=pull)
     assert run(clean) == "" and spawned == []
 
     def down(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("Review server unreachable")
 
-    monkeypatch.setattr(reported_findings, "branch_review_url", down)
+    monkeypatch.setattr(reported_findings, "pull_request_review_url", down)
     assert run(clean) == ""
 
 
@@ -333,7 +375,7 @@ def test_the_hook_reports_a_background_code_review_when_its_subagent_stops(
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "root"))
     monkeypatch.delenv("LEMONCROW_IN_REVIEW", raising=False)
     monkeypatch.setattr(hook, "_dormant", lambda: False)
-    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t")
+    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t", pull=_pull(tmp_path))
 
     def run(payload: Any) -> str:
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
@@ -342,38 +384,109 @@ def test_the_hook_reports_a_background_code_review_when_its_subagent_stops(
 
     assert run(_fork(tmp_path, "simplify")) == ""
     assert spawned == []
-    message = json.loads(run(_fork(tmp_path, "code-review")))["systemMessage"]
-    assert message == "lc review: 1 finding from Claude code review → http://127.0.0.1:1/r/t"
+    output = json.loads(run(_fork(tmp_path, "code-review")))
+    # The user never saw a background review's own output: the line lists it. Claude learned what to do with
+    # the findings from the pull request's own instruction.
+    assert output["systemMessage"] == (
+        "lc review: 1 problem found on PR #12. Claude is fixing it; details are on the PR.\n"
+        "1. Unvalidated price (app.py:2)\n"
+        "Also in lc review: http://127.0.0.1:1/r/t"
+    )
+    # additionalContext on SubagentStop would keep the forked reviewer running, not reach this conversation.
+    assert "hookSpecificOutput" not in output
     [(report, _host, _root)] = spawned
     assert report["tool_use_id"] == "subagent:a1" and len(report["tool_input"]["findings"]) == 1
 
 
-def test_the_url_is_the_branch_reviews_named_without_capturing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo, root, _store, session, _revision = _change(tmp_path)
-    config = SimpleNamespace(hosted=False, endpoint=lambda path: f"http://127.0.0.1:1{path}")
-    reads: list[str] = []
+def _skill_call(skill: str, *, result: str = FORK_RESULT, status: str = "forked") -> dict[str, Any]:
+    """PostToolUse(Skill) as Claude Code 2.1.330 sends it for a forked skill it waited for (recorded live)."""
+    return {
+        "session_id": SID,
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_skill",
+        "tool_input": {"skill": skill, "args": "125"},
+        "tool_response": {
+            "success": True,
+            "commandName": skill,
+            "status": status,
+            "agentId": "a1",
+            "result": result,
+        },
+    }
 
-    def overview(_config: Any, method: str, path: str, **_kwargs: Any) -> Any:
-        reads.append(f"{method} {path}")
-        return {"session": {"id": session.id, "ref": "r/abc12345"}}
+
+def test_a_forked_code_review_the_skill_tool_waited_for_is_saved_once_and_numbered_for_claude(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # No .forked-skill.json sidecar exists in this shape: the Skill tool's own result carries the findings.
+    report = reported_findings.forked_skill_payload(_skill_call("code-review"))
+    assert report is not None and report["tool_use_id"] == "subagent:a1"
+    assert reported_findings.forked_skill_payload(_skill_call("plugin:code-review")) is not None
+    assert reported_findings.forked_skill_payload(_skill_call("simplify")) is None
+    assert reported_findings.forked_skill_payload(_skill_call("code-review", status="launched")) is None
+    assert reported_findings.forked_skill_payload(_skill_call("code-review", result="No block.")) is None
+
+    hook = _hook()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "root"))
+    monkeypatch.delenv("LEMONCROW_IN_REVIEW", raising=False)
+    monkeypatch.setattr(hook, "_dormant", lambda: False)
+    spawned = _fire_and_forget(monkeypatch, "http://127.0.0.1:1/r/t", pull=_pull(tmp_path))
+    repo = tmp_path / "repo"
+    pygit2.init_repository(str(repo), initial_head="main")
+
+    def run(payload: dict[str, Any]) -> str:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({**payload, "cwd": str(repo)})))
+        assert hook.main() == 0
+        return capsys.readouterr().out
+
+    assert run(_skill_call("simplify")) == "" and spawned == []
+    output = json.loads(run(_skill_call("code-review")))
+    assert output["systemMessage"] == (
+        "lc review: 1 problem found on PR #12. Claude is fixing it; details are on the PR.\n"
+        "1. Unvalidated price (app.py:2)\n"
+        "Also in lc review: http://127.0.0.1:1/r/t"
+    )
+    # PostToolUse reaches the conversation that ran the skill: Claude gets the numbering and the commands.
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert "1. Unvalidated price (app.py:2)" in context and "lc review finding N fixed --run" in context
+    assert len(spawned) == 1
+    # The same fork reported again (a host that also fires SubagentStop for it) is not saved twice.
+    assert run(_skill_call("code-review")) == "" and len(spawned) == 1
+
+
+def test_the_url_is_the_pull_requests_review_named_without_capturing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, root, _store, _session, _revision = _change(tmp_path)
+    config = SimpleNamespace(hosted=False, endpoint=lambda path: f"http://127.0.0.1:1{path}")
+    rows = [
+        {"ref": "r/closed111", "source_ref": "github:acme/shop#12", "status": "closed"},
+        {"ref": "r/other222", "source_ref": "github:acme/shop#13", "status": "open"},
+        {"ref": "r/abc12345", "source_ref": "github:acme/shop#12", "status": "open"},
+    ]
+    reads: list[Any] = []
 
     def capture(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("naming the URL must not capture")
 
     monkeypatch.setattr(hosted, "capture_server_review", capture)
-    monkeypatch.setattr(hosted, "server_review_request", overview)
-    monkeypatch.setattr(hosted, "active_local_review_base", lambda *_args, **_kwargs: (session.id, "base"))
-    url = reported_findings.branch_review_url(_report(repo), store_root=root, config=config)  # type: ignore[arg-type]
-    assert url == "http://127.0.0.1:1/r/abc12345"
-    assert reads == [f"GET /api/reviews/{session.id}"]
+    monkeypatch.setattr(hosted, "server_review_rows", lambda config: reads.append(config) or rows)
+    report = {**_report(repo), "pull_request": _pull(repo).to_wire()}
+    url = reported_findings.pull_request_review_url(report, store_root=root, config=config)  # type: ignore[arg-type]
+    assert url == "http://127.0.0.1:1/r/abc12345" and len(reads) == 1
 
-    monkeypatch.setattr(hosted, "active_local_review_base", lambda *_args, **_kwargs: ("", ""))
-    assert reported_findings.branch_review_url(_report(repo), store_root=root, config=config) == ""  # type: ignore[arg-type]
+    # No open Review for this pull request yet: the capture opens one.
+    monkeypatch.setattr(hosted, "server_review_rows", lambda _config: rows[:2])
+    assert reported_findings.pull_request_review_url(report, store_root=root, config=config) == ""  # type: ignore[arg-type]
+    # Not saved at all: no pull request, a hosted configuration, or no checkout.
+    assert reported_findings.pull_request_review_url(_report(repo), store_root=root, config=config) is None  # type: ignore[arg-type]
     hosted_config = SimpleNamespace(hosted=True)
-    assert reported_findings.branch_review_url(_report(repo), store_root=root, config=hosted_config) is None  # type: ignore[arg-type]
+    assert reported_findings.pull_request_review_url(report, store_root=root, config=hosted_config) is None  # type: ignore[arg-type]
     outside = tmp_path / "not-a-checkout"
     outside.mkdir()
-    assert reported_findings.branch_review_url(_report(outside), store_root=root, config=config) is None  # type: ignore[arg-type]
+    elsewhere = {**report, "cwd": str(outside)}
+    assert reported_findings.pull_request_review_url(elsewhere, store_root=root, config=config) is None  # type: ignore[arg-type]
 
 
 def test_the_worker_is_detached_and_reads_its_report_from_stdin(

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAiBudgetForTests } from "../aiBudget";
 import { exportFeedback, fetchFinishReview, previewGitHubPublish, requestBrowserJson } from "../reviewApi";
 import type { FinishHandoff, FinishOptions } from "../FinishSheet";
-import type { Annotation, FeedbackExport, ReviewClosure, ReviewOutcomeKind, ReviewOverview, ReviewTarget } from "../types";
+import type { Annotation, FeedbackExport, ReviewClosure, ReviewLandingReadiness, ReviewOutcomeKind, ReviewOverview, ReviewTarget } from "../types";
 import { ReviewWrapScreen } from "./ReviewWrapScreen";
 import { fetchReviewEnvironment } from "../reviewEnvironment";
 import { resetSecondReviewerSupport, type SecondReviewerStatus } from "../second/secondApi";
@@ -45,16 +45,16 @@ const HANDOFF = { kind: "agent", available: true, reason: "", unsent: 1, label: 
 function Location() { const value = useLocation(); return <output data-testid="wrap-location">{value.pathname + value.search}</output>; }
 function show({
   targets = [target("auth")], notes = [], handoff = HANDOFF, complete = true, readOnly = false,
-  onFinish = vi.fn(), recorded = null, currentOutcome = null,
+  onFinish = vi.fn(), recorded = null, currentOutcome = null, readiness = null,
 }: {
   targets?: ReviewTarget[]; notes?: Annotation[]; handoff?: FinishHandoff; complete?: boolean;
   readOnly?: boolean; onFinish?: (outcome: ReviewOutcomeKind, summary: string, options: FinishOptions) => void;
-  recorded?: ReviewOutcomeKind | null; currentOutcome?: null;
+  recorded?: ReviewOutcomeKind | null; currentOutcome?: null; readiness?: ReviewLandingReadiness | null;
 } = {}) {
   return render(<MemoryRouter initialEntries={["/r/shop/wrap"]}><ReviewWrapScreen
     reviewRef="shop" apiReviewId="review" overview={OVERVIEW} targets={targets} annotations={notes}
     complete={complete} readOnly={readOnly} busy={false} handoff={handoff} onFinish={onFinish}
-    recorded={recorded} currentOutcome={currentOutcome}
+    recorded={recorded} currentOutcome={currentOutcome} readiness={readiness}
   /><Location /></MemoryRouter>);
 }
 
@@ -68,6 +68,23 @@ beforeEach(() => {
   apiBrowserJson.mockReset().mockRejectedValue(new Error("no AI preferences in this test"));
 });
 afterEach(() => { cleanup(); resetAiBudgetForTests(); });
+
+describe("Wrap up: merge readiness", () => {
+  it("says in one line whether it can merge, and nothing before the server's readiness loads", async () => {
+    const readiness = (ready: boolean, blocker_count: number) => ({
+      ready, blocker_count, conditions: [{ id: "tests", label: "tests", state: ready ? "pass" : "fail", category: "verification" }],
+    }) as unknown as ReviewLandingReadiness;
+    show({ readiness: readiness(false, 1) });
+    await waitFor(() => expect(apiClosure).toHaveBeenCalled());
+    expect(screen.getByTestId("wrap-merge-readiness")).toHaveTextContent("Merge readinessChecks failed · 1 merge blocker");
+    cleanup();
+    show({ readiness: readiness(true, 0) });
+    expect(screen.getByTestId("wrap-merge-readiness")).toHaveTextContent("Merge readinessReady");
+    cleanup();
+    show();
+    expect(screen.queryByTestId("wrap-merge-readiness")).toBeNull();
+  });
+});
 
 describe("P2-4 Wrap up", () => {
   it("WRAP-4: cold load with unfinished decisions disables send and does not pretend an answer", async () => {

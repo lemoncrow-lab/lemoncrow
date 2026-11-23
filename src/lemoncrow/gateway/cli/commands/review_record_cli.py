@@ -21,6 +21,7 @@ import click
 
 from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
+from lemoncrow.gateway.cli.commands.review_finding_cli import finding_cmd, report_findings_cmd
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
 from lemoncrow.gateway.cli.commands.review_observation_cli import observation_worker_group
 from lemoncrow.gateway.cli.commands.review_proof_cli import proof_group
@@ -402,6 +403,8 @@ def record_key_public(ctx: click.Context, out_path: Path | None) -> None:
 #: ``lc review <name> ...`` subcommands (``review_cmd`` dispatches them before parsing REV).
 REVIEW_SUBCOMMANDS: dict[str, click.Command] = {
     "status": status_cmd,
+    "finding": finding_cmd,
+    "report-findings": report_findings_cmd,
     "verify-record": verify_record_cmd,
     "verify": verify_cmd,
     "record-key": record_key_group,
@@ -546,6 +549,10 @@ class ReviewCommand(click.Command):
         super().format_epilog(ctx, formatter)
         common = [
             ("status [--json]", "This repository's current Review and whether it is ready (exit 0/1/2/3)."),
+            (
+                "finding [N] [confirmed|dismissed|fixed|open]",
+                "The last code review's numbered findings, and the answer given in chat.",
+            ),
             ("hook install", "Git hook: AI review before each push."),
             ("init-action", "Write the GitHub Action workflow that reviews pull requests."),
             ("config --effective", "The review rules this repository sets."),
@@ -560,6 +567,11 @@ class ReviewCommand(click.Command):
             formatter.write_dl(
                 [
                     common[0],
+                    common[1],
+                    (
+                        "report-findings [--pr URL] FILE",
+                        "Save a code review an agent did itself (Codex) on lc review, numbered for the chat.",
+                    ),
                     ("verify RECORD", "Check a signed record, a file or a record link (exit 0 to 5)."),
                     ("verify-record FILE", "Verify a signed review record offline (exit 0/1/2/3)."),
                     ("record-key init|public", "Opt in to signing local review records with a personal key."),

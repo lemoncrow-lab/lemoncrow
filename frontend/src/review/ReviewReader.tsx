@@ -19,9 +19,11 @@ import { codeHref, currentReturnPath, RETURN_PARAM, type CodeTarget } from "../l
 import { PreparationProgress } from "./ReviewPreparation";
 import { useReviewPreparation, type PreparationStep } from "./reviewPreparationContext";
 import { useHostedQueue } from "./ReviewHostedQueue";
+import { FlowReviewToolsProvider, useFindingDisposition, type FlowReviewTools } from "./flowReviewTools";
 import { isQueuedWrite, queuedWriteNotice, unresolvedHostedActions } from "./hostedQueue";
 import { feedbackRoute } from "./ReviewFeedbackPanel";
-import { ReviewCorrectionsProvider, useReviewCorrections } from "./reviewCorrections";
+import { ReviewCorrectionsHost, useReviewCorrections } from "./reviewCorrections";
+import { ReviewStateLine } from "./ReviewStateLine";
 import { FeedbackSyncProvider, useFeedbackSync } from "./feedbackSync";
 import { ReviewDestinationPicker } from "./ReviewDestinationPicker";
 import type { FinishOptions } from "./FinishSheet";
@@ -768,7 +770,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
   ]);
 
   // Each value is what the reviewer lost, in plain words; the transport error stays in `contextFailureCause` for hover.
-  const [, setContextFailures] = useState<Partial<Record<"comments" | "evidence" | "journal" | "development" | "outcome" | "surfaces" | "plugins", ContextFailure>>>({});
+  const [contextFailures, setContextFailures] = useState<Partial<Record<"comments" | "evidence" | "journal" | "development" | "outcome" | "surfaces" | "plugins", ContextFailure>>>({});
   const [, setRetryingSurfaceIdentity] = useState("");
   const [evidence, setEvidence] = useState<ReviewEvidence[]>([]);
   const [journal, setJournal] = useState<ReviewJournal | null>(null);
@@ -3112,8 +3114,9 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
       return next;
     });
   }, []);
-  const refreshReview = useCallback(async (publish = true) => {
-    if (!reviewEnvironment.review.workspace_refresh || !reviewId || readOnly || busy) return;
+  // Resolves to why the capture did not happen, or "" once it did.
+  const refreshReview = useCallback(async (publish = true): Promise<string> => {
+    if (!reviewEnvironment.review.workspace_refresh || !reviewId || readOnly || busy) return "this Review can't take a Snapshot right now";
     setBusy("refresh");
     // Between committing the new overview and landing its dependent reads the
     // reader presents a revision it has not loaded. `busy` already blocks every
@@ -3251,12 +3254,15 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
       setError(draftPath && !draftSurvives
         ? `Unsaved comment from ${draftPath} was preserved, but its old anchor changed. Select a new line to reattach it.`
         : "");
+      return "";
     } catch (reason) {
-      setError(String(reason instanceof Error ? reason.message : reason));
+      const message = String(reason instanceof Error ? reason.message : reason);
+      setError(message);
       // A reader that keeps presenting the superseded revision as current lets
       // the reviewer approve code they never saw: the mark is recorded against
       // the new revision's units either way.
       if (stranded) reviewDispatch({ type: "revision/advancedSet", advanced: true });
+      return message;
     } finally {
       settleCapture("");
       ownCaptureRef.current = null;
@@ -3767,7 +3773,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
 
   // The dependency projection: package semantics in the Brief, and before raw
   // lockfile lines in Code. Unavailable means no semantics, never "no change".
-  const [, setDependencyReview] = useState<ReviewDependencyProjection | null>(null);
+  const [dependencyReview, setDependencyReview] = useState<ReviewDependencyProjection | null>(null);
   const dependencyRevisionId = overview?.revision.id ?? "";
   useEffect(() => {
     setDependencyReview(null);
@@ -3810,6 +3816,43 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
     enabled: Boolean(reviewId && overview && startupEnrichmentReady) && !historical,
     readOnly: Boolean(readOnly),
   });
+  // The one state line under the flow's banners (reviewStateLineModel.ts): why this Review is read-only or degraded, and its action.
+  const stateLineWrite = useCallback(async (kind: "snapshot" | "reopen", write: () => Promise<unknown>) => {
+    if (!reviewId || busy) throw new Error("another change is still running");
+    setBusy(kind);
+    try {
+      await write();
+      revisionHistoryCacheRef.current = null;
+      await loadReader(reviewId);
+    } finally {
+      setBusy("");
+    }
+  }, [reviewId, busy, loadReader]);
+  const snapshotNow = useCallback(() => refreshReview(true), [refreshReview]);
+  const stateLineElement = overview && reviewId ? (
+    <ReviewStateLine
+      reviewId={reviewId}
+      reviewRef={overview.session.ref || overview.session.id}
+      forcedReadOnly={forcedReadOnly}
+      busy={Boolean(busy)}
+      approvals={development?.agent_approvals}
+      accessLost={accessLost}
+      revisionAdvanced={revisionAdvanced}
+      newerRevisionNumber={revisionHistory?.revisions.reduce((top, item) => Math.max(top, item.revision_number), -1)}
+      runningDraft={runningDraft}
+      historical={Boolean(historical)}
+      revisionNumber={overview.revision.revision_number}
+      latestRevisionNumber={overview.latest_revision_number ?? overview.revision.revision_number}
+      status={overview.session.status}
+      contextFailures={Object.values(contextFailures).flatMap((failure) => (failure ? [failure.text] : []))}
+      sourceMoved={sourceState?.changed && !readOnly && reviewEnvironment.review.workspace_refresh ? { files: sourceState.path_count } : null}
+      onWrite={stateLineWrite}
+      onOpenNewer={reloadReader}
+      onRetryContext={reloadReader}
+      onSnapshotNow={snapshotNow}
+      onDismissSource={() => setDismissedSourceFingerprint(sourceState?.fingerprint ?? "")}
+    />
+  ) : null;
   const reloadAfterProviderSync = useCallback(() => {
     if (!reviewId) return;
     void fetchAnnotations(reviewId).then((result) => reviewDispatch({ type: "notes/set", annotations: result.annotations })).catch(() => undefined);
@@ -3819,6 +3862,25 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
     enabled: Boolean(reviewId && overview && startupEnrichmentReady) && !historical,
     onChanged: reloadAfterProviderSync,
   });
+  // The top bar's revision menu, Notes list and hosted queue chip (FlowTopBar) read the review through this.
+  const findingDisposition = useFindingDisposition({
+    reviewId, revisionId: overview?.revision.id ?? "", readOnly: Boolean(readOnly),
+    onReplaced: (annotation) => reviewDispatch({ type: "notes/replaced", id: annotation.id, annotation }),
+    onQueued: acknowledgeQueued, onFailure: reportWriteFailure,
+  });
+  const flowTools: FlowReviewTools | null = reviewId && overview && flowRoute ? {
+    reviewId, reviewRef: flowRoute.reviewRef, revisionId: overview.revision.id, revisionNumber: overview.revision.revision_number,
+    historical: Boolean(historical), readOnly: Boolean(readOnly), busy: Boolean(busy && busy !== "comment-state") || findingDisposition.pending,
+    annotations: surfacedAnnotations, targets, revisionHistory,
+    setState: (id, state) => { void setAnnotationState(id, state); },
+    setDisposition: (id, disposition, reason) => { void findingDisposition.setDisposition(id, disposition, reason); },
+    createNote: createAnnotation,
+    hosted: hostedInfo ? {
+      info: hostedInfo, status: hostedQueue.status, error: hostedQueue.error,
+      onStatus: (next) => { hostedQueue.setStatus(next); setHostedNotice(""); },
+      onDetached: (localReviewId) => { window.location.href = reviewHref(localReviewId); },
+    } : null,
+  } : null;
 
 
   const sharedPreparation = useReviewPreparation();
@@ -3943,9 +4005,10 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
   const hostHeaderActions = hostContext ? extensions?.renderHeaderActions?.(hostContext) : null;
   const hostOverlays = hostContext ? extensions?.renderOverlays?.(hostContext) : null;
   const flowOverviewRoot = (screen: ReactNode, ready: boolean) => (
+    <FlowReviewToolsProvider value={flowTools}>
     <ViewerContext.Provider value={overview?.session.reviewer_id ?? ""}>
     <PrincipalNamesContext.Provider value={extensions?.principalNames ?? NO_PRINCIPAL_NAMES}>
-    <ReviewCorrectionsProvider value={corrections.context}>
+    <ReviewCorrectionsHost corrections={corrections}>
     <FeedbackSyncProvider value={feedbackSync}>
     <SeenCoverageProvider reviewRef={flowRoute?.reviewRef ?? ""} apiReviewId={reviewId} reviewerId={overview?.session.reviewer_id ?? ""} revisionId={overview?.revision.id ?? ""} targets={targets} recordable={!historical && !revisionAdvanced}>
     <div
@@ -3975,6 +4038,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
         revisionNumber={overview?.revision.revision_number ?? 0}
         reopened={targetList?.progress.changed_since_review ?? 0}
       />
+      {stateLineElement}
       {screen}
       {hostOverlays}
       {hostedNotice ? <p role="status" data-testid="hosted-queued-notice" className="border-t border-border px-4 py-1 text-meta text-muted-foreground">{hostedNotice}</p> : null}
@@ -3984,9 +4048,10 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
     </div>
     </SeenCoverageProvider>
     </FeedbackSyncProvider>
-    </ReviewCorrectionsProvider>
+    </ReviewCorrectionsHost>
     </PrincipalNamesContext.Provider>
     </ViewerContext.Provider>
+    </FlowReviewToolsProvider>
   );
   // The agent the Overview names when this revision recorded no host: the earliest revision that did, else the agent the notes go to.
   const reviewAgentHost = [...(revisionHistory?.revisions ?? [])].sort((a, b) => a.revision_number - b.revision_number)
@@ -4114,6 +4179,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
         tourAvailable={briefCapable && guidedReviewUseful(currentProjection, targets)}
         briefAvailable={briefCapable && currentProjection !== null}
         xrayAvailable={briefCapable && architectureRelevant}
+        readiness={historical ? null : landingReadiness}
       />,
       true,
     );
@@ -4138,6 +4204,8 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
           onNarrate={historical || readOnly ? undefined : narrateBehavior}
           onManualCheck={historical || readOnly ? undefined : recordManualCheck}
           xrayAvailable={briefCapable && architectureRelevant}
+          dependencies={dependencyReview}
+          loadArchitecture={briefCapable && architectureRelevant ? loadArchitectureDelta : undefined}
           onAsk={askCapable ? askTarget : undefined}
           onAskChange={askCapable ? () => openAsk(null) : undefined}
           askPanel={askOpen && askCapable ? drawer : null}
@@ -4238,6 +4306,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
         onDownloadRecord={() => downloadDecisionRecord(reviewId, overview.revision.id)}
         annotations={annotations}
         complete={!partsPartial}
+        delta={currentProjection?.delta ?? null}
         canCompare={!extensions}
         handoff={{
           kind: handoffRoute,
@@ -4285,6 +4354,7 @@ function ReviewReaderBody({ sourceProbeIntervalMs = SOURCE_PROBE_INTERVAL_MS, ex
       <>
       <ReviewWrapScreen
         hostBlockers={(extensions?.readinessBlockers ?? []).map((blocker) => blocker.label)}
+        readiness={historical ? null : landingReadiness}
         hostSections={extensions?.readinessSections}
         reviewRef={flowRoute.reviewRef}
         apiReviewId={reviewId}

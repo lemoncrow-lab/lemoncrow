@@ -106,6 +106,16 @@ export function annotationProducerDetail(
   return principalName(annotation.created_by, "");
 }
 
+/** Who made an AI finding's decision, for "Fixed by Claude" / "Dismissed by you"; "" when it is not known. */
+export function findingDecidedBy(annotation: Annotation): string {
+  if (annotation.finding_disposition_actor === "human") return "you";
+  if (annotation.finding_disposition_actor !== "agent") return "";
+  const host = (annotation.finding_disposition_agent_host ?? "").trim().toLowerCase();
+  if (!host) return "the agent";
+  // The agent itself, not its product: "by Claude", never "by Claude Code".
+  return host === "claude" ? "Claude" : hostLabel(host);
+}
+
 export function annotationProducerTitle(annotation: Annotation): string {
   return [
     annotation.source_id && `Session: ${annotation.source_id}`,

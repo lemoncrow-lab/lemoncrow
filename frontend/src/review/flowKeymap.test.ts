@@ -26,7 +26,7 @@ const PART_SCREENS: FlowScreen[] = ["one", "quickCheck", "allFiles"];
 describe("Keyboard shortcuts dialog: the full list comes from the key map", () => {
   it("groups every binding and follows a rebinding", () => {
     const groups = allShortcuts();
-    expect(groups.map((group) => group.title)).toEqual(["Answer a part", "Move", "Anywhere"]);
+    expect(groups.map((group) => group.title)).toEqual(["Answer a part", "Move", "Anywhere", "On a review", "On Home"]);
     const keys = groups.flatMap((group) => group.keys.map((row) => row.key.toLowerCase()));
     for (const key of ["j", "k", "g", "w", "?"]) expect(keys).toContain(key);
     expect(groups.flatMap((group) => group.keys).every((row) => row.does)).toBe(true);
@@ -54,9 +54,41 @@ describe("3.5 row: Ctrl/Cmd+K opens or closes the palette anywhere", () => {
 });
 
 describe("3.5 row: / on Home focuses search", () => {
-  it("Home only", () => {
+  it("Home focuses its search; a review screen opens the ⌘K palette", () => {
     expect(intentOf(press("/"), at("home"))).toBe("searchFocus");
-    expect(intentOf(press("/"), at("one"))).toBeNull();
+    for (const screen of ["overview", "one", "quickCheck", "allFiles", "wrap", "done", "welcomeBack", "other"] as const) {
+      expect(intentOf(press("/"), at(screen)), screen).toBe("palette");
+    }
+  });
+  it("/ opens nothing while typing, while a surface is open, or off a review", () => {
+    expect(intentOf(press("/"), at("one", { focus: "field" }))).toBeNull();
+    expect(intentOf(press("/"), at("one", { surface: "palette" }))).toBeNull();
+    expect(intentOf(press("/"), at("overview", { surface: "shortcuts" }))).toBeNull();
+    expect(intentOf(press("/"), at("settings"))).toBeNull();
+    expect(intentOf(press("/"), at("org"))).toBeNull();
+  });
+});
+
+describe("Keyboard shortcuts dialog: every key is listed where it works", () => {
+  const group = (title: string) => allShortcuts().find((item) => item.title === title)!;
+  const keyOf = (label: string) => (label.length === 1 ? label.toLowerCase() : label);
+  it("lists neither / nor X under Anywhere", () => {
+    const anywhere = group("Anywhere").keys.map((row) => row.key);
+    expect(anywhere).not.toContain("/");
+    expect(anywhere).not.toContain("X");
+  });
+  it("every On a review key fires on every review screen", () => {
+    for (const row of group("On a review").keys) {
+      for (const screen of ["overview", "one", "quickCheck", "allFiles", "wrap", "done", "welcomeBack", "other"] as const) {
+        expect(intentOf(press(keyOf(row.key)), at(screen)), `${row.key} on ${screen}`).not.toBeNull();
+      }
+    }
+  });
+  it("every On Home key fires on Home, and X does nothing on a review", () => {
+    const keys = group("On Home").keys.map((row) => keyOf(row.key));
+    expect(keys).toEqual(["/", "x"]);
+    for (const key of keys) expect(intentOf(press(key), at("home")), key).not.toBeNull();
+    expect(intentOf(press("x"), at("one"))).toBeNull();
   });
 });
 

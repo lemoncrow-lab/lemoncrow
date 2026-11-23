@@ -229,6 +229,8 @@ function plain(lk: string, ctx: FlowKeyContext, bindings: KeyBindings): FlowActi
   // G, W, U, Q and Z fall through as on Focus (§3.4 and §3.5).
   if (s === "one" && ctx.interstitial && (lk === bindings.looksGood || lk === bindings.needsChange || lk === bindings.decideLater || ["s", "e", "r", "j"].includes(lk))) return null;
   if (lk === "/" && s === "home" && !ctx.firstRun) return { intent: "searchFocus" };
+  // On a review screen (Map, X-Ray, Brief and Preview are "other") `/` is search too: it opens ⌘K, as the palette does.
+  if (lk === "/" && (REVIEW_SCREENS.includes(s) || s === "other")) return { intent: "palette" };
   if (lk === "z" && ctx.undoLive) return { intent: "undo" };
   if (s === "home") {
     if (ctx.firstRun) return null;
@@ -347,7 +349,8 @@ export interface ShortcutGroup {
 /**
  * Every key the flow binds, grouped, for the Shortcuts dialog: the three rebindable answers (as rebound), each reserved
  * key's action (`RESERVED_ACTION`, the same names a rebinding refusal uses) and the chords `chord` handles. Some keys
- * work only on some screens; "On this screen" (the screen's legend) says which.
+ * work only on some screens; "On this screen" (the screen's legend) says which. `/` and X are not "Anywhere": `/` is
+ * ⌘K on a review and the list search on Home, and X selects only on Home.
  */
 export function allShortcuts(bindings: KeyBindings = DEFAULT_BINDINGS): ShortcutGroup[] {
   const reserved = (key: string, label = key.toUpperCase()) => ({ key: label, does: RESERVED_ACTION[key] });
@@ -369,12 +372,12 @@ export function allShortcuts(bindings: KeyBindings = DEFAULT_BINDINGS): Shortcut
         reserved("q"),
         reserved("r"),
         reserved("z"),
-        reserved("/"),
-        reserved("x"),
         { key: "Esc", does: "close the open panel" },
         reserved("?"),
       ],
     },
+    { title: "On a review", keys: [{ key: "/", does: "search and commands, as ⌘ / Ctrl + K" }] },
+    { title: "On Home", keys: [{ key: "/", does: "search the reviews" }, reserved("x")] },
   ];
 }
 

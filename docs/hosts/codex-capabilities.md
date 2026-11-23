@@ -24,6 +24,7 @@ bundle's `hooks/hooks.json`, with commands resolved through `${PLUGIN_ROOT}`.
 | `UserPromptSubmit` | `user_prompt.py` | n/a | `systemMessage` (ctx nudge, UI only) |
 | `PreToolUse` | `pre_tool_use.py` | **yes** | `hookSpecificOutput.permissionDecision = "deny"` + `permissionDecisionReason` |
 | `PostToolUse` | `savings_reporter.py` | feedback | `systemMessage` (rescue nudge only) |
+| `PostToolUse` | `review_pr_opened.py` | feedback | `systemMessage` + `hookSpecificOutput.additionalContext` (review the pull request just opened) |
 | `PreCompact` / `PostCompact` | `compact.py` | n/a | silent (state only) |
 | `Stop` | `stop.py` | n/a | `systemMessage` (session summary) |
 
@@ -77,7 +78,9 @@ workspace root (payload `cwd` → `CODEX_WORKSPACE_ROOT` → cwd), matching
   only AGENTS.md + skills.
 - Per-handler `deny` enforcement reliability (openai/codex#20204).
 - Whether `additionalContext` vs `systemMessage` is preferred for PostToolUse
-  feedback on your version (we emit `systemMessage`).
+  feedback on your version (we emit `systemMessage`; `review_pr_opened.py` also
+  emits `hookSpecificOutput.additionalContext`, which the 0.167 PostToolUse
+  output schema accepts, to tell the model to review the pull request it opened).
 
 ## Primary sources
 

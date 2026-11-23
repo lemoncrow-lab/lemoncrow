@@ -42,7 +42,9 @@ describe("Home source availability", () => {
       <Home />
     </RuntimeCapabilitiesProvider></MemoryRouter>);
     expect(await screen.findByText("Coding-agent activity is unavailable.")).toBeInTheDocument();
-    expect(screen.getAllByText("A real review")).toHaveLength(2);
+    // Listed once: Waiting on you holds it, so Recent reviews leaves it out.
+    expect(screen.getAllByText("A real review")).toHaveLength(1);
+    expect(screen.getByText("No other recent reviews. The ones above wait on you.")).toBeInTheDocument();
     expect(screen.queryByText("No active sessions.")).not.toBeInTheDocument();
     expect(screen.queryByText("No failed sessions.")).not.toBeInTheDocument();
     // The page has a name, and one word for agent work: sessions, as the Activity page lists them.
@@ -52,8 +54,11 @@ describe("Home source availability", () => {
     expect(screen.queryByText(/\b[Rr]uns?\b/)).toBeNull();
     expect(screen.queryByText("No recent runs.")).not.toBeInTheDocument();
     expect(screen.getByText("1 item")).toBeInTheDocument();
-    // Recent reviews name the place as Needs attention does, never the opaque repository id.
-    expect(screen.getAllByText(/billing-api · main/)).toHaveLength(2);
+    // Needs attention names the place, never the opaque repository id.
+    expect(screen.getAllByText(/billing-api · main/)).toHaveLength(1);
+    // Runtime on: both grids keep two columns.
+    expect(screen.getByTestId("home-attention-grid")).toHaveClass("xl:grid-cols-2");
+    expect(screen.getByTestId("home-recent-grid")).toHaveClass("xl:grid-cols-2");
     expect(screen.queryByText("repo_6bab3bd1e08710426daa8d09afdef3c9")).not.toBeInTheDocument();
   });
 
@@ -101,6 +106,48 @@ describe("Home and the Reviews screen agree", () => {
     const waiting = screen.getByText("Waiting on you").closest(".hunk") as HTMLElement;
     expect(within(waiting).getByText("Waiting on me")).toBeInTheDocument();
     expect(within(waiting).queryByText("Waiting on someone else")).toBeNull();
+  });
+});
+
+describe("Home layout", () => {
+  const mine = (index: number) => row({ id: `mine-${index}`, title: `Mine ${index}`, next_action: { owner_ids: ["me"], for_me: true, my_reasons: [], reasons: [] } });
+  const theirs = (index: number) => row({ id: `theirs-${index}`, title: `Theirs ${index}`, views: ["participated"], next_action: { owner_ids: ["x"], for_me: false, my_reasons: [], reasons: [] } });
+  const mount = (rows: ReviewDirectoryRow[], capabilities = REVIEW_ONLY_PRODUCT_CAPABILITIES) => {
+    const load = vi.fn().mockResolvedValue({ rows, teamsSupported: true, truncated: false });
+    render(
+      <MemoryRouter>
+        <ProductCapabilitiesProvider value={capabilities}>
+          <HomeSourceProvider value={{ load, terminal: false }}>
+            <Home />
+          </HomeSourceProvider>
+        </ProductCapabilitiesProvider>
+      </MemoryRouter>,
+    );
+  };
+  const panel = (name: string) => screen.getByText(name).closest(".hunk") as HTMLElement;
+
+  it("Review only: one column for one panel, each review listed once, and View all N past five waiting", async () => {
+    mount([mine(1), theirs(1), mine(2), mine(3), mine(4), mine(5), mine(6), theirs(2)]);
+    expect(await screen.findByText("6 items")).toBeInTheDocument();
+    expect(screen.getByTestId("home-attention-grid")).not.toHaveClass("xl:grid-cols-2");
+    expect(screen.getByTestId("home-recent-grid")).not.toHaveClass("xl:grid-cols-2");
+    const waiting = panel("Waiting on you");
+    expect(within(waiting).getAllByRole("link").filter((link) => /^Mine /.test(link.textContent ?? ""))).toHaveLength(5);
+    expect(within(waiting).getByRole("link", { name: "View all 6" })).toHaveAttribute("href", "/reviews");
+    const recent = panel("Recent reviews");
+    // The five listed above are left out; the sixth waiting review, not listed there, still shows here.
+    for (const index of [1, 2, 3, 4, 5]) expect(within(recent).queryByText(`Mine ${index}`)).toBeNull();
+    expect(within(recent).getByText("Mine 6")).toBeInTheDocument();
+    expect(within(recent).getByText("Theirs 1")).toBeInTheDocument();
+    expect(within(recent).getByText("Theirs 2")).toBeInTheDocument();
+    // Every review on Home is listed exactly once.
+    for (const title of ["Mine 1", "Mine 6", "Theirs 1"]) expect(screen.getAllByText(title)).toHaveLength(1);
+  });
+
+  it("offers no View all with five or fewer waiting", async () => {
+    mount([mine(1), mine(2), mine(3), mine(4), mine(5)]);
+    expect(await screen.findByText("5 items")).toBeInTheDocument();
+    expect(within(panel("Waiting on you")).queryByRole("link", { name: /View all/ })).toBeNull();
   });
 });
 

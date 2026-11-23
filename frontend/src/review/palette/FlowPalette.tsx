@@ -14,6 +14,7 @@ import {
 } from "../home/homeModel";
 import { loadPrefs, savePrefs } from "../home/homePrefs";
 import { SnoozePicker } from "../home/SnoozePicker";
+import { SendFeedbackDialog } from "../feedback/SendFeedbackDialog";
 import { useFlowToast } from "../flowToast";
 import { openFlowSurface } from "../openSurface";
 import { reviewHref } from "../reviewApi";
@@ -21,7 +22,7 @@ import { getFlowBindings } from "../settings/userSettings";
 import type { ReviewDirectoryRow } from "../types";
 import {
   allItems, contextActions, contextGroup, emptyText, pushRecent, resultsAnnouncement, shownGroups,
-  type PaletteContext, type PaletteData, type PaletteItem, type PalettePart, type PaletteReview, type RecentPlace, type ShownGroup,
+  type PaletteContext, type PaletteData, type PaletteItem, type PalettePart, type PaletteReview, type PaletteReviewAction, type RecentPlace, type ShownGroup,
 } from "./paletteModel";
 
 /** What the open screen tells the palette. Registered by `useFlowPaletteScreen`; the palette reads the latest on every key and render. */
@@ -36,9 +37,13 @@ export interface PaletteRegistration {
 }
 
 interface Registered { owner: object; reg: PaletteRegistration }
+interface RegisteredActions { owner: object; actions: readonly PaletteReviewAction[] }
 
 interface PaletteApi {
   registered: MutableRefObject<Registered | null>;
+  reviewActions: MutableRefObject<RegisteredActions | null>;
+  /** Entries a mounted control adds to "In this review" (the top bar's Notes), by owner. */
+  extras: MutableRefObject<Map<object, PaletteItem[]>>;
   open: (query?: string) => void;
   recordPlace: (place: RecentPlace) => void;
   copyLink: (href: string) => Promise<void>;
@@ -76,6 +81,35 @@ export function useFlowPaletteScreen(reg: PaletteRegistration) {
   useEffect(() => {
     if (api && place) api.recordPlace({ label: place.label, sub: place.sub, path: `${location.pathname}${location.search}` });
   }, [api, place?.label, place?.sub, location.pathname, location.search]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/**
+ * The open Review's own actions (the corrections catalog), listed under "In this review" on whichever screen is open.
+ * Registered by the Reader, which outlives its screens; a Reader outside the provider registers nothing.
+ */
+export function useFlowPaletteReviewActions(actions: readonly PaletteReviewAction[]) {
+  const api = useContext(PaletteContextValue);
+  const owner = useRef({});
+  if (api) api.reviewActions.current = { owner: owner.current, actions };
+  useEffect(() => {
+    const mine = owner.current;
+    return () => { if (api?.reviewActions.current?.owner === mine) api.reviewActions.current = null; };
+  }, [api]);
+}
+
+/** Adds entries to "In this review" while the caller is mounted (the top bar's Notes). Outside the provider it adds nothing. */
+export function useFlowPaletteExtras(items: readonly Omit<PaletteItem, "group">[]) {
+  const api = useContext(PaletteContextValue);
+  const owner = useRef({});
+  const grouped = items.map((item) => ({ ...item, group: "In this review" }));
+  const latest = useRef(grouped);
+  latest.current = grouped;
+  if (api) api.extras.current.set(owner.current, grouped);
+  useEffect(() => {
+    const mine = owner.current;
+    api?.extras.current.set(mine, latest.current);
+    return () => { api?.extras.current.delete(mine); };
+  }, [api]);
 }
 
 /** Opens the palette; null where no provider is mounted (the button then is not drawn). */
@@ -124,6 +158,8 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const registered = useRef<Registered | null>(null);
+  const reviewActions = useRef<RegisteredActions | null>(null);
+  const extras = useRef(new Map<object, PaletteItem[]>());
   const [open, setOpen] = useState(false);
   const [initial, setInitial] = useState("");
   const [recent, setRecent] = useState<RecentPlace[]>(loadRecent);
@@ -132,6 +168,7 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
   // Nothing is offered that the source has not said it can do, until its load finishes.
   const [queueSupported, setQueueSupported] = useState(false);
   const [picker, setPicker] = useState(false);
+  const [feedback, setFeedback] = useState(false);
   const toast = useFlowToast();
   const source = useHomeSource();
   const ranRef = useRef(false);
@@ -231,7 +268,7 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
   const snoozeReviewRef = useRef(snoozeReview);
   snoozeReviewRef.current = snoozeReview;
 
-  const api = useMemo<PaletteApi>(() => ({ registered, open: openPalette, recordPlace, copyLink }), [openPalette, recordPlace, copyLink]);
+  const api = useMemo<PaletteApi>(() => ({ registered, reviewActions, extras, open: openPalette, recordPlace, copyLink }), [openPalette, recordPlace, copyLink]);
 
   // -- what the palette shows --------------------------------------------------
   let content: ReactNode = null;
@@ -249,6 +286,7 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
       repos: rows ? chipCounts(rows.filter((row) => row.status === "open")).repos.map((chip) => ({ name: chip.name, waiting: waiting.get(chip.name) ?? 0 })) : [],
       recent: recent.filter((place) => place.path !== `${location.pathname}${location.search}`),
       parts: reg.parts ?? [],
+      reviewActions: reviewActions.current?.actions ?? [],
     };
     const items = allItems(context, data, {
       go: (path) => navigate(path),
@@ -258,8 +296,10 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
         navigate("/reviews");
       },
       openShortcuts: reg.openShortcuts,
+      openFeedback: () => setFeedback(true),
       phone: typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches,
     }, !reg.context.placeholder);
+    if (!reg.context.placeholder) for (const added of extras.current.values()) items.push(...added);
     content = <PaletteDialog key={initial} items={items} leading={contextGroup(context)} initial={initial} ranRef={ranRef} onClose={close} />;
   }
 
@@ -268,6 +308,7 @@ export function FlowPaletteProvider({ children }: { children: ReactNode }) {
       {children}
       {content}
       <SnoozePicker open={picker} count={1} onPick={(option) => void snoozeReview(option)} onClose={() => setPicker(false)} />
+      <SendFeedbackDialog open={feedback} onOpenChange={setFeedback} />
       {toast.element}
     </PaletteContextValue.Provider>
   );
@@ -289,7 +330,7 @@ function PaletteDialog({ items, leading, initial, ranRef, onClose }: {
   useEffect(() => { document.getElementById(`flow-pal-${current}`)?.scrollIntoView?.({ block: "nearest" }); }, [current]);
 
   const run = (item: PaletteItem | undefined) => {
-    if (!item) return;
+    if (!item || item.disabled) return;
     ranRef.current = true;
     onClose();
     window.setTimeout(item.run, 0);
@@ -350,8 +391,9 @@ function PaletteDialog({ items, leading, initial, ranRef, onClose }: {
                     id={`flow-pal-${index}`}
                     role="option"
                     aria-selected={index === current}
+                    aria-disabled={item.disabled || undefined}
                     data-pal-item={item.label}
-                    className={`flex min-h-9 cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-label ${index === current ? "bg-accent text-foreground" : ""}`}
+                    className={`flex min-h-9 items-center justify-between gap-3 px-3 py-1.5 text-label ${item.disabled ? "cursor-default text-muted-foreground" : "cursor-pointer"} ${index === current ? "bg-accent text-foreground" : ""}`}
                     onMouseMove={() => { if (index !== current) setActive(index); }}
                     onClick={() => run(item)}
                   >

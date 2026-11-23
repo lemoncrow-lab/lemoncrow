@@ -1844,7 +1844,7 @@ def _review_server_check(
         status = "PASS" if exit_code == 0 else "FAIL"
         detail = f"`{command}` exited {exit_code} after {elapsed:.1f}s."
     try:
-        server_review_request(
+        recorded = server_review_request(
             config,
             "POST",
             f"/api/reviews/{quote(captured.review_id, safe='')}/verification",
@@ -1860,12 +1860,15 @@ def _review_server_check(
     except ClientError as exc:
         raise _review_server_click_error(exc, hosted=bool(config.hosted)) from exc
     revision_number = revision.get("revision_number")
+    raw_evidence = recorded.get("evidence")
     if as_json:
         _emit(
             {
                 "review_id": captured.review_id,
                 "revision_id": revision_id,
                 "revision_number": revision_number,
+                # The check's own record: `lc review finding N fixed --run` cites it as the fix's evidence.
+                "evidence_id": str(raw_evidence.get("id") or "") if isinstance(raw_evidence, dict) else "",
                 "name": name.strip(),
                 "status": status,
                 "exit_code": exit_code,

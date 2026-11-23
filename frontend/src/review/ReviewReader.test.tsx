@@ -1,11 +1,12 @@
 import userEvent from "@testing-library/user-event";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewFlowRoute } from "./ReviewFlowRoute";
 import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import ReviewReader, { type ReviewReaderExtensions } from "./ReviewReader";
+import { stateLine, stateLineSignals, type StateLineFacts } from "./reviewStateLineModel";
 
 const flags = vi.hoisted(() => ({ brief: false }));
 
@@ -62,6 +63,8 @@ const api = vi.hoisted(() => ({
   fetchFixLines: vi.fn(),
   runReviewSurface: vi.fn(),
   finishReview: vi.fn(),
+  postRefresh: vi.fn(),
+  publishReviewSnapshot: vi.fn(),
   postReviewOutcome: vi.fn(),
   fetchFinishReview: vi.fn(),
   exportFeedback: vi.fn(),
@@ -157,7 +160,8 @@ vi.mock("./reviewApi", async (importOriginal) => ({
   postMark: api.postMark,
   postBulkReviewed: vi.fn(),
   undoBulkReviewed: vi.fn(),
-  postRefresh: vi.fn(),
+  postRefresh: api.postRefresh,
+  publishReviewSnapshot: api.publishReviewSnapshot,
   postReviewOutcome: api.postReviewOutcome,
   postAnnotation: vi.fn(),
   patchAnnotation: vi.fn(),
@@ -791,5 +795,136 @@ describe("ReviewReader mounted through the redesigned flow routes", () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(api.fetchStartupOverview.mock.calls.length).toBe(1);
     expect(window.location.pathname).toMatch(/^\/r\/rev-history(\/|$)/);
+  });
+
+  // ---- the flow's one state line (reviewStateLineModel.ts): every read-only or degraded state says why and offers its action ----
+
+  const latest = () => ({ ...overview, historical: false, revision: overview.latest_revision });
+  const stateLineRow = () => screen.findByTestId("review-state-line", {}, { timeout: 8000 });
+
+  it("a running draft says it is read-only until it is a Snapshot, and Make it a Snapshot publishes it", async () => {
+    live();
+    api.fetchOverview.mockResolvedValue({ ...latest(), revision: { ...overview.latest_revision, capture_kind: "draft", is_published_snapshot: false } });
+    api.publishReviewSnapshot.mockImplementation(async () => {
+      api.fetchOverview.mockResolvedValue(latest());
+      return { revision_id: overview.latest_revision.id, revision_number: 1 };
+    });
+    await open("/r/rev-history");
+    const line = await stateLineRow();
+    expect(line).toHaveTextContent("Running draft · read-only until it is a Snapshot");
+    await userEvent.click(within(line).getByRole("button", { name: "Make it a Snapshot" }));
+    await waitFor(() => expect(api.publishReviewSnapshot).toHaveBeenCalledWith("rev-history", 1));
+    await waitFor(() => expect(screen.queryByTestId("review-state-line")).toBeNull(), { timeout: 8000 });
+  });
+
+  it("a finished review says so, and Reopen reopens it", async () => {
+    live();
+    api.fetchOverview.mockResolvedValue({ ...latest(), session: { ...overview.session, status: "finished" } });
+    api.finishReview.mockImplementation(async () => {
+      api.fetchOverview.mockResolvedValue(latest());
+      return {};
+    });
+    await open("/r/rev-history");
+    const line = await stateLineRow();
+    expect(line).toHaveTextContent("Finished · read-only until reopened");
+    await userEvent.click(within(line).getByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(api.finishReview).toHaveBeenCalledWith("rev-history", "open"));
+    await waitFor(() => expect(screen.queryByTestId("review-state-line")).toBeNull(), { timeout: 8000 });
+  });
+
+  it("a historical revision names itself and the latest, with Back to latest and Compare with latest", async () => {
+    window.sessionStorage.setItem("lc.review.id", "rev-history");
+    live();
+    api.fetchRevisionLocator.mockResolvedValue({ review: { id: "rev-history", ref: "rev-history" }, revision: { ...overview.revision, revision_number: 0 } });
+    await open("/rr/11111111111171118111111111111111");
+    const line = await stateLineRow();
+    expect(line).toHaveTextContent("Revision 1 · read-only · latest is Revision 2");
+    expect(within(line).getByRole("link", { name: "Back to latest" })).toHaveAttribute("href", "/r/rev-history");
+    expect(within(line).getByRole("link", { name: "Compare with latest" })).toHaveAttribute("href", "/r/rev-history?base=0&target=1");
+  });
+
+  it("review context that failed to load says so, and Retry reads it again", async () => {
+    live();
+    api.fetchReviewJournal.mockRejectedValue(new Error("journal store down"));
+    await open("/r/rev-history");
+    const line = await stateLineRow();
+    expect(line).toHaveTextContent("Some review context couldn't load");
+    expect(line).toHaveTextContent("Couldn't load the agent's notes.");
+    api.fetchReviewJournal.mockResolvedValue({ available: false, reason: "", review_id: overview.session.id, revision_id: overview.latest_revision.id, revision_number: 1, session_id: "", host: "", entries: [] });
+    const before = api.fetchReviewJournal.mock.calls.length;
+    await userEvent.click(within(line).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(api.fetchReviewJournal.mock.calls.length).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByTestId("review-state-line")).toBeNull(), { timeout: 8000 });
+  });
+
+  it("a working tree that moved past this Snapshot says how many files, and Snapshot now captures and publishes", async () => {
+    live();
+    api.fetchSourceState.mockResolvedValue({ supported: true, changed: true, settled: true, fingerprint: "fp-2", path_count: 3, paths: ["a.py", "b.py", "c.py"], reason: "" });
+    api.postRefresh.mockImplementation(async () => {
+      api.fetchSourceState.mockResolvedValue({ supported: true, changed: false, settled: true, fingerprint: "fp-2", path_count: 0, paths: [], reason: "" });
+      return latest();
+    });
+    await open("/r/rev-history");
+    const line = await stateLineRow();
+    expect(line).toHaveTextContent("3 files changed since this Snapshot");
+    await userEvent.click(within(line).getByRole("button", { name: "Snapshot now" }));
+    // Publish is postRefresh's default: the capture is a Snapshot, not a running draft.
+    await waitFor(() => expect(api.postRefresh).toHaveBeenCalledWith("rev-history"));
+    await waitFor(() => expect(screen.queryByTestId("review-state-line")).toBeNull(), { timeout: 8000 });
+  });
+
+  it("a Snapshot now that fails says what failed and offers Try again", async () => {
+    live();
+    api.fetchSourceState.mockResolvedValue({ supported: true, changed: true, settled: true, fingerprint: "fp-2", path_count: 1, paths: ["a.py"], reason: "" });
+    api.postRefresh.mockRejectedValue(new Error("the source is mid-rebase"));
+    await open("/r/rev-history");
+    await userEvent.click(within(await stateLineRow()).getByRole("button", { name: "Snapshot now" }));
+    const failed = await screen.findByRole("alert", {}, { timeout: 8000 });
+    expect(failed).toHaveTextContent("Couldn't take a Snapshot · the source is mid-rebase");
+    expect(within(failed).getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+});
+
+describe("the state line's one row", () => {
+  const calm: StateLineFacts = {
+    failure: null, accessLost: "", pendingApprovals: 0, revisionAdvanced: false, newerRevisionNumber: null, runningDraft: false,
+    historical: false, revisionNumber: 0, latestRevisionNumber: 0, status: "open", contextFailures: [], sourceMoved: null,
+  };
+
+  it("shows nothing on a writable, whole Review", () => {
+    expect(stateLine(calm)).toBeNull();
+  });
+
+  it("orders a failed operation first, then what changes the revision on screen, then degradation, then the routine source delta", () => {
+    const everything: StateLineFacts = {
+      ...calm,
+      failure: { label: "take a Snapshot", message: "boom" },
+      accessLost: "forbidden",
+      pendingApprovals: 2,
+      revisionAdvanced: true,
+      newerRevisionNumber: 2,
+      historical: true,
+      revisionNumber: 0,
+      latestRevisionNumber: 2,
+      status: "finished",
+      contextFailures: ["Couldn't load the agent's notes."],
+      sourceMoved: { files: 4 },
+    };
+    expect(stateLineSignals(everything).map((signal) => signal.id)).toEqual([
+      "failed", "access-lost", "agent-approvals", "revision-advanced", "historical", "finished", "context-failures", "source-moved",
+    ]);
+    expect(stateLine({ ...calm, runningDraft: true, sourceMoved: { files: 1 }, contextFailures: ["x"] })?.id).toBe("running-draft");
+    expect(stateLine({ ...calm, contextFailures: ["x"], sourceMoved: { files: 1 } })?.id).toBe("context-failures");
+  });
+
+  it("words each state and its counts", () => {
+    expect(stateLine({ ...calm, pendingApprovals: 1 })?.text).toBe("1 agent request waits for you");
+    expect(stateLine({ ...calm, pendingApprovals: 3 })?.text).toBe("3 agent requests wait for you");
+    expect(stateLine({ ...calm, revisionAdvanced: true, newerRevisionNumber: 1 })?.text).toBe("Revision 2 replaced this one elsewhere · read-only");
+    expect(stateLine({ ...calm, revisionAdvanced: true })?.text).toBe("A newer Snapshot replaced this one elsewhere · read-only");
+    expect(stateLine({ ...calm, accessLost: "gone" })?.text).toBe("This review was deleted or discarded elsewhere · read-only");
+    expect(stateLine({ ...calm, sourceMoved: { files: 1 } })?.text).toBe("1 file changed since this Snapshot");
+    expect(stateLine({ ...calm, sourceMoved: { files: 0 } })?.text).toBe("The source changed since this Snapshot");
+    expect(stateLine({ ...calm, status: "archived" })?.text).toBe("Archived · read-only until restored");
   });
 });

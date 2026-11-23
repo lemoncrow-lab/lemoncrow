@@ -176,7 +176,12 @@ export default function Home() {
     const now = Date.now();
     return reviews.filter((review) => waitsOnViewer(review, now, { teamsSupported: reviewTeams }));
   }, [reviews, reviewTeams]);
-  const recentReviews = reviews.slice(0, 6);
+  // Waiting on you lists the first five; Recent reviews leaves those out, so one review is never listed twice.
+  const waitingListed = useMemo(() => openReviews.slice(0, 5), [openReviews]);
+  const recentReviews = useMemo(() => {
+    const listed = new Set(waitingListed.map((review) => `${review.repo_id}:${review.id}`));
+    return reviews.filter((review) => !listed.has(`${review.repo_id}:${review.id}`)).slice(0, 6);
+  }, [reviews, waitingListed]);
   const integrationIssue =
     runtimeAvailable &&
     integrations !== null &&
@@ -184,6 +189,8 @@ export default function Home() {
       !integrations.hosts.some(
         (host) => host.support !== "coming_soon" && host.configured,
       ));
+  // A grid of one panel would leave an empty half at xl: two columns only when two panels render.
+  const attentionPanels = (reviewAvailable ? 1 : 0) + (runtimeAvailable ? 1 : 0) + (integrationIssue ? 1 : 0);
   const attentionCount =
     (reviewAvailable ? openReviews.length : 0) +
     (runtimeAvailable ? failedRuns.length + (integrationIssue ? 1 : 0) : 0);
@@ -380,18 +387,21 @@ export default function Home() {
             {attentionIncomplete ? "Attention data is incomplete because a source is unavailable." : "Nothing needs attention right now."}
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className={attentionPanels > 1 ? "grid gap-3 xl:grid-cols-2" : "grid gap-3"} data-testid="home-attention-grid">
             {reviewAvailable && (
             <Hunk>
               <div className="hunk-head justify-start">
                 <ClipboardCheck size={14} /> Waiting on you
+                {!reviewsUnavailable && openReviews.length > waitingListed.length && (
+                  <Link to="/reviews" className="ml-auto text-meta text-muted-foreground transition-colors duration-fast hover:text-foreground">View all {openReviews.length}</Link>
+                )}
               </div>
               {reviewsUnavailable ? (
                 <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
               ) : openReviews.length === 0 ? (
                 <div className="px-3 py-4 text-body text-muted-foreground">Nothing waits on you.</div>
               ) : (
-                openReviews.slice(0, 5).map((review) => (
+                waitingListed.map((review) => (
                   <a
                     key={`${review.repo_id}:${review.id}`}
                     href={reviewHref(review.ref || review.id)}
@@ -518,7 +528,7 @@ export default function Home() {
       )}
 
       {(reviewAvailable || runtimeAvailable) && (
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className={reviewAvailable && runtimeAvailable ? "grid gap-4 xl:grid-cols-2" : "grid gap-4"} data-testid="home-recent-grid">
         {reviewAvailable && (
         <Hunk>
           <div className="hunk-head">
@@ -530,7 +540,7 @@ export default function Home() {
           {reviewsUnavailable ? (
             <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
           ) : recentReviews.length === 0 ? (
-            <div className="px-3 py-4 text-body text-muted-foreground">No recent reviews.</div>
+            <div className="px-3 py-4 text-body text-muted-foreground">{reviews.length > 0 ? "No other recent reviews. The ones above wait on you." : "No recent reviews."}</div>
           ) : (
             recentReviews.map((review) => (
               <a

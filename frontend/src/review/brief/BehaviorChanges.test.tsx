@@ -37,6 +37,14 @@ const EVIDENCE = {
 } as unknown as NonNullable<ReviewBehaviorTarget["evidence"]>;
 
 describe("BehaviorChanges", () => {
+  it("draws the execution coverage line only when runs were recorded", () => {
+    const coverage = { runs: 2, changed_targets: 3, exercised: 0, never_executed_count: 3, never_executed: [] };
+    const { rerender } = render(<BehaviorChanges behavior={behaviorSummary({ coverage })} revisionId="rev-1" />);
+    expect(screen.getByText(/^Execution:/)).toHaveTextContent("Execution: 0 of 3 parts exercised by 2 recorded runs.");
+    rerender(<BehaviorChanges behavior={behaviorSummary()} revisionId="rev-1" />);
+    expect(screen.queryByText(/^Execution:/)).toBeNull();
+  });
+
   it("draws the manual checklist and records what the person saw as their observation", async () => {
     const onManualCheck = vi.fn(async () => undefined);
     const item = {

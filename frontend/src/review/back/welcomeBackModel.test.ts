@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { answeredHeadline, backCounter, confirmedAnswer, noteTarget, pairedChecks, passOnBothChecks, returnedParts } from "./welcomeBackModel";
-import type { Annotation, ReviewRevisionComparison, ReviewTarget, ReviewVerificationCheck, ReviewVerificationProjection } from "../types";
+import { answerWord, answeredHeadline, backCounter, carriedOver, confirmedAnswer, moreText, noteTarget, pairedChecks, passOnBothChecks, returnedParts } from "./welcomeBackModel";
+import type { Annotation, ReviewRevisionComparison, ReviewSnapshotDelta, ReviewTarget, ReviewVerificationCheck, ReviewVerificationProjection } from "../types";
+
+describe("carriedOver: Kept and Removed since the last revision", () => {
+  const delta = (extra: Partial<ReviewSnapshotDelta> = {}): ReviewSnapshotDelta => ({
+    since_snapshot: 1, added: [], changed: [], removed: 0, stale_evidence: [], reopened_decisions: [], comments: { carried: 0, resolved: 0 }, ...extra,
+  });
+  const part = (id: string, state: ReviewTarget["state"], on: string) => ({ target_id: id, state, reviewed_revision_id: on } as ReviewTarget);
+  it("keeps only Looks good answers from an earlier revision on a part that did not come new", () => {
+    const targets = [part("a", "reviewed", "rev1"), part("b", "reviewed", "rev3"), part("c", "reviewed", ""), part("d", "needs_changes", "rev1"), part("e", "reviewed", "rev1")];
+    expect(carriedOver(delta({ added: ["e"] }), targets, "rev3")).toEqual({ since: 1, kept: 1, rebased: 0, removed: 0, removedParts: [] });
+  });
+  it("names at most 25 removed parts and counts them all", () => {
+    const names = Array.from({ length: 26 }, (_, index) => `f${index}`);
+    const result = carriedOver(delta({ removed: 40, removed_parts: names }), [], "rev3")!;
+    expect(result.removed).toBe(40);
+    expect(result.removedParts).toEqual(names.slice(0, 25));
+  });
+  it("is null with no delta or nothing to say, and speaks for a base-only move alone", () => {
+    expect(carriedOver(null, [part("a", "reviewed", "rev1")], "rev3")).toBeNull();
+    expect(carriedOver(delta(), [], "rev3")).toBeNull();
+    expect(carriedOver(delta(), [], "rev3", 2)?.rebased).toBe(2);
+  });
+  it("words a discarded answer as the reviewer gave it and counts what a list leaves out", () => {
+    expect(answerWord("reviewed")).toBe("Looks good");
+    expect(answerWord("needs_changes")).toBe("Needs a change");
+    expect(answerWord("unreviewed")).toBe("");
+    expect(moreText(25, 25)).toBe("");
+    expect(moreText(26, 25)).toBe("and 1 more");
+  });
+});
 
 const target = (id: string, path = "a.py", symbol = id, extra: Partial<ReviewTarget> = {}): ReviewTarget => ({
   target_id: id, unit_key: id, path, symbol, state: "unreviewed", reviewed_revision_id: "", changed_since_mark: false,
